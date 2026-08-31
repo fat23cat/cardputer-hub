@@ -82,7 +82,7 @@ Architectural changes should update the relevant documentation in the same pull 
 
 ---
 
-## Planned Project Structure
+## Project Structure
 
 ```text
 src/
@@ -97,144 +97,171 @@ test/
 
 docs/
 ├── ARCHITECTURE.md
-└── ENGINEERING.md
+├── ENGINEERING.md
+└── plans/
 
 .github/
 └── workflows/
+
+scripts/
 ```
 
-The exact structure may evolve during implementation while preserving the documented dependency direction.
+The empty `apps`, `connectivity`, and `services` directories reserve the
+documented boundaries. No product behavior is implemented in the bootstrap.
 
 ---
 
-## Development Environment
+## Local Setup
 
-The planned initial development environment uses:
+The locked development environment uses:
 
-* macOS
-* Git
-* Python 3.12
-* uv
-* PlatformIO Core
+* Python 3.12.14;
+* uv 0.12.7;
+* PlatformIO Core 6.1.19;
+* clang-format 23.1.0;
+* a C++17 host compiler;
+* the ESP32 and M5Stack dependencies pinned in `platformio.ini`.
 
-The Python 3.12 series is currently selected through `.python-version`. Its
-exact patch version, along with exact versions and installation instructions
-for `uv`, PlatformIO Core, and the firmware toolchain, will be added during
-project bootstrap before the build is considered reproducible.
-
-### Verify the local environment
+On macOS, install Git and the host compiler with Xcode Command Line Tools:
 
 ```bash
-git --version
+xcode-select --install
+```
+
+On Ubuntu or Debian Linux, install the native build prerequisites:
+
+```bash
+sudo apt-get update
+sudo apt-get install --yes build-essential git curl
+```
+
+Install the repository's exact uv version using its versioned installer, then
+let uv install Python and the locked tools. Review downloaded installation
+scripts before running them when required by your environment's security
+policy.
+
+```bash
+curl -LsSf https://astral.sh/uv/0.12.7/install.sh | sh
+uv python install 3.12.14
+make setup
+```
+
+The locked virtual environment is local to the checkout; these commands do not
+replace the macOS system Python. Verify the resolved versions with:
+
+```bash
 uv --version
-python3.12 --version
-pio --version
+uv run --frozen python --version
+uv run --frozen pio --version
+uv run --frozen clang-format --version
 ```
 
----
-
-## Python
-
-The repository uses Python 3.12 for development tooling.
-
-The expected project version is defined in:
-
-```text
-.python-version
-```
-
-With `uv` installed, install the Python version selected by the repository:
-
-```bash
-uv python install 3.12
-```
-
-Do not modify or replace the macOS system Python for this project.
-
----
-
-## PlatformIO
-
-PlatformIO is the preferred firmware build system.
-
-Verify the installation:
-
-```bash
-pio --version
-```
-
-Project-specific ESP32 and M5Stack dependencies should be declared in `platformio.ini` rather than installed manually.
+Do not install project-specific ESP32 or M5Stack libraries globally.
+PlatformIO resolves them from `platformio.ini`.
 
 ---
 
 ## Build
 
-The exact build configuration will be added during project bootstrap.
-
-The expected command will be:
-
 ```bash
-pio run
+make build
 ```
+
+The production image is written to
+`.pio/build/cardputer-adv/firmware.bin`. The skeleton initializes the
+Cardputer, starts serial output, reports its embedded version metadata, and
+runs a minimal update loop. It does not start connectivity or product features.
 
 ---
 
 ## Tests
 
-The project is designed so that most application and Service logic can be tested without physical Cardputer hardware.
-
-The expected host-side test command will be:
+Native tests run on the host and require no Cardputer hardware:
 
 ```bash
-pio test
+make test
 ```
 
-Additional convenience commands may be introduced during repository bootstrap.
+Behavior changes follow red-green-refactor TDD and should test observable
+behavior. The initial test exercises hardware-independent firmware build
+metadata.
+
+Run formatting and static analysis separately with:
+
+```bash
+make format
+make format-check
+make lint
+```
+
+Before opening a pull request, run the complete CI-equivalent suite:
+
+```bash
+make check
+```
+
+`make check` verifies the lock, formatting, Cppcheck analysis, native tests,
+strict compiler warnings, and the Cardputer-Adv firmware build. `make clean`
+removes PlatformIO build output.
 
 ---
 
-## Flashing
+## Flash
 
-Once the Cardputer-Adv build environment is configured, firmware should be uploadable with:
+Connect the Cardputer-Adv with a USB-C cable that supports data, then run:
 
 ```bash
-pio run -t upload
+make upload
 ```
 
-The Cardputer must be connected using a USB-C cable that supports data transfer.
+PlatformIO normally resets the device automatically. If it cannot enter
+download mode, hold the `G0` button, press and release reset, release `G0`, and
+retry the upload. You may need to grant access to the serial device on Linux.
 
 ---
 
 ## Serial Monitor
 
-The expected command is:
-
 ```bash
-pio device monitor
+make monitor
 ```
 
-The final baud rate and monitor configuration will be defined in `platformio.ini`.
+The configured baud rate is 115200. Exit the monitor with `Ctrl+]`.
 
 ---
 
 ## CI/CD
 
-Pull requests are expected to run automated checks including:
+Pull requests to `main`, pushes to `main`, and manual CI runs execute
+`make check` on Ubuntu 24.04. CI also uploads the compiled firmware as an
+artifact retained for seven days. All third-party Actions use full commit SHA
+pins, and Dependabot proposes reviewed updates.
+
+Official releases are created only by manually dispatching the protected
+`Release firmware` workflow from `main` with a `MAJOR.MINOR.PATCH` version. The
+workflow repeats full validation, embeds release metadata, creates a
+`vMAJOR.MINOR.PATCH` tag, and publishes the firmware plus `SHA256SUMS`.
+
+Only the two newest GitHub Release records and their assets are retained. All
+official Git tags are preserved. To rebuild an older version, manually run
+`Rebuild tagged firmware` with its existing `vMAJOR.MINOR.PATCH` tag. That
+read-only workflow checks out the tag and provides firmware and checksums as a
+temporary seven-day artifact; it does not recreate or delete Releases or tags.
+
+The primary local commands are:
 
 ```text
-formatting
-static analysis
-unit tests
-integration tests
-Cardputer-Adv firmware build
+make setup         install locked tools
+make build         compile Cardputer-Adv firmware
+make test          run native tests
+make format        format owned C/C++ sources
+make format-check  verify formatting
+make lint          run static analysis
+make check         run all required validation
+make upload        compile and flash firmware
+make monitor       open the 115200-baud serial monitor
+make clean         remove PlatformIO build output
 ```
-
-Validated commits on `main` may be published through the separate protected
-release workflow.
-
-The two newest official firmware versions should be published through GitHub
-Releases. All official Git tags should be preserved, and a manually triggered
-workflow should be able to rebuild any tagged version as a temporary artifact.
 
 See [`docs/ENGINEERING.md`](docs/ENGINEERING.md) for the complete workflow.
 
@@ -242,7 +269,8 @@ See [`docs/ENGINEERING.md`](docs/ENGINEERING.md) for the complete workflow.
 
 ## Current Status
 
-The project is currently in the **architecture and bootstrap phase**.
+The initial development infrastructure is complete. Product development should
+now proceed through the documented architecture phases.
 
 The authoritative development order is defined in
 [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md#47-initial-development-order):
@@ -261,7 +289,8 @@ The authoritative development order is defined in
 11. Extensions
 ```
 
-Product features should not be implemented before the initial development infrastructure is in place.
+Product features should follow this order and the documented dependency
+direction.
 
 ---
 
