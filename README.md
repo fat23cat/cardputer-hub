@@ -363,8 +363,9 @@ The configured baud rate is 115200. Exit the monitor with `Ctrl+]`.
 
 ## CI/CD
 
-Pull requests to `main`, pushes to `main`, and manual CI runs execute
-`make check` on Ubuntu 24.04. CI also uploads the compiled firmware as an
+Pull requests targeting any branch, pushes to `main`, and manual CI runs
+execute `make check` on Ubuntu 24.04. This includes stacked pull requests whose
+base is another feature branch. CI also uploads the compiled firmware as an
 artifact retained for seven days. All third-party Actions use full commit SHA
 pins, and Dependabot proposes reviewed updates.
 
