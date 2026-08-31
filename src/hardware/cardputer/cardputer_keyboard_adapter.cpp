@@ -5,80 +5,136 @@
 namespace cardputer_hub::hardware {
 namespace {
 
-void setNamedKey(core::KeyboardSnapshot& snapshot, core::NamedKey key, bool pressed) {
-    snapshot.namedKeys[static_cast<std::size_t>(key)] = pressed;
+constexpr std::uint16_t keyboardColumns = 14;
+
+bool isModifierKeyCode(std::uint8_t keyCode) {
+    return keyCode == KEY_FN || keyCode == KEY_OPT || keyCode == KEY_LEFT_CTRL ||
+           keyCode == KEY_LEFT_SHIFT || keyCode == KEY_LEFT_ALT;
 }
 
-bool isNamedKeyCode(std::uint8_t keyCode) {
+bool namedKeyFromCode(std::uint8_t keyCode, bool functionLayer, core::NamedKey& namedKey) {
+    if (!functionLayer) {
+        switch (keyCode) {
+        case KEY_TAB:
+            namedKey = core::NamedKey::Tab;
+            return true;
+        case KEY_ENTER:
+            namedKey = core::NamedKey::Enter;
+            return true;
+        case KEY_BACKSPACE:
+            namedKey = core::NamedKey::Backspace;
+            return true;
+        default:
+            return false;
+        }
+    }
+
     switch (keyCode) {
     case KEY_TAB:
+        namedKey = core::NamedKey::Tab;
+        return true;
     case KEY_ENTER:
+        namedKey = core::NamedKey::Enter;
+        return true;
     case KEY_BACKSPACE:
+        namedKey = core::NamedKey::Backspace;
+        return true;
     case KEY_DELETE:
+        namedKey = core::NamedKey::Delete;
+        return true;
     case KEY_ESCAPE:
+        namedKey = core::NamedKey::Escape;
+        return true;
     case KEY_UP:
+        namedKey = core::NamedKey::Up;
+        return true;
     case KEY_DOWN:
+        namedKey = core::NamedKey::Down;
+        return true;
     case KEY_LEFT:
+        namedKey = core::NamedKey::Left;
+        return true;
     case KEY_RIGHT:
+        namedKey = core::NamedKey::Right;
+        return true;
     case KEY_F1:
+        namedKey = core::NamedKey::F1;
+        return true;
     case KEY_F2:
+        namedKey = core::NamedKey::F2;
+        return true;
     case KEY_F3:
+        namedKey = core::NamedKey::F3;
+        return true;
     case KEY_F4:
+        namedKey = core::NamedKey::F4;
+        return true;
     case KEY_F5:
+        namedKey = core::NamedKey::F5;
+        return true;
     case KEY_F6:
+        namedKey = core::NamedKey::F6;
+        return true;
     case KEY_F7:
+        namedKey = core::NamedKey::F7;
+        return true;
     case KEY_F8:
+        namedKey = core::NamedKey::F8;
+        return true;
     case KEY_F9:
+        namedKey = core::NamedKey::F9;
+        return true;
     case KEY_F10:
+        namedKey = core::NamedKey::F10;
+        return true;
     case KEY_F11:
+        namedKey = core::NamedKey::F11;
+        return true;
     case KEY_F12:
+        namedKey = core::NamedKey::F12;
         return true;
     default:
         return false;
     }
 }
 
-core::KeyboardSnapshot extractSnapshot(const Keyboard_Class::KeysState& state) {
+core::KeyboardSnapshot extractSnapshot(Keyboard_Class& keyboard) {
+    const auto& state = keyboard.keysState();
     core::KeyboardSnapshot snapshot;
     snapshot.modifiers = {state.shift, state.ctrl, state.alt, state.opt, state.fn};
 
     std::size_t wordIndex = 0;
-    for (const auto rawKeyCode : state.hid_keys) {
-        const auto keyCode = static_cast<std::uint8_t>(rawKeyCode & 0x7fU);
-        if (!isNamedKeyCode(keyCode) && wordIndex < state.word.size()) {
-            snapshot.printableKeys.push_back({keyCode, state.word[wordIndex]});
+    for (const auto& position : keyboard.keyList()) {
+        const auto keyValue = keyboard.getKeyValue(position);
+        if (isModifierKeyCode(keyValue.value_first)) {
+            continue;
+        }
+
+        const auto identity =
+            static_cast<std::uint16_t>(static_cast<std::uint16_t>(position.y) * keyboardColumns +
+                                       static_cast<std::uint16_t>(position.x));
+        core::PhysicalKeyState key{identity, core::KeyRepresentation::Inactive, '\0',
+                                   core::NamedKey::Tab};
+        const auto activeKeyCode =
+            static_cast<std::uint8_t>(state.fn ? keyValue.value_third : keyValue.value_first);
+
+        if (namedKeyFromCode(activeKeyCode, state.fn, key.namedKey)) {
+            key.representation = core::KeyRepresentation::NamedKey;
+        } else if (!state.fn && wordIndex < state.word.size()) {
+            key.representation = core::KeyRepresentation::PrintableCharacter;
+            key.character = state.word[wordIndex];
             ++wordIndex;
         }
-    }
 
-    setNamedKey(snapshot, core::NamedKey::Tab, state.tab);
-    setNamedKey(snapshot, core::NamedKey::Enter, state.enter);
-    setNamedKey(snapshot, core::NamedKey::Backspace, state.backspace);
-    setNamedKey(snapshot, core::NamedKey::Delete, state.del);
-    setNamedKey(snapshot, core::NamedKey::Escape, state.esc);
-    setNamedKey(snapshot, core::NamedKey::Up, state.up);
-    setNamedKey(snapshot, core::NamedKey::Down, state.down);
-    setNamedKey(snapshot, core::NamedKey::Left, state.left);
-    setNamedKey(snapshot, core::NamedKey::Right, state.right);
-    setNamedKey(snapshot, core::NamedKey::F1, state.f1);
-    setNamedKey(snapshot, core::NamedKey::F2, state.f2);
-    setNamedKey(snapshot, core::NamedKey::F3, state.f3);
-    setNamedKey(snapshot, core::NamedKey::F4, state.f4);
-    setNamedKey(snapshot, core::NamedKey::F5, state.f5);
-    setNamedKey(snapshot, core::NamedKey::F6, state.f6);
-    setNamedKey(snapshot, core::NamedKey::F7, state.f7);
-    setNamedKey(snapshot, core::NamedKey::F8, state.f8);
-    setNamedKey(snapshot, core::NamedKey::F9, state.f9);
-    setNamedKey(snapshot, core::NamedKey::F10, state.f10);
-    setNamedKey(snapshot, core::NamedKey::F11, state.f11);
-    setNamedKey(snapshot, core::NamedKey::F12, state.f12);
+        snapshot.keys.push_back(key);
+    }
     return snapshot;
 }
 
 } // namespace
 
 void CardputerKeyboardAdapter::poll(core::InputEvents& events) {
-    translator_.translate(extractSnapshot(M5Cardputer.Keyboard.keysState()), events);
+    translator_.translate(extractSnapshot(M5Cardputer.Keyboard), events);
 }
 
 } // namespace cardputer_hub::hardware

@@ -284,12 +284,18 @@ The first compile exposed that the pinned M5Cardputer library declares
 `Keyboard_Class` in the global namespace; correcting that thin boundary made
 the firmware compile successfully.
 
+Post-review regression coverage first reproduced an Fn-layer transition as an
+unexpected second press (`Expected 0 Was 1`). Keyboard snapshots now retain a
+stable physical matrix-key identity independently of printable, named, or
+temporarily inactive Fn-layer semantics.
+
 Delivered behavior:
 
 * immutable, stable `BuildInfo` metadata;
 * threshold-filtered structured logging and serial record formatting;
 * semantic printable and named keyboard press events with modifiers,
-  deterministic ordering, held-key deduplication, and release tracking;
+  deterministic ordering, cross-layer held-key deduplication, and release
+  tracking;
 * ordered, idempotent startup and safe pre-start updates;
 * a black boot screen with the current product name and version in white;
 * thin Cardputer-Adv lifecycle, keyboard, display, and serial adapters.
@@ -300,7 +306,7 @@ Verification completed successfully:
 make format        passed
 make format-check  passed
 make lint          passed; native and Cardputer-Adv Cppcheck found no defects
-make test          passed; 14 native tests
+make test          passed; 16 native tests
 make build         passed; Cardputer-Adv firmware compiled with strict warnings
 make check         passed; lock, format, lint, test, and firmware build
 ```

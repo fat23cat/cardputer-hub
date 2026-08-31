@@ -1,6 +1,5 @@
 #pragma once
 
-#include <array>
 #include <cstddef>
 #include <cstdint>
 #include <vector>
@@ -9,17 +8,24 @@
 
 namespace cardputer_hub::core {
 
-struct PrintableKeyState {
+enum class KeyRepresentation : std::uint8_t {
+    Inactive,
+    PrintableCharacter,
+    NamedKey,
+};
+
+struct PhysicalKeyState {
     std::uint16_t identity;
+    KeyRepresentation representation;
     char character;
+    NamedKey namedKey;
 };
 
 constexpr std::size_t namedKeyCount = static_cast<std::size_t>(NamedKey::Count);
 
 struct KeyboardSnapshot {
     Modifiers modifiers;
-    std::vector<PrintableKeyState> printableKeys;
-    std::array<bool, namedKeyCount> namedKeys{};
+    std::vector<PhysicalKeyState> keys;
 };
 
 class KeyboardEventTranslator {
@@ -27,7 +33,7 @@ class KeyboardEventTranslator {
     void translate(const KeyboardSnapshot& snapshot, InputEvents& events);
 
   private:
-    bool wasPrintableKeyPressed(std::uint16_t identity) const;
+    bool wasPhysicalKeyPressed(std::uint16_t identity) const;
 
     KeyboardSnapshot previous_;
 };
