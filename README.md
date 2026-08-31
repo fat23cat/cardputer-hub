@@ -111,10 +111,61 @@ documented boundaries. No product behavior is implemented in the bootstrap.
 
 ---
 
+## Local Setup
+
+The locked development environment uses:
+
+* Python 3.12.14;
+* uv 0.12.7;
+* PlatformIO Core 6.1.19;
+* clang-format 23.1.0;
+* a C++17 host compiler;
+* the ESP32 and M5Stack dependencies pinned in `platformio.ini`.
+
+On macOS, install Git and the host compiler with Xcode Command Line Tools:
+
+```bash
+xcode-select --install
+```
+
+On Ubuntu or Debian Linux, install the native build prerequisites:
+
+```bash
+sudo apt-get update
+sudo apt-get install --yes build-essential git curl
+```
+
+Install the repository's exact uv version using its versioned installer, then
+let uv install Python and the locked tools. Review downloaded installation
+scripts before running them when required by your environment's security
+policy.
+
+```bash
+curl -LsSf https://astral.sh/uv/0.12.7/install.sh | sh
+uv python install 3.12.14
+make setup
+```
+
+The locked virtual environment is local to the checkout; these commands do not
+replace the macOS system Python. Verify the resolved versions with:
+
+```bash
+uv --version
+uv run --frozen python --version
+uv run --frozen pio --version
+uv run --frozen clang-format --version
+```
+
+Do not install project-specific ESP32 or M5Stack libraries globally.
+PlatformIO resolves them from `platformio.ini`.
+
+---
+
 ## Install on a Cardputer-Adv from a Fresh Machine
 
 These instructions build the firmware from source and install it over USB. No
-global PlatformIO or M5Stack library installation is required.
+global PlatformIO or M5Stack library installation is required. If you already
+completed [Local Setup](#local-setup), skip to step 4.
 
 ### What you need
 
@@ -234,20 +285,6 @@ events but does not yet route them to visible product behavior.
   has the serial port open. The configured monitor speed is 115200 baud.
 * To discard local build output and rebuild from scratch, run `make clean`,
   followed by `make upload`.
-
-### Verify the tool installation
-
-Developers can confirm the locked tool versions with:
-
-```bash
-uv --version
-uv run --frozen python --version
-uv run --frozen pio --version
-uv run --frozen clang-format --version
-```
-
-Do not install project-specific ESP32 or M5Stack libraries globally.
-PlatformIO resolves them from `platformio.ini`.
 
 ---
 
