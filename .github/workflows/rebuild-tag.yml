@@ -1,0 +1,99 @@
+name: Rebuild tagged firmware
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing release tag (for example, v0.1.0)
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  rebuild:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    env:
+      CARDPUTER_HUB_BUILD_TYPE: historical-rebuild
+    steps:
+      - name: Check out repository and tags
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+
+      - name: Validate and check out tag
+        id: tag
+        shell: bash
+        env:
+          REQUESTED_TAG: ${{ inputs.tag }}
+        run: |
+          set -euo pipefail
+          if [[ ! "${REQUESTED_TAG}" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]; then
+            echo "Tag must match vMAJOR.MINOR.PATCH without leading zeroes." >&2
+            exit 1
+          fi
+          git rev-parse --verify "refs/tags/${REQUESTED_TAG}^{commit}"
+          git checkout --detach "refs/tags/${REQUESTED_TAG}"
+          echo "version=${REQUESTED_TAG#v}" >> "${GITHUB_OUTPUT}"
+
+      - name: Read the tagged Python version
+        id: python
+        shell: bash
+        run: |
+          set -euo pipefail
+          python_version="$(tr -d '[:space:]' < .python-version)"
+          if [[ ! "${python_version}" =~ ^3\.12\.[0-9]+$ ]]; then
+            echo "Tagged Python version is not an exact 3.12 patch release." >&2
+            exit 1
+          fi
+          echo "version=${python_version}" >> "${GITHUB_OUTPUT}"
+
+      - name: Install uv and Python
+        uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
+        with:
+          version-file: pyproject.toml
+          python-version: ${{ steps.python.outputs.version }}
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+
+      - name: Restore PlatformIO cache
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.platformio
+          key: platformio-${{ runner.os }}-${{ hashFiles('uv.lock', 'platformio.ini') }}
+          restore-keys: |
+            platformio-${{ runner.os }}-
+
+      - name: Install locked tools
+        env:
+          PYTHON_VERSION: ${{ steps.python.outputs.version }}
+        run: |
+          uv python install "${PYTHON_VERSION}"
+          uv sync --frozen
+
+      - name: Validate and rebuild firmware
+        env:
+          CARDPUTER_HUB_VERSION: ${{ steps.tag.outputs.version }}
+        run: make check
+
+      - name: Package firmware and checksum
+        shell: bash
+        env:
+          REQUESTED_TAG: ${{ inputs.tag }}
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          image="cardputer-hub-${REQUESTED_TAG}.bin"
+          cp .pio/build/cardputer-adv/firmware.bin "dist/${image}"
+          cd dist
+          sha256sum "${image}" > SHA256SUMS
+
+      - name: Upload temporary rebuilt firmware
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: cardputer-hub-${{ inputs.tag }}-rebuild
+          path: dist/
+          if-no-files-found: error
+          retention-days: 7

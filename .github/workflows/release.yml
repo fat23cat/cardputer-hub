@@ -1,0 +1,128 @@
+name: Release firmware
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Semantic version without the v prefix (for example, 0.1.0)
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+concurrency:
+  group: firmware-release
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    env:
+      CARDPUTER_HUB_VERSION: ${{ inputs.version }}
+      CARDPUTER_HUB_BUILD_TYPE: release
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - name: Require main and validate version
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ "${GITHUB_REF}" != "refs/heads/main" ]]; then
+            echo "Releases must be dispatched from main." >&2
+            exit 1
+          fi
+          if [[ ! "${CARDPUTER_HUB_VERSION}" =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]; then
+            echo "Version must match MAJOR.MINOR.PATCH without leading zeroes." >&2
+            exit 1
+          fi
+
+      - name: Check out validated source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+
+      - name: Install uv and Python
+        uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
+        with:
+          version: 0.12.7
+          python-version: 3.12.14
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+
+      - name: Restore PlatformIO cache
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.platformio
+          key: platformio-${{ runner.os }}-${{ hashFiles('uv.lock', 'platformio.ini') }}
+          restore-keys: |
+            platformio-${{ runner.os }}-
+
+      - name: Install locked tools
+        run: |
+          uv python install 3.12.14
+          uv sync --frozen
+
+      - name: Reject an existing version
+        shell: bash
+        run: |
+          set -euo pipefail
+          tag="v${CARDPUTER_HUB_VERSION}"
+          if git rev-parse --verify --quiet "refs/tags/${tag}"; then
+            echo "Tag ${tag} already exists." >&2
+            exit 1
+          fi
+          if gh release view "${tag}" >/dev/null 2>&1; then
+            echo "Release ${tag} already exists." >&2
+            exit 1
+          fi
+
+      - name: Validate and build release firmware
+        run: make check
+
+      - name: Package firmware and checksum
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          image="cardputer-hub-v${CARDPUTER_HUB_VERSION}.bin"
+          cp .pio/build/cardputer-adv/firmware.bin "dist/${image}"
+          cd dist
+          sha256sum "${image}" > SHA256SUMS
+
+      - name: Create Git tag and GitHub Release
+        shell: bash
+        run: |
+          set -euo pipefail
+          tag="v${CARDPUTER_HUB_VERSION}"
+          gh release create "${tag}" \
+            dist/cardputer-hub-"${tag}".bin \
+            dist/SHA256SUMS \
+            --target "${GITHUB_SHA}" \
+            --title "Cardputer Hub ${tag}" \
+            --generate-notes
+
+      - name: Verify release assets
+        shell: bash
+        run: |
+          set -euo pipefail
+          tag="v${CARDPUTER_HUB_VERSION}"
+          gh release view "${tag}" --json assets --jq '.assets[].name' | grep -Fx "cardputer-hub-${tag}.bin"
+          gh release view "${tag}" --json assets --jq '.assets[].name' | grep -Fx SHA256SUMS
+
+      - name: Retain only the two newest GitHub Releases
+        shell: bash
+        run: |
+          set -euo pipefail
+          release_number=0
+          while IFS=$'\t' read -r published_at release_id tag; do
+            release_number=$((release_number + 1))
+            if ((release_number > 2)); then
+              echo "Deleting GitHub Release ${tag} (${published_at}); preserving its Git tag."
+              gh api --method DELETE "/repos/${GITHUB_REPOSITORY}/releases/${release_id}"
+            fi
+          done < <(
+            gh api --paginate "/repos/${GITHUB_REPOSITORY}/releases?per_page=100" \
+              --jq '.[] | select(.draft == false) | [.published_at, (.id | tostring), .tag_name] | @tsv' \
+              | sort --reverse
+          )
