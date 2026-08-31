@@ -437,7 +437,7 @@ The final important pins are:
 | clang-format | 23.1.0 |
 | ESP32 platform | 6.7.0 |
 | Native platform | 1.2.1 |
-| Cppcheck tool package | 1.21100.241030 (Cppcheck 2.11.0) |
+| Cppcheck tool package | 1.21100.230717 (Cppcheck 2.11.0) |
 | Unity | 2.6.1 |
 | M5Cardputer | upstream 1.2.0 commit `2d4fa6646e4e5b47e0af96214b003aa7b15b8d81` |
 | M5Unified | 0.2.21 |
@@ -451,9 +451,11 @@ The final important pins are:
 The vendor-tested ESP32 platform was retained as required by the approved
 plan. M5Cardputer uses its release commit because the package manifest reports
 an older version; its compatible important dependencies were then pinned to
-the exact versions resolved by the successful firmware build. Python tooling
-is locked in `uv.lock`, and GitHub Actions use immutable commits with readable
-upstream release comments.
+the exact versions resolved by the successful firmware build. Cppcheck uses
+the newest 2.11.0 package build published for both macOS and Linux (the newer
+package identifier is macOS ARM-only). Python tooling is locked in `uv.lock`,
+and GitHub Actions use immutable commits with readable upstream release
+comments.
 
 The resolved PlatformIO graph was recorded with:
 
