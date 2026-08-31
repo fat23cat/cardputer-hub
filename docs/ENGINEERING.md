@@ -429,6 +429,29 @@ main branch validation
 
 Direct changes to protected `main` should be avoided.
 
+Every human-authored change branch must be associated with a numbered plan in
+`docs/plans/`. Its branch name and pull request title must include that plan's
+three-digit identifier so the implementation remains traceable to its approved
+scope.
+
+Use these forms:
+
+```text
+branch:   <type>/<NNN>-<short-description>
+PR title: [NNN] <concise change description>
+```
+
+For example, work governed by `docs/plans/001-project-bootstrap.md` uses:
+
+```text
+feat/001-project-bootstrap
+[001] Bootstrap Cardputer Hub development infrastructure
+```
+
+Do not omit leading zeroes or reuse an unrelated plan identifier. Automated
+dependency-update branches are exempt because their names are controlled by
+the configured updater.
+
 Official releases use a separate protected release workflow for a validated
 commit on `main`. A merge does not create a release unless that workflow is
 explicitly triggered by the selected release policy.

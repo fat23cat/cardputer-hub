@@ -3,7 +3,7 @@
 Status: **Complete**
 
 This plan describes the first implementation change for Cardputer Hub. It was
-reviewed, approved, and implemented on `feat/project-bootstrap`.
+reviewed, approved, and implemented on `feat/001-project-bootstrap`.
 
 ## 1. Objective
 
