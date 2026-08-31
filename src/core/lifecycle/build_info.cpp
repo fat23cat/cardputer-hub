@@ -14,12 +14,14 @@
 
 namespace cardputer_hub::core {
 
-const char* firmwareName() noexcept { return "Cardputer Hub"; }
-
-const char* firmwareVersion() noexcept { return CARDPUTER_HUB_VERSION; }
-
-const char* firmwareCommit() noexcept { return CARDPUTER_HUB_COMMIT; }
-
-const char* firmwareBuildType() noexcept { return CARDPUTER_HUB_BUILD_TYPE; }
+const BuildInfo& firmwareBuildInfo() noexcept {
+    static const BuildInfo buildInfo{
+        "Cardputer Hub",
+        CARDPUTER_HUB_VERSION,
+        CARDPUTER_HUB_COMMIT,
+        CARDPUTER_HUB_BUILD_TYPE,
+    };
+    return buildInfo;
+}
 
 } // namespace cardputer_hub::core

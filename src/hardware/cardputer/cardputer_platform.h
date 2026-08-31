@@ -1,13 +1,13 @@
 #pragma once
 
+#include "core/platform/platform_adapter.h"
+
 namespace cardputer_hub::hardware {
 
-class CardputerPlatform {
+class CardputerPlatform final : public core::IPlatformAdapter {
   public:
-    void begin();
-    void printBootMessage(const char* name, const char* version, const char* commit,
-                          const char* buildType);
-    void update();
+    void begin() override;
+    void update() override;
 };
 
 } // namespace cardputer_hub::hardware

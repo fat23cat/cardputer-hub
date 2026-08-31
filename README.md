@@ -168,9 +168,12 @@ make build
 ```
 
 The production image is written to
-`.pio/build/cardputer-adv/firmware.bin`. The skeleton initializes the
-Cardputer, starts serial output, reports its embedded version metadata, and
-runs a minimal update loop. It does not start connectivity or product features.
+`.pio/build/cardputer-adv/firmware.bin`. On startup, the firmware initializes
+the Cardputer once, writes structured informational records for the product
+name, version, commit, and build type to serial, and renders the product name
+and version as a minimal boot screen. Its update loop refreshes the hardware
+and polls semantic keyboard input events. Those events are intentionally not
+routed to product behavior yet, and no connectivity or Mini Apps are started.
 
 ---
 
@@ -183,8 +186,9 @@ make test
 ```
 
 Behavior changes follow red-green-refactor TDD and should test observable
-behavior. The initial test exercises hardware-independent firmware build
-metadata.
+behavior. The native suites cover stable firmware build metadata, log-level
+filtering, keyboard event translation and deduplication, and System Core boot
+and update orchestration.
 
 Run formatting and static analysis separately with:
 

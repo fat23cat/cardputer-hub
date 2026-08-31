@@ -11,11 +11,6 @@ void CardputerPlatform::begin() {
     Serial.begin(115200);
 }
 
-void CardputerPlatform::printBootMessage(const char* name, const char* version, const char* commit,
-                                         const char* buildType) {
-    Serial.printf("%s %s (%s, %s)\n", name, version, commit, buildType);
-}
-
 void CardputerPlatform::update() { M5Cardputer.update(); }
 
 } // namespace cardputer_hub::hardware
