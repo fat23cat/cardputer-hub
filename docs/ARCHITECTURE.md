@@ -956,30 +956,45 @@ User intent should be represented using logical Actions.
 Examples:
 
 ```text
-SELECT_HOST
-FOCUS_APPLICATION
-MEDIA_PLAY_PAUSE
-LED_SET_PATTERN
-VPS_REFRESH
-WEATHER_REFRESH
+host.select
+host.application.focus
+media.play_pause
+indicator.pattern.set
+vps.refresh
+weather.refresh
 ```
 
-Actions may carry parameters.
+An Action owns:
+
+```text
+id
+source
+ordered named parameters
+```
+
+IDs and sources are non-empty, exact, case-sensitive strings. Namespaced IDs
+allow future Services to define Actions without adding application-specific
+enumerators to System Core. Parameters have non-empty unique names and support
+owned strings, signed 32-bit integers, and booleans initially.
 
 Example:
 
 ```text
 Action
-  type: SELECT_HOST
-  hostId: host-002
+  id: host.select
+  source: app.device_manager
+  parameters:
+    host_id: host-002
 ```
 
 or:
 
 ```text
 Action
-  type: FOCUS_APPLICATION
-  application: telegram
+  id: host.application.focus
+  source: input.keyboard
+  parameters:
+    application: telegram
 ```
 
 ---
@@ -1001,24 +1016,32 @@ Actions are routed to the appropriate Service.
 Examples:
 
 ```text
-SELECT_HOST
+host.select
     ↓
 HostService
 ```
 
 ```text
-MEDIA_PLAY_PAUSE
+media.play_pause
     ↓
 MediaService
 ```
 
 ```text
-VPS_REFRESH
+vps.refresh
     ↓
 VpsService
 ```
 
-UI should not embed low-level implementation commands when a logical Action is appropriate.
+The initial Action Bus is synchronous and registers exactly one non-owning
+handler per Action ID. Duplicate registration is rejected without replacing
+the original handler. Dispatch validates the Action, routes only by its ID, and
+reports handled, rejected, invalid, or unsupported outcomes. Source metadata
+and parameters are delivered unchanged to the handler and do not affect route
+selection.
+
+UI should not embed low-level implementation commands when a logical Action is
+appropriate.
 
 ---
 

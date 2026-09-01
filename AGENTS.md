@@ -9,6 +9,8 @@ sections of:
 
 * `docs/ARCHITECTURE.md` — product and software architecture
 * `docs/ENGINEERING.md` — development, testing, CI/CD, versioning, and release requirements
+* `docs/manuals/` — current supported features, controls, installation, and
+  user-facing procedures affected by the change
 
 These documents are authoritative. If an implementation changes an
 architectural decision, update the relevant documentation in the same pull
@@ -87,6 +89,14 @@ Update documentation when a change affects:
 * public Service contracts;
 * configuration or persistence models;
 * development workflow;
-* build or release processes.
+* build or release processes;
+* supported user-facing features or limitations;
+* controls, shortcuts, or key combinations;
+* installation, update, operation, or troubleshooting procedures.
+
+Keep `docs/manuals/` accurate for the firmware delivered by the same change.
+Do not document planned behavior as currently supported, and do not merge a
+user-visible behavior change without updating the relevant manual or explicitly
+recording why no manual change is needed.
 
 Keep detailed design information in `docs/` and avoid duplicating it here.

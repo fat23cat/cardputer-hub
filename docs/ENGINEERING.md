@@ -1003,9 +1003,16 @@ README.md
 AGENTS.md
 docs/ARCHITECTURE.md
 docs/ENGINEERING.md
+docs/manuals/
 ```
 
-Potential future documentation:
+`docs/manuals/` is the user-facing source of truth for currently supported
+features, limitations, controls and key combinations, installation, operation,
+updates, and troubleshooting. Manuals must describe released behavior, clearly
+distinguish unsupported or planned behavior, and be updated in the same change
+that alters the documented experience.
+
+Potential additional documentation:
 
 ```text
 docs/ROADMAP.md
@@ -1113,6 +1120,8 @@ static analysis passes
 production firmware compiles
       +
 documentation updated when required
+      +
+user manuals match supported behavior and procedures
 ```
 
 Documentation-only and other non-runtime changes require the checks applicable
