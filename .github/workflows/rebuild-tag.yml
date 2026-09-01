@@ -86,9 +86,11 @@ jobs:
           set -euo pipefail
           mkdir -p dist
           image="cardputer-hub-${REQUESTED_TAG}.bin"
+          partition_image="cardputer-hub-${REQUESTED_TAG}-partitions.bin"
           cp .pio/build/cardputer-adv/firmware.bin "dist/${image}"
+          cp .pio/build/cardputer-adv/partitions.bin "dist/${partition_image}"
           cd dist
-          sha256sum "${image}" > SHA256SUMS
+          sha256sum "${image}" "${partition_image}" > SHA256SUMS
 
       - name: Upload temporary rebuilt firmware
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1

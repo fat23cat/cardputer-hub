@@ -1411,6 +1411,12 @@ configuration value, credential, or other product data is currently persisted
 by the firmware. `ConfigurationService`, when introduced, will own schemas,
 serialization, defaults, domain validation, and migrations.
 
+Firmware distribution must pair the application image with its partition
+table. Installation from the earlier 8 MiB layout requires one explicit,
+one-time provisioning of the flash range repurposed from SPIFFS. Normal uploads
+and later upgrades must never erase `hub_config`; an initialization failure
+after provisioning remains a backend error rather than destructive recovery.
+
 File Storage exposes files below a Cardputer Hub-owned root on the card. Paths
 are logical and relative to that root, and callers must not depend on FAT,
 SPI, mount points, or vendor APIs. Services and Mini Apps must not access the

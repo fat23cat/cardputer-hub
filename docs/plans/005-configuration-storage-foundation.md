@@ -146,9 +146,10 @@ failures in the plan's completion record.
     * NVS is the authoritative backend for boot-critical configuration, while
       removable microSD files use the separate plan 009 contract;
     * no configuration value is currently persisted by the firmware.
-11. Leave the manuals unchanged because there is no user-visible behavior;
-    confirm the device guide's "configuration or persistence" limitation
-    remains accurate.
+11. Update the installation manual with the one-time migration from the prior
+    flash layout and the paired application/partition release assets; confirm
+    the device guide's "configuration or persistence" limitation remains
+    accurate.
 12. Complete the plan record with RED failures, delivered behavior, any NVS
     compilation corrections, verification results, and physical-device
     validation status.
@@ -243,6 +244,9 @@ corresponding behavior was implemented:
 5. the partition safety regression test failed because the build used the
    framework partition table, `hub_config` did not exist, and the adapter used
    default-partition NVS APIs.
+6. release, rebuild, CI-artifact, and installation migration checks failed
+   because only `firmware.bin` was distributed and no one-time provisioning
+   path existed for the range previously owned by SPIFFS.
 
 Each failure was followed by the minimum implementation and a green focused
 suite before the next behavior was added.
@@ -261,6 +265,10 @@ The completed change provides:
   backend outcomes, and performs no destructive recovery or logging;
 * a version-controlled 8 MiB flash layout that preserves the framework's
   default NVS while reserving 64 KiB for authoritative configuration;
+* release, historical-rebuild, and CI artifacts that pair the application
+  image with its partition table and checksum both release files;
+* an explicit one-time storage-layout migration that erases only the newly
+  allocated range, while routine uploads preserve configuration;
 * architecture documentation for the record-storage, configuration-policy,
   and removable-file-storage boundaries.
 
@@ -277,11 +285,12 @@ focused test_storage suite     12 cases passed
 make format                    passed
 make lint                      native and Cardputer-Adv passed
 make build                     Cardputer-Adv firmware compiled
-make check                     lock, format, lint, 12 Python tests,
+make check                     lock, format, lint, 17 Python tests,
                                37 native cases, and firmware build passed
 ```
 
-The device manual remains accurate: configuration and persistence are still
-listed as unavailable user-facing behavior. Physical device validation was not
-performed because the adapter has no runtime consumer and the plan does not
-require physical NVS writes.
+The installation manual documents the required one-time flash-layout migration
+and paired release assets. The device manual remains accurate: configuration
+and persistence are still listed as unavailable user-facing behavior. Physical
+device validation was not performed because the adapter has no runtime
+consumer and the plan does not require physical NVS writes.

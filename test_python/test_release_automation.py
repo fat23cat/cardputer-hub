@@ -7,6 +7,10 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 VERSION_SCRIPT = ROOT / "scripts" / "next_release_version.py"
 RELEASE_WORKFLOW = ROOT / ".github" / "workflows" / "release.yml"
+REBUILD_WORKFLOW = ROOT / ".github" / "workflows" / "rebuild-tag.yml"
+CI_WORKFLOW = ROOT / ".github" / "workflows" / "ci.yml"
+MAKEFILE = ROOT / "Makefile"
+INSTALL_GUIDE = ROOT / "docs" / "manuals" / "installing-firmware.md"
 
 
 class NextReleaseVersionTest(unittest.TestCase):
@@ -69,6 +73,48 @@ class ReleaseWorkflowTest(unittest.TestCase):
     def test_only_two_published_releases_are_retained(self) -> None:
         self.assertIn("if ((release_number > 2)); then", self.workflow)
         self.assertIn("preserving its Git tag", self.workflow)
+
+    def test_release_ships_and_verifies_the_partition_table(self) -> None:
+        self.assertIn(
+            'partition_image="cardputer-hub-v${CARDPUTER_HUB_VERSION}-partitions.bin"',
+            self.workflow,
+        )
+        self.assertIn(
+            'cp .pio/build/cardputer-adv/partitions.bin "dist/${partition_image}"',
+            self.workflow,
+        )
+        self.assertIn('sha256sum "${image}" "${partition_image}" > SHA256SUMS', self.workflow)
+        self.assertIn('dist/cardputer-hub-"${tag}"-partitions.bin', self.workflow)
+        self.assertIn('grep -Fx "cardputer-hub-${tag}-partitions.bin"', self.workflow)
+
+
+class FirmwareArtifactWorkflowTest(unittest.TestCase):
+    def test_historical_rebuild_ships_the_partition_table(self) -> None:
+        workflow = REBUILD_WORKFLOW.read_text()
+        self.assertIn(
+            'partition_image="cardputer-hub-${REQUESTED_TAG}-partitions.bin"', workflow
+        )
+        self.assertIn(
+            'cp .pio/build/cardputer-adv/partitions.bin "dist/${partition_image}"', workflow
+        )
+        self.assertIn('sha256sum "${image}" "${partition_image}" > SHA256SUMS', workflow)
+
+    def test_ci_artifact_contains_the_partition_table(self) -> None:
+        workflow = CI_WORKFLOW.read_text()
+        self.assertIn(".pio/build/cardputer-adv/firmware.bin", workflow)
+        self.assertIn(".pio/build/cardputer-adv/partitions.bin", workflow)
+
+
+class ConfigurationPartitionMigrationTest(unittest.TestCase):
+    def test_one_time_migration_erases_only_the_new_configuration_range(self) -> None:
+        makefile = MAKEFILE.read_text()
+        self.assertIn("migrate-storage-layout: upload", makefile)
+        self.assertIn("erase_region 0x7e0000 0x10000", makefile)
+
+    def test_install_guide_separates_migration_from_routine_uploads(self) -> None:
+        guide = INSTALL_GUIDE.read_text()
+        self.assertIn("make migrate-storage-layout", guide)
+        self.assertIn("Do not use this migration target for routine upgrades", guide)
 
 
 if __name__ == "__main__":

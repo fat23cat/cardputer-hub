@@ -72,6 +72,23 @@ uv run --frozen pio device list
 
 ## 5. Build and Install the Firmware
 
+For the first Cardputer Hub installation on a device, or when upgrading a
+device that previously ran a Cardputer Hub release with no dedicated
+`hub_config` partition, run the one-time storage-layout migration:
+
+```bash
+make migrate-storage-layout
+```
+
+This builds and uploads the firmware and partition table, then erases only the
+new configuration partition's range (`0x7e0000-0x7effff`). That range belonged
+to SPIFFS in the previous layout, so it must be provisioned before NVS can use
+it. No Cardputer Hub configuration existed there under the previous layout.
+
+Do not use this migration target for routine upgrades. It intentionally clears
+`hub_config` and would remove configuration already stored there. Once the
+device has the current layout, use the non-destructive upload path:
+
 ```bash
 make upload
 ```
@@ -85,7 +102,41 @@ If PlatformIO cannot enter download mode:
 1. Hold the `G0` button on the Cardputer-Adv.
 2. Press and release the reset button.
 3. Release `G0`.
-4. Run `make upload` again.
+4. Run the selected installation command again.
+
+### Updating with Published Release Assets
+
+Each GitHub Release contains a versioned application image, its matching
+partition-table image, and `SHA256SUMS`:
+
+```text
+cardputer-hub-v0.2.0.bin
+cardputer-hub-v0.2.0-partitions.bin
+SHA256SUMS
+```
+
+Verify both downloads against `SHA256SUMS`. For a device that already has the
+`hub_config` layout, flash both images without erasing data partitions (replace
+the example port and version with the downloaded release):
+
+```bash
+uv run --frozen pio pkg exec --package tool-esptoolpy -- \
+  esptool.py --chip esp32s3 --port /dev/ttyACM0 write_flash \
+  0x8000 cardputer-hub-v0.2.0-partitions.bin \
+  0x10000 cardputer-hub-v0.2.0.bin
+```
+
+When upgrading from the earlier layout, provision the range exactly once
+before flashing those two assets:
+
+```bash
+uv run --frozen pio pkg exec --package tool-esptoolpy -- \
+  esptool.py --chip esp32s3 --port /dev/ttyACM0 erase_region \
+  0x7e0000 0x10000
+```
+
+The release images are a matched pair. Never install a new application image
+while leaving an older partition table on the device.
 
 ## 6. Verify the Installation
 

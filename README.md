@@ -178,8 +178,9 @@ guide for prerequisites, USB installation, verification, and troubleshooting.
 make build
 ```
 
-The production image is written to
-`.pio/build/cardputer-adv/firmware.bin`. The version-controlled flash layout
+The production application and matching partition-table images are written to
+`.pio/build/cardputer-adv/firmware.bin` and
+`.pio/build/cardputer-adv/partitions.bin`. The version-controlled flash layout
 keeps the framework's default NVS separate from the dedicated `hub_config` NVS
 partition reserved for authoritative configuration records. On startup, the
 firmware initializes the Cardputer once, writes structured informational
@@ -232,6 +233,13 @@ Connect the Cardputer-Adv with a USB-C cable that supports data, then run:
 make upload
 ```
 
+For the first installation, or a one-time upgrade from the earlier flash
+layout, use `make migrate-storage-layout` instead. It provisions the new
+configuration range; routine upgrades must continue to use `make upload` so
+stored configuration is preserved. See the
+[`installation guide`](docs/manuals/installing-firmware.md) for the exact
+migration and release-asset flashing procedure.
+
 PlatformIO normally resets the device automatically. If it cannot enter
 download mode, hold the `G0` button, press and release reset, release `G0`, and
 retry the upload. You may need to grant access to the serial device on Linux.
@@ -252,23 +260,25 @@ The configured baud rate is 115200. Exit the monitor with `Ctrl+]`.
 
 Pull requests targeting any branch, pushes to `main`, and manual CI runs
 execute `make check` on Ubuntu 24.04. This includes stacked pull requests whose
-base is another feature branch. CI also uploads the compiled firmware as an
-artifact retained for seven days. All third-party Actions use full commit SHA
-pins, and Dependabot proposes reviewed updates.
+base is another feature branch. CI also uploads the compiled application and
+partition-table images as an artifact retained for seven days. All third-party
+Actions use full commit SHA pins, and Dependabot proposes reviewed updates.
 
 After CI validates a merged pull request on `main`, the protected
 `Release firmware` workflow uses the source branch prefix to assign the next
 semantic version: `major/` or `breaking/` bumps major, `feat/` or `minor/` bumps
 minor, and `fix/`, `perf/`, or `patch/` bumps patch. Other branch types do not
 release firmware. The first eligible release is `v0.1.0`. The workflow repeats
-full validation, embeds release metadata, creates the version tag, and publishes
-the firmware plus `SHA256SUMS`.
+full validation, embeds release metadata, creates the version tag, and
+publishes the application image, its matching partition-table image, and
+`SHA256SUMS` covering both files.
 
 Only the two newest GitHub Release records and their assets are retained. All
 official Git tags are preserved. To rebuild an older version, manually run
 `Rebuild tagged firmware` with its existing `vMAJOR.MINOR.PATCH` tag. That
-read-only workflow checks out the tag and provides firmware and checksums as a
-temporary seven-day artifact; it does not recreate or delete Releases or tags.
+read-only workflow checks out the tag and provides the application image,
+partition table, and checksums as a temporary seven-day artifact; it does not
+recreate or delete Releases or tags.
 
 The primary local commands are:
 
@@ -281,6 +291,8 @@ make format-check  verify formatting
 make lint          run static analysis
 make check         run all required validation
 make upload        compile and flash firmware
+make migrate-storage-layout
+                   one-time migration from the earlier flash layout
 make monitor       open the 115200-baud serial monitor
 make clean         remove PlatformIO build output
 ```
