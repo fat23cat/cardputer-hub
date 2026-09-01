@@ -1,3 +1,4 @@
+import csv
 import subprocess
 import sys
 import unittest
@@ -11,6 +12,24 @@ REBUILD_WORKFLOW = ROOT / ".github" / "workflows" / "rebuild-tag.yml"
 CI_WORKFLOW = ROOT / ".github" / "workflows" / "ci.yml"
 MAKEFILE = ROOT / "Makefile"
 INSTALL_GUIDE = ROOT / "docs" / "manuals" / "installing-firmware.md"
+PARTITION_TABLE = ROOT / "partitions.csv"
+
+
+def parse_partition_value(value: str) -> int:
+    units = {"K": 1024, "M": 1024 * 1024}
+    normalized = value.strip().upper()
+    if normalized[-1:] in units:
+        return int(normalized[:-1], 0) * units[normalized[-1]]
+    return int(normalized, 0)
+
+
+def configuration_partition_bounds() -> tuple[int, int]:
+    with PARTITION_TABLE.open(newline="") as partition_file:
+        rows = csv.reader(
+            line for line in partition_file if not line.lstrip().startswith("#")
+        )
+        configuration = next(row for row in rows if row and row[0].strip() == "hub_config")
+    return parse_partition_value(configuration[3]), parse_partition_value(configuration[4])
 
 
 class NextReleaseVersionTest(unittest.TestCase):
@@ -108,10 +127,11 @@ class FirmwareArtifactWorkflowTest(unittest.TestCase):
 class ConfigurationPartitionMigrationTest(unittest.TestCase):
     def test_one_time_migration_erases_only_the_new_configuration_range(self) -> None:
         makefile = MAKEFILE.read_text()
+        offset, size = configuration_partition_bounds()
         self.assertIn('test -n "$(UPLOAD_PORT)"', makefile)
         self.assertIn('--target upload --upload-port "$(UPLOAD_PORT)"', makefile)
         self.assertIn(
-            '--port "$(UPLOAD_PORT)" erase_region 0x7e0000 0x10000', makefile
+            f'--port "$(UPLOAD_PORT)" erase_region {offset:#x} {size:#x}', makefile
         )
 
     def test_install_guide_separates_migration_from_routine_uploads(self) -> None:

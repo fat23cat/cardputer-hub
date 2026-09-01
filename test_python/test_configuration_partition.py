@@ -44,6 +44,7 @@ class ConfigurationPartitionTest(unittest.TestCase):
 
     def test_adapter_never_opens_or_erases_the_default_partition(self) -> None:
         source = NVS_ADAPTER.read_text()
+        self.assertIn('configurationPartition = "hub_config"', source)
         self.assertIn("nvs_flash_init_partition(configurationPartition)", source)
         self.assertIn("nvs_open_from_partition(configurationPartition", source)
         self.assertNotIn("nvs_flash_erase", source)
