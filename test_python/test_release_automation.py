@@ -1,3 +1,4 @@
+import csv
 import subprocess
 import sys
 import unittest
@@ -7,6 +8,28 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 VERSION_SCRIPT = ROOT / "scripts" / "next_release_version.py"
 RELEASE_WORKFLOW = ROOT / ".github" / "workflows" / "release.yml"
+REBUILD_WORKFLOW = ROOT / ".github" / "workflows" / "rebuild-tag.yml"
+CI_WORKFLOW = ROOT / ".github" / "workflows" / "ci.yml"
+MAKEFILE = ROOT / "Makefile"
+INSTALL_GUIDE = ROOT / "docs" / "manuals" / "installing-firmware.md"
+PARTITION_TABLE = ROOT / "partitions.csv"
+
+
+def parse_partition_value(value: str) -> int:
+    units = {"K": 1024, "M": 1024 * 1024}
+    normalized = value.strip().upper()
+    if normalized[-1:] in units:
+        return int(normalized[:-1], 0) * units[normalized[-1]]
+    return int(normalized, 0)
+
+
+def configuration_partition_bounds() -> tuple[int, int]:
+    with PARTITION_TABLE.open(newline="") as partition_file:
+        rows = csv.reader(
+            line for line in partition_file if not line.lstrip().startswith("#")
+        )
+        configuration = next(row for row in rows if row and row[0].strip() == "hub_config")
+    return parse_partition_value(configuration[3]), parse_partition_value(configuration[4])
 
 
 class NextReleaseVersionTest(unittest.TestCase):
@@ -69,6 +92,52 @@ class ReleaseWorkflowTest(unittest.TestCase):
     def test_only_two_published_releases_are_retained(self) -> None:
         self.assertIn("if ((release_number > 2)); then", self.workflow)
         self.assertIn("preserving its Git tag", self.workflow)
+
+    def test_release_ships_and_verifies_the_partition_table(self) -> None:
+        self.assertIn(
+            'partition_image="cardputer-hub-v${CARDPUTER_HUB_VERSION}-partitions.bin"',
+            self.workflow,
+        )
+        self.assertIn(
+            'cp .pio/build/cardputer-adv/partitions.bin "dist/${partition_image}"',
+            self.workflow,
+        )
+        self.assertIn('sha256sum "${image}" "${partition_image}" > SHA256SUMS', self.workflow)
+        self.assertIn('dist/cardputer-hub-"${tag}"-partitions.bin', self.workflow)
+        self.assertIn('grep -Fx "cardputer-hub-${tag}-partitions.bin"', self.workflow)
+
+
+class FirmwareArtifactWorkflowTest(unittest.TestCase):
+    def test_historical_rebuild_ships_the_partition_table(self) -> None:
+        workflow = REBUILD_WORKFLOW.read_text()
+        self.assertIn(
+            'partition_image="cardputer-hub-${REQUESTED_TAG}-partitions.bin"', workflow
+        )
+        self.assertIn(
+            'cp .pio/build/cardputer-adv/partitions.bin "dist/${partition_image}"', workflow
+        )
+        self.assertIn('sha256sum "${image}" "${partition_image}" > SHA256SUMS', workflow)
+
+    def test_ci_artifact_contains_the_partition_table(self) -> None:
+        workflow = CI_WORKFLOW.read_text()
+        self.assertIn(".pio/build/cardputer-adv/firmware.bin", workflow)
+        self.assertIn(".pio/build/cardputer-adv/partitions.bin", workflow)
+
+
+class ConfigurationPartitionMigrationTest(unittest.TestCase):
+    def test_one_time_migration_erases_only_the_new_configuration_range(self) -> None:
+        makefile = MAKEFILE.read_text()
+        offset, size = configuration_partition_bounds()
+        self.assertIn('test -n "$(UPLOAD_PORT)"', makefile)
+        self.assertIn('--target upload --upload-port "$(UPLOAD_PORT)"', makefile)
+        self.assertIn(
+            f'--port "$(UPLOAD_PORT)" erase_region {offset:#x} {size:#x}', makefile
+        )
+
+    def test_install_guide_separates_migration_from_routine_uploads(self) -> None:
+        guide = INSTALL_GUIDE.read_text()
+        self.assertIn("make migrate-storage-layout UPLOAD_PORT=/dev/ttyACM0", guide)
+        self.assertIn("Do not use this migration target for routine upgrades", guide)
 
 
 if __name__ == "__main__":

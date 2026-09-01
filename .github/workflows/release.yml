@@ -96,9 +96,11 @@ jobs:
           set -euo pipefail
           mkdir -p dist
           image="cardputer-hub-v${CARDPUTER_HUB_VERSION}.bin"
+          partition_image="cardputer-hub-v${CARDPUTER_HUB_VERSION}-partitions.bin"
           cp .pio/build/cardputer-adv/firmware.bin "dist/${image}"
+          cp .pio/build/cardputer-adv/partitions.bin "dist/${partition_image}"
           cd dist
-          sha256sum "${image}" > SHA256SUMS
+          sha256sum "${image}" "${partition_image}" > SHA256SUMS
 
       - name: Create Git tag and GitHub Release
         if: steps.release.outputs.should_release == 'true'
@@ -108,6 +110,7 @@ jobs:
           tag="v${CARDPUTER_HUB_VERSION}"
           gh release create "${tag}" \
             dist/cardputer-hub-"${tag}".bin \
+            dist/cardputer-hub-"${tag}"-partitions.bin \
             dist/SHA256SUMS \
             --target "${VALIDATED_COMMIT}" \
             --title "Cardputer Hub ${tag}" \
@@ -120,6 +123,7 @@ jobs:
           set -euo pipefail
           tag="v${CARDPUTER_HUB_VERSION}"
           gh release view "${tag}" --json assets --jq '.assets[].name' | grep -Fx "cardputer-hub-${tag}.bin"
+          gh release view "${tag}" --json assets --jq '.assets[].name' | grep -Fx "cardputer-hub-${tag}-partitions.bin"
           gh release view "${tag}" --json assets --jq '.assets[].name' | grep -Fx SHA256SUMS
 
       - name: Retain only the two newest GitHub Releases

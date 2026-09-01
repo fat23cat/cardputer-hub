@@ -392,6 +392,7 @@ target board
 platform/framework version
 dependencies
 build flags
+flash partition table
 test environments
 ```
 
@@ -643,9 +644,24 @@ If multiple images become necessary:
 
 ```text
 cardputer-hub-v0.4.12.bin
+cardputer-hub-v0.4.12-partitions.bin
 cardputer-hub-v0.4.12-factory.bin
 cardputer-hub-v0.4.12-ota.bin
 ```
+
+When firmware depends on a version-controlled partition layout, every release
+and temporary rebuild must ship the versioned application image together with
+its matching partition-table image. Their names and installation offsets must
+be documented. Routine upgrades must write the layout and application without
+erasing data partitions.
+
+A layout transition that repurposes an existing flash range must provide a
+separate, explicit one-time migration command. The migration may erase only the
+newly allocated range before it can contain authoritative data; it must not run
+as part of later uploads or upgrades. A migration containing a destructive
+flash operation must require an explicit device port and reuse that exact port
+for every upload and erase operation; it must never auto-detect the erase
+target independently.
 
 Official release assets should not rely on an ambiguous filename such as:
 
@@ -682,12 +698,14 @@ Example:
 v0.4.12
 ```
 
-The Release should contain downloadable firmware assets.
+The Release should contain downloadable firmware assets. For the current
+partitioned image, this includes both files:
 
 Example:
 
 ```text
 cardputer-hub-v0.4.12.bin
+cardputer-hub-v0.4.12-partitions.bin
 ```
 
 GitHub should retain only the two most recently published official Releases and
@@ -704,8 +722,9 @@ Releases
 v0.4.12
   ↓
 Assets
-  ↓
+      ↓
 cardputer-hub-v0.4.12.bin
+cardputer-hub-v0.4.12-partitions.bin
 ```
 
 without locally building the project.
@@ -730,6 +749,8 @@ temporary builds
 ```
 
 GitHub Release assets are the user-facing storage for the two newest versions.
+CI and historical tag rebuild artifacts must preserve every file required to
+install their produced firmware, including the matching partition table.
 Historical tag rebuilds should use temporary GitHub Actions artifacts with an
 explicit, bounded retention period.
 
@@ -749,8 +770,10 @@ Example entry:
 
 ```text
 <sha256>  cardputer-hub-v0.4.12.bin
+<sha256>  cardputer-hub-v0.4.12-partitions.bin
 ```
 
+Every downloadable binary required for installation must appear in this file.
 This allows downloaded firmware integrity to be verified.
 
 ---
