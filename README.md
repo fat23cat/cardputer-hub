@@ -190,6 +190,10 @@ refreshes the hardware and polls semantic keyboard input events. Those events
 are intentionally not routed to product behavior yet, and no connectivity or
 Mini Apps are started.
 
+System Core also provides standalone navigation history, capability, and
+application-metadata registries for later phases. They are not composed into
+the firmware runtime yet, so they do not provide Launcher or Mini App behavior.
+
 ---
 
 ## Tests
@@ -204,8 +208,8 @@ Behavior changes follow red-green-refactor TDD and should test observable
 behavior. The native suites cover stable firmware build metadata, log-level
 filtering, keyboard event translation and deduplication, opaque record-storage
 validation and forwarding, owned navigation history and Back traversal,
-dynamic capability registration and enumeration, and System Core boot and
-update orchestration.
+dynamic capability registration and enumeration, owned application metadata
+validation and lookup, and System Core boot and update orchestration.
 
 Run formatting and static analysis separately with:
 

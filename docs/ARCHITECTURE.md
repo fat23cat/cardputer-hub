@@ -196,7 +196,26 @@ Home must not implement these functions itself.
 
 ## 6. App Registry
 
-Mini Apps register through a shared `AppRegistry`.
+Phase 1 provides System Core's hardware-independent, metadata-only
+`AppRegistry`. Each `AppDescriptor` owns a non-empty exact ID, display name,
+opaque entry route, an optional opaque icon ID, and an ordered collection of
+required capability IDs. An empty icon ID selects a future text-only fallback.
+Capability requirements must be non-empty and unique within a descriptor.
+
+Registration validates and copies descriptors, rejects exact duplicate app
+IDs without replacing the original, and preserves successful registration
+order as the default future Launcher order. App IDs and required capability
+IDs are case-sensitive. Static composition is the initial model, so the
+registry has no unregister operation.
+
+The registry does not contain Mini App instances, factories, lifecycle
+callbacks, views, enabled-app configuration, rendering behavior, or Launcher
+policy. It also does not inspect `CapabilityRegistry`. Phase 4 Launcher code
+will enumerate metadata without hardcoded knowledge of individual apps, and
+Phase 5 will integrate descriptors with Mini App instances and capability
+eligibility. Registering metadata alone does not make an app operational.
+
+Future Mini Apps register metadata through the shared `AppRegistry`.
 
 Example:
 
@@ -228,6 +247,11 @@ icon
 required capabilities
 entry view
 ```
+
+Phase 1 represents this declaration with `AppDescriptor` only. Its entry route
+remains opaque until Application Shell and Mini App integration exists, and
+its icon may be absent without requiring an icon asset or rendering contract.
+`IMiniApp`, instances, lifecycle, and view behavior remain Phase 5 work.
 
 Example:
 
@@ -1333,13 +1357,19 @@ successful registration order. Availability is dynamic: removing an ID makes
 it unavailable, and registering it again appends a new final entry. Uppercase
 names are a convention rather than a closed enum or validation rule.
 
-The registry records declared availability only. It does not discover
-hardware, infer dependency state, identify providers, count multiple
+The capability registry records declared availability only. It does not
+discover hardware, infer dependency state, identify providers, count multiple
 providers, persist state, publish observers, or decide which applications are
 eligible. Owning Connectivity components and Services may update logical
 capabilities when those layers are implemented. Phase 5 will combine
 AppRegistry metadata with registry queries for application eligibility and
 presentation policy.
+
+`AppDescriptor::requiredCapabilities` records ordered, non-empty, unique
+capability IDs but registration does not verify that those capabilities are
+currently available or even known. The AppRegistry and CapabilityRegistry
+remain independent foundations until Phase 5 performs explicit eligibility
+checks.
 
 `REMOVABLE_FILE_STORAGE` means that a microSD card is mounted and usable; it
 does not merely mean that the device has a physical card slot. Its availability
@@ -1579,6 +1609,10 @@ Action Bus
 Phase 1 establishes the microSD boundary and verifies the adapter, but does not
 make removable media a boot dependency or introduce a file browser, automatic
 backup, configuration import, or application-specific card contents.
+
+After the metadata-only AppRegistry foundation, microSD file storage remains
+the final open Phase 1 checklist item. Launcher behavior and AppRegistry
+integration remain in their later phases.
 
 ### Phase 2 — Connectivity
 
