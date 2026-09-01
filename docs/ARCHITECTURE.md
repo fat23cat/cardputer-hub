@@ -1326,6 +1326,21 @@ requires:
 
 Apps whose required capabilities are unavailable may be hidden or displayed as unavailable according to configuration.
 
+Phase 1 provides System Core's hardware-independent `CapabilityRegistry`. It
+owns non-empty, opaque capability identifiers, answers exact case-sensitive
+availability queries, and enumerates currently available capabilities in
+successful registration order. Availability is dynamic: removing an ID makes
+it unavailable, and registering it again appends a new final entry. Uppercase
+names are a convention rather than a closed enum or validation rule.
+
+The registry records declared availability only. It does not discover
+hardware, infer dependency state, identify providers, count multiple
+providers, persist state, publish observers, or decide which applications are
+eligible. Owning Connectivity components and Services may update logical
+capabilities when those layers are implemented. Phase 5 will combine
+AppRegistry metadata with registry queries for application eligibility and
+presentation policy.
+
 `REMOVABLE_FILE_STORAGE` means that a microSD card is mounted and usable; it
 does not merely mean that the device has a physical card slot. Its availability
 may change when media is inserted, removed, or fails.
@@ -1555,6 +1570,7 @@ File Storage facade and Cardputer microSD adapter
 Input
 Display
 Navigation history primitive
+Capability Registry
 AppRegistry
 Action model
 Action Bus
