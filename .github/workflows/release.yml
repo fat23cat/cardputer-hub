@@ -1,15 +1,13 @@
 name: Release firmware
 
 on:
-  workflow_dispatch:
-    inputs:
-      version:
-        description: Semantic version without the v prefix (for example, 0.1.0)
-        required: true
-        type: string
+  workflow_run:
+    workflows: ["CI"]
+    types: [completed]
 
 permissions:
   contents: write
+  pull-requests: read
 
 concurrency:
   group: firmware-release
@@ -17,30 +15,26 @@ concurrency:
 
 jobs:
   release:
+    if: >-
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.event == 'push' &&
+      github.event.workflow_run.head_branch == 'main'
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     env:
-      CARDPUTER_HUB_VERSION: ${{ inputs.version }}
       CARDPUTER_HUB_BUILD_TYPE: release
+      VALIDATED_COMMIT: ${{ github.event.workflow_run.head_sha }}
       GH_TOKEN: ${{ github.token }}
     steps:
-      - name: Require main and validate version
-        shell: bash
-        run: |
-          set -euo pipefail
-          if [[ "${GITHUB_REF}" != "refs/heads/main" ]]; then
-            echo "Releases must be dispatched from main." >&2
-            exit 1
-          fi
-          if [[ ! "${CARDPUTER_HUB_VERSION}" =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]; then
-            echo "Version must match MAJOR.MINOR.PATCH without leading zeroes." >&2
-            exit 1
-          fi
-
       - name: Check out validated source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          ref: ${{ github.event.workflow_run.head_sha }}
           fetch-depth: 0
+
+      - name: Verify validated source
+        shell: bash
+        run: test "$(git rev-parse HEAD)" = "${VALIDATED_COMMIT}"
 
       - name: Install uv and Python
         uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
@@ -63,24 +57,40 @@ jobs:
           uv python install 3.12.14
           uv sync --frozen
 
-      - name: Reject an existing version
+      - name: Assign semantic version from merged branch
+        id: release
         shell: bash
         run: |
           set -euo pipefail
-          tag="v${CARDPUTER_HUB_VERSION}"
-          if git rev-parse --verify --quiet "refs/tags/${tag}"; then
-            echo "Tag ${tag} already exists." >&2
-            exit 1
+          branch="$(
+            gh api "repos/${GITHUB_REPOSITORY}/commits/${VALIDATED_COMMIT}/pulls" \
+              --jq '[.[] | select(.base.ref == "main" and .merged_at != null)] | sort_by(.merged_at) | last | .head.ref // empty'
+          )"
+          if [[ -z "${branch}" ]]; then
+            echo "No merged pull request found for ${VALIDATED_COMMIT}; skipping release."
+            echo "should_release=false" >> "${GITHUB_OUTPUT}"
+            exit 0
           fi
-          if gh release view "${tag}" >/dev/null 2>&1; then
-            echo "Release ${tag} already exists." >&2
-            exit 1
+
+          if version="$(git tag --list | uv run --frozen python scripts/next_release_version.py "${branch}")"; then
+            echo "CARDPUTER_HUB_VERSION=${version}" >> "${GITHUB_ENV}"
+            echo "should_release=true" >> "${GITHUB_OUTPUT}"
+            echo "Releasing v${version} from ${branch} at ${VALIDATED_COMMIT}."
+          else
+            status=$?
+            if ((status != 3)); then
+              exit "${status}"
+            fi
+            echo "Branch ${branch} does not request a semantic release."
+            echo "should_release=false" >> "${GITHUB_OUTPUT}"
           fi
 
       - name: Validate and build release firmware
+        if: steps.release.outputs.should_release == 'true'
         run: make check
 
       - name: Package firmware and checksum
+        if: steps.release.outputs.should_release == 'true'
         shell: bash
         run: |
           set -euo pipefail
@@ -91,6 +101,7 @@ jobs:
           sha256sum "${image}" > SHA256SUMS
 
       - name: Create Git tag and GitHub Release
+        if: steps.release.outputs.should_release == 'true'
         shell: bash
         run: |
           set -euo pipefail
@@ -98,11 +109,12 @@ jobs:
           gh release create "${tag}" \
             dist/cardputer-hub-"${tag}".bin \
             dist/SHA256SUMS \
-            --target "${GITHUB_SHA}" \
+            --target "${VALIDATED_COMMIT}" \
             --title "Cardputer Hub ${tag}" \
             --generate-notes
 
       - name: Verify release assets
+        if: steps.release.outputs.should_release == 'true'
         shell: bash
         run: |
           set -euo pipefail
@@ -111,6 +123,7 @@ jobs:
           gh release view "${tag}" --json assets --jq '.assets[].name' | grep -Fx SHA256SUMS
 
       - name: Retain only the two newest GitHub Releases
+        if: steps.release.outputs.should_release == 'true'
         shell: bash
         run: |
           set -euo pipefail
