@@ -460,7 +460,9 @@ explicitly triggered by the selected release policy.
 
 ## 15. Pull Request CI
 
-Opening or updating a pull request targeting `main` must trigger CI.
+Opening or updating any pull request must trigger CI, including a stacked pull
+request whose base is another feature branch. Push-triggered CI remains limited
+to `main`.
 
 Implementation, build, dependency, and toolchain changes should include at
 least:

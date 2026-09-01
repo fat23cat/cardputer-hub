@@ -161,6 +161,133 @@ PlatformIO resolves them from `platformio.ini`.
 
 ---
 
+## Install on a Cardputer-Adv from a Fresh Machine
+
+These instructions build the firmware from source and install it over USB. No
+global PlatformIO or M5Stack library installation is required. If you already
+completed [Local Setup](#local-setup), skip to step 4.
+
+### What you need
+
+* an M5Stack Cardputer-Adv;
+* a USB-C cable that supports data, not a charge-only cable;
+* a macOS or Ubuntu/Debian computer with Internet access;
+* permission to install command-line development tools.
+
+### 1. Install system prerequisites
+
+On macOS, install Git and the host compiler with Xcode Command Line Tools:
+
+```bash
+xcode-select --install
+```
+
+On Ubuntu or Debian Linux, install the native build prerequisites and grant
+your user access to USB serial devices:
+
+```bash
+sudo apt-get update
+sudo apt-get install --yes build-essential git curl
+sudo usermod --append --groups dialout "$USER"
+```
+
+Log out and back in after changing the `dialout` group. This is not normally
+required on macOS.
+
+### 2. Download Cardputer Hub
+
+```bash
+git clone https://github.com/fat23cat/cardputer-hub.git
+cd cardputer-hub
+```
+
+### 3. Install the locked development tools
+
+Install the repository's exact uv version using its versioned installer. Review
+downloaded installation scripts first when required by your environment's
+security policy.
+
+```bash
+curl -LsSf https://astral.sh/uv/0.12.7/install.sh | sh
+```
+
+Restart the terminal if the `uv` command is not immediately available. Then
+install the pinned Python version and repository tools:
+
+```bash
+uv python install 3.12.14
+make setup
+```
+
+The project environment uses Python 3.12.14, uv 0.12.7, PlatformIO Core
+6.1.19, clang-format 23.1.0, and the exact ESP32 and M5Stack dependencies from
+`platformio.ini`. The virtual environment is local to this checkout and does
+not replace the macOS system Python.
+
+### 4. Connect and detect the device
+
+Connect the powered Cardputer-Adv directly to the computer with the USB-C data
+cable. Close any other serial monitor that may already have the port open, then
+check that PlatformIO can see a serial device:
+
+```bash
+uv run --frozen pio device list
+```
+
+### 5. Build and install the firmware
+
+```bash
+make upload
+```
+
+The first run may take several minutes while PlatformIO downloads the pinned
+toolchain and libraries. It then builds the production firmware, selects the
+connected serial port, flashes the image, and resets the device.
+
+If PlatformIO cannot enter download mode:
+
+1. hold the `G0` button on the Cardputer-Adv;
+2. press and release the reset button;
+3. release `G0`;
+4. run `make upload` again.
+
+### 6. Verify the installation
+
+The display should show `Cardputer Hub` and the embedded firmware version on a
+black boot screen. To inspect serial output, run:
+
+```bash
+make monitor
+```
+
+Press reset once after the monitor opens if the startup records have already
+scrolled past. A successful boot prints records similar to:
+
+```text
+[INFO] firmware.name: Cardputer Hub
+[INFO] firmware.version: 0.1.0-dev
+[INFO] firmware.commit: <commit>
+[INFO] firmware.build_type: cardputer-adv
+```
+
+Exit the serial monitor with `Ctrl+]`. The firmware currently polls keyboard
+events but does not yet route them to visible product behavior.
+
+### Troubleshooting installation
+
+* If no serial device appears, try a known data-capable cable and another USB
+  port, then reconnect the Cardputer-Adv.
+* If Linux reports permission denied, confirm membership in the `dialout`
+  group with `groups`, then log out and back in.
+* If upload waits for a connection or times out, use the `G0` download-mode
+  sequence above and retry.
+* If the monitor is blank, confirm the device reset and that no other program
+  has the serial port open. The configured monitor speed is 115200 baud.
+* To discard local build output and rebuild from scratch, run `make clean`,
+  followed by `make upload`.
+
+---
+
 ## Build
 
 ```bash
@@ -168,9 +295,12 @@ make build
 ```
 
 The production image is written to
-`.pio/build/cardputer-adv/firmware.bin`. The skeleton initializes the
-Cardputer, starts serial output, reports its embedded version metadata, and
-runs a minimal update loop. It does not start connectivity or product features.
+`.pio/build/cardputer-adv/firmware.bin`. On startup, the firmware initializes
+the Cardputer once, writes structured informational records for the product
+name, version, commit, and build type to serial, and renders the product name
+and version as a minimal boot screen. Its update loop refreshes the hardware
+and polls semantic keyboard input events. Those events are intentionally not
+routed to product behavior yet, and no connectivity or Mini Apps are started.
 
 ---
 
@@ -183,8 +313,9 @@ make test
 ```
 
 Behavior changes follow red-green-refactor TDD and should test observable
-behavior. The initial test exercises hardware-independent firmware build
-metadata.
+behavior. The native suites cover stable firmware build metadata, log-level
+filtering, keyboard event translation and deduplication, and System Core boot
+and update orchestration.
 
 Run formatting and static analysis separately with:
 
@@ -232,8 +363,9 @@ The configured baud rate is 115200. Exit the monitor with `Ctrl+]`.
 
 ## CI/CD
 
-Pull requests to `main`, pushes to `main`, and manual CI runs execute
-`make check` on Ubuntu 24.04. CI also uploads the compiled firmware as an
+Pull requests targeting any branch, pushes to `main`, and manual CI runs
+execute `make check` on Ubuntu 24.04. This includes stacked pull requests whose
+base is another feature branch. CI also uploads the compiled firmware as an
 artifact retained for seven days. All third-party Actions use full commit SHA
 pins, and Dependabot proposes reviewed updates.
 
