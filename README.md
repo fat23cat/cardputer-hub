@@ -234,9 +234,10 @@ make upload
 ```
 
 For the first installation, or a one-time upgrade from the earlier flash
-layout, use `make migrate-storage-layout` instead. It provisions the new
-configuration range; routine upgrades must continue to use `make upload` so
-stored configuration is preserved. See the
+layout, use `make migrate-storage-layout UPLOAD_PORT=<device>` instead. The
+explicit port ensures the upload and targeted erase reach the same Cardputer.
+It provisions the new configuration range; routine upgrades must continue to
+use `make upload` so stored configuration is preserved. See the
 [`installation guide`](docs/manuals/installing-firmware.md) for the exact
 migration and release-asset flashing procedure.
 
@@ -291,7 +292,7 @@ make format-check  verify formatting
 make lint          run static analysis
 make check         run all required validation
 make upload        compile and flash firmware
-make migrate-storage-layout
+make migrate-storage-layout UPLOAD_PORT=<device>
                    one-time migration from the earlier flash layout
 make monitor       open the 115200-baud serial monitor
 make clean         remove PlatformIO build output

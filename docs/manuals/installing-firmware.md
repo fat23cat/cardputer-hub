@@ -77,8 +77,12 @@ device that previously ran a Cardputer Hub release with no dedicated
 `hub_config` partition, run the one-time storage-layout migration:
 
 ```bash
-make migrate-storage-layout
+make migrate-storage-layout UPLOAD_PORT=/dev/ttyACM0
 ```
+
+Replace `/dev/ttyACM0` with the exact device path reported in step 4. The port
+is mandatory so both the upload and destructive erase target the same physical
+Cardputer; the migration refuses to auto-detect a port.
 
 This builds and uploads the firmware and partition table, then erases only the
 new configuration partition's range (`0x7e0000-0x7effff`). That range belonged

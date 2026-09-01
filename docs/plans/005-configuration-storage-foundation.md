@@ -247,6 +247,9 @@ corresponding behavior was implemented:
 6. release, rebuild, CI-artifact, and installation migration checks failed
    because only `firmware.bin` was distributed and no one-time provisioning
    path existed for the range previously owned by SPIFFS.
+7. the migration port-safety test failed because the destructive erase
+   independently auto-detected a serial device instead of requiring and reusing
+   the upload port.
 
 Each failure was followed by the minimum implementation and a green focused
 suite before the next behavior was added.
@@ -268,7 +271,8 @@ The completed change provides:
 * release, historical-rebuild, and CI artifacts that pair the application
   image with its partition table and checksum both release files;
 * an explicit one-time storage-layout migration that erases only the newly
-  allocated range, while routine uploads preserve configuration;
+  allocated range on the explicitly selected upload device, while routine
+  uploads preserve configuration;
 * architecture documentation for the record-storage, configuration-policy,
   and removable-file-storage boundaries.
 

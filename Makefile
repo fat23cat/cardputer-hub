@@ -32,8 +32,10 @@ check: lock-check format-check lint test build
 upload:
 	$(RUN) pio run -e cardputer-adv --target upload
 
-migrate-storage-layout: upload
-	$(RUN) pio pkg exec --package tool-esptoolpy -- esptool.py --chip esp32s3 erase_region 0x7e0000 0x10000
+migrate-storage-layout:
+	@test -n "$(UPLOAD_PORT)" || (echo "UPLOAD_PORT is required for storage-layout migration." >&2; exit 2)
+	$(RUN) pio run -e cardputer-adv --target upload --upload-port "$(UPLOAD_PORT)"
+	$(RUN) pio pkg exec --package tool-esptoolpy -- esptool.py --chip esp32s3 --port "$(UPLOAD_PORT)" erase_region 0x7e0000 0x10000
 
 monitor:
 	$(RUN) pio device monitor --baud 115200

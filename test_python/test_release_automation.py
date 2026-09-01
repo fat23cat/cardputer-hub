@@ -108,12 +108,15 @@ class FirmwareArtifactWorkflowTest(unittest.TestCase):
 class ConfigurationPartitionMigrationTest(unittest.TestCase):
     def test_one_time_migration_erases_only_the_new_configuration_range(self) -> None:
         makefile = MAKEFILE.read_text()
-        self.assertIn("migrate-storage-layout: upload", makefile)
-        self.assertIn("erase_region 0x7e0000 0x10000", makefile)
+        self.assertIn('test -n "$(UPLOAD_PORT)"', makefile)
+        self.assertIn('--target upload --upload-port "$(UPLOAD_PORT)"', makefile)
+        self.assertIn(
+            '--port "$(UPLOAD_PORT)" erase_region 0x7e0000 0x10000', makefile
+        )
 
     def test_install_guide_separates_migration_from_routine_uploads(self) -> None:
         guide = INSTALL_GUIDE.read_text()
-        self.assertIn("make migrate-storage-layout", guide)
+        self.assertIn("make migrate-storage-layout UPLOAD_PORT=/dev/ttyACM0", guide)
         self.assertIn("Do not use this migration target for routine upgrades", guide)
 
 

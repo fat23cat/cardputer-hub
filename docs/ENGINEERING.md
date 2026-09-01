@@ -658,7 +658,10 @@ erasing data partitions.
 A layout transition that repurposes an existing flash range must provide a
 separate, explicit one-time migration command. The migration may erase only the
 newly allocated range before it can contain authoritative data; it must not run
-as part of later uploads or upgrades.
+as part of later uploads or upgrades. A migration containing a destructive
+flash operation must require an explicit device port and reuse that exact port
+for every upload and erase operation; it must never auto-detect the erase
+target independently.
 
 Official release assets should not rely on an ambiguous filename such as:
 
