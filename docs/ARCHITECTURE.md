@@ -249,7 +249,7 @@ entry view
 ```
 
 Phase 1 represents this declaration with `AppDescriptor` only. Its entry route
-remains opaque until Application Shell and Mini App integration exists, and
+remains opaque until Application Shell and Mini App integration exist, and
 its icon may be absent without requiring an icon asset or rendering contract.
 `IMiniApp`, instances, lifecycle, and view behavior remain Phase 5 work.
 
