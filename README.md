@@ -203,7 +203,8 @@ make test
 Behavior changes follow red-green-refactor TDD and should test observable
 behavior. The native suites cover stable firmware build metadata, log-level
 filtering, keyboard event translation and deduplication, opaque record-storage
-validation and forwarding, and System Core boot and update orchestration.
+validation and forwarding, owned navigation history and Back traversal, and
+System Core boot and update orchestration.
 
 Run formatting and static analysis separately with:
 

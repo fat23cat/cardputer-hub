@@ -338,6 +338,17 @@ Back navigation reverses that path.
 
 `View` is internal to a Mini App. Global navigation infrastructure belongs to System Core.
 
+Phase 1 provides System Core's hardware-independent `NavigationStack` history
+primitive. It owns opaque, case-sensitive route identifiers and supports
+reset, push, current-route inspection, and root-preserving Back traversal. It
+does not interpret route syntax, carry route parameters, render a destination,
+activate application lifecycle, or restore view state.
+
+Phase 4 application-shell code will own and integrate this history with Home,
+Launcher, global shortcuts, and navigation Actions. Phase 5 will define Mini
+App view objects and lifecycle; those view implementations remain outside the
+navigation history primitive.
+
 ---
 
 ## 10. Connectivity Layer
@@ -1543,7 +1554,7 @@ Record Storage facade and ESP32 NVS adapter
 File Storage facade and Cardputer microSD adapter
 Input
 Display
-Navigation
+Navigation history primitive
 AppRegistry
 Action model
 Action Bus
@@ -1588,7 +1599,7 @@ Implement:
 ```text
 Home
 Launcher
-Navigation stack
+Navigation history integration
 Global shortcuts
 Settings foundation
 ```
@@ -1601,6 +1612,7 @@ Implement:
 MiniApp interface
 AppRegistry integration
 App lifecycle
+Mini App views
 Capability checks
 ```
 
