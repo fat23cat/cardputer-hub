@@ -85,7 +85,8 @@ Core principle:
 │ ESP32 Wi-Fi                          │
 │ Puzzle RGB 8×8                       │
 │ Battery                              │
-│ Storage                              │
+│ Internal NVS                         │
+│ microSD                              │
 └──────────────────────────────────────┘
 ```
 
@@ -101,7 +102,7 @@ System Core
 ├── Input Routing
 ├── Action Bus
 ├── Configuration interfaces
-├── Storage primitives
+├── Record and file-storage primitives
 ├── Logging
 └── Capability Registry
 ```
@@ -1298,6 +1299,7 @@ TELEGRAM_SERVICE
 RGB_PANEL
 REMOTE_CONTROL
 COMPANION
+REMOVABLE_FILE_STORAGE
 ```
 
 Mini Apps can declare requirements.
@@ -1312,6 +1314,10 @@ requires:
 ```
 
 Apps whose required capabilities are unavailable may be hidden or displayed as unavailable according to configuration.
+
+`REMOVABLE_FILE_STORAGE` means that a microSD card is mounted and usable; it
+does not merely mean that the device has a physical card slot. Its availability
+may change when media is inserted, removed, or fails.
 
 ---
 
@@ -1338,6 +1344,12 @@ remote-control settings
 
 Configuration must be treated as data rather than scattered conditional logic.
 
+The authoritative copy of configuration required for normal boot must use
+internal persistent storage. A removable microSD card may be used for explicit
+import, export, backup, and restore operations, but its absence must not make
+the current configuration unavailable. Secrets must not be copied to removable
+media unless a later feature defines an explicit user flow and security model.
+
 ---
 
 ## 44. Persistence
@@ -1356,6 +1368,58 @@ global shortcuts
 remote settings
 ```
 
+Cardputer Hub has two distinct persistence roles:
+
+```text
+Internal NVS
+    small authoritative configuration records needed for normal operation
+
+microSD
+    optional removable files, exports, backups, assets, and larger app data
+```
+
+System Core exposes separate hardware-neutral contracts for these roles:
+
+```text
+ConfigurationService / Services
+            │
+            ├── Record Storage ──→ ESP32 NVS adapter
+            │
+            └── File Storage ────→ Cardputer microSD adapter
+```
+
+Record Storage, exposed initially by the `Storage` facade, persists opaque
+records addressed by logical scope and key. It does not know configuration
+schemas, defaults, migrations, or serialization; those remain owned by
+`ConfigurationService`.
+
+`Storage` is System Core's configuration-facing record interface. It validates
+portable logical addresses and non-empty records before delegating synchronous
+operations to the hardware-independent `IStorageAdapter` persistence
+primitive. Missing records, invalid caller input, capacity exhaustion, and
+backend failures remain distinct outcomes so future configuration behavior can
+make explicit policy decisions instead of silently substituting defaults.
+
+The ESP32 adapter stores each record as an opaque blob in the default NVS
+partition. NVS is authoritative for future boot-critical configuration, but no
+configuration value, credential, or other product data is currently persisted
+by the firmware. `ConfigurationService`, when introduced, will own schemas,
+serialization, defaults, domain validation, and migrations.
+
+File Storage exposes files below a Cardputer Hub-owned root on the card. Paths
+are logical and relative to that root, and callers must not depend on FAT,
+SPI, mount points, or vendor APIs. Services and Mini Apps must not access the
+microSD hardware directly. File reads must be explicitly bounded or streamed
+so a large file cannot cause an unbounded allocation.
+
+The microSD card is optional and removable. Missing media, mount failure,
+read-only media, capacity exhaustion, and ordinary I/O failure must remain
+distinguishable where relevant. Card removal or corruption must not erase,
+format, or reinitialize the card automatically, and must not break boot,
+Launcher, connectivity, host control, or configuration stored in NVS. When a
+mounted card is available, the owning integration may publish the logical
+`REMOVABLE_FILE_STORAGE` capability.
+
 Boot must not block indefinitely while waiting for:
 
 ```text
@@ -1364,6 +1428,7 @@ Bluetooth host
 Internet
 Telegram
 VPS
+microSD
 ```
 
 ---
@@ -1396,6 +1461,22 @@ InputService
 IKeyboardAdapter
       ↓
 M5CardputerKeyboardAdapter
+```
+
+```text
+ConfigurationService
+      ↓
+Record Storage
+      ↓
+Esp32NvsStorageAdapter
+```
+
+```text
+Service
+      ↓
+File Storage
+      ↓
+CardputerMicroSdFileStorageAdapter
 ```
 
 This is necessary for automated testing and safe refactoring.
@@ -1447,7 +1528,8 @@ Implement:
 Boot
 Logging
 Configuration interfaces
-Storage primitives
+Record Storage facade and ESP32 NVS adapter
+File Storage facade and Cardputer microSD adapter
 Input
 Display
 Navigation
@@ -1455,6 +1537,10 @@ AppRegistry
 Action model
 Action Bus
 ```
+
+Phase 1 establishes the microSD boundary and verifies the adapter, but does not
+make removable media a boot dependency or introduce a file browser, automatic
+backup, configuration import, or application-specific card contents.
 
 ### Phase 2 — Connectivity
 
@@ -1615,6 +1701,8 @@ Puzzle RGB indicator
 Action Bus
 
 RemoteControlService abstraction
+
+microSD file-storage foundation
 ```
 
 ---
@@ -1667,11 +1755,13 @@ The architecture must allow these capabilities to be added without restructuring
 
 11. Configuration is data.
 
-12. Remote functionality is an optional extension.
+12. Boot-critical configuration must not depend on removable storage.
 
-13. Failure of one Service must not break unrelated Services.
+13. Remote functionality is an optional extension.
 
-14. New Mini Apps and Services should be addable without restructuring System Core.
+14. Failure of one Service must not break unrelated Services.
+
+15. New Mini Apps and Services should be addable without restructuring System Core.
 
 ---
 
@@ -1687,7 +1777,10 @@ src/
 │   ├── actions/
 │   ├── input/
 │   ├── lifecycle/
-│   └── logging/
+│   ├── logging/
+│   └── storage/
+│       ├── records/
+│       └── files/
 │
 ├── connectivity/
 │   ├── wifi/
@@ -1719,6 +1812,8 @@ src/
 │   ├── bluetooth/
 │   ├── wifi/
 │   └── storage/
+│       ├── nvs/
+│       └── microsd/
 │
 └── main.cpp
 ```

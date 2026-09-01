@@ -13,6 +13,7 @@ The long-term goal is to support functionality such as:
 * VPS monitoring
 * media controls
 * RGB status indication
+* microSD-backed file storage
 * Telegram integration
 * remote control through a Web UI
 * additional Mini Apps and hardware extensions
@@ -45,7 +46,7 @@ Navigation
 Input routing
 Action Bus
 Configuration interfaces
-Storage primitives
+Record and file-storage primitives
 Logging
 Capabilities
 ```
@@ -197,8 +198,8 @@ make test
 
 Behavior changes follow red-green-refactor TDD and should test observable
 behavior. The native suites cover stable firmware build metadata, log-level
-filtering, keyboard event translation and deduplication, and System Core boot
-and update orchestration.
+filtering, keyboard event translation and deduplication, opaque record-storage
+validation and forwarding, and System Core boot and update orchestration.
 
 Run formatting and static analysis separately with:
 
