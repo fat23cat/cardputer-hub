@@ -252,10 +252,13 @@ base is another feature branch. CI also uploads the compiled firmware as an
 artifact retained for seven days. All third-party Actions use full commit SHA
 pins, and Dependabot proposes reviewed updates.
 
-Official releases are created only by manually dispatching the protected
-`Release firmware` workflow from `main` with a `MAJOR.MINOR.PATCH` version. The
-workflow repeats full validation, embeds release metadata, creates a
-`vMAJOR.MINOR.PATCH` tag, and publishes the firmware plus `SHA256SUMS`.
+After CI validates a merged pull request on `main`, the protected
+`Release firmware` workflow uses the source branch prefix to assign the next
+semantic version: `major/` or `breaking/` bumps major, `feat/` or `minor/` bumps
+minor, and `fix/`, `perf/`, or `patch/` bumps patch. Other branch types do not
+release firmware. The first eligible release is `v0.1.0`. The workflow repeats
+full validation, embeds release metadata, creates the version tag, and publishes
+the firmware plus `SHA256SUMS`.
 
 Only the two newest GitHub Release records and their assets are retained. All
 official Git tags are preserved. To rebuild an older version, manually run

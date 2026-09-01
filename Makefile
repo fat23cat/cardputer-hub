@@ -14,6 +14,7 @@ build:
 	$(RUN) pio run -e cardputer-adv
 
 test:
+	$(RUN) python -m unittest discover -s test_python
 	$(RUN) pio test -e native
 
 format:
