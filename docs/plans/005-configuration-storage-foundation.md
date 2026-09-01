@@ -19,7 +19,8 @@ Add:
 * a hardware-neutral, configuration-facing opaque-record storage contract;
 * explicit read, write, and removal outcomes;
 * shared validation for portable storage addresses;
-* an ESP32 NVS blob adapter using the pinned framework;
+* an ESP32 NVS blob adapter using a dedicated configuration partition and the
+  pinned framework;
 * native behavioral tests around the hardware-neutral facade;
 * architecture documentation defining the boundary with the future
   `ConfigurationService`.
@@ -80,8 +81,10 @@ Contract rules:
 
 Add `Esp32NvsStorageAdapter` under `src/hardware/esp32/`:
 
-* use the default ESP32 NVS partition and blob records without adding a
-  dependency;
+* use blob records in the dedicated `hub_config` NVS partition without adding
+  a dependency;
+* explicitly initialize only `hub_config` and open every namespace through
+  the partition-specific API;
 * open the requested namespace for each operation and close every acquired
   handle on all paths;
 * read blobs by querying their size, allocating the exact temporary buffer,
@@ -126,9 +129,12 @@ failures in the plan's completion record.
    * invalid addresses do not reach the adapter.
 8. Implement removal and refactor shared validation and test fakes while
    keeping the suite green.
-9. Add the ESP32 NVS adapter. Treat direct NVS interaction as a thin-adapter
-   TDD exception because vendor APIs are excluded from native builds; verify
-   its boundary through strict Cardputer-Adv compilation.
+9. Add the ESP32 NVS adapter and a version-controlled partition table that
+   keeps authoritative configuration separate from the framework's default
+   NVS. Treat direct NVS interaction as a thin-adapter TDD exception because
+   vendor APIs are excluded from native builds; protect the partition choice
+   with a Python safety-invariant test and verify its boundary through strict
+   Cardputer-Adv compilation.
 10. Update the configuration, persistence, and hardware-abstraction sections
     of `docs/ARCHITECTURE.md`:
     * the `Storage` facade is System Core's configuration-facing interface;
@@ -191,6 +197,8 @@ The change is complete only when:
 * invalid operations never reach the hardware adapter;
 * the ESP32 adapter commits successful mutations and never performs
   destructive partition recovery;
+* authoritative records use a dedicated NVS partition that Arduino framework
+  initialization cannot automatically erase;
 * Cardputer-Adv firmware compiles with the pinned ESP32 framework and strict
   warnings;
 * no product configuration, credentials, or user data are written;
@@ -203,8 +211,9 @@ Assumptions and defaults:
 
 * Plans 001-003 are merged and implementation starts from updated `main`;
 * the existing C++17 and pinned toolchain configuration remain unchanged;
-* Arduino initializes the default NVS partition before application code can
-  use the adapter;
+* Arduino owns and initializes the default NVS partition before application
+  code runs, while the adapter initializes the separate `hub_config` partition
+  lazily and treats initialization failure as `BackendError`;
 * one NVS record is the atomic persistence unit;
 * plan 009 adds optional microSD file storage without changing this record
   contract;
@@ -231,6 +240,9 @@ corresponding behavior was implemented:
    `InvalidData`;
 4. valid removal scenarios returned the temporary `BackendError` placeholder
    instead of forwarding `Removed` and `NotFound` outcomes.
+5. the partition safety regression test failed because the build used the
+   framework partition table, `hub_config` did not exist, and the adapter used
+   default-partition NVS APIs.
 
 Each failure was followed by the minimum implementation and a green focused
 suite before the next behavior was added.
@@ -244,9 +256,11 @@ The completed change provides:
 * shared 1-15 byte, non-empty, embedded-NUL-free address validation;
 * binary-safe reads and writes, owned read results, empty-write rejection,
   replacement forwarding, and distinct missing, capacity, and backend errors;
-* an ESP32 default-partition NVS blob adapter that closes every opened handle,
-  commits mutations, maps backend outcomes, and performs no destructive
-  recovery or logging;
+* an ESP32 NVS blob adapter using the dedicated `hub_config` partition that
+  closes every opened handle, commits mutations, maps initialization and other
+  backend outcomes, and performs no destructive recovery or logging;
+* a version-controlled 8 MiB flash layout that preserves the framework's
+  default NVS while reserving 64 KiB for authoritative configuration;
 * architecture documentation for the record-storage, configuration-policy,
   and removable-file-storage boundaries.
 
@@ -263,7 +277,7 @@ focused test_storage suite     12 cases passed
 make format                    passed
 make lint                      native and Cardputer-Adv passed
 make build                     Cardputer-Adv firmware compiled
-make check                     lock, format, lint, 9 Python tests,
+make check                     lock, format, lint, 12 Python tests,
                                37 native cases, and firmware build passed
 ```
 

@@ -1400,8 +1400,13 @@ primitive. Missing records, invalid caller input, capacity exhaustion, and
 backend failures remain distinct outcomes so future configuration behavior can
 make explicit policy decisions instead of silently substituting defaults.
 
-The ESP32 adapter stores each record as an opaque blob in the default NVS
-partition. NVS is authoritative for future boot-critical configuration, but no
+The ESP32 adapter stores each record as an opaque blob in the dedicated
+`hub_config` NVS partition. The framework's default `nvs` partition remains
+separate because Arduino startup may erase that partition while recovering
+from incompatible or exhausted NVS metadata. The adapter explicitly
+initializes `hub_config`, never erases or reinitializes it as recovery, and
+reports initialization failure as `BackendError`. This dedicated NVS
+partition is authoritative for future boot-critical configuration, but no
 configuration value, credential, or other product data is currently persisted
 by the firmware. `ConfigurationService`, when introduced, will own schemas,
 serialization, defaults, domain validation, and migrations.

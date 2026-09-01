@@ -179,12 +179,15 @@ make build
 ```
 
 The production image is written to
-`.pio/build/cardputer-adv/firmware.bin`. On startup, the firmware initializes
-the Cardputer once, writes structured informational records for the product
-name, version, commit, and build type to serial, and renders the product name
-and version as a minimal boot screen. Its update loop refreshes the hardware
-and polls semantic keyboard input events. Those events are intentionally not
-routed to product behavior yet, and no connectivity or Mini Apps are started.
+`.pio/build/cardputer-adv/firmware.bin`. The version-controlled flash layout
+keeps the framework's default NVS separate from the dedicated `hub_config` NVS
+partition reserved for authoritative configuration records. On startup, the
+firmware initializes the Cardputer once, writes structured informational
+records for the product name, version, commit, and build type to serial, and
+renders the product name and version as a minimal boot screen. Its update loop
+refreshes the hardware and polls semantic keyboard input events. Those events
+are intentionally not routed to product behavior yet, and no connectivity or
+Mini Apps are started.
 
 ---
 

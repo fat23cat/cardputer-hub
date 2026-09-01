@@ -392,6 +392,7 @@ target board
 platform/framework version
 dependencies
 build flags
+flash partition table
 test environments
 ```
 

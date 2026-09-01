@@ -10,6 +10,11 @@ class Esp32NvsStorageAdapter final : public core::IStorageAdapter {
     core::StorageWriteStatus write(const core::StorageAddress& address,
                                    const core::StorageBytes& data) override;
     core::StorageRemoveStatus remove(const core::StorageAddress& address) override;
+
+  private:
+    bool ensureInitialized();
+
+    bool initialized_ = false;
 };
 
 } // namespace cardputer_hub::hardware

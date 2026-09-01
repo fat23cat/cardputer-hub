@@ -4,9 +4,12 @@
 #include <utility>
 
 #include <nvs.h>
+#include <nvs_flash.h>
 
 namespace cardputer_hub::hardware {
 namespace {
+
+constexpr const char* configurationPartition = "hub_config";
 
 class ScopedNvsHandle {
   public:
@@ -38,9 +41,23 @@ core::StorageWriteStatus writeFailure(esp_err_t error) {
 
 } // namespace
 
+bool Esp32NvsStorageAdapter::ensureInitialized() {
+    if (initialized_) {
+        return true;
+    }
+
+    initialized_ = nvs_flash_init_partition(configurationPartition) == ESP_OK;
+    return initialized_;
+}
+
 core::StorageReadResult Esp32NvsStorageAdapter::read(const core::StorageAddress& address) {
+    if (!ensureInitialized()) {
+        return {core::StorageReadStatus::BackendError, {}};
+    }
+
     nvs_handle_t rawHandle{};
-    const esp_err_t openResult = nvs_open(address.scope.c_str(), NVS_READONLY, &rawHandle);
+    const esp_err_t openResult = nvs_open_from_partition(
+        configurationPartition, address.scope.c_str(), NVS_READONLY, &rawHandle);
     if (openResult != ESP_OK) {
         return readFailure(openResult);
     }
@@ -69,8 +86,13 @@ core::StorageReadResult Esp32NvsStorageAdapter::read(const core::StorageAddress&
 
 core::StorageWriteStatus Esp32NvsStorageAdapter::write(const core::StorageAddress& address,
                                                        const core::StorageBytes& data) {
+    if (!ensureInitialized()) {
+        return core::StorageWriteStatus::BackendError;
+    }
+
     nvs_handle_t rawHandle{};
-    const esp_err_t openResult = nvs_open(address.scope.c_str(), NVS_READWRITE, &rawHandle);
+    const esp_err_t openResult = nvs_open_from_partition(
+        configurationPartition, address.scope.c_str(), NVS_READWRITE, &rawHandle);
     if (openResult != ESP_OK) {
         return writeFailure(openResult);
     }
@@ -89,8 +111,13 @@ core::StorageWriteStatus Esp32NvsStorageAdapter::write(const core::StorageAddres
 }
 
 core::StorageRemoveStatus Esp32NvsStorageAdapter::remove(const core::StorageAddress& address) {
+    if (!ensureInitialized()) {
+        return core::StorageRemoveStatus::BackendError;
+    }
+
     nvs_handle_t rawReadHandle{};
-    const esp_err_t readOpenResult = nvs_open(address.scope.c_str(), NVS_READONLY, &rawReadHandle);
+    const esp_err_t readOpenResult = nvs_open_from_partition(
+        configurationPartition, address.scope.c_str(), NVS_READONLY, &rawReadHandle);
     if (readOpenResult == ESP_ERR_NVS_NOT_FOUND) {
         return core::StorageRemoveStatus::NotFound;
     }
@@ -111,7 +138,8 @@ core::StorageRemoveStatus Esp32NvsStorageAdapter::remove(const core::StorageAddr
     }
 
     nvs_handle_t rawWriteHandle{};
-    if (nvs_open(address.scope.c_str(), NVS_READWRITE, &rawWriteHandle) != ESP_OK) {
+    if (nvs_open_from_partition(configurationPartition, address.scope.c_str(), NVS_READWRITE,
+                                &rawWriteHandle) != ESP_OK) {
         return core::StorageRemoveStatus::BackendError;
     }
     const ScopedNvsHandle writeHandle(rawWriteHandle);
