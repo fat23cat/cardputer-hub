@@ -34,6 +34,9 @@ connectivity::WifiAdapterResult Esp32WifiAdapter::initializeStation() {
     if (!WiFi.mode(WIFI_STA)) {
         return connectivity::WifiAdapterResult::Error;
     }
+    if (esp_wifi_set_storage(WIFI_STORAGE_RAM) != ESP_OK) {
+        return connectivity::WifiAdapterResult::Error;
+    }
     if (!WiFi.config(IPAddress(), IPAddress(), IPAddress())) {
         return connectivity::WifiAdapterResult::Error;
     }

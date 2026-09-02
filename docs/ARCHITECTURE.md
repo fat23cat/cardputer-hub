@@ -1504,9 +1504,12 @@ serialization, defaults, domain validation, and migrations.
 
 The Phase 2 Wi-Fi foundation does not persist credentials. Connection
 configuration is supplied in memory to `WiFiService`, and the ESP32 adapter
-disables the Arduino framework's Wi-Fi credential persistence. A future
-`ConfigurationService` owns the persistent Wi-Fi schema, validation beyond the
-connectivity boundary, defaults, migrations, and storage policy.
+disables the Arduino framework's Wi-Fi credential persistence and explicitly
+selects RAM-backed driver storage after station initialization. The explicit
+driver setting also covers cases where another component initialized Wi-Fi
+first. A future `ConfigurationService` owns the persistent Wi-Fi schema,
+validation beyond the connectivity boundary, defaults, migrations, and storage
+policy.
 
 Firmware distribution must pair the application image with its partition
 table. Installation from the earlier 8 MiB layout requires one explicit,

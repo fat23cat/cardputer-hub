@@ -247,7 +247,10 @@ accepting cached `WL_CONNECTED`, because an authentication-expiry event can
 leave that framework status stale. A fifth correction removes `WiFi.begin()`
 from the launch-result path: the adapter now installs an in-RAM ESP-IDF station
 configuration and checks `esp_wifi_connect()` directly, so a stale cached
-`WL_CONNECT_FAILED` cannot terminate a successfully started Service retry.
+`WL_CONNECT_FAILED` cannot terminate a successfully started Service retry. A
+sixth correction explicitly selects ESP-IDF RAM storage after station mode is
+available, preventing credentials from being written to flash even when
+another component initialized the Wi-Fi driver first.
 
 Arduino-ESP32 2.0.16 still performs one unconditional internal reconnect on the
 first failed association. This cannot be disabled through its public Wi-Fi API,
