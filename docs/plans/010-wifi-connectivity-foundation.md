@@ -274,7 +274,7 @@ focused test_wifi_service suite    30 cases passed
 make format                         passed
 make format-check                   passed (also exercised by make check)
 make lint                           native and Cardputer-Adv passed
-make test                           17 Python and 92 native cases passed
+make test                           17 Python and 97 native cases passed
 make build                          Cardputer-Adv firmware compiled
 make check                          lock and format checks passed
                                     native and Cardputer-Adv lint passed
