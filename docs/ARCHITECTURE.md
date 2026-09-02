@@ -444,10 +444,11 @@ only while the adapter can still retrieve a live access-point record; a link
 loss between Service updates returns no value rather than a sentinel RSSI.
 
 Calls are synchronous and single-threaded. `WiFiService` owns configuration
-copies but holds a non-owning adapter reference, so the adapter must outlive the
-Service and must not retain caller references. Fixed state and retry logs may
-be emitted through the shared logger, but network identity, credentials,
-addresses, and traffic contents must never be logged.
+copies but holds a non-owning adapter reference and, when supplied, a non-owning
+logger pointer; both injected objects must outlive the Service. The adapter must
+not retain caller references. Fixed state and retry logs may be emitted through
+the shared logger, but network identity, credentials, addresses, and traffic
+contents must never be logged.
 
 The initial foundation does not provide scanning, provisioning, captive-portal
 handling, access-point mode, enterprise Wi-Fi, or automatic startup. It may
@@ -1639,14 +1640,15 @@ when media is refreshed and which logical files are used.
 Likewise, `WiFiService` and `IWifiAdapter` contain no Arduino or ESP32 types.
 `Esp32WifiAdapter` contains the ESP-IDF Wi-Fi and network-interface APIs bundled
 with the pinned Arduino-ESP32 toolchain. It exclusively initializes the driver,
-rolls back its driver and default station interface after any partial
-initialization failure, selects station mode and RAM-backed configuration
-storage, begins exactly one association attempt per Service request, and
-propagates connect and disconnect operation failures. It does not initialize
-Arduino's Wi-Fi facade, whose event handler has independent reconnect behavior
-and emits network identity at high framework log levels. The Cardputer build
-caps Arduino core logging at Info, and adapter compilation rejects Debug or
-Verbose levels.
+constructs its default station interface through checked allocation, attachment,
+and handler-registration operations, rolls back the interface and driver after
+any partial initialization failure, selects station mode and RAM-backed
+configuration storage, begins exactly one association attempt per Service
+request, and propagates connect and disconnect operation failures. It does not
+initialize Arduino's Wi-Fi facade, whose event handler has independent reconnect
+behavior and emits network identity at high framework log levels. The Cardputer
+build caps Arduino core logging at Info, and adapter compilation rejects Debug
+or Verbose levels.
 
 Adapter input is bounds-checked before copying into fixed ESP-IDF buffers.
 Polling confirms both current station association and an assigned IPv4 address

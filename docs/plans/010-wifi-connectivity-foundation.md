@@ -75,8 +75,8 @@ Contract rules:
   credentials so a later request can retry without a replacement disconnect;
 * calls are synchronous and single-threaded, and the adapter must not retain
   references passed by the caller;
-* the Service holds a non-owning adapter reference, so the adapter must outlive
-  it;
+* the Service holds a non-owning adapter reference and optional non-owning
+  logger pointer, so both injected objects must outlive it;
 * logs may describe state and retry outcomes but never the SSID, passphrase,
   BSSID, IP address, or traffic contents.
 
@@ -84,9 +84,10 @@ Add an ESP32 Wi-Fi adapter under `src/hardware/esp32/wifi/`:
 
 * use the ESP-IDF Wi-Fi APIs bundled with the pinned ESP32 Arduino framework;
 * configure station mode only and never start an access point;
-* exclusively own driver initialization, select RAM-backed credential storage,
-  roll back partial initialization, and avoid independent framework
-  reconnection behavior;
+* exclusively own driver initialization, construct the default station network
+  interface through checked primitives, select RAM-backed credential storage,
+  roll back partial initialization, and avoid independent framework reconnection
+  behavior;
 * begin connection attempts without waiting for association or DHCP;
 * bounds-check configuration before copying it into fixed driver buffers;
 * propagate driver connect and disconnect failures and translate association,
@@ -241,11 +242,12 @@ The completed change provides:
   credential data, plus a build-time guard against sensitive Arduino framework
   Debug and Verbose diagnostics;
 * `Esp32WifiAdapter`, which exclusively initializes the ESP-IDF Wi-Fi driver,
-  rolls back partial initialization, selects station mode and RAM-backed
-  configuration, starts one association per Service request, bounds-checks
-  fixed-buffer copies, distinguishes ordinary non-association from fatal query
-  errors, polls IPv4 readiness, propagates connect and disconnect failures, and
-  returns no RSSI when the live access-point record has disappeared;
+  constructs its station interface through checked primitives, rolls back
+  partial initialization, selects station mode and RAM-backed configuration,
+  starts one association per Service request, bounds-checks fixed-buffer copies,
+  distinguishes ordinary non-association from fatal query errors, polls IPv4
+  readiness, propagates connect and disconnect failures, and returns no RSSI
+  when the live access-point record has disappeared;
 * native source-filter integration and architecture/status documentation for
   the stable contract and its deferred scope.
 
@@ -269,12 +271,15 @@ operation result needed by the Service state machine.
 RAM storage is selected before station configuration, malformed direct adapter
 input is rejected before fixed-buffer copies, and preexisting Wi-Fi station
 interfaces or initialized drivers are rejected rather than inheriting unknown
-event, persistence, or retry policy. Partial initialization failures deinitialize
-the driver and destroy the adapter-created station interface, while access-point
-query failures other than ordinary non-association surface as fatal adapter
-errors. The Cardputer build caps Arduino core diagnostics at Info and the adapter
-has a compile-time guard preventing a later Debug/Verbose build from silently
-reintroducing sensitive framework output.
+event, persistence, or retry policy. The adapter avoids the aborting ESP-IDF
+default-interface convenience function and checks allocation, station
+attachment, and handler registration separately. Partial initialization
+failures deinitialize the driver and destroy the adapter-created station
+interface, while access-point query failures other than ordinary
+non-association surface as fatal adapter errors. The Cardputer build caps
+Arduino core diagnostics at Info and the adapter has a compile-time guard
+preventing a later Debug/Verbose build from silently reintroducing sensitive
+framework output.
 
 ### Verification
 

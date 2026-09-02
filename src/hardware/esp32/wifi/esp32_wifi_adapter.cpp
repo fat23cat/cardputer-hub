@@ -5,6 +5,7 @@
 #include <esp_err.h>
 #include <esp_event.h>
 #include <esp_netif.h>
+#include <esp_netif_defaults.h>
 #include <esp_wifi.h>
 #include <esp_wifi_default.h>
 
@@ -41,11 +42,30 @@ bool initializeWifiDriver() {
     return esp_wifi_init(&config) == ESP_OK;
 }
 
+void destroyStationInterface(esp_netif_t* interface) {
+    (void)esp_wifi_clear_default_wifi_driver_and_handlers(interface);
+    esp_netif_destroy(interface);
+}
+
+esp_netif_t* createStationInterface() {
+    esp_netif_config_t config = ESP_NETIF_DEFAULT_WIFI_STA();
+    auto* interface = esp_netif_new(&config);
+    if (interface == nullptr) {
+        return nullptr;
+    }
+    if (esp_netif_attach_wifi_station(interface) != ESP_OK ||
+        esp_wifi_set_default_wifi_sta_handlers() != ESP_OK) {
+        destroyStationInterface(interface);
+        return nullptr;
+    }
+    return interface;
+}
+
 void rollbackWifiInitialization(esp_netif_t* interface, bool driverInitialized) {
     if (driverInitialized) {
         (void)esp_wifi_deinit();
     }
-    esp_netif_destroy_default_wifi(interface);
+    destroyStationInterface(interface);
 }
 
 esp_netif_t* stationInterface() { return esp_netif_get_handle_from_ifkey(stationInterfaceKey); }
@@ -78,7 +98,7 @@ connectivity::WifiAdapterResult Esp32WifiAdapter::initializeStation() {
     if (!wifiDriverIsUninitialized() || stationInterface() != nullptr) {
         return connectivity::WifiAdapterResult::Error;
     }
-    auto* interface = esp_netif_create_default_wifi_sta();
+    auto* interface = createStationInterface();
     if (interface == nullptr) {
         return connectivity::WifiAdapterResult::Error;
     }
