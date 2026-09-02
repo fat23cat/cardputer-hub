@@ -223,8 +223,8 @@ The completed change provides:
   and no retry or status polling after explicit disconnect;
 * fixed-message Wi-Fi diagnostics that contain no SSID or passphrase data;
 * `Esp32WifiAdapter`, which selects station mode, disables Arduino credential
-  persistence, starts association without waiting, and translates framework
-  status and RSSI values;
+  persistence and automatic reconnection, starts association without waiting,
+  and translates framework status and RSSI values;
 * native source-filter integration and architecture/status documentation for
   the stable contract and its deferred scope.
 
@@ -236,8 +236,20 @@ Action, registry, and navigation behavior is unchanged.
 ### ESP32 Compilation
 
 The thin adapter passed strict Cardputer-Adv compilation against the pinned
-Arduino-ESP32 2.0.16 Wi-Fi API on its first build. No framework compatibility
-correction was required.
+Arduino-ESP32 2.0.16 Wi-Fi API. Review against that framework's source produced
+three corrections: automatic reconnection is explicitly disabled,
+`WL_DISCONNECTED` is treated as an asynchronous attempt in progress, and a
+`WL_CONNECT_FAILED` return from `WiFi.begin()` is treated as a synchronous
+launch failure. A stale `WL_NO_SHIELD` return is not treated as a launch error
+because station-start status is delivered asynchronously after successful
+initialization.
+
+Arduino-ESP32 2.0.16 still performs one unconditional internal reconnect on the
+first failed association. This cannot be disabled through its public Wi-Fi API,
+so it is contained within the Service's current 15-second attempt. The
+Service's explicit adapter disconnect before `RetryWaiting` produces a
+voluntary-disconnect event, for which the framework does not reconnect; all
+subsequent retries therefore remain owned by the Service backoff schedule.
 
 ### Verification
 

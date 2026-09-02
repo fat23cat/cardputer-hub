@@ -1626,9 +1626,14 @@ when media is refreshed and which logical files are used.
 
 Likewise, `WiFiService` and `IWifiAdapter` contain no Arduino or ESP32 types.
 `Esp32WifiAdapter` contains the framework Wi-Fi API, selects station mode only,
-disables framework credential persistence, begins attempts without blocking,
-and translates framework link status and RSSI into hardware-independent
-values. It is compiled but not constructed by `main.cpp`.
+disables framework credential persistence and automatic reconnection, begins
+attempts without blocking, and translates framework link status and RSSI into
+hardware-independent values. Arduino-ESP32 2.0.16 performs one unconditional
+internal reconnect on the first failed association even when automatic
+reconnection is disabled; that retry remains within the Service's current
+15-second attempt. The Service's explicit disconnect ends the attempt before
+entering `RetryWaiting`, so the framework cannot bypass later backoff. The
+adapter is compiled but not constructed by `main.cpp`.
 
 ---
 

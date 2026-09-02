@@ -6,6 +6,7 @@ namespace cardputer_hub::hardware {
 
 connectivity::WifiAdapterResult Esp32WifiAdapter::initializeStation() {
     WiFi.persistent(false);
+    (void)WiFi.setAutoReconnect(false);
     if (!WiFi.mode(WIFI_STA)) {
         return connectivity::WifiAdapterResult::Error;
     }
@@ -15,7 +16,7 @@ connectivity::WifiAdapterResult Esp32WifiAdapter::initializeStation() {
 connectivity::WifiAdapterResult
 Esp32WifiAdapter::connect(const connectivity::WifiNetworkConfig& config) {
     const auto result = WiFi.begin(config.ssid.c_str(), config.passphrase.c_str());
-    if (result == WL_NO_SHIELD) {
+    if (result == WL_CONNECT_FAILED) {
         return connectivity::WifiAdapterResult::Error;
     }
     return connectivity::WifiAdapterResult::Success;
@@ -29,13 +30,13 @@ connectivity::WifiAdapterState Esp32WifiAdapter::state() const {
         return connectivity::WifiAdapterState::Connected;
     case WL_IDLE_STATUS:
     case WL_SCAN_COMPLETED:
+    case WL_DISCONNECTED:
         return connectivity::WifiAdapterState::Connecting;
     case WL_NO_SHIELD:
         return connectivity::WifiAdapterState::Error;
     case WL_NO_SSID_AVAIL:
     case WL_CONNECT_FAILED:
     case WL_CONNECTION_LOST:
-    case WL_DISCONNECTED:
     default:
         return connectivity::WifiAdapterState::Disconnected;
     }
