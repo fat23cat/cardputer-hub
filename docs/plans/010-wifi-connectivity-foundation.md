@@ -244,7 +244,10 @@ launch failure. A stale `WL_NO_SHIELD` return is not treated as a launch error
 because station-start status is delivered asynchronously after successful
 initialization. A fourth correction verifies actual station association before
 accepting cached `WL_CONNECTED`, because an authentication-expiry event can
-leave that framework status stale.
+leave that framework status stale. A fifth correction removes `WiFi.begin()`
+from the launch-result path: the adapter now installs an in-RAM ESP-IDF station
+configuration and checks `esp_wifi_connect()` directly, so a stale cached
+`WL_CONNECT_FAILED` cannot terminate a successfully started Service retry.
 
 Arduino-ESP32 2.0.16 still performs one unconditional internal reconnect on the
 first failed association. This cannot be disabled through its public Wi-Fi API,

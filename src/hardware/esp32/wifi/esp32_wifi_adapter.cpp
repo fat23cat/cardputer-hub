@@ -1,5 +1,7 @@
 #include "hardware/esp32/wifi/esp32_wifi_adapter.h"
 
+#include <algorithm>
+
 #include <WiFi.h>
 #include <esp_wifi.h>
 
@@ -11,6 +13,19 @@ bool isStationAssociated() {
     return esp_wifi_sta_get_ap_info(&accessPoint) == ESP_OK;
 }
 
+wifi_config_t stationConfig(const connectivity::WifiNetworkConfig& config) {
+    wifi_config_t result{};
+    std::copy(config.ssid.begin(), config.ssid.end(), result.sta.ssid);
+    std::copy(config.passphrase.begin(), config.passphrase.end(), result.sta.password);
+    result.sta.scan_method = WIFI_FAST_SCAN;
+    result.sta.sort_method = WIFI_CONNECT_AP_BY_SIGNAL;
+    result.sta.threshold.rssi = -127;
+    result.sta.threshold.authmode = config.passphrase.empty() ? WIFI_AUTH_OPEN : WIFI_AUTH_WPA2_PSK;
+    result.sta.pmf_cfg.capable = true;
+    result.sta.pmf_cfg.required = false;
+    return result;
+}
+
 } // namespace
 
 connectivity::WifiAdapterResult Esp32WifiAdapter::initializeStation() {
@@ -19,13 +34,19 @@ connectivity::WifiAdapterResult Esp32WifiAdapter::initializeStation() {
     if (!WiFi.mode(WIFI_STA)) {
         return connectivity::WifiAdapterResult::Error;
     }
+    if (!WiFi.config(IPAddress(), IPAddress(), IPAddress())) {
+        return connectivity::WifiAdapterResult::Error;
+    }
     return connectivity::WifiAdapterResult::Success;
 }
 
 connectivity::WifiAdapterResult
 Esp32WifiAdapter::connect(const connectivity::WifiNetworkConfig& config) {
-    const auto result = WiFi.begin(config.ssid.c_str(), config.passphrase.c_str());
-    if (result == WL_CONNECT_FAILED) {
+    auto driverConfig = stationConfig(config);
+    if (esp_wifi_set_config(WIFI_IF_STA, &driverConfig) != ESP_OK) {
+        return connectivity::WifiAdapterResult::Error;
+    }
+    if (esp_wifi_connect() != ESP_OK) {
         return connectivity::WifiAdapterResult::Error;
     }
     return connectivity::WifiAdapterResult::Success;
