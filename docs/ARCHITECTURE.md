@@ -419,7 +419,9 @@ The public connection state is one of `Idle`, `Connecting`, `Connected`,
 `RetryWaiting`, or `Error`. A request starts synchronously without waiting for
 association or DHCP. Invalid input returns `InvalidConfig` without reaching the
 adapter or replacing active intent; an adapter operation that cannot start
-returns `AdapterError`. A valid replacement disconnects the previous target,
+returns `AdapterError`. Initialization or connection-launch failure clears the
+unstarted intent and its credentials, allowing a later request to retry without
+a replacement disconnect. A valid replacement disconnects the previous target,
 resets retry backoff, and starts immediately. If the previous target cannot be
 disconnected, replacement stops with `AdapterError` and enters `Error` without
 starting the new target. Explicit disconnect returns `Disconnected`, clears
@@ -1637,20 +1639,24 @@ when media is refreshed and which logical files are used.
 Likewise, `WiFiService` and `IWifiAdapter` contain no Arduino or ESP32 types.
 `Esp32WifiAdapter` contains the ESP-IDF Wi-Fi and network-interface APIs bundled
 with the pinned Arduino-ESP32 toolchain. It exclusively initializes the driver,
-selects station mode and RAM-backed configuration storage, begins exactly one
-association attempt per Service request, and propagates connect and disconnect
-operation failures. It does not initialize Arduino's Wi-Fi facade, whose event
-handler has independent reconnect behavior and emits network identity at high
-framework log levels. The Cardputer build caps Arduino core logging at Info,
-and adapter compilation rejects Debug or Verbose levels.
+rolls back its driver and default station interface after any partial
+initialization failure, selects station mode and RAM-backed configuration
+storage, begins exactly one association attempt per Service request, and
+propagates connect and disconnect operation failures. It does not initialize
+Arduino's Wi-Fi facade, whose event handler has independent reconnect behavior
+and emits network identity at high framework log levels. The Cardputer build
+caps Arduino core logging at Info, and adapter compilation rejects Debug or
+Verbose levels.
 
 Adapter input is bounds-checked before copying into fixed ESP-IDF buffers.
 Polling confirms both current station association and an assigned IPv4 address
 before reporting `Connected`; an unassociated or DHCP-pending attempt remains
 `Connecting` until the Service observes connection or applies its timeout.
-RSSI is optional and comes from the current ESP-IDF access-point record, so an
-asynchronous link loss cannot be mistaken for a valid measurement. The adapter
-is compiled but not constructed by `main.cpp`.
+Only ESP-IDF's ordinary not-connected result represents that in-progress state;
+other access-point query failures are fatal adapter errors. RSSI is optional and
+comes from the current ESP-IDF access-point record, so an asynchronous link loss
+cannot be mistaken for a valid measurement. The adapter is compiled but not
+constructed by `main.cpp`.
 
 ---
 

@@ -41,6 +41,13 @@ bool initializeWifiDriver() {
     return esp_wifi_init(&config) == ESP_OK;
 }
 
+void rollbackWifiInitialization(esp_netif_t* interface, bool driverInitialized) {
+    if (driverInitialized) {
+        (void)esp_wifi_deinit();
+    }
+    esp_netif_destroy_default_wifi(interface);
+}
+
 esp_netif_t* stationInterface() { return esp_netif_get_handle_from_ifkey(stationInterfaceKey); }
 
 bool copyStationConfig(const connectivity::WifiNetworkConfig& config, wifi_config_t& result) {
@@ -71,20 +78,28 @@ connectivity::WifiAdapterResult Esp32WifiAdapter::initializeStation() {
     if (!wifiDriverIsUninitialized() || stationInterface() != nullptr) {
         return connectivity::WifiAdapterResult::Error;
     }
-    if (esp_netif_create_default_wifi_sta() == nullptr) {
+    auto* interface = esp_netif_create_default_wifi_sta();
+    if (interface == nullptr) {
         return connectivity::WifiAdapterResult::Error;
     }
+    bool driverInitialized = false;
+    const auto fail = [&]() {
+        rollbackWifiInitialization(interface, driverInitialized);
+        return connectivity::WifiAdapterResult::Error;
+    };
+
     if (!initializeWifiDriver()) {
-        return connectivity::WifiAdapterResult::Error;
+        return fail();
     }
+    driverInitialized = true;
     if (esp_wifi_set_storage(WIFI_STORAGE_RAM) != ESP_OK) {
-        return connectivity::WifiAdapterResult::Error;
+        return fail();
     }
     if (esp_wifi_set_mode(WIFI_MODE_STA) != ESP_OK) {
-        return connectivity::WifiAdapterResult::Error;
+        return fail();
     }
     if (esp_wifi_start() != ESP_OK) {
-        return connectivity::WifiAdapterResult::Error;
+        return fail();
     }
     return connectivity::WifiAdapterResult::Success;
 }
@@ -117,8 +132,12 @@ connectivity::WifiAdapterState Esp32WifiAdapter::state() const {
     }
 
     wifi_ap_record_t accessPoint{};
-    if (esp_wifi_sta_get_ap_info(&accessPoint) != ESP_OK) {
+    const auto accessPointResult = esp_wifi_sta_get_ap_info(&accessPoint);
+    if (accessPointResult == ESP_ERR_WIFI_NOT_CONNECT) {
         return connectivity::WifiAdapterState::Connecting;
+    }
+    if (accessPointResult != ESP_OK) {
+        return connectivity::WifiAdapterState::Error;
     }
 
     esp_netif_ip_info_t ipInfo{};

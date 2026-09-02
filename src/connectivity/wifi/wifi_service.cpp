@@ -63,6 +63,7 @@ WifiConnectResult WiFiService::connect(const WifiNetworkConfig& config) {
 
     if (!initialized_) {
         if (adapter_.initializeStation() != WifiAdapterResult::Success) {
+            target_.reset();
             state_ = WifiState::Error;
             log(core::LogLevel::Error, "station initialization failed");
             return WifiConnectResult::AdapterError;
@@ -71,6 +72,7 @@ WifiConnectResult WiFiService::connect(const WifiNetworkConfig& config) {
     }
 
     if (adapter_.connect(*target_) != WifiAdapterResult::Success) {
+        target_.reset();
         state_ = WifiState::Error;
         log(core::LogLevel::Error, "connection attempt could not start");
         return WifiConnectResult::AdapterError;

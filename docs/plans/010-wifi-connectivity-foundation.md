@@ -71,6 +71,8 @@ Contract rules:
 * RSSI is exposed only while connected;
 * `Error` represents initialization or other non-retryable adapter failure;
   ordinary connection loss continues through the retry state machine;
+* initialization or connection-launch failure clears unstarted intent and
+  credentials so a later request can retry without a replacement disconnect;
 * calls are synchronous and single-threaded, and the adapter must not retain
   references passed by the caller;
 * the Service holds a non-owning adapter reference, so the adapter must outlive
@@ -83,7 +85,8 @@ Add an ESP32 Wi-Fi adapter under `src/hardware/esp32/wifi/`:
 * use the ESP-IDF Wi-Fi APIs bundled with the pinned ESP32 Arduino framework;
 * configure station mode only and never start an access point;
 * exclusively own driver initialization, select RAM-backed credential storage,
-  and avoid independent framework reconnection behavior;
+  roll back partial initialization, and avoid independent framework
+  reconnection behavior;
 * begin connection attempts without waiting for association or DHCP;
 * bounds-check configuration before copying it into fixed driver buffers;
 * propagate driver connect and disconnect failures and translate association,
@@ -206,7 +209,9 @@ corresponding hardware-independent behavior was implemented:
 7. disconnect-failure regression tests failed to compile until the adapter and
    Service contracts exposed operation results;
 8. the link-loss-before-RSSI-poll regression failed to compile until adapter
-   signal strength represented absence explicitly.
+   signal strength represented absence explicitly;
+9. retry-after-launch-failure regressions observed an unnecessary disconnect
+   until failed initialization and connection launch cleared unstarted intent.
 
 Each RED result was followed by the minimum behavior and a green focused suite
 before the next state-machine behavior was added. Additional green coverage
@@ -229,15 +234,17 @@ The completed change provides:
   adapter errors, a 15-second attempt timeout, and capped 1/2/4/8/16/30-second
   retry scheduling without a clock or sleep dependency;
 * retry reset after success or replacement, owned target data across retries,
-  and no retry or status polling after explicit disconnect;
+  no retry or status polling after explicit disconnect, and clean recovery on
+  a new request after initialization or connection-launch failure;
 * fixed-message Wi-Fi diagnostics that contain no network identity or
   credential data, plus a build-time guard against sensitive Arduino framework
   Debug and Verbose diagnostics;
 * `Esp32WifiAdapter`, which exclusively initializes the ESP-IDF Wi-Fi driver,
-  selects station mode and RAM-backed configuration, starts one association per
-  Service request, bounds-checks fixed-buffer copies, polls association and IPv4
-  readiness, propagates connect and disconnect failures, and returns no RSSI
-  when the live access-point record has disappeared;
+  rolls back partial initialization, selects station mode and RAM-backed
+  configuration, starts one association per Service request, bounds-checks
+  fixed-buffer copies, distinguishes ordinary non-association from fatal query
+  errors, polls IPv4 readiness, propagates connect and disconnect failures, and
+  returns no RSSI when the live access-point record has disappeared;
 * native source-filter integration and architecture/status documentation for
   the stable contract and its deferred scope.
 
@@ -261,25 +268,28 @@ operation result needed by the Service state machine.
 RAM storage is selected before station configuration, malformed direct adapter
 input is rejected before fixed-buffer copies, and preexisting Wi-Fi station
 interfaces or initialized drivers are rejected rather than inheriting unknown
-event, persistence, or retry policy. The Cardputer build caps Arduino core
-diagnostics at Info and the adapter has a compile-time guard preventing a later
-Debug/Verbose build from silently reintroducing sensitive framework output.
+event, persistence, or retry policy. Partial initialization failures deinitialize
+the driver and destroy the adapter-created station interface, while access-point
+query failures other than ordinary non-association surface as fatal adapter
+errors. The Cardputer build caps Arduino core diagnostics at Info and the adapter
+has a compile-time guard preventing a later Debug/Verbose build from silently
+reintroducing sensitive framework output.
 
 ### Verification
 
 The following checks passed:
 
 ```text
-focused test_wifi_service suite    30 cases passed
+focused test_wifi_service suite    32 cases passed
 make format                         passed
 make format-check                   passed (also exercised by make check)
 make lint                           native and Cardputer-Adv passed
-make test                           17 Python and 97 native cases passed
+make test                           17 Python and 99 native cases passed
 make build                          Cardputer-Adv firmware compiled
 make check                          lock and format checks passed
                                     native and Cardputer-Adv lint passed
                                     17 Python tests passed
-                                    97 native cases passed
+                                    99 native cases passed
                                     Cardputer-Adv firmware build passed
 ```
 

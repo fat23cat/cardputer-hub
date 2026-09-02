@@ -321,6 +321,48 @@ void test_initialization_and_connect_operation_failures_are_fatal() {
     TEST_ASSERT_EQUAL_INT(1, connectFailure.connectCount);
 }
 
+void test_new_request_retries_after_station_initialization_failure() {
+    FakeWifiAdapter adapter;
+    adapter.initializeResult = WifiAdapterResult::Error;
+    WiFiService service(adapter);
+
+    const auto failedResult = service.connect({"first-network", "first-password"});
+    adapter.initializeResult = WifiAdapterResult::Success;
+    const auto retryResult = service.connect({"second-network", "second-password"});
+
+    TEST_ASSERT_EQUAL_UINT8(static_cast<unsigned int>(WifiConnectResult::AdapterError),
+                            static_cast<unsigned int>(failedResult));
+    TEST_ASSERT_EQUAL_UINT8(static_cast<unsigned int>(WifiConnectResult::Started),
+                            static_cast<unsigned int>(retryResult));
+    TEST_ASSERT_EQUAL_UINT8(static_cast<unsigned int>(WifiState::Connecting),
+                            static_cast<unsigned int>(service.state()));
+    TEST_ASSERT_EQUAL_INT(2, adapter.initializeCount);
+    TEST_ASSERT_EQUAL_INT(1, adapter.connectCount);
+    TEST_ASSERT_EQUAL_INT(0, adapter.disconnectCount);
+    TEST_ASSERT_EQUAL_STRING("second-network", adapter.lastConfig.ssid.c_str());
+}
+
+void test_new_request_retries_after_connection_launch_failure() {
+    FakeWifiAdapter adapter;
+    adapter.connectResult = WifiAdapterResult::Error;
+    WiFiService service(adapter);
+
+    const auto failedResult = service.connect({"first-network", "first-password"});
+    adapter.connectResult = WifiAdapterResult::Success;
+    const auto retryResult = service.connect({"second-network", "second-password"});
+
+    TEST_ASSERT_EQUAL_UINT8(static_cast<unsigned int>(WifiConnectResult::AdapterError),
+                            static_cast<unsigned int>(failedResult));
+    TEST_ASSERT_EQUAL_UINT8(static_cast<unsigned int>(WifiConnectResult::Started),
+                            static_cast<unsigned int>(retryResult));
+    TEST_ASSERT_EQUAL_UINT8(static_cast<unsigned int>(WifiState::Connecting),
+                            static_cast<unsigned int>(service.state()));
+    TEST_ASSERT_EQUAL_INT(1, adapter.initializeCount);
+    TEST_ASSERT_EQUAL_INT(2, adapter.connectCount);
+    TEST_ASSERT_EQUAL_INT(0, adapter.disconnectCount);
+    TEST_ASSERT_EQUAL_STRING("second-network", adapter.lastConfig.ssid.c_str());
+}
+
 void test_fatal_polled_adapter_state_enters_error_without_retrying() {
     FakeWifiAdapter adapter;
     WiFiService service(adapter);
@@ -601,6 +643,8 @@ int main() {
     RUN_TEST(test_failed_attempt_and_unexpected_connection_loss_enter_retry_waiting);
     RUN_TEST(test_disconnect_failure_while_scheduling_retry_is_fatal);
     RUN_TEST(test_initialization_and_connect_operation_failures_are_fatal);
+    RUN_TEST(test_new_request_retries_after_station_initialization_failure);
+    RUN_TEST(test_new_request_retries_after_connection_launch_failure);
     RUN_TEST(test_fatal_polled_adapter_state_enters_error_without_retrying);
     RUN_TEST(test_state_query_never_polls_adapter);
     RUN_TEST(test_connecting_attempt_times_out_at_exactly_fifteen_seconds);
