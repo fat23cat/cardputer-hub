@@ -440,7 +440,7 @@ void test_retry_starts_only_at_exact_delay_boundary() {
     TEST_ASSERT_EQUAL_INT(2, adapter.connectCount);
 }
 
-void test_adapter_failure_while_starting_retry_is_fatal() {
+void test_retry_launch_failure_is_fatal_and_new_request_recovers() {
     FakeWifiAdapter adapter;
     WiFiService service(adapter);
     (void)service.connect({"network", "password"});
@@ -453,6 +453,18 @@ void test_adapter_failure_while_starting_retry_is_fatal() {
     TEST_ASSERT_EQUAL_UINT8(static_cast<unsigned int>(WifiState::Error),
                             static_cast<unsigned int>(service.state()));
     TEST_ASSERT_EQUAL_INT(2, adapter.connectCount);
+
+    adapter.connectResult = WifiAdapterResult::Success;
+    const auto recoveryResult = service.connect({"recovery-network", "recovery-password"});
+
+    TEST_ASSERT_EQUAL_UINT8(static_cast<unsigned int>(WifiConnectResult::Started),
+                            static_cast<unsigned int>(recoveryResult));
+    TEST_ASSERT_EQUAL_UINT8(static_cast<unsigned int>(WifiState::Connecting),
+                            static_cast<unsigned int>(service.state()));
+    TEST_ASSERT_EQUAL_INT(1, adapter.initializeCount);
+    TEST_ASSERT_EQUAL_INT(3, adapter.connectCount);
+    TEST_ASSERT_EQUAL_INT(1, adapter.disconnectCount);
+    TEST_ASSERT_EQUAL_STRING("recovery-network", adapter.lastConfig.ssid.c_str());
 }
 
 void test_retries_follow_capped_exponential_schedule_indefinitely() {
@@ -650,7 +662,7 @@ int main() {
     RUN_TEST(test_connecting_attempt_times_out_at_exactly_fifteen_seconds);
     RUN_TEST(test_disconnect_failure_at_attempt_timeout_is_fatal);
     RUN_TEST(test_retry_starts_only_at_exact_delay_boundary);
-    RUN_TEST(test_adapter_failure_while_starting_retry_is_fatal);
+    RUN_TEST(test_retry_launch_failure_is_fatal_and_new_request_recovers);
     RUN_TEST(test_retries_follow_capped_exponential_schedule_indefinitely);
     RUN_TEST(test_success_resets_next_retry_delay_to_one_second);
     RUN_TEST(test_replacement_resets_backoff_and_retry_uses_new_owned_target);

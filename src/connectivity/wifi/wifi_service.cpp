@@ -115,6 +115,7 @@ void WiFiService::update(std::chrono::milliseconds elapsed) {
 
         stateElapsed_ = std::chrono::milliseconds::zero();
         if (!target_.has_value() || adapter_.connect(*target_) != WifiAdapterResult::Success) {
+            target_.reset();
             state_ = WifiState::Error;
             log(core::LogLevel::Error, "retry attempt could not start");
             return;

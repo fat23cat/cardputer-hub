@@ -211,7 +211,8 @@ corresponding hardware-independent behavior was implemented:
 8. the link-loss-before-RSSI-poll regression failed to compile until adapter
    signal strength represented absence explicitly;
 9. retry-after-launch-failure regressions observed an unnecessary disconnect
-   until failed initialization and connection launch cleared unstarted intent.
+   until failed initialization, initial connection launch, and retry launch
+   cleared unstarted intent.
 
 Each RED result was followed by the minimum behavior and a green focused suite
 before the next state-machine behavior was added. Additional green coverage
