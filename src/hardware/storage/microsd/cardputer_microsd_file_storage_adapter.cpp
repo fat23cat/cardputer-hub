@@ -1,5 +1,6 @@
 #include "hardware/storage/microsd/cardputer_microsd_file_storage_adapter.h"
 
+#include <algorithm>
 #include <cerrno>
 #include <climits>
 #include <cstddef>
@@ -22,6 +23,24 @@ constexpr const char* mountPoint = "/sd";
 constexpr const char* managedRoot = "/cardputer-hub";
 constexpr std::size_t maxBackendSegmentLength = 255;
 
+bool isFatForbiddenCharacter(unsigned char character) {
+    constexpr std::string_view forbiddenCharacters = "\"*:<>?|";
+    return character < 0x20 || character == 0x7f ||
+           forbiddenCharacters.find(static_cast<char>(character)) != std::string_view::npos;
+}
+
+bool isValidBackendSegment(std::string_view segment) {
+    if (segment.empty() || segment == "." || segment == ".." ||
+        segment.size() > maxBackendSegmentLength || segment.back() == '.' ||
+        segment.back() == ' ') {
+        return false;
+    }
+
+    return std::none_of(segment.begin(), segment.end(), [](char character) {
+        return isFatForbiddenCharacter(static_cast<unsigned char>(character));
+    });
+}
+
 bool isSafeLogicalPath(std::string_view path) {
     if (path.empty() || path.front() == '/' || path.find('\\') != std::string_view::npos ||
         path.find('\0') != std::string_view::npos) {
@@ -34,8 +53,7 @@ bool isSafeLogicalPath(std::string_view path) {
         const std::size_t segmentEnd =
             separator == std::string_view::npos ? path.size() : separator;
         const auto segment = path.substr(segmentStart, segmentEnd - segmentStart);
-        if (segment.empty() || segment == "." || segment == ".." ||
-            segment.size() > maxBackendSegmentLength) {
+        if (!isValidBackendSegment(segment)) {
             return false;
         }
         if (separator == std::string_view::npos) {
@@ -218,6 +236,10 @@ CardputerMicroSdFileStorageAdapter::replace(const core::FileStoragePath& path,
             return core::FileWriteStatus::Unavailable;
         }
         return writeFailure(openError);
+    }
+    if (file.isDirectory()) {
+        file.close();
+        return core::FileWriteStatus::BackendError;
     }
 
     errno = 0;

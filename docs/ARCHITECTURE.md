@@ -1488,8 +1488,8 @@ Logical paths are non-empty `/`-separated strings. Absolute paths,
 backslashes, embedded NUL, empty segments, and `.` or `..` segments are
 rejected before reaching an adapter. Callers must not create sibling paths
 that differ only by case because matching depends on the mounted filesystem.
-Adapters report their own filename or total-path limits as `InvalidPath`
-without exposing those limits in the core contract.
+Adapters report their own filename rules or total-path limits as `InvalidPath`
+without exposing those backend details in the core contract.
 
 Reads require a non-zero maximum size. The adapter checks the file size before
 allocating its owned result, returns `TooLarge` without bytes when that bound

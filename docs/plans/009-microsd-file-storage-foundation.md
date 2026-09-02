@@ -277,6 +277,8 @@ The completed change provides:
   with all content confined below `/cardputer-hub`;
 * parent creation below the managed root, pre-allocation size checks, explicit
   handle closure, and flushed successful replacements;
+* adapter-side rejection of FatFs-invalid or normalized names, plus rejection
+  of directory handles as replacement targets;
 * documentation separating optional removable files from authoritative NVS
   configuration and recording completion of the Phase 1 foundations.
 
