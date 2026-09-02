@@ -1,8 +1,17 @@
 #include "hardware/esp32/wifi/esp32_wifi_adapter.h"
 
 #include <WiFi.h>
+#include <esp_wifi.h>
 
 namespace cardputer_hub::hardware {
+namespace {
+
+bool isStationAssociated() {
+    wifi_ap_record_t accessPoint{};
+    return esp_wifi_sta_get_ap_info(&accessPoint) == ESP_OK;
+}
+
+} // namespace
 
 connectivity::WifiAdapterResult Esp32WifiAdapter::initializeStation() {
     WiFi.persistent(false);
@@ -27,7 +36,8 @@ void Esp32WifiAdapter::disconnect() { (void)WiFi.disconnect(false, false); }
 connectivity::WifiAdapterState Esp32WifiAdapter::state() const {
     switch (WiFi.status()) {
     case WL_CONNECTED:
-        return connectivity::WifiAdapterState::Connected;
+        return isStationAssociated() ? connectivity::WifiAdapterState::Connected
+                                     : connectivity::WifiAdapterState::Disconnected;
     case WL_IDLE_STATUS:
     case WL_SCAN_COMPLETED:
     case WL_DISCONNECTED:

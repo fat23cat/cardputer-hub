@@ -242,7 +242,9 @@ three corrections: automatic reconnection is explicitly disabled,
 `WL_CONNECT_FAILED` return from `WiFi.begin()` is treated as a synchronous
 launch failure. A stale `WL_NO_SHIELD` return is not treated as a launch error
 because station-start status is delivered asynchronously after successful
-initialization.
+initialization. A fourth correction verifies actual station association before
+accepting cached `WL_CONNECTED`, because an authentication-expiry event can
+leave that framework status stale.
 
 Arduino-ESP32 2.0.16 still performs one unconditional internal reconnect on the
 first failed association. This cannot be disabled through its public Wi-Fi API,

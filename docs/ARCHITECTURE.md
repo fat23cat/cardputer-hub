@@ -1633,7 +1633,10 @@ internal reconnect on the first failed association even when automatic
 reconnection is disabled; that retry remains within the Service's current
 15-second attempt. The Service's explicit disconnect ends the attempt before
 entering `RetryWaiting`, so the framework cannot bypass later backoff. The
-adapter is compiled but not constructed by `main.cpp`.
+framework can also leave its cached status as connected after an
+authentication-expiry disconnect, so the adapter confirms actual station
+association before reporting `Connected`. The adapter is compiled but not
+constructed by `main.cpp`.
 
 ---
 
