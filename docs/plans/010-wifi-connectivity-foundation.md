@@ -204,7 +204,9 @@ corresponding hardware-independent behavior was implemented:
 6. connected-only signal-strength tests failed to link until RSSI access was
    implemented;
 7. disconnect-failure regression tests failed to compile until the adapter and
-   Service contracts exposed operation results.
+   Service contracts exposed operation results;
+8. the link-loss-before-RSSI-poll regression failed to compile until adapter
+   signal strength represented absence explicitly.
 
 Each RED result was followed by the minimum behavior and a green focused suite
 before the next state-machine behavior was added. Additional green coverage
@@ -234,7 +236,8 @@ The completed change provides:
 * `Esp32WifiAdapter`, which exclusively initializes the ESP-IDF Wi-Fi driver,
   selects station mode and RAM-backed configuration, starts one association per
   Service request, bounds-checks fixed-buffer copies, polls association and IPv4
-  readiness, and propagates connect and disconnect failures;
+  readiness, propagates connect and disconnect failures, and returns no RSSI
+  when the live access-point record has disappeared;
 * native source-filter integration and architecture/status documentation for
   the stable contract and its deferred scope.
 
@@ -267,7 +270,7 @@ Debug/Verbose build from silently reintroducing sensitive framework output.
 The following checks passed:
 
 ```text
-focused test_wifi_service suite    29 cases passed
+focused test_wifi_service suite    30 cases passed
 make format                         passed
 make format-check                   passed (also exercised by make check)
 make lint                           native and Cardputer-Adv passed
@@ -276,7 +279,7 @@ make build                          Cardputer-Adv firmware compiled
 make check                          lock and format checks passed
                                     native and Cardputer-Adv lint passed
                                     17 Python tests passed
-                                    96 native cases passed
+                                    97 native cases passed
                                     Cardputer-Adv firmware build passed
 ```
 

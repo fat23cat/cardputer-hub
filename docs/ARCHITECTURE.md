@@ -437,7 +437,9 @@ times out after 15 seconds. Ordinary failure or loss waits 1, 2, 4, 8, 16, and
 then 30 seconds between attempts, remaining capped at 30 seconds. Success and
 valid target replacement reset the next delay to one second. Initialization
 and fatal adapter failures enter `Error`; ordinary connection failures remain
-retryable. Signal strength in dBm is available only in `Connected` state.
+retryable. Signal strength in dBm is available only in `Connected` state and
+only while the adapter can still retrieve a live access-point record; a link
+loss between Service updates returns no value rather than a sentinel RSSI.
 
 Calls are synchronous and single-threaded. `WiFiService` owns configuration
 copies but holds a non-owning adapter reference, so the adapter must outlive the
@@ -1646,8 +1648,9 @@ Adapter input is bounds-checked before copying into fixed ESP-IDF buffers.
 Polling confirms both current station association and an assigned IPv4 address
 before reporting `Connected`; an unassociated or DHCP-pending attempt remains
 `Connecting` until the Service observes connection or applies its timeout.
-RSSI comes from the current ESP-IDF access-point record. The adapter is compiled
-but not constructed by `main.cpp`.
+RSSI is optional and comes from the current ESP-IDF access-point record, so an
+asynchronous link loss cannot be mistaken for a valid measurement. The adapter
+is compiled but not constructed by `main.cpp`.
 
 ---
 

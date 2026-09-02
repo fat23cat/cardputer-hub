@@ -54,7 +54,7 @@ class IWifiAdapter {
     virtual WifiAdapterResult connect(const WifiNetworkConfig& config) = 0;
     virtual WifiAdapterResult disconnect() = 0;
     virtual WifiAdapterState state() const = 0;
-    virtual std::int32_t signalStrengthDbm() const = 0;
+    virtual std::optional<std::int32_t> signalStrengthDbm() const = 0;
 };
 
 class WiFiService {

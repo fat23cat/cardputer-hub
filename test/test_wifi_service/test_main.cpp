@@ -59,7 +59,7 @@ class FakeWifiAdapter final : public IWifiAdapter {
         ++stateCount;
         return linkState;
     }
-    std::int32_t signalStrengthDbm() const override {
+    std::optional<std::int32_t> signalStrengthDbm() const override {
         ++rssiCount;
         return rssi;
     }
@@ -73,7 +73,7 @@ class FakeWifiAdapter final : public IWifiAdapter {
     WifiAdapterResult connectResult = WifiAdapterResult::Success;
     WifiAdapterResult disconnectResult = WifiAdapterResult::Success;
     WifiAdapterState linkState = WifiAdapterState::Connecting;
-    std::int32_t rssi = -50;
+    std::optional<std::int32_t> rssi = -50;
     WifiNetworkConfig lastConfig;
     std::vector<WifiNetworkConfig> configs;
 };
@@ -542,6 +542,22 @@ void test_signal_strength_is_hidden_after_adapter_error() {
     TEST_ASSERT_EQUAL_INT(0, adapter.rssiCount);
 }
 
+void test_signal_strength_is_hidden_when_link_drops_before_next_update() {
+    FakeWifiAdapter adapter;
+    WiFiService service(adapter);
+    (void)service.connect({"network", "password"});
+    adapter.linkState = WifiAdapterState::Connected;
+    service.update(std::chrono::milliseconds::zero());
+    adapter.rssi = std::nullopt;
+
+    const auto result = service.signalStrengthDbm();
+
+    TEST_ASSERT_FALSE(result.has_value());
+    TEST_ASSERT_EQUAL_INT(1, adapter.rssiCount);
+    TEST_ASSERT_EQUAL_UINT8(static_cast<unsigned int>(WifiState::Connected),
+                            static_cast<unsigned int>(service.state()));
+}
+
 void test_logs_describe_wifi_outcomes_without_network_identity_or_credentials() {
     FakeWifiAdapter adapter;
     CapturingLogSink sink;
@@ -597,6 +613,7 @@ int main() {
     RUN_TEST(test_invalid_replacement_preserves_target_used_by_retry);
     RUN_TEST(test_signal_strength_is_forwarded_only_while_connected);
     RUN_TEST(test_signal_strength_is_hidden_after_adapter_error);
+    RUN_TEST(test_signal_strength_is_hidden_when_link_drops_before_next_update);
     RUN_TEST(test_logs_describe_wifi_outcomes_without_network_identity_or_credentials);
     return UNITY_END();
 }

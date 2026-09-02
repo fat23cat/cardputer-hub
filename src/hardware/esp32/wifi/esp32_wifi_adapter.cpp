@@ -129,9 +129,12 @@ connectivity::WifiAdapterState Esp32WifiAdapter::state() const {
                                : connectivity::WifiAdapterState::Connected;
 }
 
-std::int32_t Esp32WifiAdapter::signalStrengthDbm() const {
+std::optional<std::int32_t> Esp32WifiAdapter::signalStrengthDbm() const {
     wifi_ap_record_t accessPoint{};
-    return esp_wifi_sta_get_ap_info(&accessPoint) == ESP_OK ? accessPoint.rssi : 0;
+    if (esp_wifi_sta_get_ap_info(&accessPoint) != ESP_OK) {
+        return std::nullopt;
+    }
+    return accessPoint.rssi;
 }
 
 } // namespace cardputer_hub::hardware
