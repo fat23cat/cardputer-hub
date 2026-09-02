@@ -1015,7 +1015,10 @@ Action routing
 configuration loading
 ```
 
-Logging should not expose credentials or secrets.
+Logging should not expose credentials, secrets, or network identity. This
+applies to framework and dependency diagnostics as well as project-owned log
+records; dependency log levels must be capped when their higher levels expose
+such data.
 
 Log levels should be configurable where practical.
 

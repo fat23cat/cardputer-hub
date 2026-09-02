@@ -220,7 +220,7 @@ dynamic capability registration and enumeration, owned application metadata
 validation and lookup, bounded logical file-storage operations, and System
 Core boot and update orchestration. They also cover Wi-Fi configuration
 validation, connection state, timeout and capped retry timing, connected-only
-RSSI access, and credential-free diagnostics.
+RSSI access, disconnect-error propagation, and credential-free diagnostics.
 
 Run formatting and static analysis separately with:
 

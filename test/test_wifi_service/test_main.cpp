@@ -13,6 +13,7 @@ using cardputer_hub::connectivity::IWifiAdapter;
 using cardputer_hub::connectivity::WifiAdapterResult;
 using cardputer_hub::connectivity::WifiAdapterState;
 using cardputer_hub::connectivity::WifiConnectResult;
+using cardputer_hub::connectivity::WifiDisconnectResult;
 using cardputer_hub::connectivity::WifiNetworkConfig;
 using cardputer_hub::connectivity::WiFiService;
 using cardputer_hub::connectivity::WifiState;
@@ -50,7 +51,10 @@ class FakeWifiAdapter final : public IWifiAdapter {
         return connectResult;
     }
 
-    void disconnect() override { ++disconnectCount; }
+    WifiAdapterResult disconnect() override {
+        ++disconnectCount;
+        return disconnectResult;
+    }
     WifiAdapterState state() const override {
         ++stateCount;
         return linkState;
@@ -67,6 +71,7 @@ class FakeWifiAdapter final : public IWifiAdapter {
     mutable int rssiCount = 0;
     WifiAdapterResult initializeResult = WifiAdapterResult::Success;
     WifiAdapterResult connectResult = WifiAdapterResult::Success;
+    WifiAdapterResult disconnectResult = WifiAdapterResult::Success;
     WifiAdapterState linkState = WifiAdapterState::Connecting;
     std::int32_t rssi = -50;
     WifiNetworkConfig lastConfig;
@@ -162,6 +167,23 @@ void test_valid_replacement_disconnects_previous_target_and_starts_immediately()
     TEST_ASSERT_EQUAL_STRING("second-password", adapter.lastConfig.passphrase.c_str());
 }
 
+void test_replacement_disconnect_failure_is_fatal_and_does_not_start_new_target() {
+    FakeWifiAdapter adapter;
+    WiFiService service(adapter);
+    (void)service.connect({"first-network", "first-password"});
+    adapter.disconnectResult = WifiAdapterResult::Error;
+
+    const auto result = service.connect({"second-network", "second-password"});
+
+    TEST_ASSERT_EQUAL_UINT8(static_cast<unsigned int>(WifiConnectResult::AdapterError),
+                            static_cast<unsigned int>(result));
+    TEST_ASSERT_EQUAL_UINT8(static_cast<unsigned int>(WifiState::Error),
+                            static_cast<unsigned int>(service.state()));
+    TEST_ASSERT_EQUAL_INT(1, adapter.connectCount);
+    TEST_ASSERT_EQUAL_INT(1, adapter.disconnectCount);
+    TEST_ASSERT_EQUAL_STRING("first-network", adapter.lastConfig.ssid.c_str());
+}
+
 void test_invalid_replacement_does_not_touch_adapter_or_active_state() {
     FakeWifiAdapter adapter;
     WiFiService service(adapter);
@@ -183,14 +205,38 @@ void test_explicit_disconnect_cancels_active_intent_and_returns_idle() {
     WiFiService service(adapter);
     (void)service.connect({"network", "password"});
 
-    service.disconnect();
+    const auto result = service.disconnect();
     service.update(std::chrono::hours(1));
 
+    TEST_ASSERT_EQUAL_UINT8(static_cast<unsigned int>(WifiDisconnectResult::Disconnected),
+                            static_cast<unsigned int>(result));
     TEST_ASSERT_EQUAL_UINT8(static_cast<unsigned int>(WifiState::Idle),
                             static_cast<unsigned int>(service.state()));
     TEST_ASSERT_EQUAL_INT(1, adapter.disconnectCount);
     TEST_ASSERT_EQUAL_INT(1, adapter.connectCount);
     TEST_ASSERT_EQUAL_INT(0, adapter.stateCount);
+}
+
+void test_explicit_disconnect_reports_adapter_failure_and_clears_intent() {
+    FakeWifiAdapter adapter;
+    WiFiService service(adapter);
+    (void)service.connect({"network", "password"});
+    adapter.disconnectResult = WifiAdapterResult::Error;
+
+    const auto result = service.disconnect();
+    service.update(std::chrono::hours(1));
+
+    TEST_ASSERT_EQUAL_UINT8(static_cast<unsigned int>(WifiDisconnectResult::AdapterError),
+                            static_cast<unsigned int>(result));
+    TEST_ASSERT_EQUAL_UINT8(static_cast<unsigned int>(WifiState::Error),
+                            static_cast<unsigned int>(service.state()));
+    TEST_ASSERT_EQUAL_INT(1, adapter.disconnectCount);
+    TEST_ASSERT_EQUAL_INT(1, adapter.connectCount);
+
+    const auto repeatedResult = service.disconnect();
+    TEST_ASSERT_EQUAL_UINT8(static_cast<unsigned int>(WifiDisconnectResult::Disconnected),
+                            static_cast<unsigned int>(repeatedResult));
+    TEST_ASSERT_EQUAL_INT(1, adapter.disconnectCount);
 }
 
 void test_update_observes_successful_connection() {
@@ -230,6 +276,21 @@ void test_failed_attempt_and_unexpected_connection_loss_enter_retry_waiting() {
     TEST_ASSERT_EQUAL_UINT8(static_cast<unsigned int>(WifiState::RetryWaiting),
                             static_cast<unsigned int>(lostConnection.state()));
     TEST_ASSERT_EQUAL_INT(1, lostConnectionAdapter.disconnectCount);
+}
+
+void test_disconnect_failure_while_scheduling_retry_is_fatal() {
+    FakeWifiAdapter adapter;
+    WiFiService service(adapter);
+    (void)service.connect({"network", "password"});
+    adapter.linkState = WifiAdapterState::Disconnected;
+    adapter.disconnectResult = WifiAdapterResult::Error;
+
+    service.update(std::chrono::milliseconds::zero());
+
+    TEST_ASSERT_EQUAL_UINT8(static_cast<unsigned int>(WifiState::Error),
+                            static_cast<unsigned int>(service.state()));
+    TEST_ASSERT_EQUAL_INT(1, adapter.disconnectCount);
+    TEST_ASSERT_EQUAL_INT(1, adapter.connectCount);
 }
 
 void test_initialization_and_connect_operation_failures_are_fatal() {
@@ -300,6 +361,20 @@ void test_connecting_attempt_times_out_at_exactly_fifteen_seconds() {
     TEST_ASSERT_EQUAL_UINT8(static_cast<unsigned int>(WifiState::RetryWaiting),
                             static_cast<unsigned int>(service.state()));
     TEST_ASSERT_EQUAL_INT(1, adapter.disconnectCount);
+}
+
+void test_disconnect_failure_at_attempt_timeout_is_fatal() {
+    FakeWifiAdapter adapter;
+    WiFiService service(adapter);
+    (void)service.connect({"network", "password"});
+    adapter.disconnectResult = WifiAdapterResult::Error;
+
+    service.update(std::chrono::seconds(15));
+
+    TEST_ASSERT_EQUAL_UINT8(static_cast<unsigned int>(WifiState::Error),
+                            static_cast<unsigned int>(service.state()));
+    TEST_ASSERT_EQUAL_INT(1, adapter.disconnectCount);
+    TEST_ASSERT_EQUAL_INT(1, adapter.connectCount);
 }
 
 void test_retry_starts_only_at_exact_delay_boundary() {
@@ -502,14 +577,18 @@ int main() {
     RUN_TEST(test_passphrase_rejects_embedded_nul);
     RUN_TEST(test_valid_request_starts_immediately_and_copies_configuration);
     RUN_TEST(test_valid_replacement_disconnects_previous_target_and_starts_immediately);
+    RUN_TEST(test_replacement_disconnect_failure_is_fatal_and_does_not_start_new_target);
     RUN_TEST(test_invalid_replacement_does_not_touch_adapter_or_active_state);
     RUN_TEST(test_explicit_disconnect_cancels_active_intent_and_returns_idle);
+    RUN_TEST(test_explicit_disconnect_reports_adapter_failure_and_clears_intent);
     RUN_TEST(test_update_observes_successful_connection);
     RUN_TEST(test_failed_attempt_and_unexpected_connection_loss_enter_retry_waiting);
+    RUN_TEST(test_disconnect_failure_while_scheduling_retry_is_fatal);
     RUN_TEST(test_initialization_and_connect_operation_failures_are_fatal);
     RUN_TEST(test_fatal_polled_adapter_state_enters_error_without_retrying);
     RUN_TEST(test_state_query_never_polls_adapter);
     RUN_TEST(test_connecting_attempt_times_out_at_exactly_fifteen_seconds);
+    RUN_TEST(test_disconnect_failure_at_attempt_timeout_is_fatal);
     RUN_TEST(test_retry_starts_only_at_exact_delay_boundary);
     RUN_TEST(test_adapter_failure_while_starting_retry_is_fatal);
     RUN_TEST(test_retries_follow_capped_exponential_schedule_indefinitely);

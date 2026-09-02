@@ -420,8 +420,12 @@ The public connection state is one of `Idle`, `Connecting`, `Connected`,
 association or DHCP. Invalid input returns `InvalidConfig` without reaching the
 adapter or replacing active intent; an adapter operation that cannot start
 returns `AdapterError`. A valid replacement disconnects the previous target,
-resets retry backoff, and starts immediately. Explicit disconnect cancels
-future retries, clears Service-owned credentials, and returns to `Idle`.
+resets retry backoff, and starts immediately. If the previous target cannot be
+disconnected, replacement stops with `AdapterError` and enters `Error` without
+starting the new target. Explicit disconnect returns `Disconnected`, clears
+future intent and Service-owned credentials, and returns to `Idle`. A hardware
+disconnect failure instead returns `AdapterError` and enters `Error`, while
+still clearing future Service retry intent and credentials.
 
 SSIDs contain 1-32 bytes with no embedded NUL. Passphrases are empty for open
 networks, 8-63 bytes for personal WPA, or exactly 64 hexadecimal digits for a
@@ -1504,12 +1508,13 @@ serialization, defaults, domain validation, and migrations.
 
 The Phase 2 Wi-Fi foundation does not persist credentials. Connection
 configuration is supplied in memory to `WiFiService`, and the ESP32 adapter
-disables the Arduino framework's Wi-Fi credential persistence and explicitly
-selects RAM-backed driver storage after station initialization. The explicit
-driver setting also covers cases where another component initialized Wi-Fi
-first. A future `ConfigurationService` owns the persistent Wi-Fi schema,
-validation beyond the connectivity boundary, defaults, migrations, and storage
-policy.
+selects RAM-backed ESP-IDF driver storage before applying station
+configuration. The adapter is the exclusive Wi-Fi station-interface and driver
+owner and fails initialization if another component has already created or
+initialized either resource, which prevents unknown persistence, event, or
+retry policy from being inherited. A future `ConfigurationService` owns the
+persistent Wi-Fi schema, validation beyond the connectivity boundary, defaults,
+migrations, and storage policy.
 
 Firmware distribution must pair the application image with its partition
 table. Installation from the earlier 8 MiB layout requires one explicit,
@@ -1628,19 +1633,21 @@ not part of `SystemRuntime`; a future Service or composition owner will decide
 when media is refreshed and which logical files are used.
 
 Likewise, `WiFiService` and `IWifiAdapter` contain no Arduino or ESP32 types.
-`Esp32WifiAdapter` contains the framework Wi-Fi API, selects station mode only,
-disables framework credential persistence and automatic reconnection, begins
-attempts without blocking, and translates framework link status and RSSI into
-hardware-independent values. Connection launch uses ESP-IDF configuration and
-connect return codes rather than treating Arduino's cached asynchronous status
-as an operation result. Arduino-ESP32 2.0.16 performs one unconditional internal
-reconnect on the first failed association even when automatic reconnection is
-disabled; that retry remains within the Service's current 15-second attempt.
-The Service's explicit disconnect ends the attempt before entering
-`RetryWaiting`, so the framework cannot bypass later backoff. The framework can
-also leave its cached status as connected after an authentication-expiry
-disconnect, so the adapter confirms actual station association before reporting
-`Connected`. The adapter is compiled but not constructed by `main.cpp`.
+`Esp32WifiAdapter` contains the ESP-IDF Wi-Fi and network-interface APIs bundled
+with the pinned Arduino-ESP32 toolchain. It exclusively initializes the driver,
+selects station mode and RAM-backed configuration storage, begins exactly one
+association attempt per Service request, and propagates connect and disconnect
+operation failures. It does not initialize Arduino's Wi-Fi facade, whose event
+handler has independent reconnect behavior and emits network identity at high
+framework log levels. The Cardputer build caps Arduino core logging at Info,
+and adapter compilation rejects Debug or Verbose levels.
+
+Adapter input is bounds-checked before copying into fixed ESP-IDF buffers.
+Polling confirms both current station association and an assigned IPv4 address
+before reporting `Connected`; an unassociated or DHCP-pending attempt remains
+`Connecting` until the Service observes connection or applies its timeout.
+RSSI comes from the current ESP-IDF access-point record. The adapter is compiled
+but not constructed by `main.cpp`.
 
 ---
 

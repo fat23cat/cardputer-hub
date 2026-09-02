@@ -41,6 +41,7 @@ Add the hardware-independent API under `src/connectivity/wifi/`:
 * `WifiNetworkConfig`: owned SSID and passphrase;
 * `WifiState`: `Idle`, `Connecting`, `Connected`, `RetryWaiting`, or `Error`;
 * `WifiConnectResult`: `Started`, `InvalidConfig`, or `AdapterError`;
+* `WifiDisconnectResult`: `Disconnected` or `AdapterError`;
 * `IWifiAdapter`: station initialization, connection, disconnection, link-state,
   and RSSI operations;
 * `WiFiService`: `connect`, `disconnect`, `update(elapsed)`, `state`, and
@@ -55,8 +56,10 @@ Contract rules:
 * invalid configuration never reaches the adapter or replaces active intent;
 * a new valid connection request replaces the previous target and starts an
   immediate attempt;
-* an explicit disconnect cancels connection and retry intent, returns the
-  Service to `Idle`, and clears its in-memory credentials;
+* an explicit disconnect cancels connection and retry intent and clears its
+  in-memory credentials; it returns `Disconnected` and enters `Idle` on
+  success, or returns `AdapterError` and enters `Error` when the hardware
+  operation fails;
 * `update(elapsed)` is non-blocking and receives elapsed monotonic time from its
   eventual composition owner, avoiding dependence on Arduino clocks;
 * an attempt that remains incomplete for 15 seconds is disconnected and
@@ -77,12 +80,14 @@ Contract rules:
 
 Add an ESP32 Wi-Fi adapter under `src/hardware/esp32/wifi/`:
 
-* use the Wi-Fi library bundled with the pinned ESP32 Arduino framework;
+* use the ESP-IDF Wi-Fi APIs bundled with the pinned ESP32 Arduino framework;
 * configure station mode only and never start an access point;
-* disable framework credential persistence so this adapter cannot bypass the
-  future `ConfigurationService`;
+* exclusively own driver initialization, select RAM-backed credential storage,
+  and avoid independent framework reconnection behavior;
 * begin connection attempts without waiting for association or DHCP;
-* translate framework status and RSSI values into hardware-independent types;
+* bounds-check configuration before copying it into fixed driver buffers;
+* propagate driver connect and disconnect failures and translate association,
+  IPv4 readiness, and RSSI into hardware-independent values;
 * contain all Arduino, ESP32, and Wi-Fi-library headers inside the adapter.
 
 ## 3. Granular TDD Implementation Sequence
@@ -197,7 +202,9 @@ corresponding hardware-independent behavior was implemented:
 5. the exact timeout and retry-boundary cases failed because no timed state
    transitions existed;
 6. connected-only signal-strength tests failed to link until RSSI access was
-   implemented.
+   implemented;
+7. disconnect-failure regression tests failed to compile until the adapter and
+   Service contracts exposed operation results.
 
 Each RED result was followed by the minimum behavior and a green focused suite
 before the next state-machine behavior was added. Additional green coverage
@@ -221,10 +228,13 @@ The completed change provides:
   retry scheduling without a clock or sleep dependency;
 * retry reset after success or replacement, owned target data across retries,
   and no retry or status polling after explicit disconnect;
-* fixed-message Wi-Fi diagnostics that contain no SSID or passphrase data;
-* `Esp32WifiAdapter`, which selects station mode, disables Arduino credential
-  persistence and automatic reconnection, starts association without waiting,
-  and translates framework status and RSSI values;
+* fixed-message Wi-Fi diagnostics that contain no network identity or
+  credential data, plus a build-time guard against sensitive Arduino framework
+  Debug and Verbose diagnostics;
+* `Esp32WifiAdapter`, which exclusively initializes the ESP-IDF Wi-Fi driver,
+  selects station mode and RAM-backed configuration, starts one association per
+  Service request, bounds-checks fixed-buffer copies, polls association and IPv4
+  readiness, and propagates connect and disconnect failures;
 * native source-filter integration and architecture/status documentation for
   the stable contract and its deferred scope.
 
@@ -235,36 +245,29 @@ Action, registry, and navigation behavior is unchanged.
 
 ### ESP32 Compilation
 
-The thin adapter passed strict Cardputer-Adv compilation against the pinned
-Arduino-ESP32 2.0.16 Wi-Fi API. Review against that framework's source produced
-three corrections: automatic reconnection is explicitly disabled,
-`WL_DISCONNECTED` is treated as an asynchronous attempt in progress, and a
-`WL_CONNECT_FAILED` return from `WiFi.begin()` is treated as a synchronous
-launch failure. A stale `WL_NO_SHIELD` return is not treated as a launch error
-because station-start status is delivered asynchronously after successful
-initialization. A fourth correction verifies actual station association before
-accepting cached `WL_CONNECTED`, because an authentication-expiry event can
-leave that framework status stale. A fifth correction removes `WiFi.begin()`
-from the launch-result path: the adapter now installs an in-RAM ESP-IDF station
-configuration and checks `esp_wifi_connect()` directly, so a stale cached
-`WL_CONNECT_FAILED` cannot terminate a successfully started Service retry. A
-sixth correction explicitly selects ESP-IDF RAM storage after station mode is
-available, preventing credentials from being written to flash even when
-another component initialized the Wi-Fi driver first.
+The thin adapter passed strict Cardputer-Adv compilation against the ESP-IDF
+Wi-Fi APIs bundled with Arduino-ESP32 2.0.16. Framework review showed that the
+Arduino Wi-Fi facade has cached status edge cases, an unconditional first
+reconnect that can also occur after an established link is lost, and
+Debug/Verbose event logs containing SSIDs, BSSIDs, and assigned IP data. The
+final adapter therefore does not initialize or link that facade. It owns the
+ESP-IDF driver lifecycle directly, uses the driver's single-attempt connect
+operation, polls live association and IPv4 state, and returns every driver
+operation result needed by the Service state machine.
 
-Arduino-ESP32 2.0.16 still performs one unconditional internal reconnect on the
-first failed association. This cannot be disabled through its public Wi-Fi API,
-so it is contained within the Service's current 15-second attempt. The
-Service's explicit adapter disconnect before `RetryWaiting` produces a
-voluntary-disconnect event, for which the framework does not reconnect; all
-subsequent retries therefore remain owned by the Service backoff schedule.
+RAM storage is selected before station configuration, malformed direct adapter
+input is rejected before fixed-buffer copies, and preexisting Wi-Fi station
+interfaces or initialized drivers are rejected rather than inheriting unknown
+event, persistence, or retry policy. The Cardputer build caps Arduino core
+diagnostics at Info and the adapter has a compile-time guard preventing a later
+Debug/Verbose build from silently reintroducing sensitive framework output.
 
 ### Verification
 
 The following checks passed:
 
 ```text
-focused test_wifi_service suite    25 cases passed
+focused test_wifi_service suite    29 cases passed
 make format                         passed
 make format-check                   passed (also exercised by make check)
 make lint                           native and Cardputer-Adv passed
@@ -273,7 +276,7 @@ make build                          Cardputer-Adv firmware compiled
 make check                          lock and format checks passed
                                     native and Cardputer-Adv lint passed
                                     17 Python tests passed
-                                    92 native cases passed
+                                    96 native cases passed
                                     Cardputer-Adv firmware build passed
 ```
 

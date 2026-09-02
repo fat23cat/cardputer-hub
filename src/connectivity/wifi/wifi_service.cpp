@@ -50,7 +50,12 @@ WifiConnectResult WiFiService::connect(const WifiNetworkConfig& config) {
     }
 
     if (target_.has_value()) {
-        adapter_.disconnect();
+        if (adapter_.disconnect() != WifiAdapterResult::Success) {
+            state_ = WifiState::Error;
+            stateElapsed_ = std::chrono::milliseconds::zero();
+            log(core::LogLevel::Error, "active connection could not stop");
+            return WifiConnectResult::AdapterError;
+        }
     }
     target_ = config;
     stateElapsed_ = std::chrono::milliseconds::zero();
@@ -76,15 +81,22 @@ WifiConnectResult WiFiService::connect(const WifiNetworkConfig& config) {
     return WifiConnectResult::Started;
 }
 
-void WiFiService::disconnect() {
+WifiDisconnectResult WiFiService::disconnect() {
+    auto result = WifiDisconnectResult::Disconnected;
     if (target_.has_value()) {
-        adapter_.disconnect();
+        if (adapter_.disconnect() != WifiAdapterResult::Success) {
+            result = WifiDisconnectResult::AdapterError;
+        }
     }
     target_.reset();
-    state_ = WifiState::Idle;
+    state_ = result == WifiDisconnectResult::Disconnected ? WifiState::Idle : WifiState::Error;
     stateElapsed_ = std::chrono::milliseconds::zero();
     retryIndex_ = 0;
-    log(core::LogLevel::Info, "connection intent cleared");
+    log(result == WifiDisconnectResult::Disconnected ? core::LogLevel::Info : core::LogLevel::Error,
+        result == WifiDisconnectResult::Disconnected
+            ? "connection intent cleared"
+            : "connection intent cleared with adapter error");
+    return result;
 }
 
 void WiFiService::update(std::chrono::milliseconds elapsed) {
@@ -137,7 +149,12 @@ void WiFiService::update(std::chrono::milliseconds elapsed) {
     }
 
     if (adapterState == WifiAdapterState::Disconnected || state_ == WifiState::Connected) {
-        adapter_.disconnect();
+        if (adapter_.disconnect() != WifiAdapterResult::Success) {
+            state_ = WifiState::Error;
+            stateElapsed_ = std::chrono::milliseconds::zero();
+            log(core::LogLevel::Error, "failed connection could not stop");
+            return;
+        }
         state_ = WifiState::RetryWaiting;
         stateElapsed_ = std::chrono::milliseconds::zero();
         log(core::LogLevel::Warning, "connection retry scheduled");
@@ -145,7 +162,12 @@ void WiFiService::update(std::chrono::milliseconds elapsed) {
     }
 
     if (elapsed >= attemptTimeout - stateElapsed_) {
-        adapter_.disconnect();
+        if (adapter_.disconnect() != WifiAdapterResult::Success) {
+            state_ = WifiState::Error;
+            stateElapsed_ = std::chrono::milliseconds::zero();
+            log(core::LogLevel::Error, "timed-out connection could not stop");
+            return;
+        }
         state_ = WifiState::RetryWaiting;
         stateElapsed_ = std::chrono::milliseconds::zero();
         log(core::LogLevel::Warning, "connection attempt timed out");

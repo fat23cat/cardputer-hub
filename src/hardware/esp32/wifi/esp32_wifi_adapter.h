@@ -8,7 +8,7 @@ class Esp32WifiAdapter final : public connectivity::IWifiAdapter {
   public:
     connectivity::WifiAdapterResult initializeStation() override;
     connectivity::WifiAdapterResult connect(const connectivity::WifiNetworkConfig& config) override;
-    void disconnect() override;
+    connectivity::WifiAdapterResult disconnect() override;
     connectivity::WifiAdapterState state() const override;
     std::int32_t signalStrengthDbm() const override;
 };

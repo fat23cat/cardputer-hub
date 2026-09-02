@@ -29,6 +29,11 @@ enum class WifiConnectResult : std::uint8_t {
     AdapterError,
 };
 
+enum class WifiDisconnectResult : std::uint8_t {
+    Disconnected,
+    AdapterError,
+};
+
 enum class WifiAdapterResult : std::uint8_t {
     Success,
     Error,
@@ -47,7 +52,7 @@ class IWifiAdapter {
 
     virtual WifiAdapterResult initializeStation() = 0;
     virtual WifiAdapterResult connect(const WifiNetworkConfig& config) = 0;
-    virtual void disconnect() = 0;
+    virtual WifiAdapterResult disconnect() = 0;
     virtual WifiAdapterState state() const = 0;
     virtual std::int32_t signalStrengthDbm() const = 0;
 };
@@ -58,7 +63,7 @@ class WiFiService {
     WiFiService(IWifiAdapter& adapter, core::Logger& logger) noexcept;
 
     WifiConnectResult connect(const WifiNetworkConfig& config);
-    void disconnect();
+    WifiDisconnectResult disconnect();
     void update(std::chrono::milliseconds elapsed);
     WifiState state() const noexcept;
     std::optional<std::int32_t> signalStrengthDbm() const;
