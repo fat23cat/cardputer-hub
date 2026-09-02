@@ -275,8 +275,9 @@ The completed change provides:
   unavailable, read-only, capacity, and backend failures;
 * a Cardputer microSD adapter using the pinned Arduino SD and SPI interfaces,
   with all content confined below `/cardputer-hub`;
-* parent creation below the managed root, pre-allocation size checks, explicit
-  handle closure, and flushed successful replacements;
+* parent creation below the managed root, pre-allocation size checks, short
+  write capacity detection, explicit handle closure, and flushed successful
+  replacements;
 * adapter-side rejection of FatFs-invalid or normalized names, plus rejection
   of directory handles as replacement targets;
 * documentation separating optional removable files from authoritative NVS

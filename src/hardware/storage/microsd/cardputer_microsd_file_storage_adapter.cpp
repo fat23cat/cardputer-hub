@@ -255,6 +255,9 @@ CardputerMicroSdFileStorageAdapter::replace(const core::FileStoragePath& path,
         if (operationBecameUnavailable(operationError)) {
             return core::FileWriteStatus::Unavailable;
         }
+        if (bytesWritten != data.size() && operationError == 0) {
+            return core::FileWriteStatus::CapacityExceeded;
+        }
         return writeFailure(operationError);
     }
     return core::FileWriteStatus::Stored;
