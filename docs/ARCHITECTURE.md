@@ -1375,6 +1375,11 @@ checks.
 does not merely mean that the device has a physical card slot. Its availability
 may change when media is inserted, removed, or fails.
 
+The Phase 1 microSD adapter is not composed into the firmware runtime and does
+not publish this capability. A future concrete file-storage owner must refresh
+media state and explicitly register or remove `REMOVABLE_FILE_STORAGE` as that
+state changes.
+
 ---
 
 ## 43. ConfigurationService
@@ -1473,11 +1478,32 @@ one-time provisioning of the flash range repurposed from SPIFFS. Normal uploads
 and later upgrades must never erase `hub_config`; an initialization failure
 after provisioning remains a backend error rather than destructive recovery.
 
-File Storage exposes files below a Cardputer Hub-owned root on the card. Paths
-are logical and relative to that root, and callers must not depend on FAT,
-SPI, mount points, or vendor APIs. Services and Mini Apps must not access the
-microSD hardware directly. File reads must be explicitly bounded or streamed
-so a large file cannot cause an unbounded allocation.
+Phase 1 provides the hardware-neutral `FileStorage` facade and
+`IFileStorageAdapter`. File Storage exposes known-path files below a Cardputer
+Hub-owned root on the card. Paths are logical and relative to that root, and
+callers must not depend on FAT, SPI, mount points, or vendor APIs. Services and
+Mini Apps must not access the microSD hardware directly.
+
+Logical paths are non-empty `/`-separated strings. Absolute paths,
+backslashes, embedded NUL, empty segments, and `.` or `..` segments are
+rejected before reaching an adapter. Callers must not create sibling paths
+that differ only by case because matching depends on the mounted filesystem.
+Adapters report their own filename or total-path limits as `InvalidPath`
+without exposing those limits in the core contract.
+
+Reads require a non-zero maximum size. The adapter checks the file size before
+allocating its owned result, returns `TooLarge` without bytes when that bound
+would be exceeded, and returns empty data for every unsuccessful read. A
+successful empty file is distinct from a missing file. Writes replace the
+known path, permit empty files, create parents only within the owned root, and
+flush before success. Removal never recursively removes directories.
+
+The Cardputer adapter uses the pinned framework's SD and SPI interfaces and
+keeps every managed path below `/cardputer-hub`. Its initial state is
+`Uninitialized`; an explicit refresh produces `Ready`, `NotPresent`, or
+`MountError`. It never formats, repairs, erases, or repartitions media. It is
+compiled but not constructed by `main.cpp`, so Phase 1 performs no automatic
+mount and writes no product data.
 
 The microSD card is optional and removable. Missing media, mount failure,
 read-only media, capacity exhaustion, and ordinary I/O failure must remain
@@ -1548,6 +1574,12 @@ CardputerMicroSdFileStorageAdapter
 
 This is necessary for automated testing and safe refactoring.
 
+The `FileStorage` facade and its adapter interface contain no Arduino, SPI,
+filesystem, or board-library types. Those types and the Cardputer-Adv microSD
+pin mapping remain inside `CardputerMicroSdFileStorageAdapter`. The adapter is
+not part of `SystemRuntime`; a future Service or composition owner will decide
+when media is refreshed and which logical files are used.
+
 ---
 
 ## 46. Failure Isolation
@@ -1610,9 +1642,10 @@ Phase 1 establishes the microSD boundary and verifies the adapter, but does not
 make removable media a boot dependency or introduce a file browser, automatic
 backup, configuration import, or application-specific card contents.
 
-After the metadata-only AppRegistry foundation, microSD file storage remains
-the final open Phase 1 checklist item. Launcher behavior and AppRegistry
-integration remain in their later phases.
+The verified microSD facade and Cardputer adapter complete the Phase 1
+foundations. This does not make later-phase behavior operational: connectivity
+begins in Phase 2, Launcher behavior remains Phase 4, and AppRegistry and
+capability integration remain Phase 5.
 
 ### Phase 2 — Connectivity
 
@@ -1778,6 +1811,11 @@ RemoteControlService abstraction
 microSD file-storage foundation
 ```
 
+The initial-scope microSD item means the hardware-neutral boundary and adapter,
+not a file browser, automatic backup, configuration import or export, or
+application-specific card contents. Those require explicit consumers and
+user-facing designs in later work.
+
 ---
 
 ## 49. Not Required Initially
@@ -1836,6 +1874,10 @@ The architecture must allow these capabilities to be added without restructuring
 
 15. New Mini Apps and Services should be addable without restructuring System Core.
 
+16. Removable file storage is optional, bounded, and confined to a
+    Cardputer Hub-owned root; boot-critical configuration remains in internal
+    storage.
+
 ---
 
 ## 51. Target Repository Structure
@@ -1852,8 +1894,9 @@ src/
 │   ├── lifecycle/
 │   ├── logging/
 │   └── storage/
-│       ├── records/
+│       ├── storage.h / storage.cpp
 │       └── files/
+│           └── file_storage.h / file_storage.cpp
 │
 ├── connectivity/
 │   ├── wifi/
@@ -1887,6 +1930,7 @@ src/
 │   └── storage/
 │       ├── nvs/
 │       └── microsd/
+│           └── cardputer_microsd_file_storage_adapter.*
 │
 └── main.cpp
 ```

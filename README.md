@@ -191,8 +191,11 @@ are intentionally not routed to product behavior yet, and no connectivity or
 Mini Apps are started.
 
 System Core also provides standalone navigation history, capability, and
-application-metadata registries for later phases. They are not composed into
-the firmware runtime yet, so they do not provide Launcher or Mini App behavior.
+application-metadata registries plus record- and file-storage boundaries for
+later phases. The Cardputer microSD adapter compiles against the pinned board
+framework but is not constructed or mounted by the firmware runtime. These
+foundations do not provide Launcher, Mini App, file-browser, backup, or
+configuration import/export behavior.
 
 ---
 
@@ -209,7 +212,8 @@ behavior. The native suites cover stable firmware build metadata, log-level
 filtering, keyboard event translation and deduplication, opaque record-storage
 validation and forwarding, owned navigation history and Back traversal,
 dynamic capability registration and enumeration, owned application metadata
-validation and lookup, and System Core boot and update orchestration.
+validation and lookup, bounded logical file-storage operations, and System
+Core boot and update orchestration.
 
 Run formatting and static analysis separately with:
 
@@ -310,8 +314,10 @@ See [`docs/ENGINEERING.md`](docs/ENGINEERING.md) for the complete workflow.
 
 ## Current Status
 
-The initial development infrastructure is complete. Product development should
-now proceed through the documented architecture phases.
+The Phase 1 System Core foundations are complete. This milestone establishes
+testable contracts and hardware adapters; it does not make planned product
+features user-visible. Product development should now proceed with Phase 2
+Connectivity in the documented architecture order.
 
 The authoritative development order is defined in
 [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md#47-initial-development-order):
