@@ -56,7 +56,7 @@ bool copyStationConfig(const connectivity::WifiNetworkConfig& config, wifi_confi
     result.sta.scan_method = WIFI_FAST_SCAN;
     result.sta.sort_method = WIFI_CONNECT_AP_BY_SIGNAL;
     result.sta.threshold.rssi = -127;
-    result.sta.threshold.authmode = config.passphrase.empty() ? WIFI_AUTH_OPEN : WIFI_AUTH_WPA2_PSK;
+    result.sta.threshold.authmode = config.passphrase.empty() ? WIFI_AUTH_OPEN : WIFI_AUTH_WPA_PSK;
     result.sta.pmf_cfg.capable = true;
     result.sta.pmf_cfg.required = false;
     return true;
