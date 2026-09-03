@@ -301,11 +301,13 @@ The configured baud rate is 115200. Exit the monitor with `Ctrl+]`.
 
 ## CI/CD
 
-Pull requests targeting any branch, pushes to `main`, and manual CI runs
-execute `make check` on Ubuntu 24.04. This includes stacked pull requests whose
-base is another feature branch. CI also uploads the compiled application and
-partition-table images as an artifact retained for seven days. All third-party
-Actions use full commit SHA pins, and Dependabot proposes reviewed updates.
+Pull requests targeting any branch, pushes to `main`, and manual CI runs execute
+the `make host-check` and `make firmware-check` portions of `make check` in
+parallel on Ubuntu 24.04. This includes stacked pull requests whose base is
+another feature branch. A final required status succeeds only when both paths
+pass. CI also uploads the compiled application and partition-table images as an
+artifact retained for seven days. All third-party Actions use full commit SHA
+pins, and Dependabot proposes reviewed updates.
 
 After CI validates a merged pull request on `main`, the protected
 `Release firmware` workflow uses the source branch prefix to assign the next
@@ -332,6 +334,9 @@ make test          run native tests
 make format        format owned C/C++ sources
 make format-check  verify formatting
 make lint          run static analysis
+make host-check    run lock, format, lint, and native test checks
+make firmware-check
+                   build and verify the production firmware
 make check         run all required validation
 make upload        compile and flash firmware
 make migrate-storage-layout UPLOAD_PORT=<device>

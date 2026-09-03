@@ -214,6 +214,11 @@ Cardputer-Adv validation below requires physical hardware.
   native ESP-IDF output. Historical tags without the new component manifest
   retain their original PlatformIO rebuild path; current PlatformIO use is
   limited to native tests and static analysis.
+* PR CI runs host validation and firmware compilation in parallel. The exact
+  ESP-IDF checkout, managed components, and a bounded compiler cache are stored
+  separately so source-only changes do not reinstall the toolchain. Release
+  builds reuse those caches and rebuild the versioned image without repeating
+  host checks already passed by the triggering CI run.
 
 ### TDD and automated verification
 
@@ -230,7 +235,7 @@ The following local checks pass with the exact pinned toolchain:
 make format
 make format-check
 make lint
-make test        # 24 Python tests and 134 native C++ tests
+make test        # 28 Python tests and 134 native C++ tests
 make build       # ESP-IDF 5.5.5, project sources compiled with -Werror
 make check       # lock, format, lint, tests, and production build
 ```

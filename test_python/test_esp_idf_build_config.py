@@ -75,6 +75,48 @@ class EspIdfBuildConfigurationTests(unittest.TestCase):
             self.assertIn("build/cardputer_hub.bin", workflow)
             self.assertIn("build/partition_table/partition-table.bin", workflow)
 
+    def test_ci_parallelizes_host_checks_and_firmware_build(self) -> None:
+        workflow = self.read(".github/workflows/ci.yml")
+        makefile = self.read("Makefile")
+
+        self.assertIn("host-checks:", workflow)
+        self.assertIn("firmware-build:", workflow)
+        self.assertIn("make host-check", workflow)
+        self.assertIn("make firmware-check", workflow)
+        self.assertIn("needs.firmware-build.result", workflow)
+        self.assertIn("needs.host-checks.result", workflow)
+        self.assertIn("host-check: lock-check format-check lint test", makefile)
+        self.assertIn("firmware-check: build", makefile)
+        self.assertIn("check: host-check firmware-check", makefile)
+
+    def test_ci_reuses_idf_components_and_compiler_outputs(self) -> None:
+        workflow = self.read(".github/workflows/ci.yml")
+
+        self.assertIn('${HOME}/.espressif/frameworks/esp-idf-v5.5.5', workflow)
+        self.assertNotIn('${RUNNER_TEMP}/esp-idf-v5.5.5', workflow)
+        self.assertIn("esp-idf-${{ runner.os }}-v5.5.5-b774170f", workflow)
+        self.assertIn("managed_components", workflow)
+        self.assertIn("${{ github.workspace }}/.ccache", workflow)
+        self.assertIn('IDF_CCACHE_ENABLE: "1"', workflow)
+
+    def test_release_rebuilds_without_repeating_host_checks(self) -> None:
+        workflow = self.read(".github/workflows/release.yml")
+
+        self.assertIn('${HOME}/.espressif/frameworks/esp-idf-v5.5.5', workflow)
+        self.assertIn("make firmware-check", workflow)
+        self.assertNotIn("make check", workflow)
+
+    def test_reviewed_build_and_disconnect_settings_are_unambiguous(self) -> None:
+        cmake = self.read("CMakeLists.txt")
+        configuration = self.read("sdkconfig.defaults")
+        adapter = self.read("src/hardware/esp32/bluetooth/esp32_bluetooth_adapter.cpp")
+
+        self.assertIn("add_compile_definitions", cmake)
+        self.assertNotIn("list(APPEND compile_definitions", cmake)
+        self.assertIn("CONFIG_BT_NIMBLE_LOG_LEVEL_NONE=y", configuration)
+        self.assertNotIn("CONFIG_BT_NIMBLE_LOG_LEVEL=", configuration)
+        self.assertIn("result == BLE_HS_ENOTCONN", adapter)
+
     def test_esp32_adapter_uses_nimble_without_bluedroid(self) -> None:
         adapter = self.read("src/hardware/esp32/bluetooth/esp32_bluetooth_adapter.cpp")
 

@@ -8,7 +8,7 @@ IDF_APP_IMAGE := $(IDF_BUILD_DIR)/cardputer_hub.bin
 IDF_PARTITION_IMAGE := $(IDF_BUILD_DIR)/partition_table/partition-table.bin
 CPP_FILES := $(shell find src test -type f \( -name '*.c' -o -name '*.cc' -o -name '*.cpp' -o -name '*.h' -o -name '*.hpp' \) | sort)
 
-.PHONY: setup lock-check validate-idf validate-submodules configure build test format format-check lint check upload migrate-storage-layout monitor clean
+.PHONY: setup lock-check validate-idf validate-submodules configure build test format format-check lint host-check firmware-check check upload migrate-storage-layout monitor clean
 
 setup: validate-idf
 	$(UV) sync --frozen
@@ -47,7 +47,11 @@ format-check:
 lint:
 	$(RUN) pio check -e native
 
-check: lock-check format-check lint test build
+host-check: lock-check format-check lint test
+
+firmware-check: build
+
+check: host-check firmware-check
 
 upload: validate-idf validate-submodules
 	$(IDF_RUN) $(IDF_ARGS) -b 1500000 $(if $(UPLOAD_PORT),-p $(UPLOAD_PORT),) flash

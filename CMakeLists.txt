@@ -8,8 +8,5 @@ include($ENV{IDF_PATH}/tools/cmake/project.cmake)
 
 # Preserve the Cardputer-Adv hardware USB CDC behavior from the former
 # PlatformIO production environment.
-list(APPEND compile_definitions
-     "ARDUINO_USB_CDC_ON_BOOT=1"
-     "ARDUINO_USB_MODE=1"
-     "CORE_DEBUG_LEVEL=3")
+add_compile_definitions(ARDUINO_USB_CDC_ON_BOOT=1 ARDUINO_USB_MODE=1 CORE_DEBUG_LEVEL=3)
 project(cardputer_hub)

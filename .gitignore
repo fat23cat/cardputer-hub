@@ -1,5 +1,6 @@
 .DS_Store
 .cache/
+.ccache/
 .pio/
 .venv/
 __pycache__/

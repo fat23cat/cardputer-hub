@@ -475,22 +475,24 @@ Implementation, build, dependency, and toolchain changes should include at
 least:
 
 ```text
-checkout
-      ↓
-install and activate pinned ESP-IDF toolchain
-      ↓
-dependency cache
-      ↓
-format check
-      ↓
-static analysis
-      ↓
-unit tests
-      ↓
-integration tests
-      ↓
-Cardputer-Adv firmware build
+                 checkout
+                    ↓
+       ┌────────────┴────────────┐
+       ↓                         ↓
+format and static checks   restore pinned ESP-IDF,
+       ↓                   components, and ccache
+unit and integration tests Cardputer-Adv build
+       └────────────┬────────────┘
+                    ↓
+           required check result
 ```
+
+Host validation and firmware compilation run as independent parallel jobs so
+fast behavioral feedback does not wait for the embedded toolchain. CI caches
+PlatformIO separately from the exact ESP-IDF installation, locked managed
+components, and bounded compiler cache; ordinary source changes must not force
+the toolchain to be downloaded again. The final `check` job preserves a single
+required status and succeeds only when both validation paths pass.
 
 A pull request should not be mergeable while required checks are failing.
 
@@ -945,6 +947,8 @@ task runner
 but developers should not have to memorize long toolchain-specific commands.
 
 `check` should ideally execute the same major validation categories as PR CI.
+`host-check` and `firmware-check` may expose those categories separately for
+parallel CI, while `check` remains their local umbrella.
 
 ---
 

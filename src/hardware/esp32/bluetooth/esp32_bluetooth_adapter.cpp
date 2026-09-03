@@ -621,7 +621,7 @@ Esp32BluetoothAdapter::disconnectPeer(connectivity::BluetoothPeerHandle handle) 
         return connectivity::BluetoothAdapterResult::AdapterError;
     }
     const int result = ble_gap_terminate(peer->connectionHandle, BLE_ERR_REM_USER_CONN_TERM);
-    return result == 0 || result == BLE_HS_EALREADY
+    return result == 0 || result == BLE_HS_EALREADY || result == BLE_HS_ENOTCONN
                ? connectivity::BluetoothAdapterResult::Success
                : connectivity::BluetoothAdapterResult::AdapterError;
 }
