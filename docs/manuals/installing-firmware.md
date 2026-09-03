@@ -2,7 +2,8 @@
 
 These instructions build the firmware from source and install it on an M5Stack
 Cardputer-Adv over USB. No global PlatformIO or M5Stack library installation is
-required.
+required. Production builds use the repository's exact ESP-IDF 5.5.5 setup;
+PlatformIO is retained only for native host checks.
 
 ## What You Need
 
@@ -24,7 +25,9 @@ your user access to USB serial devices:
 
 ```bash
 sudo apt-get update
-sudo apt-get install --yes build-essential git curl
+sudo apt-get install --yes build-essential git curl wget flex bison gperf \
+  python3 python3-pip python3-venv ccache libffi-dev libssl-dev dfu-util \
+  libusb-1.0-0
 sudo usermod --append --groups dialout "$USER"
 ```
 
@@ -49,25 +52,30 @@ curl -LsSf https://astral.sh/uv/0.12.7/install.sh | sh
 ```
 
 Restart the terminal if `uv` is not immediately available. Then install the
-pinned Python version and repository tools:
+pinned Python version, exact ESP-IDF checkout, and repository tools:
 
 ```bash
 uv python install 3.12.14
+bash scripts/install_esp_idf.sh \
+  "$HOME/.espressif/frameworks/esp-idf-v5.5.5"
+source "$HOME/.espressif/frameworks/esp-idf-v5.5.5/export.sh"
 make setup
 ```
 
 The virtual environment is local to the checkout and does not replace the
-system Python. PlatformIO resolves the exact ESP32 and M5Stack dependencies
-from `platformio.ini`.
+system Python. ESP-IDF's component manager resolves the exact production
+dependencies from the committed manifest and lock, while Git submodules supply
+the pinned Arduino-only libraries. In every new terminal, source the same
+ESP-IDF `export.sh` before using firmware build, upload, or monitor commands.
 
 ## 4. Connect and Detect the Device
 
 Connect the powered Cardputer-Adv directly to the computer with the USB-C data
 cable. Close any other serial monitor that may already have the port open, then
-check that PlatformIO can see a serial device:
+list the available serial devices:
 
 ```bash
-uv run --frozen pio device list
+python -m serial.tools.list_ports
 ```
 
 ## 5. Build and Install the Firmware
@@ -97,11 +105,11 @@ device has the current layout, use the non-destructive upload path:
 make upload
 ```
 
-The first run may take several minutes while PlatformIO downloads the pinned
-toolchain and libraries. It then builds the production firmware, selects the
+The first run may take several minutes while ESP-IDF downloads the locked
+managed components. It then builds the production firmware, selects the
 connected serial port, flashes the image, and resets the device.
 
-If PlatformIO cannot enter download mode:
+If ESP-IDF cannot enter download mode:
 
 1. Hold the `G0` button on the Cardputer-Adv.
 2. Press and release the reset button.
@@ -124,8 +132,7 @@ Verify both downloads against `SHA256SUMS`. For a device that already has the
 the example port and version with the downloaded release):
 
 ```bash
-uv run --frozen pio pkg exec --package tool-esptoolpy -- \
-  esptool.py --chip esp32s3 --port /dev/ttyACM0 write_flash \
+esptool.py --chip esp32s3 --port /dev/ttyACM0 write_flash \
   0x8000 cardputer-hub-v0.2.0-partitions.bin \
   0x10000 cardputer-hub-v0.2.0.bin
 ```
@@ -134,8 +141,7 @@ When upgrading from the earlier layout, provision the range exactly once
 before flashing those two assets:
 
 ```bash
-uv run --frozen pio pkg exec --package tool-esptoolpy -- \
-  esptool.py --chip esp32s3 --port /dev/ttyACM0 erase_region \
+esptool.py --chip esp32s3 --port /dev/ttyACM0 erase_region \
   0x7e0000 0x10000
 ```
 

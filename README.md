@@ -120,10 +120,13 @@ The locked development environment uses:
 
 * Python 3.12.14;
 * uv 0.12.7;
-* PlatformIO Core 6.1.19;
+* ESP-IDF 5.5.5 with its recommended compiler, CMake, and Ninja tools;
+* Arduino Core 3.3.11 as an exact ESP-IDF managed component;
+* PlatformIO Core 6.1.19 only for native host tests and static analysis;
 * clang-format 23.1.0;
-* a C++17 host compiler;
-* the ESP32 and M5Stack dependencies pinned in `platformio.ini`.
+* a C++17 host compiler for native tests and C++17 project-owned firmware
+  components;
+* exact managed-component and Git-submodule dependency locks.
 
 On macOS, install Git and the host compiler with Xcode Command Line Tools:
 
@@ -135,7 +138,9 @@ On Ubuntu or Debian Linux, install the native build prerequisites:
 
 ```bash
 sudo apt-get update
-sudo apt-get install --yes build-essential git curl
+sudo apt-get install --yes build-essential git curl wget flex bison gperf \
+  python3 python3-pip python3-venv ccache libffi-dev libssl-dev dfu-util \
+  libusb-1.0-0
 ```
 
 Install the repository's exact uv version using its versioned installer, then
@@ -146,6 +151,9 @@ policy.
 ```bash
 curl -LsSf https://astral.sh/uv/0.12.7/install.sh | sh
 uv python install 3.12.14
+bash scripts/install_esp_idf.sh \
+  "$HOME/.espressif/frameworks/esp-idf-v5.5.5"
+source "$HOME/.espressif/frameworks/esp-idf-v5.5.5/export.sh"
 make setup
 ```
 
@@ -157,10 +165,14 @@ uv --version
 uv run --frozen python --version
 uv run --frozen pio --version
 uv run --frozen clang-format --version
+idf.py --version
 ```
 
-Do not install project-specific ESP32 or M5Stack libraries globally.
-PlatformIO resolves them from `platformio.ini`.
+Do not install project-specific ESP32 or M5Stack libraries globally. The
+ESP-IDF component manager resolves the exact production graph from
+`main/idf_component.yml` and `dependencies.lock`; Git submodules retain the
+exact Arduino-only library revisions. Re-source ESP-IDF's `export.sh` in each
+new terminal before running firmware commands.
 
 ---
 
@@ -179,8 +191,8 @@ make build
 ```
 
 The production application and matching partition-table images are written to
-`.pio/build/cardputer-adv/firmware.bin` and
-`.pio/build/cardputer-adv/partitions.bin`. The version-controlled flash layout
+`build/cardputer_hub.bin` and
+`build/partition_table/partition-table.bin`. The version-controlled flash layout
 keeps the framework's default NVS separate from the dedicated `hub_config` NVS
 partition reserved for authoritative configuration records. On startup, the
 firmware initializes the Cardputer once, writes structured informational
@@ -203,7 +215,7 @@ firmware runtime yet: no credentials are compiled or persisted, no connection
 starts automatically, and the supported device behavior remains unchanged.
 
 The Bluetooth lifecycle foundation similarly adds a hardware-independent
-single-peer state machine and a compiled direct ESP-IDF Bluedroid peripheral
+single-peer state machine and a compiled direct ESP-NimBLE peripheral
 adapter. It remains unconstructed at runtime and does not yet provide pairing,
 bond management, or HID reports, so normal device behavior is unchanged.
 
@@ -250,7 +262,8 @@ make check
 
 `make check` verifies the lock, formatting, Cppcheck analysis, native tests,
 strict compiler warnings, and the Cardputer-Adv firmware build. `make clean`
-removes PlatformIO build output.
+removes ESP-IDF production build output. PlatformIO remains scoped to host-side
+tests and analysis.
 
 ---
 
@@ -270,7 +283,7 @@ use `make upload` so stored configuration is preserved. See the
 [`installation guide`](docs/manuals/installing-firmware.md) for the exact
 migration and release-asset flashing procedure.
 
-PlatformIO normally resets the device automatically. If it cannot enter
+ESP-IDF's flash command normally resets the device automatically. If it cannot enter
 download mode, hold the `G0` button, press and release reset, release `G0`, and
 retry the upload. You may need to grant access to the serial device on Linux.
 
@@ -288,11 +301,13 @@ The configured baud rate is 115200. Exit the monitor with `Ctrl+]`.
 
 ## CI/CD
 
-Pull requests targeting any branch, pushes to `main`, and manual CI runs
-execute `make check` on Ubuntu 24.04. This includes stacked pull requests whose
-base is another feature branch. CI also uploads the compiled application and
-partition-table images as an artifact retained for seven days. All third-party
-Actions use full commit SHA pins, and Dependabot proposes reviewed updates.
+Pull requests targeting any branch, pushes to `main`, and manual CI runs execute
+the `make host-check` and `make firmware-check` portions of `make check` in
+parallel on Ubuntu 24.04. This includes stacked pull requests whose base is
+another feature branch. A final required status succeeds only when both paths
+pass. CI also uploads the compiled application and partition-table images as an
+artifact retained for seven days. All third-party Actions use full commit SHA
+pins, and Dependabot proposes reviewed updates.
 
 After CI validates a merged pull request on `main`, the protected
 `Release firmware` workflow uses the source branch prefix to assign the next
@@ -313,18 +328,21 @@ recreate or delete Releases or tags.
 The primary local commands are:
 
 ```text
-make setup         install locked tools
+make setup         resolve locked repository and ESP-IDF dependencies
 make build         compile Cardputer-Adv firmware
 make test          run native tests
 make format        format owned C/C++ sources
 make format-check  verify formatting
 make lint          run static analysis
+make host-check    run lock, format, lint, and native test checks
+make firmware-check
+                   build and verify the production firmware
 make check         run all required validation
 make upload        compile and flash firmware
 make migrate-storage-layout UPLOAD_PORT=<device>
                    one-time migration from the earlier flash layout
 make monitor       open the 115200-baud serial monitor
-make clean         remove PlatformIO build output
+make clean         remove ESP-IDF production build output
 ```
 
 See [`docs/ENGINEERING.md`](docs/ENGINEERING.md) for the complete workflow.

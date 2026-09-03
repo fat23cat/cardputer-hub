@@ -1,5 +1,11 @@
 .DS_Store
 .cache/
+.ccache/
 .pio/
 .venv/
+__pycache__/
+build/
+managed_components/
+sdkconfig
+sdkconfig.old
 compile_commands.json
