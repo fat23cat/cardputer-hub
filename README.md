@@ -202,6 +202,11 @@ machine and a compiled ESP32 station adapter. Neither is constructed by the
 firmware runtime yet: no credentials are compiled or persisted, no connection
 starts automatically, and the supported device behavior remains unchanged.
 
+The Bluetooth lifecycle foundation similarly adds a hardware-independent
+single-peer state machine and a compiled direct ESP-IDF Bluedroid peripheral
+adapter. It remains unconstructed at runtime and does not yet provide pairing,
+bond management, or HID reports, so normal device behavior is unchanged.
+
 ---
 
 ## Tests
@@ -222,6 +227,12 @@ Core boot and update orchestration. They also cover Wi-Fi configuration
 validation, connection state, timeout and capped retry timing, connected-only
 and link-loss-safe RSSI access, disconnect-error propagation, and
 credential-free diagnostics.
+The Bluetooth suite covers side-effect-free construction, explicit lifecycle
+results, callback-event isolation, bonded single-peer policy, unbonded-peer
+rejection, reconnect timing, capped advertising backoff, fatal cleanup, stale
+event isolation, retained cleanup retries, and identity-free diagnostics.
+Peer-rejection coverage verifies that advertising cannot resume until all
+asynchronous disconnects for rejected peers have completed.
 
 Run formatting and static analysis separately with:
 
@@ -323,9 +334,10 @@ See [`docs/ENGINEERING.md`](docs/ENGINEERING.md) for the complete workflow.
 ## Current Status
 
 The Phase 1 System Core foundations are complete, and Phase 2 Connectivity is
-in progress with its Wi-Fi foundation delivered. These milestones establish
-testable contracts and hardware adapters; they do not make Wi-Fi or other
-planned product features user-visible. Bluetooth lifecycle is the next Phase 2
+in progress with its Wi-Fi and Bluetooth lifecycle foundations delivered.
+These milestones establish testable contracts and hardware adapters; they do
+not make Wi-Fi, Bluetooth, or other planned product features user-visible.
+Authenticated Bluetooth pairing and bond handling are the next Phase 2
 foundation in the documented architecture order.
 
 The authoritative development order is defined in

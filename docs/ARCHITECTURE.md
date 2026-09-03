@@ -466,7 +466,50 @@ Higher-level Services must not use ESP32 Wi-Fi APIs directly where this abstract
 
 ## 12. BluetoothService
 
-`BluetoothService` owns low-level Bluetooth lifecycle and transport.
+Phase 2 provides the hardware-independent `BluetoothService` and
+`IBluetoothAdapter` lifecycle contract. `BluetoothDeviceConfig` owns the local
+device name, and connection events expose only opaque adapter peer handles.
+
+Construction has no hardware side effects. An explicit `enable` initializes
+the adapter once for that enabled lifecycle and requests advertising without
+blocking. Repeated enable calls are idempotent. An explicit `disable` cancels
+all retry intent, requests that pending or active advertising stop, requests
+disconnection of the current peer, and then shuts down the owned Bluetooth
+host and disables the controller as a synchronous completion barrier. Shutdown
+also closes connections whose callbacks are still queued. The adapter retains
+exclusive ownership of the initialized controller because the pinned ESP-IDF
+does not permit controller initialization after controller deinitialization;
+re-enable resumes that controller and creates a fresh Bluedroid lifecycle. A
+stop, disconnect, or shutdown failure is reported rather than claiming
+successful disablement, and cleanup ownership is retained so a later disable
+or enable can retry it. Calls are synchronous and single-threaded from the
+caller's perspective, while adapter callbacks only copy bounded events for
+later processing by `update(elapsed)`.
+
+The public state is one of `Disabled`, `Idle`, `Advertising`, `Connected`,
+`RetryWaiting`, or `Error`. Only one peer may be current. Until authenticated
+pairing is introduced, a newly connected peer must already have a bond;
+unbonded and additional peers are disconnected without replacing the current
+connection. Advertising remains blocked while any requested peer rejection is
+in flight; the one-second reconnect delay starts only after the final rejected
+peer reports disconnection. An unexpected disconnection likewise waits one
+second before advertising again. Retryable advertising failures wait 1, 2, 4,
+8, 16, and then 30 seconds,
+remaining capped at 30 seconds; successful advertising or connection resets
+that backoff. The pinned Bluedroid API's generic `ESP_FAIL` advertising-dispatch
+result represents transient queue pressure and is retryable; specific argument
+or state errors are fatal. Fatal adapter failures shut down owned Bluetooth
+resources and require a later explicit enable. Each asynchronous advertising
+operation retains the non-identifying lifecycle generation that issued it.
+Combined with definitive shutdown on disable, this prevents queued callbacks
+from an older attempt from being relabeled as or reactivating a new attempt.
+
+The Service holds non-owning adapter and optional logger references, which must
+outlive it. Logs describe fixed lifecycle outcomes and never include device
+names, peer handles, addresses, or other identity data. The foundation is not
+composed into `main.cpp`, so Bluetooth remains inactive during normal boot.
+Pairing UI and bond mutation belong to the next Bluetooth phase, and BLE HID
+transport remains a separate later phase.
 
 Responsibilities:
 
@@ -1660,6 +1703,25 @@ comes from the current ESP-IDF access-point record, so an asynchronous link loss
 cannot be mistaken for a valid measurement. The adapter is compiled but not
 constructed by `main.cpp`.
 
+`BluetoothService` and `IBluetoothAdapter` likewise contain no ESP32 types.
+`Esp32BluetoothAdapter` uses the pinned framework's direct ESP-IDF Bluetooth
+controller, Bluedroid, GAP, and GATTS APIs as a BLE peripheral; it does not use
+an Arduino BLE facade, Classic Bluetooth, or central scanning. It exclusively
+owns the controller and Bluedroid resources it initializes, rejects
+incompatible pre-initialized state, and quiesces completed host/controller
+stages in reverse order after failure. Logical shutdown disables and
+deinitializes Bluedroid and disables the controller, but deliberately keeps the
+controller initialized and exclusively owned for the process lifetime: the
+pinned ESP-IDF makes controller deinitialization irreversible until reboot.
+Failed teardown stages retain their ownership flags and must be retried before
+another lifecycle can initialize. Advertising configuration is completed
+through owned callback events, and the adapter never retains framework-owned
+callback pointers. A bounded queue latches overflow as a fatal polling error.
+Peer addresses stay inside the adapter solely for bond lookup and are never
+exposed or logged. Framework Debug and Verbose logging are compile-time
+rejected, and all audited identity-bearing Bluetooth stack tags are disabled
+before activation. The adapter is compiled but not constructed by `main.cpp`.
+
 ---
 
 ## 46. Failure Isolation
@@ -1694,6 +1756,13 @@ Weather
 VPS Monitor
 Device Manager
 ```
+
+Bluetooth lifecycle failures are contained within `BluetoothService` and its
+owned adapter resources. A fatal initialization, callback-queue, polling,
+advertising, bond-query, or peer-rejection failure enters Bluetooth `Error` and
+shuts down that adapter; it does not alter Wi-Fi or System Core state. Because
+the Bluetooth foundation is not part of runtime composition yet, it also cannot
+delay or fail normal boot.
 
 ---
 
@@ -1743,8 +1812,10 @@ reconnection
 The Wi-Fi connectivity foundation is complete: the Service state machine and
 ESP32 station adapter compile with the firmware, but remain inactive until a
 later composition owner supplies runtime configuration and elapsed time.
-Bluetooth lifecycle, pairing, bond persistence, and BLE HID remain subsequent
-Phase 2 work.
+The Bluetooth lifecycle foundation is also complete: its Service state machine
+and direct ESP-IDF Bluedroid peripheral adapter compile with the firmware but
+remain inactive. Authenticated pairing, bond-management policy, persistence,
+and BLE HID remain subsequent Phase 2 work.
 
 ### Phase 3 — Core Services
 
