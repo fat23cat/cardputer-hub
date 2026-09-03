@@ -235,7 +235,7 @@ The following local checks pass with the exact pinned toolchain:
 make format
 make format-check
 make lint
-make test        # 28 Python tests and 134 native C++ tests
+make test        # Python and native C++ test suites
 make build       # ESP-IDF 5.5.5, project sources compiled with -Werror
 make check       # lock, format, lint, tests, and production build
 ```

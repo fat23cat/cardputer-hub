@@ -61,6 +61,18 @@ class EspIdfBuildConfigurationTests(unittest.TestCase):
         self.assertIn("cxx_std_17", component)
         self.assertIn("-std=gnu++17 -Wall -Wextra -Werror", component)
 
+    def test_component_sources_are_explicitly_enumerated(self) -> None:
+        application_component = self.read("main/CMakeLists.txt")
+        cardputer_component = self.read("components/m5cardputer/CMakeLists.txt")
+
+        self.assertNotIn("GLOB", application_component)
+        self.assertNotIn("GLOB", cardputer_component)
+        for source in (ROOT / "src").rglob("*.cpp"):
+            self.assertIn(f"../{source.relative_to(ROOT).as_posix()}", application_component)
+        cardputer_root = ROOT / "components" / "m5cardputer"
+        for source in (cardputer_root / "upstream" / "src").rglob("*.cpp"):
+            self.assertIn(source.relative_to(cardputer_root).as_posix(), cardputer_component)
+
     def test_ci_installs_exact_idf_and_packages_idf_outputs(self) -> None:
         installer = self.read("scripts/install_esp_idf.sh")
 

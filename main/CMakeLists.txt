@@ -1,5 +1,26 @@
-file(GLOB_RECURSE CARDPUTER_HUB_SOURCES
-     "${CMAKE_CURRENT_LIST_DIR}/../src/*.cpp")
+set(CARDPUTER_HUB_SOURCES
+    "${CMAKE_CURRENT_LIST_DIR}/../src/connectivity/bluetooth/bluetooth_service.cpp"
+    "${CMAKE_CURRENT_LIST_DIR}/../src/connectivity/wifi/wifi_service.cpp"
+    "${CMAKE_CURRENT_LIST_DIR}/../src/core/actions/action.cpp"
+    "${CMAKE_CURRENT_LIST_DIR}/../src/core/actions/action_bus.cpp"
+    "${CMAKE_CURRENT_LIST_DIR}/../src/core/app_registry/app_registry.cpp"
+    "${CMAKE_CURRENT_LIST_DIR}/../src/core/capabilities/capability_registry.cpp"
+    "${CMAKE_CURRENT_LIST_DIR}/../src/core/input/keyboard_event_translator.cpp"
+    "${CMAKE_CURRENT_LIST_DIR}/../src/core/lifecycle/build_info.cpp"
+    "${CMAKE_CURRENT_LIST_DIR}/../src/core/lifecycle/system_runtime.cpp"
+    "${CMAKE_CURRENT_LIST_DIR}/../src/core/logging/logger.cpp"
+    "${CMAKE_CURRENT_LIST_DIR}/../src/core/navigation/navigation_stack.cpp"
+    "${CMAKE_CURRENT_LIST_DIR}/../src/core/storage/files/file_storage.cpp"
+    "${CMAKE_CURRENT_LIST_DIR}/../src/core/storage/storage.cpp"
+    "${CMAKE_CURRENT_LIST_DIR}/../src/hardware/cardputer/cardputer_display_adapter.cpp"
+    "${CMAKE_CURRENT_LIST_DIR}/../src/hardware/cardputer/cardputer_keyboard_adapter.cpp"
+    "${CMAKE_CURRENT_LIST_DIR}/../src/hardware/cardputer/cardputer_platform.cpp"
+    "${CMAKE_CURRENT_LIST_DIR}/../src/hardware/cardputer/serial_log_sink.cpp"
+    "${CMAKE_CURRENT_LIST_DIR}/../src/hardware/esp32/bluetooth/esp32_bluetooth_adapter.cpp"
+    "${CMAKE_CURRENT_LIST_DIR}/../src/hardware/esp32/esp32_nvs_storage_adapter.cpp"
+    "${CMAKE_CURRENT_LIST_DIR}/../src/hardware/esp32/wifi/esp32_wifi_adapter.cpp"
+    "${CMAKE_CURRENT_LIST_DIR}/../src/hardware/storage/microsd/cardputer_microsd_file_storage_adapter.cpp"
+    "${CMAKE_CURRENT_LIST_DIR}/../src/main.cpp")
 
 idf_component_register(
     SRCS ${CARDPUTER_HUB_SOURCES}

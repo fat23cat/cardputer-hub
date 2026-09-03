@@ -1,4 +1,9 @@
-file(GLOB_RECURSE M5CARDPUTER_SOURCES "upstream/src/*.cpp")
+set(M5CARDPUTER_SOURCES
+    "upstream/src/M5Cardputer.cpp"
+    "upstream/src/utility/Adafruit_TCA8418/Adafruit_TCA8418.cpp"
+    "upstream/src/utility/Keyboard/Keyboard.cpp"
+    "upstream/src/utility/Keyboard/KeyboardReader/IOMatrix.cpp"
+    "upstream/src/utility/Keyboard/KeyboardReader/TCA8418.cpp")
 
 idf_component_register(
     SRCS ${M5CARDPUTER_SOURCES}
