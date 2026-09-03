@@ -27,8 +27,9 @@ Add:
 * a direct ESP-IDF Bluedroid BLE peripheral adapter;
 * native behavioral tests and architecture documentation.
 
-Bluetooth remains inactive during normal boot. Authenticated pairing and bond
-management are added by plan 012, and BLE HID reports are added by plan 013.
+Bluetooth remains inactive during normal boot. The supported toolchain and
+ESP-NimBLE migration is plan 012, authenticated pairing and bond management are
+added by plan 013, and BLE HID reports are added by plan 014.
 
 ## 2. Public Contract and Behavior
 
@@ -67,7 +68,7 @@ Contract rules:
   `update(elapsed)` drains them;
 * only one host connection is supported at a time; additional peers are
   disconnected without replacing the active connection;
-* until plan 012 opens a pairing window, unbonded peers are rejected;
+* until plan 013 opens a pairing window, unbonded peers are rejected;
 * explicit disable clears reconnect and advertising-retry intent, checks every
   required stop request and disconnect request, then uses adapter shutdown as a
   synchronous completion barrier before returning `Disabled`; shutdown closes
