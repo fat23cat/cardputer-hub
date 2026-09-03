@@ -99,7 +99,7 @@ class ReleaseWorkflowTest(unittest.TestCase):
             self.workflow,
         )
         self.assertIn(
-            'cp .pio/build/cardputer-adv/partitions.bin "dist/${partition_image}"',
+            'cp build/partition_table/partition-table.bin "dist/${partition_image}"',
             self.workflow,
         )
         self.assertIn('sha256sum "${image}" "${partition_image}" > SHA256SUMS', self.workflow)
@@ -120,8 +120,8 @@ class FirmwareArtifactWorkflowTest(unittest.TestCase):
 
     def test_ci_artifact_contains_the_partition_table(self) -> None:
         workflow = CI_WORKFLOW.read_text()
-        self.assertIn(".pio/build/cardputer-adv/firmware.bin", workflow)
-        self.assertIn(".pio/build/cardputer-adv/partitions.bin", workflow)
+        self.assertIn("build/cardputer_hub.bin", workflow)
+        self.assertIn("build/partition_table/partition-table.bin", workflow)
 
 
 class ConfigurationPartitionMigrationTest(unittest.TestCase):
@@ -129,7 +129,7 @@ class ConfigurationPartitionMigrationTest(unittest.TestCase):
         makefile = MAKEFILE.read_text()
         offset, size = configuration_partition_bounds()
         self.assertIn('test -n "$(UPLOAD_PORT)"', makefile)
-        self.assertIn('--target upload --upload-port "$(UPLOAD_PORT)"', makefile)
+        self.assertIn('$(MAKE) upload UPLOAD_PORT="$(UPLOAD_PORT)"', makefile)
         self.assertIn(
             f'--port "$(UPLOAD_PORT)" erase_region {offset:#x} {size:#x}', makefile
         )

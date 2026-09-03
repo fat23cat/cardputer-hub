@@ -20,7 +20,7 @@ jobs:
       github.event.workflow_run.event == 'push' &&
       github.event.workflow_run.head_branch == 'main'
     runs-on: ubuntu-24.04
-    timeout-minutes: 30
+    timeout-minutes: 60
     env:
       CARDPUTER_HUB_BUILD_TYPE: release
       VALIDATED_COMMIT: ${{ github.event.workflow_run.head_sha }}
@@ -31,6 +31,7 @@ jobs:
         with:
           ref: ${{ github.event.workflow_run.head_sha }}
           fetch-depth: 0
+          submodules: recursive
 
       - name: Verify validated source
         shell: bash
@@ -44,18 +45,23 @@ jobs:
           enable-cache: true
           cache-dependency-glob: uv.lock
 
-      - name: Restore PlatformIO cache
+      - name: Restore build-tool caches
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
-          path: ~/.platformio
-          key: platformio-${{ runner.os }}-${{ hashFiles('uv.lock', 'platformio.ini') }}
+          path: |
+            ~/.espressif
+            ~/.platformio
+          key: toolchains-${{ runner.os }}-idf-5.5.5-${{ hashFiles('uv.lock', 'platformio.ini', 'main/idf_component.yml', 'dependencies.lock') }}
           restore-keys: |
-            platformio-${{ runner.os }}-
+            toolchains-${{ runner.os }}-idf-5.5.5-
 
       - name: Install locked tools
         run: |
           uv python install 3.12.14
           uv sync --frozen
+
+      - name: Install ESP-IDF 5.5.5
+        run: bash scripts/install_esp_idf.sh "${RUNNER_TEMP}/esp-idf-v5.5.5"
 
       - name: Assign semantic version from merged branch
         id: release
@@ -87,7 +93,9 @@ jobs:
 
       - name: Validate and build release firmware
         if: steps.release.outputs.should_release == 'true'
-        run: make check
+        run: |
+          source "${RUNNER_TEMP}/esp-idf-v5.5.5/export.sh"
+          make check
 
       - name: Package firmware and checksum
         if: steps.release.outputs.should_release == 'true'
@@ -97,8 +105,8 @@ jobs:
           mkdir -p dist
           image="cardputer-hub-v${CARDPUTER_HUB_VERSION}.bin"
           partition_image="cardputer-hub-v${CARDPUTER_HUB_VERSION}-partitions.bin"
-          cp .pio/build/cardputer-adv/firmware.bin "dist/${image}"
-          cp .pio/build/cardputer-adv/partitions.bin "dist/${partition_image}"
+          cp build/cardputer_hub.bin "dist/${image}"
+          cp build/partition_table/partition-table.bin "dist/${partition_image}"
           cd dist
           sha256sum "${image}" "${partition_image}" > SHA256SUMS
 

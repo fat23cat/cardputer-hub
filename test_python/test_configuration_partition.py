@@ -5,7 +5,7 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
-PLATFORMIO_CONFIG = ROOT / "platformio.ini"
+SDKCONFIG_DEFAULTS = ROOT / "sdkconfig.defaults"
 PARTITION_TABLE = ROOT / "partitions.csv"
 NVS_ADAPTER = ROOT / "src" / "hardware" / "esp32" / "esp32_nvs_storage_adapter.cpp"
 
@@ -20,8 +20,9 @@ def parse_size(value: str) -> int:
 
 class ConfigurationPartitionTest(unittest.TestCase):
     def test_cardputer_build_uses_project_partition_table(self) -> None:
-        config = PLATFORMIO_CONFIG.read_text()
-        self.assertIn("board_build.partitions = partitions.csv", config)
+        config = SDKCONFIG_DEFAULTS.read_text()
+        self.assertIn("CONFIG_PARTITION_TABLE_CUSTOM=y", config)
+        self.assertIn('CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="partitions.csv"', config)
 
     def test_authoritative_configuration_has_a_separate_nvs_partition(self) -> None:
         with PARTITION_TABLE.open(newline="") as partition_file:
