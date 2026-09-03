@@ -1,8 +1,8 @@
 # Cardputer Hub Device Guide
 
 This guide describes the currently implemented device behavior. Cardputer Hub
-is still in its System Core phase, so most product features are not available
-yet.
+has entered its Phase 2 Connectivity work, but those foundations are not yet
+composed into user-visible features.
 
 ## Supported Features
 

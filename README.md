@@ -197,6 +197,11 @@ framework but is not constructed or mounted by the firmware runtime. These
 foundations do not provide Launcher, Mini App, file-browser, backup, or
 configuration import/export behavior.
 
+The first Phase 2 foundation adds a hardware-independent Wi-Fi connection state
+machine and a compiled ESP32 station adapter. Neither is constructed by the
+firmware runtime yet: no credentials are compiled or persisted, no connection
+starts automatically, and the supported device behavior remains unchanged.
+
 ---
 
 ## Tests
@@ -213,7 +218,10 @@ filtering, keyboard event translation and deduplication, opaque record-storage
 validation and forwarding, owned navigation history and Back traversal,
 dynamic capability registration and enumeration, owned application metadata
 validation and lookup, bounded logical file-storage operations, and System
-Core boot and update orchestration.
+Core boot and update orchestration. They also cover Wi-Fi configuration
+validation, connection state, timeout and capped retry timing, connected-only
+and link-loss-safe RSSI access, disconnect-error propagation, and
+credential-free diagnostics.
 
 Run formatting and static analysis separately with:
 
@@ -314,10 +322,11 @@ See [`docs/ENGINEERING.md`](docs/ENGINEERING.md) for the complete workflow.
 
 ## Current Status
 
-The Phase 1 System Core foundations are complete. This milestone establishes
-testable contracts and hardware adapters; it does not make planned product
-features user-visible. Product development should now proceed with Phase 2
-Connectivity in the documented architecture order.
+The Phase 1 System Core foundations are complete, and Phase 2 Connectivity is
+in progress with its Wi-Fi foundation delivered. These milestones establish
+testable contracts and hardware adapters; they do not make Wi-Fi or other
+planned product features user-visible. Bluetooth lifecycle is the next Phase 2
+foundation in the documented architecture order.
 
 The authoritative development order is defined in
 [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md#47-initial-development-order):

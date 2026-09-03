@@ -400,7 +400,9 @@ when needed.
 
 ## 11. WiFiService
 
-`WiFiService` owns Wi-Fi connectivity.
+Phase 2 provides the hardware-independent `WiFiService` and `IWifiAdapter`
+contract. `WifiNetworkConfig` owns the requested SSID and passphrase, and the
+Service holds those credentials only while connection intent is active.
 
 Responsibilities:
 
@@ -413,7 +415,44 @@ signal strength
 network configuration
 ```
 
-It may also expose shared networking infrastructure such as:
+The public connection state is one of `Idle`, `Connecting`, `Connected`,
+`RetryWaiting`, or `Error`. A request starts synchronously without waiting for
+association or DHCP. Invalid input returns `InvalidConfig` without reaching the
+adapter or replacing active intent; an adapter operation that cannot start
+returns `AdapterError`. Initialization or connection-launch failure clears the
+unstarted intent and its credentials, allowing a later request to retry without
+a replacement disconnect. A valid replacement disconnects the previous target,
+resets retry backoff, and starts immediately. If the previous target cannot be
+disconnected, replacement stops with `AdapterError` and enters `Error` without
+starting the new target. Explicit disconnect returns `Disconnected`, clears
+future intent and Service-owned credentials, and returns to `Idle`. A hardware
+disconnect failure instead returns `AdapterError` and enters `Error`, while
+still clearing future Service retry intent and credentials.
+
+SSIDs contain 1-32 bytes with no embedded NUL. Passphrases are empty for open
+networks, 8-63 bytes for personal WPA, or exactly 64 hexadecimal digits for a
+raw PSK; embedded NUL is always invalid.
+
+`update(elapsed)` accepts monotonic elapsed duration from its future composition
+owner and performs bounded polling without sleeping. An incomplete attempt
+times out after 15 seconds. Ordinary failure or loss waits 1, 2, 4, 8, 16, and
+then 30 seconds between attempts, remaining capped at 30 seconds. Success and
+valid target replacement reset the next delay to one second. Initialization
+and fatal adapter failures enter `Error`; ordinary connection failures remain
+retryable. Signal strength in dBm is available only in `Connected` state and
+only while the adapter can still retrieve a live access-point record; a link
+loss between Service updates returns no value rather than a sentinel RSSI.
+
+Calls are synchronous and single-threaded. `WiFiService` owns configuration
+copies but holds a non-owning adapter reference and, when supplied, a non-owning
+logger pointer; both injected objects must outlive the Service. The adapter must
+not retain caller references. Fixed state and retry logs may be emitted through
+the shared logger, but network identity, credentials, addresses, and traffic
+contents must never be logged.
+
+The initial foundation does not provide scanning, provisioning, captive-portal
+handling, access-point mode, enterprise Wi-Fi, or automatic startup. It may
+later expose shared networking infrastructure such as:
 
 ```text
 HTTP client
@@ -1472,6 +1511,16 @@ configuration value, credential, or other product data is currently persisted
 by the firmware. `ConfigurationService`, when introduced, will own schemas,
 serialization, defaults, domain validation, and migrations.
 
+The Phase 2 Wi-Fi foundation does not persist credentials. Connection
+configuration is supplied in memory to `WiFiService`, and the ESP32 adapter
+selects RAM-backed ESP-IDF driver storage before applying station
+configuration. The adapter is the exclusive Wi-Fi station-interface and driver
+owner and fails initialization if another component has already created or
+initialized either resource, which prevents unknown persistence, event, or
+retry policy from being inherited. A future `ConfigurationService` owns the
+persistent Wi-Fi schema, validation beyond the connectivity boundary, defaults,
+migrations, and storage policy.
+
 Firmware distribution must pair the application image with its partition
 table. Installation from the earlier 8 MiB layout requires one explicit,
 one-time provisioning of the flash range repurposed from SPIFFS. Normal uploads
@@ -1549,6 +1598,14 @@ Esp32BleAdapter
 ```
 
 ```text
+WiFiService
+      ↓
+IWifiAdapter
+      ↓
+Esp32WifiAdapter
+```
+
+```text
 InputService
       ↓
 IKeyboardAdapter
@@ -1579,6 +1636,29 @@ filesystem, or board-library types. Those types and the Cardputer-Adv microSD
 pin mapping remain inside `CardputerMicroSdFileStorageAdapter`. The adapter is
 not part of `SystemRuntime`; a future Service or composition owner will decide
 when media is refreshed and which logical files are used.
+
+Likewise, `WiFiService` and `IWifiAdapter` contain no Arduino or ESP32 types.
+`Esp32WifiAdapter` contains the ESP-IDF Wi-Fi and network-interface APIs bundled
+with the pinned Arduino-ESP32 toolchain. It exclusively initializes the driver,
+constructs its default station interface through checked allocation, attachment,
+and handler-registration operations, rolls back the interface and driver after
+any partial initialization failure, selects station mode and RAM-backed
+configuration storage, begins exactly one association attempt per Service
+request, and propagates connect and disconnect operation failures. It does not
+initialize Arduino's Wi-Fi facade, whose event handler has independent reconnect
+behavior and emits network identity at high framework log levels. The Cardputer
+build caps Arduino core logging at Info, and adapter compilation rejects Debug
+or Verbose levels.
+
+Adapter input is bounds-checked before copying into fixed ESP-IDF buffers.
+Polling confirms both current station association and an assigned IPv4 address
+before reporting `Connected`; an unassociated or DHCP-pending attempt remains
+`Connecting` until the Service observes connection or applies its timeout.
+Only ESP-IDF's ordinary not-connected result represents that in-progress state;
+other access-point query failures are fatal adapter errors. RSSI is optional and
+comes from the current ESP-IDF access-point record, so an asynchronous link loss
+cannot be mistaken for a valid measurement. The adapter is compiled but not
+constructed by `main.cpp`.
 
 ---
 
@@ -1659,6 +1739,12 @@ pairing
 bond persistence
 reconnection
 ```
+
+The Wi-Fi connectivity foundation is complete: the Service state machine and
+ESP32 station adapter compile with the firmware, but remain inactive until a
+later composition owner supplies runtime configuration and elapsed time.
+Bluetooth lifecycle, pairing, bond persistence, and BLE HID remain subsequent
+Phase 2 work.
 
 ### Phase 3 — Core Services
 
