@@ -65,7 +65,7 @@ make setup
 The virtual environment is local to the checkout and does not replace the
 system Python. ESP-IDF's component manager resolves the exact production
 dependencies from the committed manifest and lock, while Git submodules supply
-the pinned Arduino-only libraries. In every new terminal, source the same
+the pinned hardware-support sources. In every new terminal, source the same
 ESP-IDF `export.sh` before using firmware build, upload, or monitor commands.
 
 ## 4. Connect and Detect the Device

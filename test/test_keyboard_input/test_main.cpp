@@ -1,6 +1,7 @@
 #include <unity.h>
 
 #include "core/input/keyboard_event_translator.h"
+#include "hardware/cardputer/cardputer_adv_keyboard_layout.h"
 
 namespace {
 
@@ -12,6 +13,9 @@ using cardputer_hub::core::KeyRepresentation;
 using cardputer_hub::core::Modifiers;
 using cardputer_hub::core::NamedKey;
 using cardputer_hub::core::PhysicalKeyState;
+using cardputer_hub::hardware::cardputerAdvKeyboardSnapshot;
+using cardputer_hub::hardware::CardputerAdvPressedKeys;
+using cardputer_hub::hardware::decodeCardputerAdvKeyEvent;
 
 constexpr NamedKey allNamedKeys[] = {
     NamedKey::Tab, NamedKey::Enter, NamedKey::Backspace, NamedKey::Delete, NamedKey::Escape,
@@ -186,6 +190,80 @@ void test_translation_clears_the_callers_previous_events() {
     TEST_ASSERT_EQUAL_UINT(0, events.size());
 }
 
+void test_tca8418_events_decode_to_cardputer_adv_coordinates_and_edges() {
+    const auto firstPress = decodeCardputerAdvKeyEvent(0x81);
+    TEST_ASSERT_TRUE(firstPress.has_value());
+    TEST_ASSERT_EQUAL_UINT8(0, firstPress->row);
+    TEST_ASSERT_EQUAL_UINT8(0, firstPress->column);
+    TEST_ASSERT_TRUE(firstPress->pressed);
+
+    const auto lastRelease = decodeCardputerAdvKeyEvent(68);
+    TEST_ASSERT_TRUE(lastRelease.has_value());
+    TEST_ASSERT_EQUAL_UINT8(3, lastRelease->row);
+    TEST_ASSERT_EQUAL_UINT8(13, lastRelease->column);
+    TEST_ASSERT_FALSE(lastRelease->pressed);
+
+    TEST_ASSERT_FALSE(decodeCardputerAdvKeyEvent(0).has_value());
+    TEST_ASSERT_FALSE(decodeCardputerAdvKeyEvent(9).has_value());
+}
+
+void test_cardputer_adv_layout_maps_normal_shift_and_named_keys() {
+    CardputerAdvPressedKeys pressed{};
+    pressed[1] = true;
+    pressed[14] = true;
+    pressed[29] = true;
+    pressed[45] = true;
+
+    const auto snapshot = cardputerAdvKeyboardSnapshot(pressed);
+
+    TEST_ASSERT_TRUE(snapshot.modifiers.shift);
+    TEST_ASSERT_EQUAL_UINT(3, snapshot.keys.size());
+    TEST_ASSERT_EQUAL_CHAR('!', snapshot.keys[0].character);
+    TEST_ASSERT_EQUAL_UINT8(static_cast<unsigned int>(NamedKey::Tab),
+                            static_cast<unsigned int>(snapshot.keys[1].namedKey));
+    TEST_ASSERT_EQUAL_CHAR('Z', snapshot.keys[2].character);
+}
+
+void test_cardputer_adv_fn_layer_maps_functions_arrows_and_inactive_keys() {
+    CardputerAdvPressedKeys pressed{};
+    pressed[1] = true;
+    pressed[15] = true;
+    pressed[28] = true;
+    pressed[39] = true;
+    pressed[52] = true;
+
+    const auto snapshot = cardputerAdvKeyboardSnapshot(pressed);
+
+    TEST_ASSERT_TRUE(snapshot.modifiers.fn);
+    TEST_ASSERT_EQUAL_UINT(4, snapshot.keys.size());
+    TEST_ASSERT_EQUAL_UINT8(static_cast<unsigned int>(NamedKey::F1),
+                            static_cast<unsigned int>(snapshot.keys[0].namedKey));
+    TEST_ASSERT_EQUAL_UINT8(static_cast<unsigned int>(KeyRepresentation::Inactive),
+                            static_cast<unsigned int>(snapshot.keys[1].representation));
+    TEST_ASSERT_EQUAL_UINT8(static_cast<unsigned int>(NamedKey::Up),
+                            static_cast<unsigned int>(snapshot.keys[2].namedKey));
+    TEST_ASSERT_EQUAL_UINT8(static_cast<unsigned int>(NamedKey::Left),
+                            static_cast<unsigned int>(snapshot.keys[3].namedKey));
+}
+
+void test_cardputer_adv_layout_reports_all_modifiers() {
+    CardputerAdvPressedKeys pressed{};
+    pressed[28] = true;
+    pressed[29] = true;
+    pressed[42] = true;
+    pressed[43] = true;
+    pressed[44] = true;
+
+    const auto snapshot = cardputerAdvKeyboardSnapshot(pressed);
+
+    TEST_ASSERT_TRUE(snapshot.modifiers.fn);
+    TEST_ASSERT_TRUE(snapshot.modifiers.shift);
+    TEST_ASSERT_TRUE(snapshot.modifiers.ctrl);
+    TEST_ASSERT_TRUE(snapshot.modifiers.option);
+    TEST_ASSERT_TRUE(snapshot.modifiers.alt);
+    TEST_ASSERT_TRUE(snapshot.keys.empty());
+}
+
 int main() {
     UNITY_BEGIN();
     RUN_TEST(test_printable_characters_preserve_vendor_order);
@@ -196,5 +274,9 @@ int main() {
     RUN_TEST(test_held_key_is_not_reemitted_when_fn_changes_its_semantic_key);
     RUN_TEST(test_held_key_is_not_reemitted_after_an_inactive_fn_mapping);
     RUN_TEST(test_translation_clears_the_callers_previous_events);
+    RUN_TEST(test_tca8418_events_decode_to_cardputer_adv_coordinates_and_edges);
+    RUN_TEST(test_cardputer_adv_layout_maps_normal_shift_and_named_keys);
+    RUN_TEST(test_cardputer_adv_fn_layer_maps_functions_arrows_and_inactive_keys);
+    RUN_TEST(test_cardputer_adv_layout_reports_all_modifiers);
     return UNITY_END();
 }

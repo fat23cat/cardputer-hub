@@ -1,6 +1,6 @@
 #include "hardware/cardputer/serial_log_sink.h"
 
-#include <Arduino.h>
+#include <cstdio>
 
 namespace cardputer_hub::hardware {
 namespace {
@@ -22,7 +22,7 @@ const char* levelName(core::LogLevel level) {
 } // namespace
 
 void SerialLogSink::write(const core::LogRecord& record) {
-    Serial.printf("[%s] %s: %s\n", levelName(record.level), record.component, record.message);
+    std::printf("[%s] %s: %s\n", levelName(record.level), record.component, record.message);
 }
 
 } // namespace cardputer_hub::hardware

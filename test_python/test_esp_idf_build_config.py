@@ -14,10 +14,10 @@ class EspIdfBuildConfigurationTests(unittest.TestCase):
         lock = self.read("dependencies.lock")
 
         self.assertIn('idf: "==5.5.5"', manifest)
-        self.assertIn('espressif/arduino-esp32: "==3.3.11"', manifest)
         self.assertIn('m5stack/m5unified: "==0.2.21"', manifest)
         self.assertIn('m5stack/m5gfx: "==0.2.28"', manifest)
-        self.assertIn('version: 3.3.11', lock)
+        self.assertNotIn("espressif/arduino-esp32", manifest)
+        self.assertNotIn("espressif/arduino-esp32", lock)
         self.assertIn('version: 0.2.21', lock)
         self.assertIn('version: 0.2.28', lock)
 
@@ -44,8 +44,7 @@ class EspIdfBuildConfigurationTests(unittest.TestCase):
         )
         for setting in expected_settings:
             self.assertIn(setting, configuration)
-        self.assertIn("CONFIG_ARDUINO_SELECTIVE_BLE=n", configuration)
-        self.assertIn("CONFIG_ARDUINO_SELECTIVE_BluetoothSerial=n", configuration)
+        self.assertNotIn("CONFIG_ARDUINO_", configuration)
 
     def test_production_build_uses_idf_output_and_partition_table(self) -> None:
         makefile = self.read("Makefile")
@@ -61,6 +60,50 @@ class EspIdfBuildConfigurationTests(unittest.TestCase):
         self.assertIn("cxx_std_17", component)
         self.assertIn("-std=gnu++17 -Wall -Wextra -Werror", component)
 
+    def test_production_initializes_m5_without_arduino_runtime(self) -> None:
+        project = self.read("CMakeLists.txt")
+        defaults = self.read("sdkconfig.defaults")
+        entrypoint = self.read("src/main.cpp")
+        platform = self.read("src/hardware/cardputer/cardputer_platform.cpp")
+
+        self.assertNotIn("M5GFX_BOARD=", project)
+        self.assertIn("CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG=y", defaults)
+        self.assertIn('extern "C" void app_main(void)', entrypoint)
+        self.assertNotIn("void setup()", entrypoint)
+        self.assertNotIn("void loop()", entrypoint)
+        self.assertIn("M5.begin(config);", platform)
+        self.assertNotIn("initArduino();", platform)
+        self.assertNotIn("Serial.begin", platform)
+        self.assertNotIn("fallback_board", platform)
+        self.assertNotIn("cardputerPowerStabilizationMs", platform)
+
+    def test_production_hardware_graph_is_native_esp_idf(self) -> None:
+        project = self.read("CMakeLists.txt")
+        component = self.read("main/CMakeLists.txt")
+        manifest = self.read("main/idf_component.yml")
+        defaults = self.read("sdkconfig.defaults")
+        platform = self.read("src/hardware/cardputer/cardputer_platform.cpp")
+        keyboard = self.read("src/hardware/cardputer/cardputer_keyboard_adapter.cpp")
+        display = self.read("src/hardware/cardputer/cardputer_display_adapter.cpp")
+        serial = self.read("src/hardware/cardputer/serial_log_sink.cpp")
+        microsd = self.read(
+            "src/hardware/storage/microsd/cardputer_microsd_file_storage_adapter.cpp"
+        )
+
+        self.assertNotIn("espressif/arduino-esp32", manifest)
+        self.assertNotIn("espressif__arduino-esp32", component)
+        self.assertNotIn("EXTRA_COMPONENT_DIRS", project)
+        self.assertNotIn("\n        m5cardputer\n", component)
+        self.assertNotIn("arduino_irremote", component)
+        self.assertIn("Adafruit_TCA8418.cpp", component)
+        self.assertNotIn("ARDUINO_", project)
+        self.assertNotIn("CONFIG_ARDUINO_", defaults)
+        for source in (platform, keyboard, display, serial, microsd):
+            self.assertNotIn("<Arduino.h>", source)
+            self.assertNotIn("<M5Cardputer.h>", source)
+        self.assertNotIn("<SD.h>", microsd)
+        self.assertNotIn("<SPI.h>", microsd)
+
     def test_component_sources_are_explicitly_enumerated(self) -> None:
         application_component = self.read("main/CMakeLists.txt")
         cardputer_component = self.read("components/m5cardputer/CMakeLists.txt")
@@ -72,6 +115,43 @@ class EspIdfBuildConfigurationTests(unittest.TestCase):
         cardputer_root = ROOT / "components" / "m5cardputer"
         for source in (cardputer_root / "upstream" / "src").rglob("*.cpp"):
             self.assertIn(source.relative_to(cardputer_root).as_posix(), cardputer_component)
+
+    def test_plan_012_device_harness_is_opt_in(self) -> None:
+        project = self.read("CMakeLists.txt")
+        component = self.read("main/CMakeLists.txt")
+        entrypoint = self.read("src/main.cpp")
+        instructions = self.read("docs/validation/plan-012-device-harness.md")
+
+        self.assertIn("option(CARDPUTER_HUB_PLAN_012_VALIDATION", project)
+        self.assertIn('"Build the local serial validation harness for plan 012" OFF)', project)
+        self.assertIn("if(CARDPUTER_HUB_PLAN_012_VALIDATION)", component)
+        self.assertIn("validation/plan_012_device_harness.cpp", component)
+        self.assertIn("CARDPUTER_HUB_PLAN_012_VALIDATION=1", component)
+        self.assertIn("#if CARDPUTER_HUB_PLAN_012_VALIDATION", entrypoint)
+        self.assertIn(
+            "#if CARDPUTER_HUB_PLAN_012_VALIDATION\n"
+            "    (void)fcntl(STDIN_FILENO, F_SETFL, O_NONBLOCK);\n"
+            "    validationHarness.start();\n"
+            "#else\n"
+            "    runtime.start();\n"
+            "#endif",
+            entrypoint,
+        )
+        self.assertIn("-D CARDPUTER_HUB_PLAN_012_VALIDATION=ON", instructions)
+        self.assertIn("build-validation-012", instructions)
+
+    def test_plan_012_device_harness_yields_to_the_idle_task(self) -> None:
+        entrypoint = self.read("src/main.cpp")
+
+        self.assertIn(
+            "#if CARDPUTER_HUB_PLAN_012_VALIDATION\n"
+            "        validationHarness.update();\n"
+            "#else\n"
+            "        (void)runtime.update();\n"
+            "#endif\n"
+            "        vTaskDelay(pdMS_TO_TICKS(1));",
+            entrypoint,
+        )
 
     def test_ci_installs_exact_idf_and_packages_idf_outputs(self) -> None:
         installer = self.read("scripts/install_esp_idf.sh")
@@ -136,6 +216,26 @@ class EspIdfBuildConfigurationTests(unittest.TestCase):
         self.assertIn("host/ble_gap.h", adapter)
         self.assertNotIn("esp_bt_main.h", adapter)
         self.assertNotIn("esp_bluedroid_", adapter)
+
+    def test_controller_identity_log_is_suppressed_before_bluetooth_init(self) -> None:
+        adapter = self.read("src/hardware/esp32/bluetooth/esp32_bluetooth_adapter.cpp")
+
+        suppression = adapter.index("suppressIdentityBearingBluetoothLogTags();")
+        controller_init = adapter.index("esp_bt_controller_init(&controllerConfig)")
+        self.assertLess(suppression, controller_init)
+        self.assertIn('"BLE_INIT"', adapter)
+
+    def test_network_identity_logs_are_suppressed_before_wifi_init(self) -> None:
+        adapter = self.read("src/hardware/esp32/wifi/esp32_wifi_adapter.cpp")
+
+        self.assertIn(
+            "Esp32WifiAdapter::initializeStation() {\n"
+            "    suppressIdentityBearingWifiLogTags();\n"
+            "    if (!initializeNetworkStack())",
+            adapter,
+        )
+        self.assertIn('"wifi"', adapter)
+        self.assertIn('"esp_netif_handlers"', adapter)
 
 
 if __name__ == "__main__":

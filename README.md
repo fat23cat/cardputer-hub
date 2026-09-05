@@ -121,7 +121,6 @@ The locked development environment uses:
 * Python 3.12.14;
 * uv 0.12.7;
 * ESP-IDF 5.5.5 with its recommended compiler, CMake, and Ninja tools;
-* Arduino Core 3.3.11 as an exact ESP-IDF managed component;
 * PlatformIO Core 6.1.19 only for native host tests and static analysis;
 * clang-format 23.1.0;
 * a C++17 host compiler for native tests and C++17 project-owned firmware
@@ -171,7 +170,7 @@ idf.py --version
 Do not install project-specific ESP32 or M5Stack libraries globally. The
 ESP-IDF component manager resolves the exact production graph from
 `main/idf_component.yml` and `dependencies.lock`; Git submodules retain the
-exact Arduino-only library revisions. Re-source ESP-IDF's `export.sh` in each
+exact pinned hardware-support sources. Re-source ESP-IDF's `export.sh` in each
 new terminal before running firmware commands.
 
 ---
@@ -195,9 +194,9 @@ The production application and matching partition-table images are written to
 `build/partition_table/partition-table.bin`. The version-controlled flash layout
 keeps the framework's default NVS separate from the dedicated `hub_config` NVS
 partition reserved for authoritative configuration records. On startup, the
-firmware initializes the Cardputer once, writes structured informational
-records for the product name, version, commit, and build type to serial, and
-renders the product name and version as a minimal boot screen. Its update loop
+firmware enters through native ESP-IDF, initializes M5Unified directly, writes
+structured informational records for the product name, version, commit, and
+build type to serial, and renders the product name and version as a minimal boot screen. Its update loop
 refreshes the hardware and polls semantic keyboard input events. Those events
 are intentionally not routed to product behavior yet, and no connectivity or
 Mini Apps are started.

@@ -63,7 +63,7 @@ Hardware-specific calls should live in thin adapters.
 Examples:
 
 ```text
-M5Cardputer keyboard API
+TCA8418 through M5Unified I2C
         ↓
 Keyboard Adapter
         ↓
@@ -383,10 +383,10 @@ validation pipeline must pass before they are merged.
 
 Use a declarative, reproducible firmware build.
 
-The production Cardputer-Adv image uses ESP-IDF 5.5.5's native CMake build,
-with Arduino Core 3.3.11 as an exact managed component. PlatformIO is retained
-only for the native host-test runner and Cppcheck integration; it must not grow
-a second production firmware environment.
+The production Cardputer-Adv image uses ESP-IDF 5.5.5's native CMake build and
+native ESP-IDF hardware integrations. PlatformIO is retained only for the
+native host-test runner and Cppcheck integration; it must not grow a second
+production firmware environment.
 
 The repository should define:
 
@@ -394,7 +394,7 @@ The repository should define:
 target board and ESP-IDF version
 managed-component manifest and lock
 immutable Git-submodule dependencies
-Arduino autostart and selective-library configuration
+native app_main and hardware-adapter configuration
 build flags and C++ standard
 flash partition table
 native test environment
@@ -402,7 +402,7 @@ native test environment
 
 in version-controlled configuration.
 
-A new developer should not need to manually install an undocumented collection of Arduino libraries.
+A new developer should not need to manually install undocumented firmware libraries.
 
 ---
 

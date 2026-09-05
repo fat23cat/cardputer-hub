@@ -5,6 +5,7 @@
 .venv/
 __pycache__/
 build/
+build-*/
 managed_components/
 sdkconfig
 sdkconfig.old

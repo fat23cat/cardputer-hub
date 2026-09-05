@@ -13,6 +13,7 @@ set(CARDPUTER_HUB_SOURCES
     "${CMAKE_CURRENT_LIST_DIR}/../src/core/storage/files/file_storage.cpp"
     "${CMAKE_CURRENT_LIST_DIR}/../src/core/storage/storage.cpp"
     "${CMAKE_CURRENT_LIST_DIR}/../src/hardware/cardputer/cardputer_display_adapter.cpp"
+    "${CMAKE_CURRENT_LIST_DIR}/../src/hardware/cardputer/cardputer_adv_keyboard_layout.cpp"
     "${CMAKE_CURRENT_LIST_DIR}/../src/hardware/cardputer/cardputer_keyboard_adapter.cpp"
     "${CMAKE_CURRENT_LIST_DIR}/../src/hardware/cardputer/cardputer_platform.cpp"
     "${CMAKE_CURRENT_LIST_DIR}/../src/hardware/cardputer/serial_log_sink.cpp"
@@ -20,26 +21,36 @@ set(CARDPUTER_HUB_SOURCES
     "${CMAKE_CURRENT_LIST_DIR}/../src/hardware/esp32/esp32_nvs_storage_adapter.cpp"
     "${CMAKE_CURRENT_LIST_DIR}/../src/hardware/esp32/wifi/esp32_wifi_adapter.cpp"
     "${CMAKE_CURRENT_LIST_DIR}/../src/hardware/storage/microsd/cardputer_microsd_file_storage_adapter.cpp"
+    "${CMAKE_CURRENT_LIST_DIR}/../components/m5cardputer/upstream/src/utility/Adafruit_TCA8418/Adafruit_TCA8418.cpp"
     "${CMAKE_CURRENT_LIST_DIR}/../src/main.cpp")
+
+if(CARDPUTER_HUB_PLAN_012_VALIDATION)
+    list(APPEND CARDPUTER_HUB_SOURCES
+         "${CMAKE_CURRENT_LIST_DIR}/../src/validation/plan_012_device_harness.cpp")
+endif()
 
 idf_component_register(
     SRCS ${CARDPUTER_HUB_SOURCES}
-    INCLUDE_DIRS "${CMAKE_CURRENT_LIST_DIR}/../src"
+    INCLUDE_DIRS
+        "${CMAKE_CURRENT_LIST_DIR}/../src"
+        "${CMAKE_CURRENT_LIST_DIR}/../components/m5cardputer/upstream/src/utility/Adafruit_TCA8418"
     REQUIRES
-        espressif__arduino-esp32
-        arduino_irremote
         bt
+        driver
         esp_event
         esp_netif
         esp_wifi
         fatfs
-        m5cardputer
         m5stack__m5gfx
         m5stack__m5unified
         nvs_flash)
 
 target_compile_features(${COMPONENT_LIB} PUBLIC cxx_std_17)
 target_compile_options(${COMPONENT_LIB} PRIVATE -std=gnu++17 -Wall -Wextra -Werror)
+if(CARDPUTER_HUB_PLAN_012_VALIDATION)
+    target_compile_definitions(${COMPONENT_LIB}
+                               PRIVATE CARDPUTER_HUB_PLAN_012_VALIDATION=1)
+endif()
 
 set(CARDPUTER_HUB_VERSION "$ENV{CARDPUTER_HUB_VERSION}")
 if(CARDPUTER_HUB_VERSION STREQUAL "")

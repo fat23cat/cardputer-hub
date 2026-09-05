@@ -3,24 +3,27 @@
 #include <algorithm>
 #include <cerrno>
 #include <climits>
-#include <cstddef>
+#include <cstdio>
 #include <string>
 #include <string_view>
+#include <sys/stat.h>
 #include <utility>
 
-#include <SD.h>
-#include <SPI.h>
+#include "driver/sdspi_host.h"
+#include "driver/spi_master.h"
+#include "esp_vfs_fat.h"
+#include "sdmmc_cmd.h"
 
 namespace cardputer_hub::hardware {
 namespace {
 
-constexpr int microSdClockPin = 40;
-constexpr int microSdMisoPin = 39;
-constexpr int microSdMosiPin = 14;
-constexpr int microSdChipSelectPin = 12;
-constexpr std::uint32_t microSdFrequency = 25'000'000;
+constexpr gpio_num_t microSdClockPin = GPIO_NUM_40;
+constexpr gpio_num_t microSdMisoPin = GPIO_NUM_39;
+constexpr gpio_num_t microSdMosiPin = GPIO_NUM_14;
+constexpr gpio_num_t microSdChipSelectPin = GPIO_NUM_12;
+constexpr int microSdFrequencyKhz = 25'000;
 constexpr const char* mountPoint = "/sd";
-constexpr const char* managedRoot = "/cardputer-hub";
+constexpr const char* managedRoot = "/sd/cardputer-hub";
 constexpr std::size_t maxBackendSegmentLength = 255;
 
 bool isFatForbiddenCharacter(unsigned char character) {
@@ -35,7 +38,6 @@ bool isValidBackendSegment(std::string_view segment) {
         segment.back() == ' ') {
         return false;
     }
-
     return std::none_of(segment.begin(), segment.end(), [](char character) {
         return isFatForbiddenCharacter(static_cast<unsigned char>(character));
     });
@@ -52,8 +54,7 @@ bool isSafeLogicalPath(std::string_view path) {
         const std::size_t separator = path.find('/', segmentStart);
         const std::size_t segmentEnd =
             separator == std::string_view::npos ? path.size() : separator;
-        const auto segment = path.substr(segmentStart, segmentEnd - segmentStart);
-        if (!isValidBackendSegment(segment)) {
+        if (!isValidBackendSegment(path.substr(segmentStart, segmentEnd - segmentStart))) {
             return false;
         }
         if (separator == std::string_view::npos) {
@@ -61,7 +62,6 @@ bool isSafeLogicalPath(std::string_view path) {
         }
         segmentStart = separator + 1;
     }
-
     return std::string_view(managedRoot).size() + 1 + path.size() < PATH_MAX;
 }
 
@@ -69,14 +69,17 @@ std::string managedPath(const core::FileStoragePath& path) {
     return std::string(managedRoot) + "/" + path;
 }
 
+bool pathIsDirectory(const std::string& path) {
+    struct stat status{};
+    return stat(path.c_str(), &status) == 0 && S_ISDIR(status.st_mode);
+}
+
 bool ensureManagedRoot() {
-    File root = SD.open(managedRoot, FILE_READ);
-    if (root) {
-        const bool isDirectory = root.isDirectory();
-        root.close();
-        return isDirectory;
+    struct stat status{};
+    if (stat(managedRoot, &status) == 0) {
+        return S_ISDIR(status.st_mode);
     }
-    return SD.mkdir(managedRoot);
+    return mkdir(managedRoot, 0755) == 0;
 }
 
 bool ensureParentDirectories(const core::FileStoragePath& path) {
@@ -85,18 +88,14 @@ bool ensureParentDirectories(const core::FileStoragePath& path) {
     std::size_t separator = path.find('/');
     while (separator != std::string::npos) {
         parent += "/" + path.substr(segmentStart, separator - segmentStart);
-
-        File existing = SD.open(parent.c_str(), FILE_READ);
-        if (existing) {
-            const bool isDirectory = existing.isDirectory();
-            existing.close();
-            if (!isDirectory) {
+        struct stat status{};
+        if (stat(parent.c_str(), &status) == 0) {
+            if (!S_ISDIR(status.st_mode)) {
                 return false;
             }
-        } else if (!SD.mkdir(parent.c_str())) {
+        } else if (mkdir(parent.c_str(), 0755) != 0) {
             return false;
         }
-
         segmentStart = separator + 1;
         separator = path.find('/', segmentStart);
     }
@@ -117,38 +116,73 @@ core::FileWriteStatus writeFailure(int error) {
 
 } // namespace
 
+CardputerMicroSdFileStorageAdapter::~CardputerMicroSdFileStorageAdapter() { unmount(); }
+
 core::FileStorageState CardputerMicroSdFileStorageAdapter::state() const { return state_; }
 
-core::FileStorageState CardputerMicroSdFileStorageAdapter::refresh() {
-    SD.end();
-    SPI.begin(microSdClockPin, microSdMisoPin, microSdMosiPin, microSdChipSelectPin);
+void CardputerMicroSdFileStorageAdapter::unmount() {
+    if (card_ != nullptr) {
+        (void)esp_vfs_fat_sdcard_unmount(mountPoint, card_);
+        card_ = nullptr;
+    }
+    if (spiBusInitialized_) {
+        const sdmmc_host_t host = SDSPI_HOST_DEFAULT();
+        (void)spi_bus_free(static_cast<spi_host_device_t>(host.slot));
+        spiBusInitialized_ = false;
+    }
+}
 
-    if (!SD.begin(microSdChipSelectPin, SPI, microSdFrequency, mountPoint, 5, false)) {
-        state_ = SD.cardType() == CARD_NONE ? core::FileStorageState::NotPresent
-                                            : core::FileStorageState::MountError;
-        return state_;
-    }
-    if (SD.cardType() == CARD_NONE) {
-        SD.end();
-        state_ = core::FileStorageState::NotPresent;
-        return state_;
-    }
-    if (!ensureManagedRoot()) {
-        SD.end();
+core::FileStorageState CardputerMicroSdFileStorageAdapter::refresh() {
+    unmount();
+    sdmmc_host_t host = SDSPI_HOST_DEFAULT();
+    host.max_freq_khz = microSdFrequencyKhz;
+
+    spi_bus_config_t busConfig{};
+    busConfig.mosi_io_num = microSdMosiPin;
+    busConfig.miso_io_num = microSdMisoPin;
+    busConfig.sclk_io_num = microSdClockPin;
+    busConfig.quadwp_io_num = GPIO_NUM_NC;
+    busConfig.quadhd_io_num = GPIO_NUM_NC;
+    busConfig.max_transfer_sz = 4096;
+    const auto busResult = spi_bus_initialize(static_cast<spi_host_device_t>(host.slot), &busConfig,
+                                              SDSPI_DEFAULT_DMA);
+    if (busResult != ESP_OK) {
         state_ = core::FileStorageState::MountError;
         return state_;
     }
+    spiBusInitialized_ = true;
 
+    sdspi_device_config_t slotConfig = SDSPI_DEVICE_CONFIG_DEFAULT();
+    slotConfig.gpio_cs = microSdChipSelectPin;
+    slotConfig.host_id = static_cast<spi_host_device_t>(host.slot);
+    esp_vfs_fat_sdmmc_mount_config_t mountConfig{};
+    mountConfig.format_if_mount_failed = false;
+    mountConfig.max_files = 5;
+    mountConfig.allocation_unit_size = 16 * 1024;
+
+    const auto mountResult =
+        esp_vfs_fat_sdspi_mount(mountPoint, &host, &slotConfig, &mountConfig, &card_);
+    if (mountResult != ESP_OK) {
+        unmount();
+        state_ = mountResult == ESP_ERR_TIMEOUT || mountResult == ESP_ERR_NOT_FOUND
+                     ? core::FileStorageState::NotPresent
+                     : core::FileStorageState::MountError;
+        return state_;
+    }
+    if (!ensureManagedRoot()) {
+        unmount();
+        state_ = core::FileStorageState::MountError;
+        return state_;
+    }
     state_ = core::FileStorageState::Ready;
     return state_;
 }
 
 bool CardputerMicroSdFileStorageAdapter::operationBecameUnavailable(int error) {
-    if (SD.cardType() != CARD_NONE && !isUnavailableError(error)) {
+    if (!isUnavailableError(error)) {
         return false;
     }
-
-    SD.end();
+    unmount();
     state_ = error == EIO ? core::FileStorageState::MountError : core::FileStorageState::NotPresent;
     return true;
 }
@@ -165,41 +199,38 @@ core::FileReadResult CardputerMicroSdFileStorageAdapter::read(const core::FileSt
         return {core::FileReadStatus::Unavailable, {}};
     }
 
-    const std::string backendPath = managedPath(path);
+    const auto backendPath = managedPath(path);
     errno = 0;
-    File file = SD.open(backendPath.c_str(), FILE_READ);
+    std::FILE* file = std::fopen(backendPath.c_str(), "rb");
     const int openError = errno;
-    if (!file) {
+    if (file == nullptr) {
         if (operationBecameUnavailable(openError)) {
             return {core::FileReadStatus::Unavailable, {}};
         }
-        if (openError == 0 || openError == ENOENT) {
-            return {core::FileReadStatus::NotFound, {}};
-        }
+        return {openError == ENOENT ? core::FileReadStatus::NotFound
+                                    : core::FileReadStatus::BackendError,
+                {}};
+    }
+    if (pathIsDirectory(backendPath) || std::fseek(file, 0, SEEK_END) != 0) {
+        std::fclose(file);
         return {core::FileReadStatus::BackendError, {}};
     }
-    if (file.isDirectory()) {
-        file.close();
+    const long fileSize = std::ftell(file);
+    if (fileSize < 0 || std::fseek(file, 0, SEEK_SET) != 0) {
+        std::fclose(file);
         return {core::FileReadStatus::BackendError, {}};
     }
-
-    const std::size_t size = file.size();
-    if (size > maxSize) {
-        file.close();
+    if (static_cast<std::size_t>(fileSize) > maxSize) {
+        std::fclose(file);
         return {core::FileReadStatus::TooLarge, {}};
     }
 
-    core::FileStorageBytes data(size);
-    if (size == 0) {
-        file.close();
-        return {core::FileReadStatus::Found, {}};
-    }
-
+    core::FileStorageBytes data(static_cast<std::size_t>(fileSize));
     errno = 0;
-    const std::size_t bytesRead = file.read(data.data(), data.size());
+    const std::size_t bytesRead = data.empty() ? 0 : std::fread(data.data(), 1, data.size(), file);
     const int readError = errno;
-    file.close();
-    if (bytesRead != size) {
+    const int closeResult = std::fclose(file);
+    if (bytesRead != data.size() || closeResult != 0) {
         if (operationBecameUnavailable(readError)) {
             return {core::FileReadStatus::Unavailable, {}};
         }
@@ -217,48 +248,36 @@ CardputerMicroSdFileStorageAdapter::replace(const core::FileStoragePath& path,
     if (state_ != core::FileStorageState::Ready) {
         return core::FileWriteStatus::Unavailable;
     }
-
     errno = 0;
     if (!ensureParentDirectories(path)) {
-        const int directoryError = errno;
-        if (operationBecameUnavailable(directoryError)) {
-            return core::FileWriteStatus::Unavailable;
-        }
-        return writeFailure(directoryError);
+        const int error = errno;
+        return operationBecameUnavailable(error) ? core::FileWriteStatus::Unavailable
+                                                 : writeFailure(error);
     }
 
-    const std::string backendPath = managedPath(path);
+    const auto backendPath = managedPath(path);
     errno = 0;
-    File file = SD.open(backendPath.c_str(), FILE_WRITE);
+    std::FILE* file = std::fopen(backendPath.c_str(), "wb");
     const int openError = errno;
-    if (!file) {
-        if (operationBecameUnavailable(openError)) {
-            return core::FileWriteStatus::Unavailable;
-        }
-        return writeFailure(openError);
+    if (file == nullptr) {
+        return operationBecameUnavailable(openError) ? core::FileWriteStatus::Unavailable
+                                                     : writeFailure(openError);
     }
-    if (file.isDirectory()) {
-        file.close();
-        return core::FileWriteStatus::BackendError;
-    }
-
     errno = 0;
-    const std::size_t bytesWritten = data.empty() ? 0 : file.write(data.data(), data.size());
+    const std::size_t bytesWritten =
+        data.empty() ? 0 : std::fwrite(data.data(), 1, data.size(), file);
     const int writeError = errno;
     errno = 0;
-    file.flush();
+    const int flushResult = std::fflush(file);
     const int flushError = errno;
-    file.close();
-
+    const int closeResult = std::fclose(file);
     const int operationError = writeError != 0 ? writeError : flushError;
-    if (bytesWritten != data.size() || operationError != 0) {
+    if (bytesWritten != data.size() || flushResult != 0 || closeResult != 0) {
         if (operationBecameUnavailable(operationError)) {
             return core::FileWriteStatus::Unavailable;
         }
-        if (bytesWritten != data.size() && operationError == 0) {
-            return core::FileWriteStatus::CapacityExceeded;
-        }
-        return writeFailure(operationError);
+        return operationError == 0 ? core::FileWriteStatus::CapacityExceeded
+                                   : writeFailure(operationError);
     }
     return core::FileWriteStatus::Stored;
 }
@@ -271,39 +290,30 @@ CardputerMicroSdFileStorageAdapter::remove(const core::FileStoragePath& path) {
     if (state_ != core::FileStorageState::Ready) {
         return core::FileRemoveStatus::Unavailable;
     }
-
-    const std::string backendPath = managedPath(path);
+    const auto backendPath = managedPath(path);
+    struct stat status{};
     errno = 0;
-    File file = SD.open(backendPath.c_str(), FILE_READ);
-    const int openError = errno;
-    if (!file) {
-        if (operationBecameUnavailable(openError)) {
+    if (stat(backendPath.c_str(), &status) != 0) {
+        const int error = errno;
+        if (operationBecameUnavailable(error)) {
             return core::FileRemoveStatus::Unavailable;
         }
-        if (openError == 0 || openError == ENOENT) {
-            return core::FileRemoveStatus::NotFound;
-        }
+        return error == ENOENT ? core::FileRemoveStatus::NotFound
+                               : core::FileRemoveStatus::BackendError;
+    }
+    if (S_ISDIR(status.st_mode)) {
         return core::FileRemoveStatus::BackendError;
     }
-    if (file.isDirectory()) {
-        file.close();
-        return core::FileRemoveStatus::BackendError;
-    }
-    file.close();
-
     errno = 0;
-    if (SD.remove(backendPath.c_str())) {
+    if (std::remove(backendPath.c_str()) == 0) {
         return core::FileRemoveStatus::Removed;
     }
-
-    const int removeError = errno;
-    if (operationBecameUnavailable(removeError)) {
+    const int error = errno;
+    if (operationBecameUnavailable(error)) {
         return core::FileRemoveStatus::Unavailable;
     }
-    if (removeError == ENOENT) {
-        return core::FileRemoveStatus::NotFound;
-    }
-    return core::FileRemoveStatus::BackendError;
+    return error == ENOENT ? core::FileRemoveStatus::NotFound
+                           : core::FileRemoveStatus::BackendError;
 }
 
 } // namespace cardputer_hub::hardware

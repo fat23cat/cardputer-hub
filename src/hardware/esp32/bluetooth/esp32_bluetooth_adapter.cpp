@@ -462,9 +462,8 @@ bool quiesceStack() {
 }
 
 void suppressIdentityBearingBluetoothLogTags() {
-    constexpr std::array tags = {
-        "BT", "BTDM_INIT", "NimBLE", "NIMBLE_PORT", "ble_hs", "BLE_HS", "BLE_ATT", "BLE_SMP",
-    };
+    constexpr std::array tags = {"BT",     "BTDM_INIT", "BLE_INIT", "NimBLE", "NIMBLE_PORT",
+                                 "ble_hs", "BLE_HS",    "BLE_ATT",  "BLE_SMP"};
     std::for_each(tags.begin(), tags.end(),
                   [](const auto* tag) { esp_log_level_set(tag, ESP_LOG_NONE); });
 }
