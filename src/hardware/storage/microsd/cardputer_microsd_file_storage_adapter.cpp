@@ -12,6 +12,7 @@
 #include "driver/sdspi_host.h"
 #include "driver/spi_master.h"
 #include "esp_vfs_fat.h"
+#include "hardware/storage/microsd/microsd_io_error.h"
 #include "sdmmc_cmd.h"
 
 namespace cardputer_hub::hardware {
@@ -229,9 +230,12 @@ core::FileReadResult CardputerMicroSdFileStorageAdapter::read(const core::FileSt
     errno = 0;
     const std::size_t bytesRead = data.empty() ? 0 : std::fread(data.data(), 1, data.size(), file);
     const int readError = errno;
+    errno = 0;
     const int closeResult = std::fclose(file);
+    const int closeError = closeResult != 0 ? errno : 0;
     if (bytesRead != data.size() || closeResult != 0) {
-        if (operationBecameUnavailable(readError)) {
+        const int operationError = microsd_detail::firstOperationError(readError, closeError);
+        if (operationBecameUnavailable(operationError)) {
             return {core::FileReadStatus::Unavailable, {}};
         }
         return {core::FileReadStatus::BackendError, {}};
@@ -270,14 +274,19 @@ CardputerMicroSdFileStorageAdapter::replace(const core::FileStoragePath& path,
     errno = 0;
     const int flushResult = std::fflush(file);
     const int flushError = errno;
+    errno = 0;
     const int closeResult = std::fclose(file);
-    const int operationError = writeError != 0 ? writeError : flushError;
+    const int closeError = closeResult != 0 ? errno : 0;
+    const int operationError =
+        microsd_detail::firstOperationError(writeError, flushError, closeError);
     if (bytesWritten != data.size() || flushResult != 0 || closeResult != 0) {
         if (operationBecameUnavailable(operationError)) {
             return core::FileWriteStatus::Unavailable;
         }
-        return operationError == 0 ? core::FileWriteStatus::CapacityExceeded
-                                   : writeFailure(operationError);
+        if (bytesWritten != data.size() && operationError == 0) {
+            return core::FileWriteStatus::CapacityExceeded;
+        }
+        return writeFailure(operationError);
     }
     return core::FileWriteStatus::Stored;
 }

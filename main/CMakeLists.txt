@@ -21,6 +21,7 @@ set(CARDPUTER_HUB_SOURCES
     "${CMAKE_CURRENT_LIST_DIR}/../src/hardware/esp32/esp32_nvs_storage_adapter.cpp"
     "${CMAKE_CURRENT_LIST_DIR}/../src/hardware/esp32/wifi/esp32_wifi_adapter.cpp"
     "${CMAKE_CURRENT_LIST_DIR}/../src/hardware/storage/microsd/cardputer_microsd_file_storage_adapter.cpp"
+    "${CMAKE_CURRENT_LIST_DIR}/../src/hardware/storage/microsd/microsd_io_error.cpp"
     "${CMAKE_CURRENT_LIST_DIR}/../components/m5cardputer/upstream/src/utility/Adafruit_TCA8418/Adafruit_TCA8418.cpp"
     "${CMAKE_CURRENT_LIST_DIR}/../src/main.cpp")
 
