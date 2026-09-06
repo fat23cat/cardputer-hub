@@ -436,6 +436,26 @@ void test_pairing_response_validates_generation_kind_and_six_digit_entry() {
     TEST_ASSERT_EQUAL_UINT32(1, adapter.pairingResponses.size());
 }
 
+void test_disable_forgets_the_previous_pairing_response_generation() {
+    FakeBluetoothAdapter adapter;
+    adapter.bondResult = BluetoothBondQueryResult::Unbonded;
+    BluetoothService service(adapter);
+    (void)service.enable({"Cardputer Hub"});
+    (void)service.openPairing();
+    adapter.events.push_back(peerConnected(8));
+    adapter.events.push_back(
+        pairingChallenge(8, BluetoothPairingChallengeType::ConfirmComparison, 123456));
+    service.update(std::chrono::milliseconds::zero());
+    const auto challenge = *service.pairingChallenge();
+    const BluetoothPairingResponse response{challenge.generation, challenge.type, true, ""};
+    (void)service.respondToPairing(response);
+
+    (void)service.disable();
+
+    TEST_ASSERT_EQUAL_UINT8(static_cast<unsigned int>(BluetoothPairingResponseResult::NoChallenge),
+                            static_cast<unsigned int>(service.respondToPairing(response)));
+}
+
 void test_cancel_pairing_rejects_incomplete_peer_and_waits_for_disconnect_to_reconnect() {
     FakeBluetoothAdapter adapter;
     adapter.bondResult = BluetoothBondQueryResult::Unbonded;
@@ -1220,6 +1240,7 @@ int main() {
     RUN_TEST(test_open_pairing_disconnects_current_bond_without_deleting_it);
     RUN_TEST(test_pairing_admits_one_unbonded_peer_and_publishes_each_authenticated_challenge);
     RUN_TEST(test_pairing_response_validates_generation_kind_and_six_digit_entry);
+    RUN_TEST(test_disable_forgets_the_previous_pairing_response_generation);
     RUN_TEST(test_cancel_pairing_rejects_incomplete_peer_and_waits_for_disconnect_to_reconnect);
     RUN_TEST(test_pairing_rejects_every_insecure_completion_and_deletes_a_created_bond);
     RUN_TEST(test_successful_pairing_returns_one_opaque_reference_and_keeps_connection);

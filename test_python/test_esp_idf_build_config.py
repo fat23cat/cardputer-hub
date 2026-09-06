@@ -62,6 +62,9 @@ class EspIdfBuildConfigurationTests(unittest.TestCase):
         )
         for setting in expected_settings:
             self.assertIn(setting, configuration)
+        adapter = self.read("src/hardware/esp32/bluetooth/esp32_bluetooth_adapter.cpp")
+        self.assertIn("ble_hs_cfg.sm_sec_lvl = CONFIG_BT_NIMBLE_SM_LVL;", adapter)
+        self.assertNotIn("ble_hs_cfg.sm_sec_lvl = 4;", adapter)
 
     def test_production_build_uses_idf_output_and_partition_table(self) -> None:
         makefile = self.read("Makefile")

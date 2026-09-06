@@ -102,6 +102,7 @@ BluetoothDisableResult BluetoothService::disable() {
     pairingPeer_.reset();
     pairingChallenge_.reset();
     completedPairing_.reset();
+    lastRespondedGeneration_.reset();
 
     if (advertisingPendingOrActive_ &&
         adapter_.requestAdvertisingStop() != BluetoothAdapterResult::Success) {

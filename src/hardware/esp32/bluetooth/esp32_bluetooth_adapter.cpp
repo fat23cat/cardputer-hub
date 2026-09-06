@@ -732,7 +732,7 @@ Esp32BluetoothAdapter::initialize(const connectivity::BluetoothDeviceConfig& con
     ble_hs_cfg.sm_mitm = 1;
     ble_hs_cfg.sm_sc = 1;
     ble_hs_cfg.sm_sc_only = 1;
-    ble_hs_cfg.sm_sec_lvl = 4;
+    ble_hs_cfg.sm_sec_lvl = CONFIG_BT_NIMBLE_SM_LVL;
     ble_hs_cfg.sm_our_key_dist = BLE_HS_KEY_DIST_ENC_KEY | BLE_HS_KEY_DIST_ID_KEY;
     ble_hs_cfg.sm_their_key_dist = BLE_HS_KEY_DIST_ENC_KEY | BLE_HS_KEY_DIST_ID_KEY;
     ble_svc_gap_init();

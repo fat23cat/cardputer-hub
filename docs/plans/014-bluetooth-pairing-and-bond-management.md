@@ -232,7 +232,7 @@ TDD and delivered behavior:
   challenges, response generation and input validation, cancellation, strict
   security completion, capacity, selected-target enforcement, and asynchronous
   bond deletion were then covered with fake-adapter behavioral tests. The
-  focused suite contains 47 passing cases, including all retained plan-011
+  focused suite contains 48 passing cases, including all retained plan-011
   lifecycle regressions.
 * `Esp32BluetoothAdapter` configures bonding, MITM, `KeyboardDisplay`, identity
   key distribution, and Secure Connections-only security. Its callback glue
@@ -244,6 +244,9 @@ TDD and delivered behavior:
   ESP-NimBLE bond enumeration and deletion.
 * Normal runtime composition is unchanged. There is no pairing UI or HID
   transport yet, so `docs/manuals/` requires no supported-behavior change.
+* Review follow-up added a regression proving disable forgets the previous
+  challenge response generation and aligned the runtime security-level value
+  with ESP-IDF's verified `CONFIG_BT_NIMBLE_SM_LVL=3` encoding.
 * A compile-time-only `validation-014` image and physical runbook now exercise
   pairing through the Cardputer display and keyboard, privacy-safe bond
   management, reboot reference comparison, capacity, microSD, Wi-Fi, and
@@ -257,8 +260,8 @@ make format                                      PASS
 make format-check                                PASS
 make lint                                        PASS (no findings)
 uv run --frozen pio test -e native \
-  -f test_bluetooth_service                      PASS (47 tests)
-make test                                        PASS (38 Python + 152 native tests)
+  -f test_bluetooth_service                      PASS (48 tests)
+make test                                        PASS (38 Python + 153 native tests)
 make build                                       PASS
 make check                                       PASS
 validation-014 firmware build                    PASS
@@ -269,7 +272,7 @@ A clean ESP-IDF 5.5.5 build using only `sdkconfig.defaults` produced a
 436,432-byte application image, leaving 87% of the smallest OTA partition free.
 Compile-time configuration guards reject legacy pairing, debug keys, a bond
 capacity other than 16, or missing persistent Secure Connections support.
-The opt-in validation-014 image is 1,244,208 bytes and leaves 63% free.
+The opt-in validation-014 image is 1,244,240 bytes and leaves 63% free.
 
 No hardware pairing was attempted and no user bonds were created or removed.
 The mandatory interoperability, reboot, capacity, failure-isolation, and full
