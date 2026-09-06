@@ -27,10 +27,10 @@ Add:
 * a direct ESP-IDF Bluedroid BLE peripheral adapter;
 * native behavioral tests and architecture documentation.
 
-Bluetooth remains inactive during normal boot. The supported toolchain and
-ESP-NimBLE migration is plan 012, the UI requirements change uses number 013,
-authenticated pairing and bond management are added by plan 014, and BLE HID
-reports are added by plan 015.
+Bluetooth remains inactive during normal boot. Plan 012 covers the
+supported-toolchain upgrade and ESP-NimBLE migration; the UI requirements
+change uses number 013; authenticated pairing and bond management are added by
+plan 014; and BLE HID reports are added by plan 015.
 
 ## 2. Public Contract and Behavior
 
