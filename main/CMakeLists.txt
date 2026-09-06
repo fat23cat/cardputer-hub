@@ -28,6 +28,9 @@ set(CARDPUTER_HUB_SOURCES
 if(CARDPUTER_HUB_PLAN_012_VALIDATION)
     list(APPEND CARDPUTER_HUB_SOURCES
          "${CMAKE_CURRENT_LIST_DIR}/../src/validation/plan_012_device_harness.cpp")
+elseif(CARDPUTER_HUB_PLAN_014_VALIDATION)
+    list(APPEND CARDPUTER_HUB_SOURCES
+         "${CMAKE_CURRENT_LIST_DIR}/../src/validation/plan_014_device_harness.cpp")
 endif()
 
 idf_component_register(
@@ -52,6 +55,9 @@ target_compile_options(${COMPONENT_LIB} PRIVATE -std=gnu++17 -Wall -Wextra -Werr
 if(CARDPUTER_HUB_PLAN_012_VALIDATION)
     target_compile_definitions(${COMPONENT_LIB}
                                PRIVATE CARDPUTER_HUB_PLAN_012_VALIDATION=1)
+elseif(CARDPUTER_HUB_PLAN_014_VALIDATION)
+    target_compile_definitions(${COMPONENT_LIB}
+                               PRIVATE CARDPUTER_HUB_PLAN_014_VALIDATION=1)
 endif()
 
 set(CARDPUTER_HUB_VERSION "$ENV{CARDPUTER_HUB_VERSION}")

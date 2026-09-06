@@ -149,6 +149,9 @@ class EspIdfBuildConfigurationTests(unittest.TestCase):
             "#if CARDPUTER_HUB_PLAN_012_VALIDATION\n"
             "    (void)fcntl(STDIN_FILENO, F_SETFL, O_NONBLOCK);\n"
             "    validationHarness.start();\n"
+            "#elif CARDPUTER_HUB_PLAN_014_VALIDATION\n"
+            "    (void)fcntl(STDIN_FILENO, F_SETFL, O_NONBLOCK);\n"
+            "    validationHarness.start();\n"
             "#else\n"
             "    runtime.start();\n"
             "#endif",
@@ -163,12 +166,41 @@ class EspIdfBuildConfigurationTests(unittest.TestCase):
         self.assertIn(
             "#if CARDPUTER_HUB_PLAN_012_VALIDATION\n"
             "        validationHarness.update();\n"
+            "#elif CARDPUTER_HUB_PLAN_014_VALIDATION\n"
+            "        validationHarness.update();\n"
             "#else\n"
             "        (void)runtime.update();\n"
             "#endif\n"
             "        vTaskDelay(pdMS_TO_TICKS(1));",
             entrypoint,
         )
+
+    def test_plan_014_device_harness_is_opt_in_and_non_shipping(self) -> None:
+        project = self.read("CMakeLists.txt")
+        component = self.read("main/CMakeLists.txt")
+        entrypoint = self.read("src/main.cpp")
+        instructions = self.read("docs/validation/plan-014-device-harness.md")
+
+        self.assertIn("option(CARDPUTER_HUB_PLAN_014_VALIDATION", project)
+        self.assertIn('"Build the local pairing validation harness for plan 014" OFF)', project)
+        self.assertIn("CARDPUTER_HUB_PLAN_012_VALIDATION AND CARDPUTER_HUB_PLAN_014_VALIDATION", project)
+        self.assertIn("if(CARDPUTER_HUB_PLAN_014_VALIDATION)", component)
+        self.assertIn("validation/plan_014_device_harness.cpp", component)
+        self.assertIn("CARDPUTER_HUB_PLAN_014_VALIDATION=1", component)
+        self.assertIn("#elif CARDPUTER_HUB_PLAN_014_VALIDATION", entrypoint)
+        self.assertIn("Plan014DeviceHarness validationHarness", entrypoint)
+        self.assertIn("-D CARDPUTER_HUB_PLAN_014_VALIDATION=ON", instructions)
+        self.assertIn("build-validation-014", instructions)
+        self.assertIn("make upload UPLOAD_PORT=", instructions)
+
+    def test_plan_014_pairing_values_stay_off_the_serial_console(self) -> None:
+        harness = self.read("src/validation/plan_014_device_harness.cpp")
+
+        self.assertIn("displayPairingChallenge", harness)
+        self.assertIn("keyboard_.poll", harness)
+        self.assertNotIn('Serial.printf("%06', harness)
+        self.assertNotIn("reference.bytes", harness)
+        self.assertNotIn("challenge->value", harness)
 
     def test_ci_installs_exact_idf_and_packages_idf_outputs(self) -> None:
         installer = self.read("scripts/install_esp_idf.sh")

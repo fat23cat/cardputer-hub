@@ -244,6 +244,11 @@ TDD and delivered behavior:
   ESP-NimBLE bond enumeration and deletion.
 * Normal runtime composition is unchanged. There is no pairing UI or HID
   transport yet, so `docs/manuals/` requires no supported-behavior change.
+* A compile-time-only `validation-014` image and physical runbook now exercise
+  pairing through the Cardputer display and keyboard, privacy-safe bond
+  management, reboot reference comparison, capacity, microSD, Wi-Fi, and
+  validation-only Bluetooth failure injection. It is mutually exclusive with
+  the retained plan-012 harness and excluded from production firmware.
 
 Automated verification:
 
@@ -253,15 +258,18 @@ make format-check                                PASS
 make lint                                        PASS (no findings)
 uv run --frozen pio test -e native \
   -f test_bluetooth_service                      PASS (47 tests)
-make test                                        PASS (36 Python + 152 native tests)
+make test                                        PASS (38 Python + 152 native tests)
 make build                                       PASS
 make check                                       PASS
+validation-014 firmware build                    PASS
+retained validation-012 firmware build           PASS
 ```
 
 A clean ESP-IDF 5.5.5 build using only `sdkconfig.defaults` produced a
 436,432-byte application image, leaving 87% of the smallest OTA partition free.
 Compile-time configuration guards reject legacy pairing, debug keys, a bond
 capacity other than 16, or missing persistent Secure Connections support.
+The opt-in validation-014 image is 1,244,208 bytes and leaves 63% free.
 
 No hardware pairing was attempted and no user bonds were created or removed.
 The mandatory interoperability, reboot, capacity, failure-isolation, and full
