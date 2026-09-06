@@ -1,6 +1,6 @@
 # Bluetooth Pairing and Bond Management Plan
 
-Status: **Planned**
+Status: **Implemented — physical validation pending**
 
 This plan describes the fourth granular Phase 2 change. It adds authenticated
 BLE pairing, persistent opaque bond references, explicit bond management, and
@@ -217,3 +217,53 @@ Assumptions and defaults:
 * one live connection and up to 16 persisted bonds are supported;
 * Device Manager pairing UI and `HostProfile` creation remain later-phase work;
 * BLE HID reports are introduced only by plan 015.
+
+## 7. Implementation Record
+
+Implemented on 2026-09-06. The required physical Cardputer-Adv validation is
+still pending, so this plan is not marked complete.
+
+TDD and delivered behavior:
+
+* RED: the first pairing-state test failed because `BluetoothService` had no
+  pairing state, challenge, or completion API. The hardware-neutral contract
+  and closed-window behavior made that slice pass.
+* Pairing-window timing, disconnect-before-pairing, all three authenticated
+  challenges, response generation and input validation, cancellation, strict
+  security completion, capacity, selected-target enforcement, and asynchronous
+  bond deletion were then covered with fake-adapter behavioral tests. The
+  focused suite contains 47 passing cases, including all retained plan-011
+  lifecycle regressions.
+* `Esp32BluetoothAdapter` configures bonding, MITM, `KeyboardDisplay`, identity
+  key distribution, and Secure Connections-only security. Its callback glue
+  remains the documented thin-adapter TDD exception; callbacks only copy bounded
+  challenge, identity-resolution, and completion data into the existing queue.
+* A random 256-bit reference key is created non-destructively in `hub_config`
+  before pairing can be admitted. The adapter derives 128-bit references with
+  HMAC-SHA-256, rejects collisions, keeps addresses private, and exposes checked
+  ESP-NimBLE bond enumeration and deletion.
+* Normal runtime composition is unchanged. There is no pairing UI or HID
+  transport yet, so `docs/manuals/` requires no supported-behavior change.
+
+Automated verification:
+
+```text
+make format                                      PASS
+make format-check                                PASS
+make lint                                        PASS (no findings)
+uv run --frozen pio test -e native \
+  -f test_bluetooth_service                      PASS (47 tests)
+make test                                        PASS (36 Python + 152 native tests)
+make build                                       PASS
+make check                                       PASS
+```
+
+A clean ESP-IDF 5.5.5 build using only `sdkconfig.defaults` produced a
+436,432-byte application image, leaving 87% of the smallest OTA partition free.
+Compile-time configuration guards reject legacy pairing, debug keys, a bond
+capacity other than 16, or missing persistent Secure Connections support.
+
+No hardware pairing was attempted and no user bonds were created or removed.
+The mandatory interoperability, reboot, capacity, failure-isolation, and full
+log privacy checks in section 5 remain required before changing this plan's
+status to complete.

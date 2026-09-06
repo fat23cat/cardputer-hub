@@ -46,6 +46,23 @@ class EspIdfBuildConfigurationTests(unittest.TestCase):
             self.assertIn(setting, configuration)
         self.assertNotIn("CONFIG_ARDUINO_", configuration)
 
+    def test_nimble_pairing_requires_authenticated_secure_connections(self) -> None:
+        configuration = self.read("sdkconfig.defaults")
+
+        expected_settings = (
+            "CONFIG_BT_NIMBLE_SECURITY_ENABLE=y",
+            "CONFIG_BT_NIMBLE_SM_LEGACY=n",
+            "CONFIG_BT_NIMBLE_SM_SC=y",
+            "CONFIG_BT_NIMBLE_SM_SC_DEBUG_KEYS=n",
+            "CONFIG_BT_NIMBLE_LL_CFG_FEAT_LE_ENCRYPTION=y",
+            "CONFIG_BT_NIMBLE_SM_LVL=3",
+            "CONFIG_BT_NIMBLE_SM_SC_ONLY=1",
+            "CONFIG_BT_NIMBLE_MAX_BONDS=16",
+            "CONFIG_BT_NIMBLE_NVS_PERSIST=y",
+        )
+        for setting in expected_settings:
+            self.assertIn(setting, configuration)
+
     def test_production_build_uses_idf_output_and_partition_table(self) -> None:
         makefile = self.read("Makefile")
         configuration = self.read("sdkconfig.defaults")

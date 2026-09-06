@@ -42,6 +42,7 @@ idf_component_register(
         esp_netif
         esp_wifi
         fatfs
+        mbedtls
         m5stack__m5gfx
         m5stack__m5unified
         nvs_flash)

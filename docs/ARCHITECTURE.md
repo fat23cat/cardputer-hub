@@ -507,9 +507,9 @@ or enable can retry it. Calls are synchronous and single-threaded from the
 caller's perspective, while adapter callbacks only copy bounded events for
 later processing by `update(elapsed)`.
 
-The public state is one of `Disabled`, `Idle`, `Advertising`, `Connected`,
-`RetryWaiting`, or `Error`. Only one peer may be current. Until authenticated
-pairing is introduced, a newly connected peer must already have a bond;
+The public lifecycle state is one of `Disabled`, `Idle`, `Advertising`,
+`Connected`, `RetryWaiting`, or `Error`. Only one peer may be current. Outside
+an explicit pairing window, a newly connected peer must already have a bond;
 unbonded and additional peers are disconnected without replacing the current
 connection. Advertising remains blocked while any requested peer rejection is
 in flight; the one-second reconnect delay starts only after the final rejected
@@ -525,12 +525,35 @@ operation retains the non-identifying lifecycle generation that issued it.
 Combined with definitive shutdown on disable, this prevents queued callbacks
 from an older attempt from being relabeled as or reactivating a new attempt.
 
+`BluetoothService` owns the hardware-independent authenticated-pairing policy.
+`openPairing` creates one explicit 120-second Add Device window; its timer
+starts only when advertising actually begins. Opening while connected first
+disconnects the current peer without deleting its bond. During the window the
+Service admits exactly one unbonded peer, rejects bonded and additional peers,
+and publishes at most one generation-tagged `DisplayPasskey`, `EnterPasskey`,
+or `ConfirmComparison` challenge. Responses must match the generation and
+challenge kind; entered passkeys are exactly six decimal digits. Cancellation,
+timeout, malformed security completion, and failed finalization reject the
+incomplete peer before normal reconnect advertising resumes. A successful
+completion must be encrypted, authenticated, bonded LE Secure Connections and
+publishes exactly one opaque bond reference while retaining the connection.
+
+Bond references are stable, ordered, opaque 128-bit values. The Service can
+enumerate up to 16 bonds, select or clear a reconnect target, remove one bond,
+or remove all. A selected target causes every other bonded peer to be rejected.
+Changing targets disconnects the previous peer without deleting either bond.
+Removing an active bond disconnects before deletion, and remove-all visits
+every known bond and reports partial failure. Pairing, target replacement, and
+active-bond deletion advance only through `update(elapsed)` callback events.
+Future `HostService` owns the mapping from these references to `HostProfile`
+data; Connectivity never stores host names, platforms, or user-specific cases.
+
 The Service holds non-owning adapter and optional logger references, which must
 outlive it. Logs describe fixed lifecycle outcomes and never include device
-names, peer handles, addresses, or other identity data. The foundation is not
-composed into `main.cpp`, so Bluetooth remains inactive during normal boot.
-Pairing UI and bond mutation belong to the next Bluetooth phase, and BLE HID
-transport remains a separate later phase.
+names, peer handles, addresses, passkeys, comparison values, bond references,
+or other identity data. The foundation is not composed into `main.cpp`, so
+Bluetooth remains inactive during normal boot. Device Manager pairing UI and
+BLE HID transport remain separate later changes.
 
 Responsibilities:
 
@@ -1588,6 +1611,17 @@ retry policy from being inherited. A future `ConfigurationService` owns the
 persistent Wi-Fi schema, validation beyond the connectivity boundary, defaults,
 migrations, and storage policy.
 
+ESP-NimBLE persists its bond keys in its non-destructively initialized store.
+The Bluetooth adapter separately keeps one random 256-bit bond-reference key as
+Bluetooth-internal metadata in the authoritative `hub_config` partition. The
+key is created with the ESP-IDF cryptographic random source before pairing can
+be admitted, is never exported or logged, and is not regenerated merely because
+bonds already exist. Stable public references are the first 128 bits of
+HMAC-SHA-256 over each adapter-private identity address. Enumeration rejects a
+reference collision instead of exposing an ambiguous target. A future
+`ConfigurationService` may migrate the metadata storage mechanics without
+changing this public reference contract.
+
 Firmware distribution must pair the application image with its partition
 table. Installation from the earlier 8 MiB layout requires one explicit,
 one-time provisioning of the flash range repurposed from SPIFFS. Normal uploads
@@ -1741,6 +1775,14 @@ initialized and exclusively owned for the process lifetime so logical
 enable/disable remains repeatable. Failed teardown stages retain their
 ownership flags and must be retried before another lifecycle can initialize.
 
+NimBLE is configured for bonding, MITM protection, Secure Connections-only
+security, identity-key distribution, `KeyboardDisplay` I/O, one connection,
+and at most 16 bonds. The adapter initiates security only after Service policy
+admits the peer, translates the three checked passkey actions, verifies the
+stored bond was authenticated with Secure Connections, and provides checked
+enumeration and deletion through NimBLE's store APIs. Public, random, and
+identity addresses remain adapter-private.
+
 NimBLE callbacks copy only bounded owned values into a fixed event queue; they
 do not publish Service state or retain framework-owned pointers. The direct
 adapter has one callback context and one physical peer slot, and lifecycle
@@ -1787,10 +1829,14 @@ VPS Monitor
 Device Manager
 ```
 
-Bluetooth lifecycle failures are contained within `BluetoothService` and its
-owned adapter resources. A fatal initialization, callback-queue, polling,
-advertising, bond-query, or peer-rejection failure enters Bluetooth `Error` and
-shuts down that adapter; it does not alter Wi-Fi or System Core state. Because
+Bluetooth lifecycle, pairing, reference persistence, and bond-management
+failures are contained within `BluetoothService` and its owned adapter
+resources. A fatal initialization, callback-queue, polling, advertising,
+reference, bond-query, finalization, cleanup, or peer-rejection failure enters
+Bluetooth `Error` and shuts down that adapter; ordinary insecure pairing is
+rejected without affecting unrelated systems. Remove-all reports partial
+deletion instead of claiming success. These outcomes do not alter Wi-Fi or
+System Core state. Because
 the Bluetooth foundation is not part of runtime composition yet, it also cannot
 delay or fail normal boot.
 
@@ -1844,11 +1890,11 @@ reconnection
 The Wi-Fi connectivity foundation is complete: the Service state machine and
 ESP32 station adapter compile with the firmware, but remain inactive until a
 later composition owner supplies runtime configuration and elapsed time.
-The Bluetooth lifecycle foundation is also complete: its Service state machine
-and direct ESP-NimBLE peripheral adapter compile with the firmware but
-remain inactive. Authenticated pairing, bond-management policy, persistence,
-BLE HID, native USB HID, and transport arbitration remain subsequent Phase 2
-work. USB owns HID output only after enumeration reports the native HID
+The Bluetooth lifecycle plus authenticated pairing and bond-management
+foundations are implemented: their Service state machines and direct
+ESP-NimBLE peripheral adapter compile with the firmware but remain inactive.
+Pairing UI, BLE HID, native USB HID, and transport arbitration remain subsequent
+Phase 2 work. USB owns HID output only after enumeration reports the native HID
 transport mounted and ready. USB removal returns output to an opaque BLE target
 provided from above; Phase 2 does not select or store a `HostProfile`.
 
