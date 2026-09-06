@@ -9,6 +9,8 @@ sections of:
 
 * `docs/ARCHITECTURE.md` — product and software architecture
 * `docs/ENGINEERING.md` — development, testing, CI/CD, versioning, and release requirements
+* `docs/UI_REQUIREMENTS.md` — visual, motion, sound, display-power, and input
+  rules for UI work
 * `docs/manuals/` — current supported features, controls, installation, and
   user-facing procedures affected by the change
 

@@ -373,6 +373,13 @@ Launcher, global shortcuts, and navigation Actions. Phase 5 will define Mini
 App view objects and lifecycle; those view implementations remain outside the
 navigation history primitive.
 
+All future System UI and Mini App views must follow the shared visual,
+interaction, sound, display-power, and input-routing rules in
+[`UI_REQUIREMENTS.md`](UI_REQUIREMENTS.md). Those presentation requirements do
+not override the layer ownership defined here: UI renders state and expresses
+user intent, while Services, Connectivity, and hardware adapters retain their
+respective behavior and device responsibilities.
+
 ---
 
 ## 10. Connectivity Layer
@@ -382,19 +389,32 @@ Initial connectivity consists of:
 ```text
 Connectivity
 ├── WiFiService
-└── BluetoothService
+├── BluetoothService
+├── native USB HID transport
+└── host-control transport routing
 ```
 
 Additional mechanisms may later include:
 
 ```text
-USB
 MQTT
 WebSocket
 LoRa
 ```
 
 when needed.
+
+Phase 2 owns the hardware-neutral HID transport boundary, native USB HID,
+BLE HID, and exclusive routing between them. A mounted and ready USB HID
+connection takes priority. When it disconnects, routing returns automatically
+to the BLE target supplied by the higher layer. Handover must not duplicate a
+logical Action or leave a pressed key active on either host.
+
+Connectivity does not choose a personal device or depend on `HostProfile`.
+`HostService` supplies the active host and selected BLE target in Phase 3;
+Device Manager exposes that selection in Phase 6. Before those phases exist,
+Phase 2 transport arbitration remains hardware-independent and testable with
+opaque targets and fake transports.
 
 ---
 
@@ -1189,9 +1209,11 @@ Not all actions need to be implemented initially.
 
 ---
 
-## 34. BLE HID Actions
+## 34. Host HID Actions
 
-Simple host actions may be executed using BLE HID.
+Simple host actions may be executed using the Phase 2 HID transport boundary.
+Native USB HID is preferred while mounted and ready; otherwise output returns
+to the active host's BLE HID connection.
 
 Example:
 
@@ -1202,14 +1224,15 @@ Action resolution
       ↓
 configured shortcut
       ↓
-BluetoothService
+host-control transport routing
+      ├── native USB HID
+      └── BLE HID
       ↓
-BLE HID
-      ↓
-MacBook
+active host
 ```
 
-Logical Actions must remain independent of their HID representation.
+Logical Actions must remain independent of their HID representation and the
+transport selected to deliver it.
 
 ---
 
@@ -1366,7 +1389,7 @@ Examples:
 Launcher
 Bluetooth
 Host switching
-BLE HID
+USB and BLE HID
 local configuration
 RGB indicator
 local Mini Apps
@@ -1810,7 +1833,9 @@ Implement:
 ```text
 WiFiService
 BluetoothService
-BLE HID
+native USB HID transport
+BLE HID transport
+USB-over-BLE transport arbitration
 pairing
 bond persistence
 reconnection
@@ -1822,7 +1847,10 @@ later composition owner supplies runtime configuration and elapsed time.
 The Bluetooth lifecycle foundation is also complete: its Service state machine
 and direct ESP-NimBLE peripheral adapter compile with the firmware but
 remain inactive. Authenticated pairing, bond-management policy, persistence,
-and BLE HID remain subsequent Phase 2 work.
+BLE HID, native USB HID, and transport arbitration remain subsequent Phase 2
+work. USB owns HID output only after enumeration reports the native HID
+transport mounted and ready. USB removal returns output to an opaque BLE target
+provided from above; Phase 2 does not select or store a `HostProfile`.
 
 ### Phase 3 — Core Services
 
@@ -1880,7 +1908,7 @@ switch active host
 Implement:
 
 ```text
-basic BLE HID actions
+basic HID actions over Phase 2 transport routing
 application focus actions
 host-specific mappings
 ```
@@ -1958,7 +1986,9 @@ Navigation
 multiple host pairing
 Host Profiles
 host switching
+native USB HID
 BLE HID
+USB-over-BLE transport arbitration
 
 Device Manager Mini App
 basic host control
