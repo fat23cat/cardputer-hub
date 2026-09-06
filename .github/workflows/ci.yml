@@ -15,9 +15,9 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  check:
+  host-checks:
     runs-on: ubuntu-24.04
-    timeout-minutes: 30
+    timeout-minutes: 15
     steps:
       - name: Check out source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -35,23 +35,85 @@ jobs:
         with:
           path: ~/.platformio
           key: platformio-${{ runner.os }}-${{ hashFiles('uv.lock', 'platformio.ini') }}
-          restore-keys: |
-            platformio-${{ runner.os }}-
 
       - name: Install locked tools
         run: |
           uv python install 3.12.14
           uv sync --frozen
 
-      - name: Run all checks
-        run: make check
+      - name: Run host checks
+        run: make host-check
+
+  firmware-build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    env:
+      CCACHE_DIR: ${{ github.workspace }}/.ccache
+      IDF_CCACHE_ENABLE: "1"
+    steps:
+      - name: Check out source and pinned libraries
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          submodules: recursive
+
+      - name: Restore ESP-IDF toolchain
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.espressif
+          key: esp-idf-${{ runner.os }}-v5.5.5-b774170ff46c393eeb5e495ea37936038d3f4f4f
+
+      - name: Restore managed components
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: managed_components
+          key: idf-components-${{ runner.os }}-${{ hashFiles('dependencies.lock') }}
+
+      - name: Restore compiler cache
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ github.workspace }}/.ccache
+          key: ccache-${{ runner.os }}-esp32s3-idf-5.5.5-${{ github.sha }}
+          restore-keys: |
+            ccache-${{ runner.os }}-esp32s3-idf-5.5.5-
+
+      - name: Install compiler cache
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes ccache
+
+      - name: Install ESP-IDF 5.5.5
+        run: bash scripts/install_esp_idf.sh "${HOME}/.espressif/frameworks/esp-idf-v5.5.5"
+
+      - name: Build firmware
+        run: |
+          source "${HOME}/.espressif/frameworks/esp-idf-v5.5.5/export.sh"
+          ccache --max-size=500M
+          ccache --zero-stats
+          make firmware-check
+          ccache --show-stats
 
       - name: Upload firmware
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: cardputer-hub-${{ github.sha }}
           path: |
-            .pio/build/cardputer-adv/firmware.bin
-            .pio/build/cardputer-adv/partitions.bin
+            build/cardputer_hub.bin
+            build/partition_table/partition-table.bin
           if-no-files-found: error
           retention-days: 7
+
+  check:
+    if: always()
+    needs:
+      - host-checks
+      - firmware-build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Require every validation job
+        env:
+          FIRMWARE_RESULT: ${{ needs.firmware-build.result }}
+          HOST_RESULT: ${{ needs.host-checks.result }}
+        run: |
+          test "${HOST_RESULT}" = success
+          test "${FIRMWARE_RESULT}" = success

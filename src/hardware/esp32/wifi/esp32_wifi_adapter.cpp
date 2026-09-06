@@ -4,6 +4,7 @@
 
 #include <esp_err.h>
 #include <esp_event.h>
+#include <esp_log.h>
 #include <esp_netif.h>
 #include <esp_netif_defaults.h>
 #include <esp_wifi.h>
@@ -21,6 +22,11 @@ static_assert(configuredFrameworkDebugLevel < 4,
               "ESP32 framework debug logging can expose Wi-Fi network identity");
 
 constexpr const char* stationInterfaceKey = "WIFI_STA_DEF";
+
+void suppressIdentityBearingWifiLogTags() {
+    esp_log_level_set("wifi", ESP_LOG_NONE);
+    esp_log_level_set("esp_netif_handlers", ESP_LOG_NONE);
+}
 
 bool initializeNetworkStack() {
     const auto netifResult = esp_netif_init();
@@ -92,6 +98,7 @@ bool copyStationConfig(const connectivity::WifiNetworkConfig& config, wifi_confi
 } // namespace
 
 connectivity::WifiAdapterResult Esp32WifiAdapter::initializeStation() {
+    suppressIdentityBearingWifiLogTags();
     if (!initializeNetworkStack()) {
         return connectivity::WifiAdapterResult::Error;
     }

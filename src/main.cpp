@@ -6,6 +6,16 @@
 #include "hardware/cardputer/cardputer_platform.h"
 #include "hardware/cardputer/serial_log_sink.h"
 
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
+
+#if CARDPUTER_HUB_PLAN_012_VALIDATION
+#include <fcntl.h>
+#include <unistd.h>
+
+#include "validation/plan_012_device_harness.h"
+#endif
+
 namespace {
 
 cardputer_hub::hardware::CardputerPlatform platform;
@@ -15,9 +25,26 @@ cardputer_hub::hardware::SerialLogSink logSink;
 cardputer_hub::core::Logger logger(logSink, cardputer_hub::core::LogLevel::Info);
 cardputer_hub::core::SystemRuntime runtime(platform, keyboard, display, logger,
                                            cardputer_hub::core::firmwareBuildInfo());
+#if CARDPUTER_HUB_PLAN_012_VALIDATION
+cardputer_hub::validation::Plan012DeviceHarness validationHarness(logger);
+#endif
 
 } // namespace
 
-void setup() { runtime.start(); }
+extern "C" void app_main(void) {
+#if CARDPUTER_HUB_PLAN_012_VALIDATION
+    (void)fcntl(STDIN_FILENO, F_SETFL, O_NONBLOCK);
+    validationHarness.start();
+#else
+    runtime.start();
+#endif
 
-void loop() { (void)runtime.update(); }
+    for (;;) {
+#if CARDPUTER_HUB_PLAN_012_VALIDATION
+        validationHarness.update();
+#else
+        (void)runtime.update();
+#endif
+        vTaskDelay(pdMS_TO_TICKS(1));
+    }
+}

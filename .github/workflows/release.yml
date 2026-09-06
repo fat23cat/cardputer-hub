@@ -20,9 +20,11 @@ jobs:
       github.event.workflow_run.event == 'push' &&
       github.event.workflow_run.head_branch == 'main'
     runs-on: ubuntu-24.04
-    timeout-minutes: 30
+    timeout-minutes: 60
     env:
       CARDPUTER_HUB_BUILD_TYPE: release
+      CCACHE_DIR: ${{ github.workspace }}/.ccache
+      IDF_CCACHE_ENABLE: "1"
       VALIDATED_COMMIT: ${{ github.event.workflow_run.head_sha }}
       GH_TOKEN: ${{ github.token }}
     steps:
@@ -31,6 +33,7 @@ jobs:
         with:
           ref: ${{ github.event.workflow_run.head_sha }}
           fetch-depth: 0
+          submodules: recursive
 
       - name: Verify validated source
         shell: bash
@@ -43,14 +46,6 @@ jobs:
           python-version: 3.12.14
           enable-cache: true
           cache-dependency-glob: uv.lock
-
-      - name: Restore PlatformIO cache
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with:
-          path: ~/.platformio
-          key: platformio-${{ runner.os }}-${{ hashFiles('uv.lock', 'platformio.ini') }}
-          restore-keys: |
-            platformio-${{ runner.os }}-
 
       - name: Install locked tools
         run: |
@@ -85,9 +80,46 @@ jobs:
             echo "should_release=false" >> "${GITHUB_OUTPUT}"
           fi
 
+      - name: Restore ESP-IDF toolchain
+        if: steps.release.outputs.should_release == 'true'
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.espressif
+          key: esp-idf-${{ runner.os }}-v5.5.5-b774170ff46c393eeb5e495ea37936038d3f4f4f
+
+      - name: Restore managed components
+        if: steps.release.outputs.should_release == 'true'
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: managed_components
+          key: idf-components-${{ runner.os }}-${{ hashFiles('dependencies.lock') }}
+
+      - name: Restore compiler cache
+        if: steps.release.outputs.should_release == 'true'
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ github.workspace }}/.ccache
+          key: ccache-${{ runner.os }}-esp32s3-idf-5.5.5-${{ env.VALIDATED_COMMIT }}
+          restore-keys: |
+            ccache-${{ runner.os }}-esp32s3-idf-5.5.5-
+
+      - name: Install compiler cache
+        if: steps.release.outputs.should_release == 'true'
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes ccache
+
+      - name: Install ESP-IDF 5.5.5
+        if: steps.release.outputs.should_release == 'true'
+        run: bash scripts/install_esp_idf.sh "${HOME}/.espressif/frameworks/esp-idf-v5.5.5"
+
       - name: Validate and build release firmware
         if: steps.release.outputs.should_release == 'true'
-        run: make check
+        run: |
+          source "${HOME}/.espressif/frameworks/esp-idf-v5.5.5/export.sh"
+          ccache --max-size=500M
+          make firmware-check
+          ccache --show-stats
 
       - name: Package firmware and checksum
         if: steps.release.outputs.should_release == 'true'
@@ -97,8 +129,8 @@ jobs:
           mkdir -p dist
           image="cardputer-hub-v${CARDPUTER_HUB_VERSION}.bin"
           partition_image="cardputer-hub-v${CARDPUTER_HUB_VERSION}-partitions.bin"
-          cp .pio/build/cardputer-adv/firmware.bin "dist/${image}"
-          cp .pio/build/cardputer-adv/partitions.bin "dist/${partition_image}"
+          cp build/cardputer_hub.bin "dist/${image}"
+          cp build/partition_table/partition-table.bin "dist/${partition_image}"
           cd dist
           sha256sum "${image}" "${partition_image}" > SHA256SUMS
 

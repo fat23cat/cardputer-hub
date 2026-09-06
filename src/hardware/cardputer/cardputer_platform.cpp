@@ -1,16 +1,14 @@
 #include "hardware/cardputer/cardputer_platform.h"
 
-#include <Arduino.h>
-#include <M5Cardputer.h>
+#include <M5Unified.hpp>
 
 namespace cardputer_hub::hardware {
 
 void CardputerPlatform::begin() {
-    const auto config = M5.config();
-    M5Cardputer.begin(config);
-    Serial.begin(115200);
+    auto config = M5.config();
+    M5.begin(config);
 }
 
-void CardputerPlatform::update() { M5Cardputer.update(); }
+void CardputerPlatform::update() { M5.update(); }
 
 } // namespace cardputer_hub::hardware

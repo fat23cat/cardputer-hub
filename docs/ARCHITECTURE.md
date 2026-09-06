@@ -477,9 +477,10 @@ all retry intent, requests that pending or active advertising stop, requests
 disconnection of the current peer, and then shuts down the owned Bluetooth
 host and disables the controller as a synchronous completion barrier. Shutdown
 also closes connections whose callbacks are still queued. The adapter retains
-exclusive ownership of the initialized controller because the pinned ESP-IDF
-does not permit controller initialization after controller deinitialization;
-re-enable resumes that controller and creates a fresh Bluedroid lifecycle. A
+exclusive ownership of the initialized controller: logical disable stops and
+deinitializes the ESP-NimBLE host and disables the controller, while leaving
+the controller initialized for repeatable re-enable. Re-enable creates a fresh
+NimBLE host lifecycle. A
 stop, disconnect, or shutdown failure is reported rather than claiming
 successful disablement, and cleanup ownership is retained so a later disable
 or enable can retry it. Calls are synchronous and single-threaded from the
@@ -496,9 +497,9 @@ peer reports disconnection. An unexpected disconnection likewise waits one
 second before advertising again. Retryable advertising failures wait 1, 2, 4,
 8, 16, and then 30 seconds,
 remaining capped at 30 seconds; successful advertising or connection resets
-that backoff. The pinned Bluedroid API's generic `ESP_FAIL` advertising-dispatch
-result represents transient queue pressure and is retryable; specific argument
-or state errors are fatal. Fatal adapter failures shut down owned Bluetooth
+that backoff. Documented NimBLE resource-pressure, busy, and timeout advertising
+results are retryable; invalid argument, invalid state, and other permanent
+results are fatal. Fatal adapter failures shut down owned Bluetooth
 resources and require a later explicit enable. Each asynchronous advertising
 operation retains the non-identifying lifecycle generation that issued it.
 Combined with definitive shutdown on disable, this prevents queued callbacks
@@ -1705,21 +1706,27 @@ constructed by `main.cpp`.
 
 `BluetoothService` and `IBluetoothAdapter` likewise contain no ESP32 types.
 `Esp32BluetoothAdapter` uses the pinned framework's direct ESP-IDF Bluetooth
-controller, Bluedroid, GAP, and GATTS APIs as a BLE peripheral; it does not use
-an Arduino BLE facade, Classic Bluetooth, or central scanning. It exclusively
-owns the controller and Bluedroid resources it initializes, rejects
+controller and ESP-NimBLE host, GAP, GATT-server, and persistent-store APIs as a
+single-connection BLE peripheral. It does not use an Arduino BLE facade,
+NimBLE-Arduino, Bluedroid, Classic Bluetooth, or central scanning. It
+exclusively owns the controller and host resources it initializes, rejects
 incompatible pre-initialized state, and quiesces completed host/controller
-stages in reverse order after failure. Logical shutdown disables and
-deinitializes Bluedroid and disables the controller, but deliberately keeps the
-controller initialized and exclusively owned for the process lifetime: the
-pinned ESP-IDF makes controller deinitialization irreversible until reboot.
-Failed teardown stages retain their ownership flags and must be retried before
-another lifecycle can initialize. Advertising configuration is completed
-through owned callback events, and the adapter never retains framework-owned
-callback pointers. A bounded queue latches overflow as a fatal polling error.
-Peer addresses stay inside the adapter solely for bond lookup and are never
-exposed or logged. Framework Debug and Verbose logging are compile-time
-rejected, and all audited identity-bearing Bluetooth stack tags are disabled
+stages in reverse order after failure. Logical shutdown stops advertising,
+terminates every adapter-known connection, stops and deinitializes the NimBLE
+host, and disables the controller. It deliberately keeps the controller
+initialized and exclusively owned for the process lifetime so logical
+enable/disable remains repeatable. Failed teardown stages retain their
+ownership flags and must be retried before another lifecycle can initialize.
+
+NimBLE callbacks copy only bounded owned values into a fixed event queue; they
+do not publish Service state or retain framework-owned pointers. The direct
+adapter has one callback context and one physical peer slot, and lifecycle
+generations plus definitive host shutdown prevent events from an older host
+instance from affecting a later enable. A bounded queue latches overflow as a
+fatal polling error. Peer identity addresses stay inside the adapter solely for
+bond lookup and are never exposed or logged. Framework Debug and Verbose
+logging are compile-time rejected, NimBLE logging is disabled in production,
+and audited controller, host, GAP, ATT, SMP, and storage tags are suppressed
 before activation. The adapter is compiled but not constructed by `main.cpp`.
 
 ---
@@ -1813,7 +1820,7 @@ The Wi-Fi connectivity foundation is complete: the Service state machine and
 ESP32 station adapter compile with the firmware, but remain inactive until a
 later composition owner supplies runtime configuration and elapsed time.
 The Bluetooth lifecycle foundation is also complete: its Service state machine
-and direct ESP-IDF Bluedroid peripheral adapter compile with the firmware but
+and direct ESP-NimBLE peripheral adapter compile with the firmware but
 remain inactive. Authenticated pairing, bond-management policy, persistence,
 and BLE HID remain subsequent Phase 2 work.
 

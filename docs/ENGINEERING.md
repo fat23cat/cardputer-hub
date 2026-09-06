@@ -63,7 +63,7 @@ Hardware-specific calls should live in thin adapters.
 Examples:
 
 ```text
-M5Cardputer keyboard API
+TCA8418 through M5Unified I2C
         ↓
 Keyboard Adapter
         ↓
@@ -383,22 +383,26 @@ validation pipeline must pass before they are merged.
 
 Use a declarative, reproducible firmware build.
 
-PlatformIO is the preferred initial build system unless implementation proves another option significantly better.
+The production Cardputer-Adv image uses ESP-IDF 5.5.5's native CMake build and
+native ESP-IDF hardware integrations. PlatformIO is retained only for the
+native host-test runner and Cppcheck integration; it must not grow a second
+production firmware environment.
 
 The repository should define:
 
 ```text
-target board
-platform/framework version
-dependencies
-build flags
+target board and ESP-IDF version
+managed-component manifest and lock
+immutable Git-submodule dependencies
+native app_main and hardware-adapter configuration
+build flags and C++ standard
 flash partition table
-test environments
+native test environment
 ```
 
 in version-controlled configuration.
 
-A new developer should not need to manually install an undocumented collection of Arduino libraries.
+A new developer should not need to manually install undocumented firmware libraries.
 
 ---
 
@@ -471,22 +475,24 @@ Implementation, build, dependency, and toolchain changes should include at
 least:
 
 ```text
-checkout
-      ↓
-install pinned toolchain
-      ↓
-dependency cache
-      ↓
-format check
-      ↓
-static analysis
-      ↓
-unit tests
-      ↓
-integration tests
-      ↓
-Cardputer-Adv firmware build
+                 checkout
+                    ↓
+       ┌────────────┴────────────┐
+       ↓                         ↓
+format and static checks   restore pinned ESP-IDF,
+       ↓                   components, and ccache
+unit and integration tests Cardputer-Adv build
+       └────────────┬────────────┘
+                    ↓
+           required check result
 ```
+
+Host validation and firmware compilation run as independent parallel jobs so
+fast behavioral feedback does not wait for the embedded toolchain. CI caches
+PlatformIO separately from the exact ESP-IDF installation, locked managed
+components, and bounded compiler cache; ordinary source changes must not force
+the toolchain to be downloaded again. The final `check` job preserves a single
+required status and succeeds only when both validation paths pass.
 
 A pull request should not be mergeable while required checks are failing.
 
@@ -933,13 +939,16 @@ Exact implementation may use:
 ```text
 Makefile
 scripts/
-PlatformIO commands
+ESP-IDF production commands
+PlatformIO native-test commands
 task runner
 ```
 
 but developers should not have to memorize long toolchain-specific commands.
 
 `check` should ideally execute the same major validation categories as PR CI.
+`host-check` and `firmware-check` may expose those categories separately for
+parallel CI, while `check` remains their local umbrella.
 
 ---
 
@@ -957,7 +966,9 @@ firmware flashing
 serial monitoring
 ```
 
-A clean checkout should be enough to reproduce the build after installing documented prerequisites.
+A clean recursive checkout should be enough to reproduce the build after
+installing the documented exact ESP-IDF and uv prerequisites. Production
+commands must reject an activated ESP-IDF version other than 5.5.5.
 
 ---
 

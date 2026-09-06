@@ -1,0 +1,6 @@
+[submodule "components/m5cardputer/upstream"]
+	path = components/m5cardputer/upstream
+	url = https://github.com/m5stack/M5Cardputer.git
+[submodule "components/arduino_irremote/upstream"]
+	path = components/arduino_irremote/upstream
+	url = https://github.com/Arduino-IRremote/Arduino-IRremote.git

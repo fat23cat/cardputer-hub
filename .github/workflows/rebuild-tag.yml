@@ -14,7 +14,7 @@ permissions:
 jobs:
   rebuild:
     runs-on: ubuntu-24.04
-    timeout-minutes: 30
+    timeout-minutes: 60
     env:
       CARDPUTER_HUB_BUILD_TYPE: historical-rebuild
     steps:
@@ -22,6 +22,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
+          submodules: recursive
 
       - name: Validate and check out tag
         id: tag
@@ -36,6 +37,7 @@ jobs:
           fi
           git rev-parse --verify "refs/tags/${REQUESTED_TAG}^{commit}"
           git checkout --detach "refs/tags/${REQUESTED_TAG}"
+          git submodule update --init --recursive
           echo "version=${REQUESTED_TAG#v}" >> "${GITHUB_OUTPUT}"
 
       - name: Read the tagged Python version
@@ -58,13 +60,15 @@ jobs:
           enable-cache: true
           cache-dependency-glob: uv.lock
 
-      - name: Restore PlatformIO cache
+      - name: Restore build-tool caches
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
-          path: ~/.platformio
-          key: platformio-${{ runner.os }}-${{ hashFiles('uv.lock', 'platformio.ini') }}
+          path: |
+            ~/.espressif
+            ~/.platformio
+          key: historical-toolchains-${{ runner.os }}-${{ hashFiles('uv.lock', 'platformio.ini', 'main/idf_component.yml', 'dependencies.lock') }}
           restore-keys: |
-            platformio-${{ runner.os }}-
+            historical-toolchains-${{ runner.os }}-
 
       - name: Install locked tools
         env:
@@ -73,10 +77,21 @@ jobs:
           uv python install "${PYTHON_VERSION}"
           uv sync --frozen
 
+      - name: Install tagged ESP-IDF toolchain when required
+        shell: bash
+        run: |
+          if [[ -f main/idf_component.yml ]]; then
+            bash scripts/install_esp_idf.sh "${RUNNER_TEMP}/esp-idf-v5.5.5"
+          fi
+
       - name: Validate and rebuild firmware
         env:
           CARDPUTER_HUB_VERSION: ${{ steps.tag.outputs.version }}
-        run: make check
+        run: |
+          if [[ -f main/idf_component.yml ]]; then
+            source "${RUNNER_TEMP}/esp-idf-v5.5.5/export.sh"
+          fi
+          make check
 
       - name: Package firmware and checksum
         shell: bash
@@ -87,8 +102,13 @@ jobs:
           mkdir -p dist
           image="cardputer-hub-${REQUESTED_TAG}.bin"
           partition_image="cardputer-hub-${REQUESTED_TAG}-partitions.bin"
-          cp .pio/build/cardputer-adv/firmware.bin "dist/${image}"
-          cp .pio/build/cardputer-adv/partitions.bin "dist/${partition_image}"
+          if [[ -f build/cardputer_hub.bin ]]; then
+            cp build/cardputer_hub.bin "dist/${image}"
+            cp build/partition_table/partition-table.bin "dist/${partition_image}"
+          else
+            cp .pio/build/cardputer-adv/firmware.bin "dist/${image}"
+            cp .pio/build/cardputer-adv/partitions.bin "dist/${partition_image}"
+          fi
           cd dist
           sha256sum "${image}" "${partition_image}" > SHA256SUMS
 
