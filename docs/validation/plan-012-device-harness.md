@@ -6,7 +6,7 @@ Cardputer-Adv without requiring a firmware UI.
 The harness is local-only and disabled by default. Normal `make build`, CI, and
 release firmware do not include or start it. Plan 012 does not implement
 pairing or HID: an unbonded BLE connection must be rejected. Pairing and
-authenticated reconnection belong to plan 013.
+authenticated reconnection belong to plan 014.
 
 ## Know where to perform each action
 

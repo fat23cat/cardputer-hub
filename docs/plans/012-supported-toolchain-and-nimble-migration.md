@@ -176,8 +176,8 @@ Assumptions and defaults:
   numerical framework version;
 * PlatformIO host-test removal and a pure ESP-IDF Cardputer driver port are
   deferred;
-* plans 013 and 014 build pairing and HID on the ESP-NimBLE adapter established
-  here;
+* the UI requirements change uses number 013; plans 014 and 015 build pairing
+  and HID on the ESP-NimBLE adapter established here;
 * no implementation branch is pushed without explicit permission.
 
 ## 6. Completion Record
