@@ -77,6 +77,8 @@ Read:
 
 * [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) — system architecture, Services, Mini Apps, connectivity, host management, remote control, and planned development phases
 * [`docs/ENGINEERING.md`](docs/ENGINEERING.md) — testing, CI/CD, build system, versioning, releases, and development requirements
+* [`docs/UI_REQUIREMENTS.md`](docs/UI_REQUIREMENTS.md) — planned visual,
+  motion, sound, display-power, and HID interaction rules for future UI
 * [`docs/manuals/`](docs/manuals/) — installation, supported features, device
   controls, and user-facing procedures
 * [`AGENTS.md`](AGENTS.md) — instructions for Codex and other coding agents working in this repository
@@ -101,6 +103,7 @@ test/
 docs/
 ├── ARCHITECTURE.md
 ├── ENGINEERING.md
+├── UI_REQUIREMENTS.md
 └── plans/
 
 .github/
