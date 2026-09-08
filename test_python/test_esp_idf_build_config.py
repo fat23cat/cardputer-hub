@@ -291,15 +291,26 @@ class EspIdfBuildConfigurationTests(unittest.TestCase):
 
     def test_network_identity_logs_are_suppressed_before_wifi_init(self) -> None:
         adapter = self.read("src/hardware/esp32/wifi/esp32_wifi_adapter.cpp")
+        initialization = adapter[adapter.index("Esp32WifiAdapter::initializeStation()") :]
 
-        self.assertIn(
-            "Esp32WifiAdapter::initializeStation() {\n"
-            "    suppressIdentityBearingWifiLogTags();\n"
-            "    if (!initializeNetworkStack())",
-            adapter,
+        self.assertLess(
+            initialization.index("suppressIdentityBearingWifiLogTags();"),
+            initialization.index("nvs_flash_init()"),
+        )
+        self.assertLess(
+            initialization.index("nvs_flash_init()"),
+            initialization.index("initializeNetworkStack()"),
         )
         self.assertIn('"wifi"', adapter)
         self.assertIn('"esp_netif_handlers"', adapter)
+
+    def test_wifi_initializes_default_nvs_without_bluetooth_ordering_dependency(self) -> None:
+        adapter = self.read("src/hardware/esp32/wifi/esp32_wifi_adapter.cpp")
+        initialization = adapter[adapter.index("Esp32WifiAdapter::initializeStation()") :]
+
+        nvs_initialization = initialization.index("nvs_flash_init()")
+        wifi_initialization = initialization.index("initializeWifiDriver()")
+        self.assertLess(nvs_initialization, wifi_initialization)
 
 
 if __name__ == "__main__":

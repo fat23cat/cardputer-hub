@@ -19,6 +19,15 @@ the physically verified 10 MHz clock and production enables 255-character FAT
 long names on the heap. A FAT32/MBR 32 GB SDHC card passed four consecutive
 mount, write, read, and remove cycles after the fix.
 
+Failure-isolation validation also exposed a pre-existing Wi-Fi startup-order
+dependency: a first Wi-Fi connection after reboot timed out, while the same
+credentials connected immediately after Bluetooth initialized default NVS.
+The Wi-Fi adapter now initializes that partition non-destructively before the
+driver, independently of whether Bluetooth has run. A clean reboot then
+connected Wi-Fi before Bluetooth was enabled. After an injected Bluetooth poll
+failure, Wi-Fi remained connected, microSD access passed, a physical key event
+was observed, the display remained normal, and no reset or watchdog occurred.
+
 This plan describes the fourth granular Phase 2 change. It adds authenticated
 BLE pairing, persistent opaque bond references, explicit bond management, and
 selected-bond reconnection without adding pairing UI, Host Profiles, or HID
