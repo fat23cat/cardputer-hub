@@ -218,8 +218,10 @@ starts automatically, and the supported device behavior remains unchanged.
 
 The Bluetooth lifecycle foundation similarly adds a hardware-independent
 single-peer state machine and a compiled direct ESP-NimBLE peripheral
-adapter. It remains unconstructed at runtime and does not yet provide pairing,
-bond management, or HID reports, so normal device behavior is unchanged.
+adapter. The same boundary now supports explicit authenticated pairing,
+stable opaque bond references, a 16-bond registry, selected-bond reconnection,
+and explicit bond removal. It remains unconstructed at runtime and does not yet
+provide pairing UI or HID reports, so normal device behavior is unchanged.
 
 ---
 
@@ -243,8 +245,10 @@ and link-loss-safe RSSI access, disconnect-error propagation, and
 credential-free diagnostics.
 The Bluetooth suite covers side-effect-free construction, explicit lifecycle
 results, callback-event isolation, bonded single-peer policy, unbonded-peer
-rejection, reconnect timing, capped advertising backoff, fatal cleanup, stale
-event isolation, retained cleanup retries, and identity-free diagnostics.
+rejection, pairing-window timing, all authenticated challenge modes, strict
+security completion, stable-reference finalization, capacity, target selection,
+bond deletion, reconnect timing, capped advertising backoff, fatal cleanup,
+stale event isolation, retained cleanup retries, and identity-free diagnostics.
 Peer-rejection coverage verifies that advertising cannot resume until all
 asynchronous disconnects for rejected peers have completed.
 
@@ -354,11 +358,12 @@ See [`docs/ENGINEERING.md`](docs/ENGINEERING.md) for the complete workflow.
 ## Current Status
 
 The Phase 1 System Core foundations are complete, and Phase 2 Connectivity is
-in progress with its Wi-Fi and Bluetooth lifecycle foundations delivered.
+in progress with its Wi-Fi, Bluetooth lifecycle, authenticated pairing, and
+bond-management foundations delivered.
 These milestones establish testable contracts and hardware adapters; they do
 not make Wi-Fi, Bluetooth, or other planned product features user-visible.
-Authenticated Bluetooth pairing and bond handling are the next Phase 2
-foundation in the documented architecture order.
+BLE HID transport is the next Phase 2 foundation in the documented architecture
+order.
 
 The authoritative development order is defined in
 [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md#47-initial-development-order):

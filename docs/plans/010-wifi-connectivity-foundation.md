@@ -242,12 +242,13 @@ The completed change provides:
   credential data, plus a build-time guard against sensitive Arduino framework
   Debug and Verbose diagnostics;
 * `Esp32WifiAdapter`, which exclusively initializes the ESP-IDF Wi-Fi driver,
-  constructs its station interface through checked primitives, rolls back
-  partial initialization, selects station mode and RAM-backed configuration,
-  starts one association per Service request, bounds-checks fixed-buffer copies,
-  distinguishes ordinary non-association from fatal query errors, polls IPv4
-  readiness, propagates connect and disconnect failures, and returns no RSSI
-  when the live access-point record has disappeared;
+  non-destructively initializes default NVS without depending on Bluetooth
+  startup order, constructs its station interface through checked primitives,
+  rolls back partial initialization, selects station mode and RAM-backed
+  configuration, starts one association per Service request, bounds-checks
+  fixed-buffer copies, distinguishes ordinary non-association from fatal query
+  errors, polls IPv4 readiness, propagates connect and disconnect failures, and
+  returns no RSSI when the live access-point record has disappeared;
 * native source-filter integration and architecture/status documentation for
   the stable contract and its deferred scope.
 

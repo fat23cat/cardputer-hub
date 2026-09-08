@@ -46,6 +46,26 @@ class EspIdfBuildConfigurationTests(unittest.TestCase):
             self.assertIn(setting, configuration)
         self.assertNotIn("CONFIG_ARDUINO_", configuration)
 
+    def test_nimble_pairing_requires_authenticated_secure_connections(self) -> None:
+        configuration = self.read("sdkconfig.defaults")
+
+        expected_settings = (
+            "CONFIG_BT_NIMBLE_SECURITY_ENABLE=y",
+            "CONFIG_BT_NIMBLE_SM_LEGACY=n",
+            "CONFIG_BT_NIMBLE_SM_SC=y",
+            "CONFIG_BT_NIMBLE_SM_SC_DEBUG_KEYS=n",
+            "CONFIG_BT_NIMBLE_LL_CFG_FEAT_LE_ENCRYPTION=y",
+            "CONFIG_BT_NIMBLE_SM_LVL=3",
+            "CONFIG_BT_NIMBLE_SM_SC_ONLY=1",
+            "CONFIG_BT_NIMBLE_MAX_BONDS=16",
+            "CONFIG_BT_NIMBLE_NVS_PERSIST=y",
+        )
+        for setting in expected_settings:
+            self.assertIn(setting, configuration)
+        adapter = self.read("src/hardware/esp32/bluetooth/esp32_bluetooth_adapter.cpp")
+        self.assertIn("ble_hs_cfg.sm_sec_lvl = CONFIG_BT_NIMBLE_SM_LVL;", adapter)
+        self.assertNotIn("ble_hs_cfg.sm_sec_lvl = 4;", adapter)
+
     def test_production_build_uses_idf_output_and_partition_table(self) -> None:
         makefile = self.read("Makefile")
         configuration = self.read("sdkconfig.defaults")
@@ -53,6 +73,17 @@ class EspIdfBuildConfigurationTests(unittest.TestCase):
         self.assertIn("idf.py", makefile)
         self.assertIn("cardputer_hub.bin", makefile)
         self.assertIn('CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="partitions.csv"', configuration)
+
+    def test_fat_supports_the_managed_root_and_logical_path_lengths(self) -> None:
+        configuration = self.read("sdkconfig.defaults")
+        adapter = self.read(
+            "src/hardware/storage/microsd/cardputer_microsd_file_storage_adapter.cpp"
+        )
+
+        self.assertIn("CONFIG_FATFS_LFN_HEAP=y", configuration)
+        self.assertIn("CONFIG_FATFS_MAX_LFN=255", configuration)
+        self.assertNotIn("CONFIG_FATFS_LFN_NONE=y", configuration)
+        self.assertIn("constexpr int microSdFrequencyKhz = 10'000;", adapter)
 
     def test_project_code_retains_cxx17_and_warnings_as_errors(self) -> None:
         component = self.read("main/CMakeLists.txt")
@@ -132,6 +163,8 @@ class EspIdfBuildConfigurationTests(unittest.TestCase):
             "#if CARDPUTER_HUB_PLAN_012_VALIDATION\n"
             "    (void)fcntl(STDIN_FILENO, F_SETFL, O_NONBLOCK);\n"
             "    validationHarness.start();\n"
+            "#elif CARDPUTER_HUB_PLAN_014_VALIDATION\n"
+            "    validationHarness.start();\n"
             "#else\n"
             "    runtime.start();\n"
             "#endif",
@@ -146,12 +179,44 @@ class EspIdfBuildConfigurationTests(unittest.TestCase):
         self.assertIn(
             "#if CARDPUTER_HUB_PLAN_012_VALIDATION\n"
             "        validationHarness.update();\n"
+            "#elif CARDPUTER_HUB_PLAN_014_VALIDATION\n"
+            "        validationHarness.update();\n"
             "#else\n"
             "        (void)runtime.update();\n"
             "#endif\n"
             "        vTaskDelay(pdMS_TO_TICKS(1));",
             entrypoint,
         )
+
+    def test_plan_014_device_harness_is_opt_in_and_non_shipping(self) -> None:
+        project = self.read("CMakeLists.txt")
+        component = self.read("main/CMakeLists.txt")
+        entrypoint = self.read("src/main.cpp")
+        instructions = self.read("docs/validation/plan-014-device-harness.md")
+
+        self.assertIn("option(CARDPUTER_HUB_PLAN_014_VALIDATION", project)
+        self.assertIn('"Build the local pairing validation harness for plan 014" OFF)', project)
+        self.assertIn("CARDPUTER_HUB_PLAN_012_VALIDATION AND CARDPUTER_HUB_PLAN_014_VALIDATION", project)
+        self.assertIn("if(CARDPUTER_HUB_PLAN_014_VALIDATION)", component)
+        self.assertIn("validation/plan_014_device_harness.cpp", component)
+        self.assertIn("CARDPUTER_HUB_PLAN_014_VALIDATION=1", component)
+        self.assertIn("#elif CARDPUTER_HUB_PLAN_014_VALIDATION", entrypoint)
+        self.assertIn("Plan014DeviceHarness validationHarness", entrypoint)
+        self.assertIn("-D CARDPUTER_HUB_PLAN_014_VALIDATION=ON", instructions)
+        self.assertIn("build-validation-014", instructions)
+        self.assertIn("make upload UPLOAD_PORT=", instructions)
+
+    def test_plan_014_pairing_values_stay_off_the_serial_console(self) -> None:
+        harness = self.read("src/validation/plan_014_device_harness.cpp")
+
+        self.assertIn("displayPairingChallenge", harness)
+        self.assertIn("keyboard_.poll", harness)
+        self.assertIn("usb_serial_jtag_driver_install", harness)
+        self.assertIn("usb_serial_jtag_read_bytes", harness)
+        self.assertIn("Pairing responses use Enter/Fn+`", harness)
+        self.assertNotIn('Serial.printf("%06', harness)
+        self.assertNotIn("reference.bytes", harness)
+        self.assertNotIn("challenge->value", harness)
 
     def test_ci_installs_exact_idf_and_packages_idf_outputs(self) -> None:
         installer = self.read("scripts/install_esp_idf.sh")
@@ -227,15 +292,26 @@ class EspIdfBuildConfigurationTests(unittest.TestCase):
 
     def test_network_identity_logs_are_suppressed_before_wifi_init(self) -> None:
         adapter = self.read("src/hardware/esp32/wifi/esp32_wifi_adapter.cpp")
+        initialization = adapter[adapter.index("Esp32WifiAdapter::initializeStation()") :]
 
-        self.assertIn(
-            "Esp32WifiAdapter::initializeStation() {\n"
-            "    suppressIdentityBearingWifiLogTags();\n"
-            "    if (!initializeNetworkStack())",
-            adapter,
+        self.assertLess(
+            initialization.index("suppressIdentityBearingWifiLogTags();"),
+            initialization.index("nvs_flash_init()"),
+        )
+        self.assertLess(
+            initialization.index("nvs_flash_init()"),
+            initialization.index("initializeNetworkStack()"),
         )
         self.assertIn('"wifi"', adapter)
         self.assertIn('"esp_netif_handlers"', adapter)
+
+    def test_wifi_initializes_default_nvs_without_bluetooth_ordering_dependency(self) -> None:
+        adapter = self.read("src/hardware/esp32/wifi/esp32_wifi_adapter.cpp")
+        initialization = adapter[adapter.index("Esp32WifiAdapter::initializeStation()") :]
+
+        nvs_initialization = initialization.index("nvs_flash_init()")
+        wifi_initialization = initialization.index("initializeWifiDriver()")
+        self.assertLess(nvs_initialization, wifi_initialization)
 
 
 if __name__ == "__main__":

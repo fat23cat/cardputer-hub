@@ -1,6 +1,39 @@
 # Bluetooth Pairing and Bond Management Plan
 
-Status: **Planned**
+Status: **Implemented — physical validation complete with documented equipment gaps**
+
+Physical validation on 2026-09-07 first exposed two thin ESP-IDF integration
+regressions before any bond was created: USB Serial/JTAG accepted output but
+not commands through the simplified VFS path, and the NimBLE bond store started
+before the framework's default NVS partition was initialized. The hardware
+validation itself serves as the RED case allowed by step 12's thin-adapter TDD
+exception. The validation console now uses the buffered USB Serial/JTAG receive
+driver, and the Bluetooth adapter non-destructively initializes default NVS
+before controller or NimBLE startup. Validation continued after both fixes.
+
+The same validation session exposed two pre-existing microSD integration
+issues while checking subsystem isolation: the 25 MHz SDSPI clock caused CSD
+CRC failures with working SDHC media, and the default short-name-only FAT
+configuration rejected the owned `/cardputer-hub` root. The adapter now uses
+the physically verified 10 MHz clock and production enables 255-character FAT
+long names on the heap. A FAT32/MBR 32 GB SDHC card passed four consecutive
+mount, write, read, and remove cycles after the fix.
+
+Failure-isolation validation also exposed a pre-existing Wi-Fi startup-order
+dependency: a first Wi-Fi connection after reboot timed out, while the same
+credentials connected immediately after Bluetooth initialized default NVS.
+The Wi-Fi adapter now initializes that partition non-destructively before the
+driver, independently of whether Bluetooth has run. A clean reboot then
+connected Wi-Fi before Bluetooth was enabled. After an injected Bluetooth poll
+failure, Wi-Fi remained connected, microSD access passed, a physical key event
+was observed, the display remained normal, and no reset or watchdog occurred.
+
+The available Mac and iPhone peers both negotiated numeric comparison, so the
+passkey-display, passkey-entry, and explicit legacy/Just Works rejection cases
+could not be forced. The 16/17 distinct-identity boundary likewise requires a
+programmable BLE peer or a larger controlled device set. These cases were
+consciously left unexecuted rather than recorded as passes; the implemented
+configuration and native tests continue to enforce their required behavior.
 
 This plan describes the fourth granular Phase 2 change. It adds authenticated
 BLE pairing, persistent opaque bond references, explicit bond management, and
@@ -217,3 +250,70 @@ Assumptions and defaults:
 * one live connection and up to 16 persisted bonds are supported;
 * Device Manager pairing UI and `HostProfile` creation remain later-phase work;
 * BLE HID reports are introduced only by plan 015.
+
+## 7. Implementation Record
+
+Implemented on 2026-09-06 and physically validated on Cardputer-Adv on
+2026-09-07. Equipment-limited scenarios are documented below rather than
+recorded as passes.
+
+TDD and delivered behavior:
+
+* RED: the first pairing-state test failed because `BluetoothService` had no
+  pairing state, challenge, or completion API. The hardware-neutral contract
+  and closed-window behavior made that slice pass.
+* Pairing-window timing, disconnect-before-pairing, all three authenticated
+  challenges, response generation and input validation, cancellation, strict
+  security completion, capacity, selected-target enforcement, and asynchronous
+  bond deletion were then covered with fake-adapter behavioral tests. The
+  focused suite contains 48 passing cases, including all retained plan-011
+  lifecycle regressions.
+* `Esp32BluetoothAdapter` configures bonding, MITM, `KeyboardDisplay`, identity
+  key distribution, and Secure Connections-only security. Its callback glue
+  remains the documented thin-adapter TDD exception; callbacks only copy bounded
+  challenge, identity-resolution, and completion data into the existing queue.
+* A random 256-bit reference key is created non-destructively in `hub_config`
+  before pairing can be admitted. The adapter derives 128-bit references with
+  HMAC-SHA-256, rejects collisions, keeps addresses private, and exposes checked
+  ESP-NimBLE bond enumeration and deletion.
+* Normal runtime composition is unchanged. There is no pairing UI or HID
+  transport yet, so `docs/manuals/` requires no supported-behavior change.
+* Review follow-up added a regression proving disable forgets the previous
+  challenge response generation and aligned the runtime security-level value
+  with ESP-IDF's verified `CONFIG_BT_NIMBLE_SM_LVL=3` encoding.
+* A compile-time-only `validation-014` image and physical runbook now exercise
+  pairing through the Cardputer display and keyboard, privacy-safe bond
+  management, reboot reference comparison, capacity, microSD, Wi-Fi, and
+  validation-only Bluetooth failure injection. It is mutually exclusive with
+  the retained plan-012 harness and excluded from production firmware.
+
+Automated verification:
+
+```text
+make format                                      PASS
+make format-check                                PASS
+make lint                                        PASS (no findings)
+uv run --frozen pio test -e native \
+  -f test_bluetooth_service                      PASS (48 tests)
+uv run --frozen python -m unittest discover \
+  -s test_python                                 PASS (40 tests)
+uv run --frozen pio test -e native               PASS (153 tests)
+make host-check                                  PASS
+make firmware-check                              PASS
+validation-014 firmware build                    PASS
+```
+
+A clean ESP-IDF 5.5.5 build using only `sdkconfig.defaults` produced a
+436,432-byte application image, leaving 87% of the smallest OTA partition free.
+Compile-time configuration guards reject legacy pairing, debug keys, a bond
+capacity other than 16, or missing persistent Secure Connections support.
+The opt-in validation-014 image is 1,256,640 bytes and leaves 62% free.
+
+Physical validation passed numeric comparison acceptance and rejection,
+cancellation, timeout, reboot persistence, selected-peer enforcement, bond
+removal, failure isolation, privacy auditing, and cleanup. The production
+firmware was restored with zero Cardputer bonds and no saved validation
+reference. The available Mac and iPhone peers could not force passkey display,
+passkey entry, or legacy/Just Works pairing, and the 16/17 identity boundary
+requires additional controlled identities; those equipment-limited scenarios
+remain unexecuted.

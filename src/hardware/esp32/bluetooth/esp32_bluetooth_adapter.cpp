@@ -9,16 +9,21 @@
 
 #include <esp_bt.h>
 #include <esp_log.h>
+#include <esp_random.h>
 #include <freertos/FreeRTOS.h>
 #include <freertos/semphr.h>
 #include <freertos/task.h>
 #include <host/ble_gap.h>
 #include <host/ble_hs.h>
 #include <host/ble_hs_adv.h>
+#include <host/ble_sm.h>
 #include <host/ble_store.h>
 #include <host/util/util.h>
+#include <mbedtls/md.h>
 #include <nimble/ble.h>
 #include <nimble/nimble_port.h>
+#include <nvs.h>
+#include <nvs_flash.h>
 #include <services/gap/ble_svc_gap.h>
 #include <services/gatt/ble_svc_gatt.h>
 #include <store/config/ble_store_config.h>
@@ -49,12 +54,23 @@ static_assert(configuredFrameworkDebugLevel < 4,
 #if defined(ESP_PLATFORM) && CONFIG_BT_NIMBLE_MAX_CONNECTIONS != 1
 #error "Esp32BluetoothAdapter supports exactly one controller connection"
 #endif
+#if defined(ESP_PLATFORM) &&                                                                       \
+    (!CONFIG_BT_NIMBLE_SECURITY_ENABLE || CONFIG_BT_NIMBLE_SM_LEGACY || !CONFIG_BT_NIMBLE_SM_SC || \
+     CONFIG_BT_NIMBLE_SM_SC_DEBUG_KEYS || !CONFIG_BT_NIMBLE_LL_CFG_FEAT_LE_ENCRYPTION ||           \
+     CONFIG_BT_NIMBLE_SM_LVL != 3 || CONFIG_BT_NIMBLE_SM_SC_ONLY != 1 ||                           \
+     CONFIG_BT_NIMBLE_MAX_BONDS != 16 || !CONFIG_BT_NIMBLE_NVS_PERSIST)
+#error "Esp32BluetoothAdapter requires authenticated persistent LE Secure Connections"
+#endif
 
 constexpr std::size_t eventQueueCapacity = 16;
 constexpr std::size_t peerCapacity = 1;
 constexpr std::size_t bondCapacity = 16;
 constexpr std::size_t maximumBluetoothDeviceNameLength = 248;
 constexpr std::size_t maximumLegacyAdvertisingNameLength = 26;
+constexpr std::size_t referenceKeySize = 32;
+constexpr const char* configurationPartition = "hub_config";
+constexpr const char* bluetoothMetadataNamespace = "bluetooth";
+constexpr const char* referenceKeyName = "bond_ref_key";
 constexpr TickType_t hostStopTimeout = pdMS_TO_TICKS(5'000);
 constexpr std::uint16_t invalidConnectionHandle = BLE_HS_CONN_HANDLE_NONE;
 
@@ -65,6 +81,9 @@ enum class RawEventType : std::uint8_t {
     AdvertisingCompleted,
     PeerConnected,
     PeerDisconnected,
+    PeerIdentityResolved,
+    SecurityChallenge,
+    SecurityCompleted,
 };
 
 struct RawEvent {
@@ -73,6 +92,9 @@ struct RawEvent {
     int status = 0;
     std::uint16_t connectionHandle = invalidConnectionHandle;
     ble_addr_t identityAddress{};
+    std::uint8_t securityAction = BLE_SM_IOACT_NONE;
+    std::uint32_t securityValue = 0;
+    connectivity::BluetoothSecurityProperties security{};
 };
 
 struct PeerRecord {
@@ -105,6 +127,8 @@ struct AdapterContext {
     std::uint32_t nextPeerHandle = 1;
     std::string deviceName;
     std::array<PeerRecord, peerCapacity> peers{};
+    std::array<std::uint8_t, referenceKeySize> referenceKey{};
+    bool referenceKeyLoaded = false;
     StaticSemaphore_t hostStoppedStorage{};
     SemaphoreHandle_t hostStopped = nullptr;
 };
@@ -220,6 +244,8 @@ void clearLifecycleState() {
     context.ownAddressType = BLE_OWN_ADDR_PUBLIC;
     context.deviceName.clear();
     context.peers = {};
+    context.referenceKey.fill(0);
+    context.referenceKeyLoaded = false;
 }
 
 void onHostSynchronized() {
@@ -271,6 +297,42 @@ int gapEventCallback(ble_gap_event* event, void*) {
         clearActiveConnectionHandle(queued.connectionHandle);
         enqueue(queued);
         return 0;
+    case BLE_GAP_EVENT_IDENTITY_RESOLVED:
+        queued.type = RawEventType::PeerIdentityResolved;
+        queued.connectionHandle = event->identity_resolved.conn_handle;
+        queued.identityAddress = event->identity_resolved.peer_id_addr;
+        enqueue(queued);
+        return 0;
+    case BLE_GAP_EVENT_PASSKEY_ACTION:
+        queued.connectionHandle = event->passkey.conn_handle;
+        queued.securityAction = event->passkey.params.action;
+        if (queued.securityAction == BLE_SM_IOACT_DISP) {
+            queued.securityValue = esp_random() % 1'000'000U;
+        } else if (queued.securityAction == BLE_SM_IOACT_NUMCMP) {
+            queued.securityValue = event->passkey.params.numcmp;
+        } else if (queued.securityAction != BLE_SM_IOACT_INPUT) {
+            queued.type = RawEventType::SecurityCompleted;
+            enqueue(queued);
+            return 0;
+        }
+        queued.type = RawEventType::SecurityChallenge;
+        enqueue(queued);
+        return 0;
+    case BLE_GAP_EVENT_ENC_CHANGE: {
+        queued.type = RawEventType::SecurityCompleted;
+        queued.connectionHandle = event->enc_change.conn_handle;
+        queued.status = event->enc_change.status;
+        ble_gap_conn_desc descriptor{};
+        if (queued.status == 0 && ble_gap_conn_find(queued.connectionHandle, &descriptor) == 0) {
+            queued.security.encrypted = descriptor.sec_state.encrypted != 0;
+            queued.security.authenticated = descriptor.sec_state.authenticated != 0;
+            queued.security.bonded = descriptor.sec_state.bonded != 0;
+        }
+        enqueue(queued);
+        return 0;
+    }
+    case BLE_GAP_EVENT_REPEAT_PAIRING:
+        return BLE_GAP_REPEAT_PAIRING_IGNORE;
     case BLE_GAP_EVENT_ADV_COMPLETE:
         queued.type = RawEventType::AdvertisingCompleted;
         queued.status = event->adv_complete.reason;
@@ -378,6 +440,123 @@ PeerRecord* addPeer(const RawEvent& event) {
     return &*peer;
 }
 
+bool ensureReferenceKey() {
+    if (nvs_flash_init_partition(configurationPartition) != ESP_OK) {
+        return false;
+    }
+    nvs_handle_t handle{};
+    if (nvs_open_from_partition(configurationPartition, bluetoothMetadataNamespace, NVS_READWRITE,
+                                &handle) != ESP_OK) {
+        return false;
+    }
+
+    std::size_t size = context.referenceKey.size();
+    const auto readResult =
+        nvs_get_blob(handle, referenceKeyName, context.referenceKey.data(), &size);
+    if (readResult == ESP_OK) {
+        nvs_close(handle);
+        context.referenceKeyLoaded = size == context.referenceKey.size();
+        return context.referenceKeyLoaded;
+    }
+    if (readResult != ESP_ERR_NVS_NOT_FOUND) {
+        nvs_close(handle);
+        return false;
+    }
+
+    esp_fill_random(context.referenceKey.data(), context.referenceKey.size());
+    const bool stored = nvs_set_blob(handle, referenceKeyName, context.referenceKey.data(),
+                                     context.referenceKey.size()) == ESP_OK &&
+                        nvs_commit(handle) == ESP_OK;
+    nvs_close(handle);
+    if (!stored) {
+        context.referenceKey.fill(0);
+        return false;
+    }
+    context.referenceKeyLoaded = true;
+    return true;
+}
+
+bool deriveReference(const ble_addr_t& identityAddress,
+                     connectivity::BluetoothBondReference& reference) {
+    if (!context.referenceKeyLoaded) {
+        return false;
+    }
+    std::array<std::uint8_t, sizeof(identityAddress.type) + sizeof(identityAddress.val)> input{};
+    input.front() = identityAddress.type;
+    std::copy(std::begin(identityAddress.val), std::end(identityAddress.val), input.begin() + 1);
+    std::array<std::uint8_t, 32> digest{};
+    const auto* sha256 = mbedtls_md_info_from_type(MBEDTLS_MD_SHA256);
+    if (sha256 == nullptr ||
+        mbedtls_md_hmac(sha256, context.referenceKey.data(), context.referenceKey.size(),
+                        input.data(), input.size(), digest.data()) != 0) {
+        return false;
+    }
+    std::copy_n(digest.begin(), reference.bytes.size(), reference.bytes.begin());
+    return true;
+}
+
+bool enumerateBondAddresses(std::array<ble_addr_t, bondCapacity>& addresses, int& count) {
+    count = 0;
+    return ble_store_util_bonded_peers(addresses.data(), &count,
+                                       static_cast<int>(addresses.size())) == 0 &&
+           count >= 0 && static_cast<std::size_t>(count) <= addresses.size();
+}
+
+connectivity::BluetoothBondListResult enumerateBondReferences() {
+    std::array<ble_addr_t, bondCapacity> addresses{};
+    int count = 0;
+    if (!context.referenceKeyLoaded || !enumerateBondAddresses(addresses, count)) {
+        return {connectivity::BluetoothBondListStatus::AdapterError, {}};
+    }
+    std::vector<connectivity::BluetoothBondReference> references;
+    references.reserve(static_cast<std::size_t>(count));
+    for (int index = 0; index < count; ++index) {
+        connectivity::BluetoothBondReference reference{};
+        if (!deriveReference(addresses[static_cast<std::size_t>(index)], reference) ||
+            std::find(references.begin(), references.end(), reference) != references.end()) {
+            return {connectivity::BluetoothBondListStatus::AdapterError, {}};
+        }
+        references.push_back(reference);
+    }
+    std::sort(references.begin(), references.end());
+    return {connectivity::BluetoothBondListStatus::Success, std::move(references)};
+}
+
+std::optional<connectivity::BluetoothSecurityProperties>
+storedBondSecurity(const PeerRecord& peer) {
+    ble_store_key_sec key{};
+    key.peer_addr = peer.identityAddress;
+    ble_store_value_sec value{};
+    if (ble_store_read_peer_sec(&key, &value) != 0) {
+        return std::nullopt;
+    }
+    return connectivity::BluetoothSecurityProperties{value.sc != 0, false, value.authenticated != 0,
+                                                     true};
+}
+
+bool findBondAddress(const connectivity::BluetoothBondReference& requested, ble_addr_t& address) {
+    std::array<ble_addr_t, bondCapacity> addresses{};
+    int count = 0;
+    if (!enumerateBondAddresses(addresses, count)) {
+        return false;
+    }
+    bool found = false;
+    for (int index = 0; index < count; ++index) {
+        connectivity::BluetoothBondReference candidate{};
+        if (!deriveReference(addresses[static_cast<std::size_t>(index)], candidate)) {
+            return false;
+        }
+        if (candidate == requested) {
+            if (found) {
+                return false;
+            }
+            address = addresses[static_cast<std::size_t>(index)];
+            found = true;
+        }
+    }
+    return found;
+}
+
 connectivity::BluetoothPollResult adapterFailure(std::uint32_t lifecycle) {
     return connectivity::BluetoothPollResult::withEvent(
         {connectivity::BluetoothEventType::AdapterFailed,
@@ -462,8 +641,9 @@ bool quiesceStack() {
 }
 
 void suppressIdentityBearingBluetoothLogTags() {
-    constexpr std::array tags = {"BT",     "BTDM_INIT", "BLE_INIT", "NimBLE", "NIMBLE_PORT",
-                                 "ble_hs", "BLE_HS",    "BLE_ATT",  "BLE_SMP"};
+    constexpr std::array tags = {"BT",          "BTDM_INIT",  "BLE_INIT", "NimBLE",
+                                 "NIMBLE_PORT", "NIMBLE_NVS", "ble_hs",   "BLE_HS",
+                                 "BLE_ATT",     "BLE_SMP",    "ble_store"};
     std::for_each(tags.begin(), tags.end(),
                   [](const auto* tag) { esp_log_level_set(tag, ESP_LOG_NONE); });
 }
@@ -523,6 +703,13 @@ Esp32BluetoothAdapter::initialize(const connectivity::BluetoothDeviceConfig& con
     while (xSemaphoreTake(context.hostStopped, 0) == pdTRUE) {
     }
 
+    if (nvs_flash_init() != ESP_OK) {
+        context.stackOwned = false;
+        clearLifecycleState();
+        setOwner(nullptr);
+        return connectivity::BluetoothAdapterResult::AdapterError;
+    }
+
     if (!context.controllerInitialized) {
         esp_bt_controller_config_t controllerConfig = BT_CONTROLLER_INIT_CONFIG_DEFAULT();
         if (esp_bt_controller_init(&controllerConfig) != ESP_OK) {
@@ -547,9 +734,22 @@ Esp32BluetoothAdapter::initialize(const connectivity::BluetoothDeviceConfig& con
     ble_hs_cfg.reset_cb = onHostReset;
     ble_hs_cfg.sync_cb = onHostSynchronized;
     ble_hs_cfg.store_status_cb = ble_store_util_status_rr;
+    ble_hs_cfg.sm_io_cap = BLE_HS_IO_KEYBOARD_DISPLAY;
+    ble_hs_cfg.sm_oob_data_flag = 0;
+    ble_hs_cfg.sm_bonding = 1;
+    ble_hs_cfg.sm_mitm = 1;
+    ble_hs_cfg.sm_sc = 1;
+    ble_hs_cfg.sm_sc_only = 1;
+    ble_hs_cfg.sm_sec_lvl = CONFIG_BT_NIMBLE_SM_LVL;
+    ble_hs_cfg.sm_our_key_dist = BLE_HS_KEY_DIST_ENC_KEY | BLE_HS_KEY_DIST_ID_KEY;
+    ble_hs_cfg.sm_their_key_dist = BLE_HS_KEY_DIST_ENC_KEY | BLE_HS_KEY_DIST_ID_KEY;
     ble_svc_gap_init();
     ble_svc_gatt_init();
     ble_store_config_init();
+    if (!ensureReferenceKey()) {
+        (void)quiesceStack();
+        return connectivity::BluetoothAdapterResult::AdapterError;
+    }
     if (ble_svc_gap_device_name_set(context.deviceName.c_str()) != 0) {
         (void)quiesceStack();
         return connectivity::BluetoothAdapterResult::AdapterError;
@@ -699,6 +899,57 @@ connectivity::BluetoothPollResult Esp32BluetoothAdapter::pollEvent() {
                 {connectivity::BluetoothEventType::PeerDisconnected, handle,
                  connectivity::BluetoothFailureClass::Fatal, event.lifecycle});
         }
+        case RawEventType::PeerIdentityResolved: {
+            auto* peer = findPeer(event.connectionHandle);
+            if (peer != nullptr) {
+                peer->identityAddress = event.identityAddress;
+            }
+            break;
+        }
+        case RawEventType::SecurityChallenge: {
+            const auto* peer = findPeer(event.connectionHandle);
+            if (peer == nullptr) {
+                return connectivity::BluetoothPollResult::adapterError();
+            }
+            connectivity::BluetoothEvent challenge{
+                connectivity::BluetoothEventType::PairingChallenge, peer->handle,
+                connectivity::BluetoothFailureClass::Fatal, event.lifecycle};
+            switch (event.securityAction) {
+            case BLE_SM_IOACT_DISP:
+                challenge.challengeType =
+                    connectivity::BluetoothPairingChallengeType::DisplayPasskey;
+                challenge.challengeValue = event.securityValue;
+                break;
+            case BLE_SM_IOACT_INPUT:
+                challenge.challengeType = connectivity::BluetoothPairingChallengeType::EnterPasskey;
+                break;
+            case BLE_SM_IOACT_NUMCMP:
+                challenge.challengeType =
+                    connectivity::BluetoothPairingChallengeType::ConfirmComparison;
+                challenge.challengeValue = event.securityValue;
+                break;
+            default:
+                return connectivity::BluetoothPollResult::adapterError();
+            }
+            return connectivity::BluetoothPollResult::withEvent(challenge);
+        }
+        case RawEventType::SecurityCompleted: {
+            const auto* peer = findPeer(event.connectionHandle);
+            if (peer == nullptr) {
+                break;
+            }
+            connectivity::BluetoothEvent completed{
+                connectivity::BluetoothEventType::PairingCompleted, peer->handle,
+                connectivity::BluetoothFailureClass::Fatal, event.lifecycle};
+            completed.security = event.security;
+            if (const auto stored = storedBondSecurity(*peer); stored.has_value()) {
+                completed.security.bonded = true;
+                completed.security.secureConnections = stored->secureConnections;
+                completed.security.authenticated =
+                    completed.security.authenticated && stored->authenticated;
+            }
+            return connectivity::BluetoothPollResult::withEvent(completed);
+        }
         }
     }
     return connectivity::BluetoothPollResult::noEvent();
@@ -711,19 +962,131 @@ Esp32BluetoothAdapter::bondState(connectivity::BluetoothPeerHandle handle) {
         return connectivity::BluetoothBondQueryResult::AdapterError;
     }
 
-    std::array<ble_addr_t, bondCapacity> bonds{};
+    std::array<ble_addr_t, bondCapacity> bondAddresses{};
     int bondCount = 0;
-    if (ble_store_util_bonded_peers(bonds.data(), &bondCount, static_cast<int>(bonds.size())) !=
-            0 ||
-        bondCount < 0 || static_cast<std::size_t>(bondCount) > bonds.size()) {
+    if (ble_store_util_bonded_peers(bondAddresses.data(), &bondCount,
+                                    static_cast<int>(bondAddresses.size())) != 0 ||
+        bondCount < 0 || static_cast<std::size_t>(bondCount) > bondAddresses.size()) {
         return connectivity::BluetoothBondQueryResult::AdapterError;
     }
-    const auto match =
-        std::find_if(bonds.begin(), bonds.begin() + bondCount, [&](const auto& bond) {
-            return ble_addr_cmp(&bond, &peer->identityAddress) == 0;
+    const auto match = std::find_if(
+        bondAddresses.begin(), bondAddresses.begin() + bondCount, [&](const auto& bondAddress) {
+            return ble_addr_cmp(&bondAddress, &peer->identityAddress) == 0;
         });
-    return match == bonds.begin() + bondCount ? connectivity::BluetoothBondQueryResult::Unbonded
-                                              : connectivity::BluetoothBondQueryResult::Bonded;
+    return match == bondAddresses.begin() + bondCount
+               ? connectivity::BluetoothBondQueryResult::Unbonded
+               : connectivity::BluetoothBondQueryResult::Bonded;
+}
+
+connectivity::BluetoothAdapterResult
+Esp32BluetoothAdapter::beginPairing(connectivity::BluetoothPeerHandle handle) {
+    const auto* peer = findPeer(handle);
+    if (currentOwner() != this || !context.stackOwned || peer == nullptr ||
+        !context.referenceKeyLoaded) {
+        return connectivity::BluetoothAdapterResult::AdapterError;
+    }
+    const auto knownBonds = enumerateBondReferences();
+    if (knownBonds.status != connectivity::BluetoothBondListStatus::Success ||
+        knownBonds.bonds.size() >= bondCapacity) {
+        return connectivity::BluetoothAdapterResult::AdapterError;
+    }
+    return ble_gap_security_initiate(peer->connectionHandle) == 0
+               ? connectivity::BluetoothAdapterResult::Success
+               : connectivity::BluetoothAdapterResult::AdapterError;
+}
+
+connectivity::BluetoothAdapterResult
+Esp32BluetoothAdapter::respondToPairing(connectivity::BluetoothPeerHandle handle,
+                                        connectivity::BluetoothPairingChallengeType type,
+                                        bool accepted, std::optional<std::uint32_t> passkey) {
+    const auto* peer = findPeer(handle);
+    if (currentOwner() != this || !context.stackOwned || peer == nullptr) {
+        return connectivity::BluetoothAdapterResult::AdapterError;
+    }
+    if (!accepted && type != connectivity::BluetoothPairingChallengeType::ConfirmComparison) {
+        return disconnectPeer(handle);
+    }
+
+    ble_sm_io response{};
+    switch (type) {
+    case connectivity::BluetoothPairingChallengeType::DisplayPasskey:
+        if (!accepted || !passkey.has_value() || *passkey > 999'999) {
+            return connectivity::BluetoothAdapterResult::AdapterError;
+        }
+        response.action = BLE_SM_IOACT_DISP;
+        response.passkey = *passkey;
+        break;
+    case connectivity::BluetoothPairingChallengeType::EnterPasskey:
+        if (!accepted || !passkey.has_value() || *passkey > 999'999) {
+            return connectivity::BluetoothAdapterResult::AdapterError;
+        }
+        response.action = BLE_SM_IOACT_INPUT;
+        response.passkey = *passkey;
+        break;
+    case connectivity::BluetoothPairingChallengeType::ConfirmComparison:
+        if (passkey.has_value()) {
+            return connectivity::BluetoothAdapterResult::AdapterError;
+        }
+        response.action = BLE_SM_IOACT_NUMCMP;
+        response.numcmp_accept = accepted ? 1 : 0;
+        break;
+    }
+    return ble_sm_inject_io(peer->connectionHandle, &response) == 0
+               ? connectivity::BluetoothAdapterResult::Success
+               : connectivity::BluetoothAdapterResult::AdapterError;
+}
+
+connectivity::BluetoothBondListResult Esp32BluetoothAdapter::bonds() {
+    if (currentOwner() != this || !context.stackOwned) {
+        return {connectivity::BluetoothBondListStatus::AdapterError, {}};
+    }
+    return enumerateBondReferences();
+}
+
+connectivity::BluetoothBondReferenceResult
+Esp32BluetoothAdapter::bondReference(connectivity::BluetoothPeerHandle handle) {
+    const auto* peer = findPeer(handle);
+    if (currentOwner() != this || !context.stackOwned || peer == nullptr) {
+        return {connectivity::BluetoothBondReferenceStatus::AdapterError, {}};
+    }
+    if (bondState(handle) != connectivity::BluetoothBondQueryResult::Bonded) {
+        return {connectivity::BluetoothBondReferenceStatus::NotFound, {}};
+    }
+    connectivity::BluetoothBondReference reference{};
+    if (!deriveReference(peer->identityAddress, reference)) {
+        return {connectivity::BluetoothBondReferenceStatus::AdapterError, {}};
+    }
+    const auto knownBonds = enumerateBondReferences();
+    if (knownBonds.status != connectivity::BluetoothBondListStatus::Success ||
+        std::count(knownBonds.bonds.begin(), knownBonds.bonds.end(), reference) != 1) {
+        return {connectivity::BluetoothBondReferenceStatus::AdapterError, {}};
+    }
+    return {connectivity::BluetoothBondReferenceStatus::Found, reference};
+}
+
+connectivity::BluetoothAdapterResult
+Esp32BluetoothAdapter::deleteBond(const connectivity::BluetoothBondReference& reference) {
+    if (currentOwner() != this || !context.stackOwned || !context.referenceKeyLoaded) {
+        return connectivity::BluetoothAdapterResult::AdapterError;
+    }
+    ble_addr_t address{};
+    if (!findBondAddress(reference, address)) {
+        return connectivity::BluetoothAdapterResult::AdapterError;
+    }
+    return ble_store_util_delete_peer(&address) == 0
+               ? connectivity::BluetoothAdapterResult::Success
+               : connectivity::BluetoothAdapterResult::AdapterError;
+}
+
+connectivity::BluetoothAdapterResult
+Esp32BluetoothAdapter::deleteBondForPeer(connectivity::BluetoothPeerHandle handle) {
+    const auto* peer = findPeer(handle);
+    if (currentOwner() != this || !context.stackOwned || peer == nullptr) {
+        return connectivity::BluetoothAdapterResult::AdapterError;
+    }
+    return ble_store_util_delete_peer(&peer->identityAddress) == 0
+               ? connectivity::BluetoothAdapterResult::Success
+               : connectivity::BluetoothAdapterResult::AdapterError;
 }
 
 } // namespace cardputer_hub::hardware

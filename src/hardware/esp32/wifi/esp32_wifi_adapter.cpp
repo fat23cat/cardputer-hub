@@ -9,6 +9,7 @@
 #include <esp_netif_defaults.h>
 #include <esp_wifi.h>
 #include <esp_wifi_default.h>
+#include <nvs_flash.h>
 
 namespace cardputer_hub::hardware {
 namespace {
@@ -99,6 +100,9 @@ bool copyStationConfig(const connectivity::WifiNetworkConfig& config, wifi_confi
 
 connectivity::WifiAdapterResult Esp32WifiAdapter::initializeStation() {
     suppressIdentityBearingWifiLogTags();
+    if (nvs_flash_init() != ESP_OK) {
+        return connectivity::WifiAdapterResult::Error;
+    }
     if (!initializeNetworkStack()) {
         return connectivity::WifiAdapterResult::Error;
     }
