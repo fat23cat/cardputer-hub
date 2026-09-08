@@ -29,10 +29,11 @@ std::optional<std::uint32_t> parsePasskey(const std::string& value) {
 
 } // namespace
 
-BluetoothService::BluetoothService(IBluetoothAdapter& adapter) noexcept : adapter_(adapter) {}
+BluetoothService::BluetoothService(IBluetoothAdapter& adapter) noexcept
+    : adapter_(adapter), hidTransportView_(*this) {}
 
 BluetoothService::BluetoothService(IBluetoothAdapter& adapter, core::Logger& logger) noexcept
-    : adapter_(adapter), logger_(&logger) {}
+    : adapter_(adapter), hidTransportView_(*this), logger_(&logger) {}
 
 BluetoothEnableResult BluetoothService::enable(const BluetoothDeviceConfig& config) {
     if (enabled_ && state_ != BluetoothState::Error) {
@@ -64,6 +65,7 @@ BluetoothEnableResult BluetoothService::enable(const BluetoothDeviceConfig& conf
     pendingRejectedPeers_.clear();
     pendingBondOperation_ = PendingBondOperation::None;
     pendingRemoval_.reset();
+    clearHidPeerState();
 
     cleanupNeeded_ = true;
     if (adapter_.initialize(*config_, lifecycle_) != BluetoothAdapterResult::Success) {
@@ -104,6 +106,14 @@ BluetoothDisableResult BluetoothService::disable() {
     completedPairing_.reset();
     lastRespondedGeneration_.reset();
 
+    if (currentConnection_.has_value() && selectedBond_.has_value() &&
+        currentBond_ == selectedBond_) {
+        const auto releaseResult = adapter_.releaseHidReports(*currentConnection_);
+        if (releaseResult == BluetoothHidAdapterResult::AdapterError) {
+            cleanupFailed = true;
+        }
+    }
+
     if (advertisingPendingOrActive_ &&
         adapter_.requestAdvertisingStop() != BluetoothAdapterResult::Success) {
         cleanupFailed = true;
@@ -115,6 +125,7 @@ BluetoothDisableResult BluetoothService::disable() {
     }
     currentConnection_.reset();
     currentBond_.reset();
+    clearHidPeerState();
     pendingRejectedPeers_.clear();
     pendingBondOperation_ = PendingBondOperation::None;
     pendingRemoval_.reset();
@@ -196,6 +207,22 @@ void BluetoothService::update(std::chrono::milliseconds elapsed) {
 
 BluetoothState BluetoothService::state() const noexcept { return state_; }
 
+IHidTransport& BluetoothService::hidTransport() noexcept { return hidTransportView_; }
+
+const IHidTransport& BluetoothService::hidTransport() const noexcept { return hidTransportView_; }
+
+HidTransportState BluetoothService::HidTransportView::state() const noexcept {
+    return service_.hidTransportState();
+}
+
+HidSendResult BluetoothService::HidTransportView::send(const HidReport& report) {
+    return service_.sendHidReport(report);
+}
+
+HidSendResult BluetoothService::HidTransportView::releaseAll() {
+    return service_.releaseAllHidReports();
+}
+
 std::optional<BluetoothPeerHandle> BluetoothService::currentConnection() const noexcept {
     return currentConnection_;
 }
@@ -224,6 +251,13 @@ BluetoothPairingOpenResult BluetoothService::openPairing() {
     pairingState_ = state_ == BluetoothState::Advertising ? BluetoothPairingState::Advertising
                                                           : BluetoothPairingState::Preparing;
     if (currentConnection_.has_value()) {
+        if (selectedBond_.has_value() && currentBond_ == selectedBond_ &&
+            adapter_.releaseHidReports(*currentConnection_) ==
+                BluetoothHidAdapterResult::AdapterError) {
+            pairingState_ = BluetoothPairingState::Error;
+            enterError("HID release failed before pairing");
+            return BluetoothPairingOpenResult::AdapterError;
+        }
         if (adapter_.disconnectPeer(*currentConnection_) != BluetoothAdapterResult::Success) {
             pairingState_ = BluetoothPairingState::Error;
             enterError("connected peer could not be released for pairing");
@@ -318,8 +352,16 @@ BluetoothService::selectBond(std::optional<BluetoothBondReference> reference) {
     if (reference == selectedBond_) {
         return BluetoothBondSelectionResult::AlreadySelected;
     }
+    if (currentConnection_.has_value() && selectedBond_.has_value() &&
+        currentBond_ == selectedBond_ &&
+        adapter_.releaseHidReports(*currentConnection_) ==
+            BluetoothHidAdapterResult::AdapterError) {
+        enterError("HID release failed before target selection changed");
+        return BluetoothBondSelectionResult::AdapterError;
+    }
     if (!reference.has_value()) {
         selectedBond_.reset();
+        hidBusy_ = false;
         return BluetoothBondSelectionResult::Cleared;
     }
     const auto knownBonds = adapter_.bonds();
@@ -331,6 +373,7 @@ BluetoothService::selectBond(std::optional<BluetoothBondReference> reference) {
         return BluetoothBondSelectionResult::NotFound;
     }
     selectedBond_ = reference;
+    hidBusy_ = false;
     if (currentConnection_.has_value() && currentBond_ != selectedBond_) {
         if (adapter_.disconnectPeer(*currentConnection_) != BluetoothAdapterResult::Success) {
             enterError("old selected peer could not be disconnected");
@@ -363,6 +406,13 @@ BluetoothBondRemovalResult BluetoothService::removeBond(const BluetoothBondRefer
         pendingBondOperation_ = PendingBondOperation::RemoveOne;
         pendingRemoval_ = reference;
         lastBondRemovalResult_ = BluetoothBondRemovalResult::Pending;
+        if (selectedBond_ == currentBond_ && adapter_.releaseHidReports(*currentConnection_) ==
+                                                 BluetoothHidAdapterResult::AdapterError) {
+            pendingBondOperation_ = PendingBondOperation::None;
+            pendingRemoval_.reset();
+            enterError("HID release failed before active bond removal");
+            return lastBondRemovalResult_ = BluetoothBondRemovalResult::AdapterError;
+        }
         if (adapter_.disconnectPeer(*currentConnection_) != BluetoothAdapterResult::Success) {
             pendingBondOperation_ = PendingBondOperation::None;
             pendingRemoval_.reset();
@@ -399,6 +449,13 @@ BluetoothRemoveAllBondsResult BluetoothService::removeAllBonds() {
     pendingBondOperation_ = PendingBondOperation::RemoveAll;
     lastRemoveAllResult_ = BluetoothRemoveAllBondsResult::Pending;
     if (currentConnection_.has_value()) {
+        if (selectedBond_ == currentBond_ && adapter_.releaseHidReports(*currentConnection_) ==
+                                                 BluetoothHidAdapterResult::AdapterError) {
+            pendingBondOperation_ = PendingBondOperation::None;
+            lastRemoveAllResult_ = BluetoothRemoveAllBondsResult::AdapterError;
+            enterError("HID release failed before all bonds were removed");
+            return lastRemoveAllResult_;
+        }
         if (adapter_.disconnectPeer(*currentConnection_) != BluetoothAdapterResult::Success) {
             pendingBondOperation_ = PendingBondOperation::None;
             lastRemoveAllResult_ = BluetoothRemoveAllBondsResult::AdapterError;
@@ -457,6 +514,15 @@ void BluetoothService::handleEvent(const BluetoothEvent& event) {
     case BluetoothEventType::PairingCompleted:
         handlePairingCompleted(event);
         return;
+    case BluetoothEventType::HidReadinessChanged:
+        if (currentConnection_.has_value() && event.peer == *currentConnection_) {
+            currentSecurity_ = event.security;
+            keyboardSubscribed_ = event.keyboardSubscribed;
+            consumerSubscribed_ = event.consumerSubscribed;
+            reportProtocol_ = event.reportProtocol;
+            hidBusy_ = false;
+        }
+        return;
     case BluetoothEventType::AdapterFailed:
         advertisingPendingOrActive_ = false;
         enterError("adapter reported fatal error");
@@ -477,6 +543,7 @@ void BluetoothService::handleConnectedPeer(BluetoothPeerHandle peer) {
         (void)rejectPeer(peer, "additional peer could not be rejected");
         return;
     }
+    clearHidPeerState();
 
     const auto bondState = adapter_.bondState(peer);
     if (pairingWindowActive()) {
@@ -581,6 +648,7 @@ void BluetoothService::handlePairingCompleted(const BluetoothEvent& event) {
     }
     currentConnection_ = event.peer;
     currentBond_ = reference.reference;
+    currentSecurity_ = event.security;
     pairingPeer_.reset();
     completedPairing_ = reference.reference;
     pairingState_ = BluetoothPairingState::Succeeded;
@@ -613,6 +681,7 @@ void BluetoothService::handleDisconnectedPeer(BluetoothPeerHandle peer) {
     if (currentConnection_.has_value() && *currentConnection_ == peer) {
         currentConnection_.reset();
         currentBond_.reset();
+        clearHidPeerState();
         advertisingPendingOrActive_ = false;
         if (pendingBondOperation_ != PendingBondOperation::None) {
             completePendingBondOperation();
@@ -736,6 +805,7 @@ void BluetoothService::enterError(const char* message) {
     advertisingPendingOrActive_ = false;
     currentConnection_.reset();
     currentBond_.reset();
+    clearHidPeerState();
     pairingPeer_.reset();
     pairingChallenge_.reset();
     if (pairingWindowActive()) {
@@ -753,6 +823,83 @@ void BluetoothService::log(core::LogLevel level, const char* message) const {
     if (logger_ != nullptr) {
         logger_->log({level, "bluetooth", message});
     }
+}
+
+HidTransportState BluetoothService::hidTransportState() const noexcept {
+    if (state_ == BluetoothState::Error) {
+        return HidTransportState::Error;
+    }
+    if (!enabled_ || state_ != BluetoothState::Connected || pairingWindowActive() ||
+        !currentConnection_.has_value() || !selectedBond_.has_value() ||
+        currentBond_ != selectedBond_) {
+        return HidTransportState::Unavailable;
+    }
+    if (!(currentSecurity_.encrypted && currentSecurity_.authenticated && currentSecurity_.bonded &&
+          keyboardSubscribed_ && consumerSubscribed_ && reportProtocol_)) {
+        return HidTransportState::Starting;
+    }
+    return hidBusy_ ? HidTransportState::Busy : HidTransportState::Ready;
+}
+
+HidSendResult BluetoothService::sendHidReport(const HidReport& report) {
+    if (!isValidHidReport(report)) {
+        return HidSendResult::AdapterError;
+    }
+    const auto transportState = hidTransportState();
+    if ((transportState != HidTransportState::Ready && transportState != HidTransportState::Busy) ||
+        !currentConnection_.has_value()) {
+        return transportState == HidTransportState::Error ? HidSendResult::AdapterError
+                                                          : HidSendResult::NotReady;
+    }
+    const auto readiness = adapter_.hidReadiness(*currentConnection_);
+    if (readiness != BluetoothHidAdapterResult::Ready) {
+        return handleHidAdapterResult(readiness);
+    }
+    return handleHidAdapterResult(adapter_.sendHidReport(*currentConnection_, report));
+}
+
+HidSendResult BluetoothService::releaseAllHidReports() {
+    if (!currentConnection_.has_value()) {
+        return HidSendResult::Sent;
+    }
+    if (!selectedBond_.has_value() || currentBond_ != selectedBond_) {
+        return HidSendResult::NotReady;
+    }
+    const auto result = adapter_.releaseHidReports(*currentConnection_);
+    if (result == BluetoothHidAdapterResult::Disconnected) {
+        clearHidPeerState();
+        return HidSendResult::Sent;
+    }
+    return handleHidAdapterResult(result);
+}
+
+void BluetoothService::clearHidPeerState() noexcept {
+    currentSecurity_ = {};
+    keyboardSubscribed_ = false;
+    consumerSubscribed_ = false;
+    reportProtocol_ = false;
+    hidBusy_ = false;
+}
+
+HidSendResult BluetoothService::handleHidAdapterResult(BluetoothHidAdapterResult result) {
+    switch (result) {
+    case BluetoothHidAdapterResult::Sent:
+        hidBusy_ = false;
+        return HidSendResult::Sent;
+    case BluetoothHidAdapterResult::Busy:
+        hidBusy_ = true;
+        return HidSendResult::Busy;
+    case BluetoothHidAdapterResult::Ready:
+    case BluetoothHidAdapterResult::NotReady:
+    case BluetoothHidAdapterResult::Disconnected:
+        clearHidPeerState();
+        return HidSendResult::NotReady;
+    case BluetoothHidAdapterResult::AdapterError:
+        enterError("BLE HID adapter failed");
+        return HidSendResult::AdapterError;
+    }
+    enterError("BLE HID adapter returned an invalid result");
+    return HidSendResult::AdapterError;
 }
 
 } // namespace cardputer_hub::connectivity

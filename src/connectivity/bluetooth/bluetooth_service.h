@@ -8,6 +8,7 @@
 #include <string>
 #include <vector>
 
+#include "connectivity/hid/hid_transport.h"
 #include "core/logging/logger.h"
 
 namespace cardputer_hub::connectivity {
@@ -114,6 +115,7 @@ enum class BluetoothEventType : std::uint8_t {
     PeerDisconnected,
     PairingChallenge,
     PairingCompleted,
+    HidReadinessChanged,
     AdapterFailed,
 };
 
@@ -125,6 +127,9 @@ struct BluetoothEvent {
     BluetoothPairingChallengeType challengeType = BluetoothPairingChallengeType::DisplayPasskey;
     std::optional<std::uint32_t> challengeValue;
     BluetoothSecurityProperties security{};
+    bool keyboardSubscribed = false;
+    bool consumerSubscribed = false;
+    bool reportProtocol = false;
 
     constexpr BluetoothEvent() noexcept = default;
     constexpr BluetoothEvent(BluetoothEventType eventType, BluetoothPeerHandle eventPeer,
@@ -134,6 +139,14 @@ struct BluetoothEvent {
 };
 
 enum class BluetoothAdapterResult : std::uint8_t { Success, AdapterError };
+enum class BluetoothHidAdapterResult : std::uint8_t {
+    Sent,
+    Ready,
+    NotReady,
+    Busy,
+    Disconnected,
+    AdapterError,
+};
 enum class BluetoothAdvertisingResult : std::uint8_t {
     Started,
     RetryableFailure,
@@ -239,6 +252,10 @@ class IBluetoothAdapter {
     virtual BluetoothBondReferenceResult bondReference(BluetoothPeerHandle peer) = 0;
     virtual BluetoothAdapterResult deleteBond(const BluetoothBondReference& reference) = 0;
     virtual BluetoothAdapterResult deleteBondForPeer(BluetoothPeerHandle peer) = 0;
+    virtual BluetoothHidAdapterResult hidReadiness(BluetoothPeerHandle peer) = 0;
+    virtual BluetoothHidAdapterResult sendHidReport(BluetoothPeerHandle peer,
+                                                    const HidReport& report) = 0;
+    virtual BluetoothHidAdapterResult releaseHidReports(BluetoothPeerHandle peer) = 0;
 };
 
 class BluetoothService {
@@ -268,8 +285,22 @@ class BluetoothService {
     BluetoothBondRemovalResult lastBondRemovalResult() const noexcept;
     BluetoothRemoveAllBondsResult removeAllBonds();
     BluetoothRemoveAllBondsResult lastRemoveAllResult() const noexcept;
+    IHidTransport& hidTransport() noexcept;
+    const IHidTransport& hidTransport() const noexcept;
 
   private:
+    class HidTransportView final : public IHidTransport {
+      public:
+        explicit HidTransportView(BluetoothService& service) noexcept : service_(service) {}
+
+        HidTransportState state() const noexcept override;
+        HidSendResult send(const HidReport& report) override;
+        HidSendResult releaseAll() override;
+
+      private:
+        BluetoothService& service_;
+    };
+
     enum class RetryKind : std::uint8_t { None, Reconnect, Advertising };
     enum class PendingBondOperation : std::uint8_t { None, RemoveOne, RemoveAll };
 
@@ -291,8 +322,14 @@ class BluetoothService {
     void completePendingBondOperation();
     void enterError(const char* message);
     void log(core::LogLevel level, const char* message) const;
+    HidTransportState hidTransportState() const noexcept;
+    HidSendResult sendHidReport(const HidReport& report);
+    HidSendResult releaseAllHidReports();
+    void clearHidPeerState() noexcept;
+    HidSendResult handleHidAdapterResult(BluetoothHidAdapterResult result);
 
     IBluetoothAdapter& adapter_;
+    HidTransportView hidTransportView_;
     core::Logger* logger_ = nullptr;
     std::optional<BluetoothDeviceConfig> config_;
     std::optional<BluetoothPeerHandle> currentConnection_;
@@ -316,6 +353,11 @@ class BluetoothService {
     bool cleanupNeeded_ = false;
     bool enabled_ = false;
     bool advertisingPendingOrActive_ = false;
+    BluetoothSecurityProperties currentSecurity_{};
+    bool keyboardSubscribed_ = false;
+    bool consumerSubscribed_ = false;
+    bool reportProtocol_ = false;
+    bool hidBusy_ = false;
     std::uint32_t lifecycle_ = 0;
     std::uint32_t nextLifecycle_ = 1;
     std::uint32_t nextChallengeGeneration_ = 1;

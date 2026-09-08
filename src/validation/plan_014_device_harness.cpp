@@ -116,6 +116,22 @@ const char* wifiStateName(connectivity::WifiState state) {
     return "unknown";
 }
 
+const char* hidStateName(connectivity::HidTransportState state) {
+    switch (state) {
+    case connectivity::HidTransportState::Unavailable:
+        return "unavailable";
+    case connectivity::HidTransportState::Starting:
+        return "starting";
+    case connectivity::HidTransportState::Ready:
+        return "ready";
+    case connectivity::HidTransportState::Busy:
+        return "busy";
+    case connectivity::HidTransportState::Error:
+        return "error";
+    }
+    return "unknown";
+}
+
 void clearString(std::string& value) {
     std::fill(value.begin(), value.end(), '\0');
     value.clear();
@@ -197,6 +213,22 @@ Plan014BluetoothAdapter::deleteBondForPeer(connectivity::BluetoothPeerHandle pee
     return adapter_.deleteBondForPeer(peer);
 }
 
+connectivity::BluetoothHidAdapterResult
+Plan014BluetoothAdapter::hidReadiness(connectivity::BluetoothPeerHandle peer) {
+    return adapter_.hidReadiness(peer);
+}
+
+connectivity::BluetoothHidAdapterResult
+Plan014BluetoothAdapter::sendHidReport(connectivity::BluetoothPeerHandle peer,
+                                       const connectivity::HidReport& report) {
+    return adapter_.sendHidReport(peer, report);
+}
+
+connectivity::BluetoothHidAdapterResult
+Plan014BluetoothAdapter::releaseHidReports(connectivity::BluetoothPeerHandle peer) {
+    return adapter_.releaseHidReports(peer);
+}
+
 void Plan014BluetoothAdapter::failNextPoll() noexcept { failNextPoll_ = true; }
 
 Plan014DeviceHarness::Plan014DeviceHarness(core::IPlatformAdapter& platform,
@@ -218,7 +250,11 @@ void Plan014DeviceHarness::start() {
     previousBluetoothState_ = bluetoothService_.state();
     previousPairingState_ = bluetoothService_.pairingState();
     displayStatus("type help in serial monitor");
+#if CARDPUTER_HUB_PLAN_015_VALIDATION
+    Serial.println("[VALIDATION 015] BLE HID validation harness active");
+#else
     Serial.println("[VALIDATION 014] authenticated pairing harness active");
+#endif
     Serial.printf("[VALIDATION 014] serial input=%s\n", serialInputReady ? "ready" : "error");
     Serial.printf("[VALIDATION 014] reset_reason=%d\n", static_cast<int>(esp_reset_reason()));
     Serial.println("[VALIDATION 014] pairing values appear only on the Cardputer display");
@@ -373,6 +409,32 @@ void Plan014DeviceHarness::handleCommand(const char* line) {
                       static_cast<unsigned>(result));
     } else if (std::strcmp(line, "storage check") == 0) {
         checkStorage();
+    } else if (std::strcmp(line, "hid key") == 0) {
+        sendHid(connectivity::HidKeyboardReport{0, {0x04}});
+    } else if (std::strcmp(line, "hid shift") == 0) {
+        sendHid(connectivity::HidKeyboardReport{0x02, {0x04}});
+    } else if (std::strcmp(line, "hid ctrl") == 0) {
+        sendHid(connectivity::HidKeyboardReport{0x01, {0x04}});
+    } else if (std::strcmp(line, "hid alt") == 0) {
+        sendHid(connectivity::HidKeyboardReport{0x04, {0x04}});
+    } else if (std::strcmp(line, "hid gui") == 0) {
+        sendHid(connectivity::HidKeyboardReport{0x08, {0x04}});
+    } else if (std::strcmp(line, "hid six") == 0) {
+        sendHid(connectivity::HidKeyboardReport{0, {0x04, 0x05, 0x06, 0x07, 0x08, 0x09}});
+    } else if (std::strcmp(line, "hid volume-up") == 0) {
+        sendHid(connectivity::HidConsumerReport{0x00E9});
+    } else if (std::strcmp(line, "hid volume-down") == 0) {
+        sendHid(connectivity::HidConsumerReport{0x00EA});
+    } else if (std::strcmp(line, "hid mute") == 0) {
+        sendHid(connectivity::HidConsumerReport{0x00E2});
+    } else if (std::strcmp(line, "hid play-pause") == 0) {
+        sendHid(connectivity::HidConsumerReport{0x00CD});
+    } else if (std::strcmp(line, "hid next") == 0) {
+        sendHid(connectivity::HidConsumerReport{0x00B5});
+    } else if (std::strcmp(line, "hid previous") == 0) {
+        sendHid(connectivity::HidConsumerReport{0x00B6});
+    } else if (std::strcmp(line, "hid release") == 0) {
+        releaseHid();
     } else {
         Serial.println("[VALIDATION 014] unknown command; type help");
     }
@@ -385,6 +447,9 @@ void Plan014DeviceHarness::printHelp() const {
     Serial.println("  bond remove <index> | bonds remove-all");
     Serial.println("  reference save <index> | reference verify | reference clear");
     Serial.println("  wifi connect | wifi disconnect | storage check | fault bluetooth");
+    Serial.println("  hid key | hid shift | hid ctrl | hid alt | hid gui | hid six");
+    Serial.println("  hid volume-up | hid volume-down | hid mute | hid play-pause");
+    Serial.println("  hid next | hid previous | hid release");
     Serial.println("  Pairing responses use Enter/Fn+`; passkeys use digit keys");
 }
 
@@ -399,7 +464,9 @@ void Plan014DeviceHarness::printStatus() {
     if (bondQuerySucceeded) {
         Serial.printf(" count=%u", static_cast<unsigned>(result.bonds.size()));
     }
-    Serial.printf(" wifi=%s storage=%u keyboard_events=%u last_remove=%u last_remove_all=%u\n",
+    Serial.printf(" hid=%s wifi=%s storage=%u keyboard_events=%u last_remove=%u "
+                  "last_remove_all=%u\n",
+                  hidStateName(bluetoothService_.hidTransport().state()),
                   wifiStateName(wifiService_.state()), static_cast<unsigned>(storage_.state()),
                   static_cast<unsigned>(keyboardEvents_),
                   static_cast<unsigned>(bluetoothService_.lastBondRemovalResult()),
@@ -644,6 +711,16 @@ void Plan014DeviceHarness::checkStorage() {
                         read.status == core::FileReadStatus::Found && read.data == expected &&
                         remove == core::FileRemoveStatus::Removed;
     Serial.printf("[VALIDATION 014] storage check=%s\n", passed ? "pass" : "fail");
+}
+
+void Plan014DeviceHarness::sendHid(const connectivity::HidReport& report) {
+    const auto result = bluetoothService_.hidTransport().send(report);
+    Serial.printf("[VALIDATION 015] HID send result=%u\n", static_cast<unsigned>(result));
+}
+
+void Plan014DeviceHarness::releaseHid() {
+    const auto result = bluetoothService_.hidTransport().releaseAll();
+    Serial.printf("[VALIDATION 015] HID release result=%u\n", static_cast<unsigned>(result));
 }
 
 } // namespace cardputer_hub::validation

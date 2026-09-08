@@ -66,6 +66,20 @@ class EspIdfBuildConfigurationTests(unittest.TestCase):
         self.assertIn("ble_hs_cfg.sm_sec_lvl = CONFIG_BT_NIMBLE_SM_LVL;", adapter)
         self.assertNotIn("ble_hs_cfg.sm_sec_lvl = 4;", adapter)
 
+    def test_ble_hid_service_is_enabled_without_a_fabricated_battery_service(self) -> None:
+        configuration = self.read("sdkconfig.defaults")
+        component = self.read("main/CMakeLists.txt")
+        adapter = self.read("src/hardware/esp32/bluetooth/esp32_bluetooth_adapter.cpp")
+
+        self.assertIn("CONFIG_BT_NIMBLE_HID_SERVICE=y", configuration)
+        self.assertIn("CONFIG_BT_NIMBLE_SVC_HID_MAX_INSTANCES=1", configuration)
+        self.assertIn("CONFIG_BT_NIMBLE_SVC_HID_MAX_RPTS=3", configuration)
+        self.assertIn("esp_hid", component)
+        self.assertIn("hidServiceUuidValue = 0x1812", adapter)
+        self.assertIn("keyboardReportId = 1", adapter)
+        self.assertIn("consumerReportId = 2", adapter)
+        self.assertNotIn("0x180F", adapter)
+
     def test_production_build_uses_idf_output_and_partition_table(self) -> None:
         makefile = self.read("Makefile")
         configuration = self.read("sdkconfig.defaults")
@@ -163,7 +177,7 @@ class EspIdfBuildConfigurationTests(unittest.TestCase):
             "#if CARDPUTER_HUB_PLAN_012_VALIDATION\n"
             "    (void)fcntl(STDIN_FILENO, F_SETFL, O_NONBLOCK);\n"
             "    validationHarness.start();\n"
-            "#elif CARDPUTER_HUB_PLAN_014_VALIDATION\n"
+            "#elif CARDPUTER_HUB_PLAN_014_VALIDATION || CARDPUTER_HUB_PLAN_015_VALIDATION\n"
             "    validationHarness.start();\n"
             "#else\n"
             "    runtime.start();\n"
@@ -179,7 +193,7 @@ class EspIdfBuildConfigurationTests(unittest.TestCase):
         self.assertIn(
             "#if CARDPUTER_HUB_PLAN_012_VALIDATION\n"
             "        validationHarness.update();\n"
-            "#elif CARDPUTER_HUB_PLAN_014_VALIDATION\n"
+            "#elif CARDPUTER_HUB_PLAN_014_VALIDATION || CARDPUTER_HUB_PLAN_015_VALIDATION\n"
             "        validationHarness.update();\n"
             "#else\n"
             "        (void)runtime.update();\n"
@@ -196,7 +210,7 @@ class EspIdfBuildConfigurationTests(unittest.TestCase):
 
         self.assertIn("option(CARDPUTER_HUB_PLAN_014_VALIDATION", project)
         self.assertIn('"Build the local pairing validation harness for plan 014" OFF)', project)
-        self.assertIn("CARDPUTER_HUB_PLAN_012_VALIDATION AND CARDPUTER_HUB_PLAN_014_VALIDATION", project)
+        self.assertIn("CARDPUTER_HUB_VALIDATION_HARNESS_COUNT GREATER 1", project)
         self.assertIn("if(CARDPUTER_HUB_PLAN_014_VALIDATION)", component)
         self.assertIn("validation/plan_014_device_harness.cpp", component)
         self.assertIn("CARDPUTER_HUB_PLAN_014_VALIDATION=1", component)
@@ -204,6 +218,22 @@ class EspIdfBuildConfigurationTests(unittest.TestCase):
         self.assertIn("Plan014DeviceHarness validationHarness", entrypoint)
         self.assertIn("-D CARDPUTER_HUB_PLAN_014_VALIDATION=ON", instructions)
         self.assertIn("build-validation-014", instructions)
+        self.assertIn("make upload UPLOAD_PORT=", instructions)
+
+    def test_plan_015_device_harness_is_opt_in_and_non_shipping(self) -> None:
+        project = self.read("CMakeLists.txt")
+        component = self.read("main/CMakeLists.txt")
+        entrypoint = self.read("src/main.cpp")
+        instructions = self.read("docs/validation/plan-015-device-harness.md")
+
+        self.assertIn("option(CARDPUTER_HUB_PLAN_015_VALIDATION", project)
+        self.assertIn('"Build the local BLE HID validation harness for plan 015" OFF)', project)
+        self.assertIn("elseif(CARDPUTER_HUB_PLAN_015_VALIDATION)", component)
+        self.assertIn("CARDPUTER_HUB_PLAN_015_VALIDATION=1", component)
+        self.assertIn("validation/plan_015_device_harness.h", entrypoint)
+        self.assertIn("Plan015DeviceHarness validationHarness", entrypoint)
+        self.assertIn("-D CARDPUTER_HUB_PLAN_015_VALIDATION=ON", instructions)
+        self.assertIn("build-validation-015", instructions)
         self.assertIn("make upload UPLOAD_PORT=", instructions)
 
     def test_plan_014_pairing_values_stay_off_the_serial_console(self) -> None:
@@ -289,6 +319,7 @@ class EspIdfBuildConfigurationTests(unittest.TestCase):
         controller_init = adapter.index("esp_bt_controller_init(&controllerConfig)")
         self.assertLess(suppression, controller_init)
         self.assertIn('"BLE_INIT"', adapter)
+        self.assertIn('"NIMBLE_HIDD"', adapter)
 
     def test_network_identity_logs_are_suppressed_before_wifi_init(self) -> None:
         adapter = self.read("src/hardware/esp32/wifi/esp32_wifi_adapter.cpp")

@@ -45,6 +45,13 @@ class Plan014BluetoothAdapter final : public connectivity::IBluetoothAdapter {
     deleteBond(const connectivity::BluetoothBondReference& reference) override;
     connectivity::BluetoothAdapterResult
     deleteBondForPeer(connectivity::BluetoothPeerHandle peer) override;
+    connectivity::BluetoothHidAdapterResult
+    hidReadiness(connectivity::BluetoothPeerHandle peer) override;
+    connectivity::BluetoothHidAdapterResult
+    sendHidReport(connectivity::BluetoothPeerHandle peer,
+                  const connectivity::HidReport& report) override;
+    connectivity::BluetoothHidAdapterResult
+    releaseHidReports(connectivity::BluetoothPeerHandle peer) override;
 
     void failNextPoll() noexcept;
 
@@ -82,6 +89,8 @@ class Plan014DeviceHarness final {
     void verifyReference();
     void clearSavedReference();
     void checkStorage();
+    void sendHid(const connectivity::HidReport& report);
+    void releaseHid();
 
     core::IPlatformAdapter& platform_;
     core::IKeyboardAdapter& keyboard_;

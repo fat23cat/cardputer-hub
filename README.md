@@ -220,8 +220,12 @@ The Bluetooth lifecycle foundation similarly adds a hardware-independent
 single-peer state machine and a compiled direct ESP-NimBLE peripheral
 adapter. The same boundary now supports explicit authenticated pairing,
 stable opaque bond references, a 16-bond registry, selected-bond reconnection,
-and explicit bond removal. It remains unconstructed at runtime and does not yet
-provide pairing UI or HID reports, so normal device behavior is unchanged.
+explicit bond removal, and a shared hardware-neutral HID report contract. The
+direct ESP-NimBLE adapter exposes a secured keyboard and consumer-control HID
+service, accepts reports only for the selected authenticated and subscribed
+peer, and releases active reports before controlled disconnects. Bluetooth
+remains unconstructed at runtime and there is no pairing UI or Action-to-HID
+routing, so normal device behavior is unchanged.
 
 ---
 
@@ -251,6 +255,10 @@ bond deletion, reconnect timing, capped advertising backoff, fatal cleanup,
 stale event isolation, retained cleanup retries, and identity-free diagnostics.
 Peer-rejection coverage verifies that advertising cannot resume until all
 asynchronous disconnects for rejected peers have completed.
+The HID suites additionally cover neutral and six-key keyboard reports,
+consumer usages, invalid and duplicate usage rejection, selected-peer and dual
+subscription readiness, report ownership, retryable backpressure, neutral
+release, stale callbacks, controlled target changes, and clean re-enable.
 
 Run formatting and static analysis separately with:
 
@@ -359,11 +367,12 @@ See [`docs/ENGINEERING.md`](docs/ENGINEERING.md) for the complete workflow.
 
 The Phase 1 System Core foundations are complete, and Phase 2 Connectivity is
 in progress with its Wi-Fi, Bluetooth lifecycle, authenticated pairing, and
-bond-management foundations delivered.
+bond-management foundations plus the BLE keyboard/consumer HID transport
+delivered.
 These milestones establish testable contracts and hardware adapters; they do
 not make Wi-Fi, Bluetooth, or other planned product features user-visible.
-BLE HID transport is the next Phase 2 foundation in the documented architecture
-order.
+Native USB HID transport is the next Phase 2 foundation in the documented
+architecture order.
 
 The authoritative development order is defined in
 [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md#47-initial-development-order):

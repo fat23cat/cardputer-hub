@@ -416,6 +416,15 @@ Device Manager exposes that selection in Phase 6. Before those phases exist,
 Phase 2 transport arbitration remains hardware-independent and testable with
 opaque targets and fake transports.
 
+The shared HID boundary is `IHidTransport` under `connectivity/hid`. It accepts
+only hardware-neutral six-key keyboard reports or one Consumer Page usage,
+reports explicit `Unavailable`, `Starting`, `Ready`, `Busy`, and `Error`
+states, and provides non-blocking checked send and release operations. Report
+validation rejects keyboard rollover-error usages and duplicate non-zero keys
+before an adapter is called. Text encoding, shortcut interpretation, logical
+Action resolution, host selection, and mouse or NKRO reports remain above or
+outside this boundary.
+
 ---
 
 ## 11. WiFiService
@@ -548,12 +557,26 @@ active-bond deletion advance only through `update(elapsed)` callback events.
 Future `HostService` owns the mapping from these references to `HostProfile`
 data; Connectivity never stores host names, platforms, or user-specific cases.
 
+The Service exposes its BLE `IHidTransport` implementation through
+`hidTransport()` so the existing Bluetooth lifecycle `state()` remains
+source-compatible. The HID view is unavailable without the current selected
+bond. It becomes ready only when that link is encrypted, authenticated, bonded,
+uses report protocol, and has subscriptions for both keyboard and consumer
+input reports. Every send rechecks adapter readiness and targets only that
+peer. Busy is retryable; adapter failure enters Bluetooth and HID error.
+Changing the selected bond, opening pairing, removing an active bond, or
+disabling Bluetooth requests both neutral reports before disconnect when the
+selected link remains usable. A definite disconnect is already neutral and
+does not queue reports for replay. Connection, subscription, and report state
+is cleared for every new lifecycle, and stale-generation or wrong-peer
+callbacks cannot restore it.
+
 The Service holds non-owning adapter and optional logger references, which must
 outlive it. Logs describe fixed lifecycle outcomes and never include device
 names, peer handles, addresses, passkeys, comparison values, bond references,
 or other identity data. The foundation is not composed into `main.cpp`, so
 Bluetooth remains inactive during normal boot. Device Manager pairing UI and
-BLE HID transport remain separate later changes.
+Action-to-HID routing remain separate later changes.
 
 Responsibilities:
 
@@ -1780,6 +1803,18 @@ initialized and exclusively owned for the process lifetime so logical
 enable/disable remains repeatable. Failed teardown stages retain their
 ownership flags and must be retried before another lifecycle can initialize.
 
+The same adapter registers one project-owned HID-over-GATT service inside that
+host lifecycle. Its report map uses report ID 1 for an eight-byte keyboard
+input report and report ID 2 for a 16-bit consumer-control input report. It
+also exposes HID Information, Report Map, Protocol Mode, Control Point, an
+ignored keyboard LED output report, encrypted and authenticated report access,
+the HID service UUID, and keyboard appearance. No battery service or invented
+battery value is exposed. The ESP-IDF `esp_hid` component is part of the pinned
+build graph, but its lifecycle-owning convenience layer is not used because it
+would initialize unrelated services and conflict with the adapter's existing
+host, advertising, callback, and teardown ownership. Direct ESP-NimBLE GATT
+registration keeps those responsibilities explicit.
+
 NimBLE is configured for bonding, MITM protection, Secure Connections-only
 security, identity-key distribution, `KeyboardDisplay` I/O, one connection,
 and at most 16 bonds. The adapter initiates security only after Service policy
@@ -1834,10 +1869,11 @@ VPS Monitor
 Device Manager
 ```
 
-Bluetooth lifecycle, pairing, reference persistence, and bond-management
+Bluetooth lifecycle, pairing, reference persistence, bond-management, and HID
 failures are contained within `BluetoothService` and its owned adapter
 resources. A fatal initialization, callback-queue, polling, advertising,
-reference, bond-query, finalization, cleanup, or peer-rejection failure enters
+reference, bond-query, finalization, HID registration/send/teardown, cleanup,
+or peer-rejection failure enters
 Bluetooth `Error` and shuts down that adapter; ordinary insecure pairing is
 rejected without affecting unrelated systems. Remove-all reports partial
 deletion instead of claiming success. These outcomes do not alter Wi-Fi or
@@ -1898,8 +1934,11 @@ later composition owner supplies runtime configuration and elapsed time.
 The Bluetooth lifecycle plus authenticated pairing and bond-management
 foundations are implemented: their Service state machines and direct
 ESP-NimBLE peripheral adapter compile with the firmware but remain inactive.
-Pairing UI, BLE HID, native USB HID, and transport arbitration remain subsequent
-Phase 2 work. USB owns HID output only after enumeration reports the native HID
+The shared HID report contract and BLE keyboard/consumer transport are also
+implemented behind the selected authenticated bond, but normal firmware does
+not route input or Actions into them. Pairing UI, native USB HID, and transport
+arbitration remain subsequent Phase 2 work. USB owns HID output only after
+enumeration reports the native HID
 transport mounted and ready. USB removal returns output to an opaque BLE target
 provided from above; Phase 2 does not select or store a `HostProfile`.
 
