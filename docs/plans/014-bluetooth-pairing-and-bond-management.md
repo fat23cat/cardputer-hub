@@ -9,7 +9,7 @@ before the framework's default NVS partition was initialized. The hardware
 validation itself serves as the RED case allowed by step 12's thin-adapter TDD
 exception. The validation console now uses the buffered USB Serial/JTAG receive
 driver, and the Bluetooth adapter non-destructively initializes default NVS
-before controller or NimBLE startup. Full physical validation remains pending.
+before controller or NimBLE startup. Validation continued after both fixes.
 
 The same validation session exposed two pre-existing microSD integration
 issues while checking subsystem isolation: the 25 MHz SDSPI clock caused CSD
@@ -253,8 +253,9 @@ Assumptions and defaults:
 
 ## 7. Implementation Record
 
-Implemented on 2026-09-06. The required physical Cardputer-Adv validation is
-still pending, so this plan is not marked complete.
+Implemented on 2026-09-06 and physically validated on Cardputer-Adv on
+2026-09-07. Equipment-limited scenarios are documented below rather than
+recorded as passes.
 
 TDD and delivered behavior:
 
@@ -294,20 +295,25 @@ make format-check                                PASS
 make lint                                        PASS (no findings)
 uv run --frozen pio test -e native \
   -f test_bluetooth_service                      PASS (48 tests)
-make test                                        PASS (38 Python + 153 native tests)
-make build                                       PASS
-make check                                       PASS
+uv run --frozen python -m unittest discover \
+  -s test_python                                 PASS (40 tests)
+uv run --frozen pio test -e native               PASS (153 tests)
+make host-check                                  PASS
+make firmware-check                              PASS
 validation-014 firmware build                    PASS
-retained validation-012 firmware build           PASS
 ```
 
 A clean ESP-IDF 5.5.5 build using only `sdkconfig.defaults` produced a
 436,432-byte application image, leaving 87% of the smallest OTA partition free.
 Compile-time configuration guards reject legacy pairing, debug keys, a bond
 capacity other than 16, or missing persistent Secure Connections support.
-The opt-in validation-014 image is 1,244,240 bytes and leaves 63% free.
+The opt-in validation-014 image is 1,256,640 bytes and leaves 62% free.
 
-No hardware pairing was attempted and no user bonds were created or removed.
-The mandatory interoperability, reboot, capacity, failure-isolation, and full
-log privacy checks in section 5 remain required before changing this plan's
-status to complete.
+Physical validation passed numeric comparison acceptance and rejection,
+cancellation, timeout, reboot persistence, selected-peer enforcement, bond
+removal, failure isolation, privacy auditing, and cleanup. The production
+firmware was restored with zero Cardputer bonds and no saved validation
+reference. The available Mac and iPhone peers could not force passkey display,
+passkey entry, or legacy/Just Works pairing, and the 16/17 identity boundary
+requires additional controlled identities; those equipment-limited scenarios
+remain unexecuted.
