@@ -52,7 +52,7 @@ The current firmware does not yet provide:
 
 * Launcher, navigation, or Mini Apps;
 * user-facing Actions or keyboard mappings;
-* Wi-Fi or Bluetooth connectivity;
+* user-facing Wi-Fi or Bluetooth connectivity;
 * configuration or persistence;
 * host profiles or host switching;
 * weather, VPS, Telegram, media, or RGB indicator features.

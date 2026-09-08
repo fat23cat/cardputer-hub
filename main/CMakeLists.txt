@@ -1,5 +1,6 @@
 set(CARDPUTER_HUB_SOURCES
     "${CMAKE_CURRENT_LIST_DIR}/../src/connectivity/bluetooth/bluetooth_service.cpp"
+    "${CMAKE_CURRENT_LIST_DIR}/../src/connectivity/hid/hid_transport.cpp"
     "${CMAKE_CURRENT_LIST_DIR}/../src/connectivity/wifi/wifi_service.cpp"
     "${CMAKE_CURRENT_LIST_DIR}/../src/core/actions/action.cpp"
     "${CMAKE_CURRENT_LIST_DIR}/../src/core/actions/action_bus.cpp"
@@ -31,6 +32,9 @@ if(CARDPUTER_HUB_PLAN_012_VALIDATION)
 elseif(CARDPUTER_HUB_PLAN_014_VALIDATION)
     list(APPEND CARDPUTER_HUB_SOURCES
          "${CMAKE_CURRENT_LIST_DIR}/../src/validation/plan_014_device_harness.cpp")
+elseif(CARDPUTER_HUB_PLAN_015_VALIDATION)
+    list(APPEND CARDPUTER_HUB_SOURCES
+         "${CMAKE_CURRENT_LIST_DIR}/../src/validation/plan_014_device_harness.cpp")
 endif()
 
 idf_component_register(
@@ -42,6 +46,7 @@ idf_component_register(
         bt
         driver
         esp_event
+        esp_hid
         esp_netif
         esp_wifi
         fatfs
@@ -58,6 +63,9 @@ if(CARDPUTER_HUB_PLAN_012_VALIDATION)
 elseif(CARDPUTER_HUB_PLAN_014_VALIDATION)
     target_compile_definitions(${COMPONENT_LIB}
                                PRIVATE CARDPUTER_HUB_PLAN_014_VALIDATION=1)
+elseif(CARDPUTER_HUB_PLAN_015_VALIDATION)
+    target_compile_definitions(${COMPONENT_LIB}
+                               PRIVATE CARDPUTER_HUB_PLAN_015_VALIDATION=1)
 endif()
 
 set(CARDPUTER_HUB_VERSION "$ENV{CARDPUTER_HUB_VERSION}")

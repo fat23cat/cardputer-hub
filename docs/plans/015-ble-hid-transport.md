@@ -1,6 +1,6 @@
 # BLE HID Transport Plan
 
-Status: **Planned**
+Status: **Implemented; physical validation pending**
 
 This plan describes the fifth granular Phase 2 change. It defines the shared
 hardware-neutral HID report contract and adds a BLE HID keyboard and consumer
@@ -211,3 +211,67 @@ Assumptions and defaults:
 * normal firmware still does not route keyboard input or logical Actions to a
   host;
 * native USB implements the same contract in plan 016.
+
+## 8. Implementation Record
+
+Implemented on 2026-09-08 with:
+
+* hardware-neutral keyboard, consumer-control, validation, state, result, and
+  `IHidTransport` types under `src/connectivity/hid/`;
+* a `BluetoothService::hidTransport()` view that preserves the established
+  Bluetooth lifecycle API while enforcing selected-peer security,
+  subscription, lifecycle, send, busy, release, and error policy;
+* a project-owned ESP-NimBLE HID-over-GATT service with report IDs 1 and 2,
+  standard HID metadata and control characteristics, secure access, HID
+  advertising, ignored LED output, and no battery service;
+* an opt-in plan-015 device harness and physical-validation runbook;
+* native contract and Bluetooth regression coverage plus strict production and
+  validation-firmware compilation.
+
+The pinned `esp_hid` component is included in the production component graph as
+required, but its convenience device helper is not used. That helper also owns
+host initialization, advertising callbacks, teardown, Device Information,
+Battery, and Serial Port services. Direct registration through the same pinned
+ESP-NimBLE GATT server preserves the existing adapter's single lifecycle and
+avoids advertising fabricated battery data.
+
+Verification completed on 2026-09-08:
+
+* focused HID transport suite: 3/3 passed;
+* focused Bluetooth Service suite: 54/54 passed;
+* full Python suite: 42/42 passed;
+* full native suite: 162/162 passed across 14 suites;
+* `make format`, `make format-check`, `make lint`, `make build`, and
+  `make check`: passed;
+* strict ESP-IDF 5.5.5 plan-015 validation image: compiled successfully,
+  1,262,672 bytes with 62% of the smallest application partition free;
+* strict ESP-IDF 5.5.5 production image: compiled successfully, 436,432 bytes
+  with 87% of the smallest application partition free.
+
+Static analysis reports one low-severity const-suggestion for the fixed
+ESP-NimBLE callback signature and no medium- or high-severity findings.
+
+Physical validation completed on 2026-09-08 with a Cardputer-Adv, macOS host,
+iPhone host, and a disposable Wi-Fi network:
+
+* authenticated reconnect after reboot and five disable/re-enable cycles:
+  passed, with no crash, watchdog, or boot loop;
+* HID readiness gating: passed; sends were rejected until the selected peer
+  restored both subscriptions and report protocol;
+* printable, Shift/Ctrl/Alt/GUI, six-key, neutral keyboard, volume, mute,
+  play/pause, next, previous, and release reports: passed;
+* disconnect during a held modifier: passed; the host returned to neutral and
+  the interrupted report was not replayed after reconnect;
+* selected-host switching between macOS and iPhone: passed in both directions;
+  input reached only the selected host and the old host remained neutral;
+* Wi-Fi coexistence: passed for printable, six-key, volume, and play/pause
+  reports while Wi-Fi and BLE HID were simultaneously connected;
+* Cardputer-side cleanup: passed with zero bonds and HID unavailable.
+
+Observed project firmware messages did not expose peer identity, bond
+references, pairing values, Wi-Fi credentials, or HID report contents. A
+retained full-session log audit was not performed because the interactive
+credential-entry terminal was deliberately not captured. Production firmware
+restoration was intentionally skipped at the user's request, so the plan-015
+validation image remains installed. Host-side Bluetooth entries still require
+manual removal by the user.

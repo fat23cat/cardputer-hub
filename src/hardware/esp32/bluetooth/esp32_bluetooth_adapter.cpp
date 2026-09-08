@@ -13,7 +13,9 @@
 #include <freertos/FreeRTOS.h>
 #include <freertos/semphr.h>
 #include <freertos/task.h>
+#include <host/ble_att.h>
 #include <host/ble_gap.h>
+#include <host/ble_gatt.h>
 #include <host/ble_hs.h>
 #include <host/ble_hs_adv.h>
 #include <host/ble_sm.h>
@@ -66,13 +68,35 @@ constexpr std::size_t eventQueueCapacity = 16;
 constexpr std::size_t peerCapacity = 1;
 constexpr std::size_t bondCapacity = 16;
 constexpr std::size_t maximumBluetoothDeviceNameLength = 248;
-constexpr std::size_t maximumLegacyAdvertisingNameLength = 26;
+constexpr std::size_t maximumLegacyAdvertisingNameLength = 18;
 constexpr std::size_t referenceKeySize = 32;
 constexpr const char* configurationPartition = "hub_config";
 constexpr const char* bluetoothMetadataNamespace = "bluetooth";
 constexpr const char* referenceKeyName = "bond_ref_key";
 constexpr TickType_t hostStopTimeout = pdMS_TO_TICKS(5'000);
 constexpr std::uint16_t invalidConnectionHandle = BLE_HS_CONN_HANDLE_NONE;
+constexpr std::uint16_t hidServiceUuidValue = 0x1812;
+constexpr std::uint16_t hidInformationUuidValue = 0x2A4A;
+constexpr std::uint16_t hidReportMapUuidValue = 0x2A4B;
+constexpr std::uint16_t hidControlPointUuidValue = 0x2A4C;
+constexpr std::uint16_t hidReportUuidValue = 0x2A4D;
+constexpr std::uint16_t hidProtocolModeUuidValue = 0x2A4E;
+constexpr std::uint16_t hidReportReferenceUuidValue = 0x2908;
+constexpr std::uint16_t keyboardAppearance = 0x03C1;
+constexpr std::uint8_t keyboardReportId = 1;
+constexpr std::uint8_t consumerReportId = 2;
+
+constexpr std::array<std::uint8_t, 90> hidReportMap{
+    0x05, 0x01, 0x09, 0x06, 0xA1, 0x01, 0x85, 0x01, 0x05, 0x07, 0x19, 0xE0, 0x29, 0xE7, 0x15,
+    0x00, 0x25, 0x01, 0x75, 0x01, 0x95, 0x08, 0x81, 0x02, 0x95, 0x01, 0x75, 0x08, 0x81, 0x01,
+    0x95, 0x06, 0x75, 0x08, 0x15, 0x00, 0x25, 0x65, 0x05, 0x07, 0x19, 0x00, 0x29, 0x65, 0x81,
+    0x00, 0x95, 0x05, 0x75, 0x01, 0x05, 0x08, 0x19, 0x01, 0x29, 0x05, 0x91, 0x02, 0x95, 0x01,
+    0x75, 0x03, 0x91, 0x01, 0xC0, 0x05, 0x0C, 0x09, 0x01, 0xA1, 0x01, 0x85, 0x02, 0x15, 0x00,
+    0x26, 0xFF, 0xFF, 0x19, 0x00, 0x2A, 0xFF, 0xFF, 0x75, 0x10, 0x95, 0x01, 0x81, 0x00, 0xC0,
+};
+
+static_assert(hidReportMap[7] == keyboardReportId);
+static_assert(hidReportMap[72] == consumerReportId);
 
 enum class RawEventType : std::uint8_t {
     HostSynchronized,
@@ -84,6 +108,7 @@ enum class RawEventType : std::uint8_t {
     PeerIdentityResolved,
     SecurityChallenge,
     SecurityCompleted,
+    HidReadinessChanged,
 };
 
 struct RawEvent {
@@ -95,6 +120,9 @@ struct RawEvent {
     std::uint8_t securityAction = BLE_SM_IOACT_NONE;
     std::uint32_t securityValue = 0;
     connectivity::BluetoothSecurityProperties security{};
+    bool keyboardSubscribed = false;
+    bool consumerSubscribed = false;
+    bool reportProtocol = false;
 };
 
 struct PeerRecord {
@@ -129,11 +157,222 @@ struct AdapterContext {
     std::array<PeerRecord, peerCapacity> peers{};
     std::array<std::uint8_t, referenceKeySize> referenceKey{};
     bool referenceKeyLoaded = false;
+    bool hidServiceRegistered = false;
+    std::uint16_t keyboardInputHandle = 0;
+    std::uint16_t keyboardOutputHandle = 0;
+    std::uint16_t consumerInputHandle = 0;
+    bool keyboardSubscribed = false;
+    bool consumerSubscribed = false;
+    connectivity::BluetoothSecurityProperties hidSecurity{};
+    std::uint8_t hidProtocolMode = 1;
+    std::uint8_t hidControlPoint = 1;
     StaticSemaphore_t hostStoppedStorage{};
     SemaphoreHandle_t hostStopped = nullptr;
 };
 
 AdapterContext context;
+
+const ble_uuid16_t hidServiceUuid = BLE_UUID16_INIT(hidServiceUuidValue);
+const ble_uuid16_t hidInformationUuid = BLE_UUID16_INIT(hidInformationUuidValue);
+const ble_uuid16_t hidReportMapUuid = BLE_UUID16_INIT(hidReportMapUuidValue);
+const ble_uuid16_t hidControlPointUuid = BLE_UUID16_INIT(hidControlPointUuidValue);
+const ble_uuid16_t hidReportUuid = BLE_UUID16_INIT(hidReportUuidValue);
+const ble_uuid16_t hidProtocolModeUuid = BLE_UUID16_INIT(hidProtocolModeUuidValue);
+const ble_uuid16_t hidReportReferenceUuid = BLE_UUID16_INIT(hidReportReferenceUuidValue);
+
+constexpr std::array<std::uint8_t, 4> hidInformation{0x11, 0x01, 0x00, 0x02};
+constexpr std::array<std::uint8_t, 2> keyboardInputReference{keyboardReportId, 0x01};
+constexpr std::array<std::uint8_t, 2> keyboardOutputReference{keyboardReportId, 0x02};
+constexpr std::array<std::uint8_t, 2> consumerInputReference{consumerReportId, 0x01};
+std::uint8_t hidInformationTag = 0;
+std::uint8_t hidReportMapTag = 0;
+std::uint8_t hidProtocolModeTag = 0;
+std::uint8_t hidControlPointTag = 0;
+std::uint8_t keyboardInputTag = 0;
+std::uint8_t keyboardOutputTag = 0;
+std::uint8_t consumerInputTag = 0;
+std::array<ble_gatt_dsc_def, 2> keyboardInputDescriptors{};
+std::array<ble_gatt_dsc_def, 2> keyboardOutputDescriptors{};
+std::array<ble_gatt_dsc_def, 2> consumerInputDescriptors{};
+std::array<ble_gatt_chr_def, 8> hidCharacteristics{};
+std::array<ble_gatt_svc_def, 2> hidServices{};
+
+void enqueue(const RawEvent& event);
+RawEvent hidReadinessEvent(std::uint16_t connectionHandle);
+
+int appendGattValue(os_mbuf* destination, const void* value, std::size_t size) {
+    return os_mbuf_append(destination, value, static_cast<std::uint16_t>(size)) == 0
+               ? 0
+               : BLE_ATT_ERR_INSUFFICIENT_RES;
+}
+
+int readOneByte(os_mbuf* source, std::uint8_t& value) {
+    if (OS_MBUF_PKTLEN(source) != 1) {
+        return BLE_ATT_ERR_INVALID_ATTR_VALUE_LEN;
+    }
+    return ble_hs_mbuf_to_flat(source, &value, sizeof(value), nullptr) == 0 ? 0
+                                                                            : BLE_ATT_ERR_UNLIKELY;
+}
+
+int hidGattAccess(std::uint16_t connectionHandle, std::uint16_t, ble_gatt_access_ctxt* access,
+                  void* tag) {
+    if (access == nullptr) {
+        return BLE_ATT_ERR_UNLIKELY;
+    }
+    if (access->op == BLE_GATT_ACCESS_OP_READ_DSC) {
+        if (tag == keyboardInputDescriptors[0].arg) {
+            return appendGattValue(access->om, keyboardInputReference.data(),
+                                   keyboardInputReference.size());
+        }
+        if (tag == keyboardOutputDescriptors[0].arg) {
+            return appendGattValue(access->om, keyboardOutputReference.data(),
+                                   keyboardOutputReference.size());
+        }
+        if (tag == consumerInputDescriptors[0].arg) {
+            return appendGattValue(access->om, consumerInputReference.data(),
+                                   consumerInputReference.size());
+        }
+        return BLE_ATT_ERR_UNLIKELY;
+    }
+    if (access->op == BLE_GATT_ACCESS_OP_READ_CHR) {
+        if (tag == &hidInformationTag) {
+            return appendGattValue(access->om, hidInformation.data(), hidInformation.size());
+        }
+        if (tag == &hidReportMapTag) {
+            return appendGattValue(access->om, hidReportMap.data(), hidReportMap.size());
+        }
+        if (tag == &hidProtocolModeTag) {
+            return appendGattValue(access->om, &context.hidProtocolMode,
+                                   sizeof(context.hidProtocolMode));
+        }
+        if (tag == &keyboardInputTag) {
+            constexpr std::array<std::uint8_t, 8> neutral{};
+            return appendGattValue(access->om, neutral.data(), neutral.size());
+        }
+        if (tag == &keyboardOutputTag) {
+            constexpr std::uint8_t neutral = 0;
+            return appendGattValue(access->om, &neutral, sizeof(neutral));
+        }
+        if (tag == &consumerInputTag) {
+            constexpr std::array<std::uint8_t, 2> neutral{};
+            return appendGattValue(access->om, neutral.data(), neutral.size());
+        }
+        return BLE_ATT_ERR_READ_NOT_PERMITTED;
+    }
+    if (access->op == BLE_GATT_ACCESS_OP_WRITE_CHR) {
+        if (tag == &hidProtocolModeTag) {
+            std::uint8_t mode = 0;
+            const auto result = readOneByte(access->om, mode);
+            if (result != 0) {
+                return result;
+            }
+            if (mode > 1) {
+                return BLE_ATT_ERR_VALUE_NOT_ALLOWED;
+            }
+            portENTER_CRITICAL(&context.mutex);
+            context.hidProtocolMode = mode;
+            portEXIT_CRITICAL(&context.mutex);
+            enqueue(hidReadinessEvent(connectionHandle));
+            return 0;
+        }
+        if (tag == &hidControlPointTag) {
+            std::uint8_t control = 0;
+            const auto result = readOneByte(access->om, control);
+            if (result != 0) {
+                return result;
+            }
+            if (control > 1) {
+                return BLE_ATT_ERR_VALUE_NOT_ALLOWED;
+            }
+            context.hidControlPoint = control;
+            return 0;
+        }
+        if (tag == &keyboardOutputTag) {
+            std::uint8_t ignored = 0;
+            return readOneByte(access->om, ignored);
+        }
+        return BLE_ATT_ERR_WRITE_NOT_PERMITTED;
+    }
+    return BLE_ATT_ERR_UNLIKELY;
+}
+
+void configureReportDescriptor(std::array<ble_gatt_dsc_def, 2>& descriptors) {
+    descriptors = {};
+    descriptors[0].uuid = &hidReportReferenceUuid.u;
+    descriptors[0].att_flags = BLE_ATT_F_READ | BLE_ATT_F_READ_ENC | BLE_ATT_F_READ_AUTHEN;
+    descriptors[0].access_cb = hidGattAccess;
+    descriptors[0].arg = &descriptors[0];
+}
+
+void configureHidCharacteristic(std::size_t index, const ble_uuid_t* uuid, void* tag,
+                                ble_gatt_chr_flags flags, std::uint16_t* valueHandle,
+                                ble_gatt_dsc_def* descriptors = nullptr) {
+    auto& characteristic = hidCharacteristics[index];
+    characteristic = {};
+    characteristic.uuid = uuid;
+    characteristic.access_cb = hidGattAccess;
+    characteristic.arg = tag;
+    characteristic.descriptors = descriptors;
+    characteristic.flags = flags;
+    characteristic.val_handle = valueHandle;
+}
+
+bool initializeHidService() {
+    context.keyboardInputHandle = 0;
+    context.keyboardOutputHandle = 0;
+    context.consumerInputHandle = 0;
+    context.keyboardSubscribed = false;
+    context.consumerSubscribed = false;
+    context.hidProtocolMode = 1;
+    context.hidControlPoint = 1;
+    configureReportDescriptor(keyboardInputDescriptors);
+    configureReportDescriptor(keyboardOutputDescriptors);
+    configureReportDescriptor(consumerInputDescriptors);
+
+    constexpr ble_gatt_chr_flags secureRead =
+        BLE_GATT_CHR_F_READ | BLE_GATT_CHR_F_READ_ENC | BLE_GATT_CHR_F_READ_AUTHEN;
+    constexpr ble_gatt_chr_flags secureWrite =
+        BLE_GATT_CHR_F_WRITE_NO_RSP | BLE_GATT_CHR_F_WRITE_ENC | BLE_GATT_CHR_F_WRITE_AUTHEN;
+    constexpr ble_gatt_chr_flags secureNotify = secureRead | BLE_GATT_CHR_F_NOTIFY |
+                                                BLE_GATT_CHR_F_NOTIFY_INDICATE_ENC |
+                                                BLE_GATT_CHR_F_NOTIFY_INDICATE_AUTHEN;
+    configureHidCharacteristic(0, &hidProtocolModeUuid.u, &hidProtocolModeTag,
+                               secureRead | secureWrite, nullptr);
+    configureHidCharacteristic(1, &hidReportMapUuid.u, &hidReportMapTag, secureRead, nullptr);
+    configureHidCharacteristic(2, &hidReportUuid.u, &keyboardInputTag, secureNotify,
+                               &context.keyboardInputHandle, keyboardInputDescriptors.data());
+    configureHidCharacteristic(3, &hidReportUuid.u, &keyboardOutputTag,
+                               secureRead | secureWrite | BLE_GATT_CHR_F_WRITE,
+                               &context.keyboardOutputHandle, keyboardOutputDescriptors.data());
+    configureHidCharacteristic(4, &hidReportUuid.u, &consumerInputTag, secureNotify,
+                               &context.consumerInputHandle, consumerInputDescriptors.data());
+    configureHidCharacteristic(5, &hidInformationUuid.u, &hidInformationTag, secureRead, nullptr);
+    configureHidCharacteristic(6, &hidControlPointUuid.u, &hidControlPointTag, secureWrite,
+                               nullptr);
+    hidCharacteristics[7] = {};
+
+    hidServices = {};
+    hidServices[0].type = BLE_GATT_SVC_TYPE_PRIMARY;
+    hidServices[0].uuid = &hidServiceUuid.u;
+    hidServices[0].characteristics = hidCharacteristics.data();
+    if (ble_gatts_count_cfg(hidServices.data()) != 0 ||
+        ble_gatts_add_svcs(hidServices.data()) != 0 ||
+        ble_svc_gap_device_appearance_set(keyboardAppearance) != 0) {
+        return false;
+    }
+    context.hidServiceRegistered = true;
+    return true;
+}
+
+void deinitializeHidService() {
+    context.hidServiceRegistered = false;
+    context.keyboardSubscribed = false;
+    context.consumerSubscribed = false;
+    context.hidSecurity = {};
+    context.keyboardInputHandle = 0;
+    context.keyboardOutputHandle = 0;
+    context.consumerInputHandle = 0;
+}
 
 void enqueue(const RawEvent& event) {
     portENTER_CRITICAL(&context.mutex);
@@ -194,6 +433,44 @@ void clearActiveConnectionHandle(std::uint16_t connectionHandle) {
     portEXIT_CRITICAL(&context.mutex);
 }
 
+void resetHidPeerState() {
+    portENTER_CRITICAL(&context.mutex);
+    context.keyboardSubscribed = false;
+    context.consumerSubscribed = false;
+    context.hidSecurity = {};
+    portEXIT_CRITICAL(&context.mutex);
+}
+
+void updateHidSecurity(const connectivity::BluetoothSecurityProperties& security) {
+    portENTER_CRITICAL(&context.mutex);
+    context.hidSecurity = security;
+    portEXIT_CRITICAL(&context.mutex);
+}
+
+void updateHidSubscription(std::uint16_t attributeHandle, bool subscribed) {
+    portENTER_CRITICAL(&context.mutex);
+    if (attributeHandle == context.keyboardInputHandle) {
+        context.keyboardSubscribed = subscribed;
+    } else if (attributeHandle == context.consumerInputHandle) {
+        context.consumerSubscribed = subscribed;
+    }
+    portEXIT_CRITICAL(&context.mutex);
+}
+
+RawEvent hidReadinessEvent(std::uint16_t connectionHandle) {
+    RawEvent event{};
+    event.type = RawEventType::HidReadinessChanged;
+    event.lifecycle = currentLifecycle();
+    event.connectionHandle = connectionHandle;
+    portENTER_CRITICAL(&context.mutex);
+    event.security = context.hidSecurity;
+    event.keyboardSubscribed = context.keyboardSubscribed;
+    event.consumerSubscribed = context.consumerSubscribed;
+    event.reportProtocol = context.hidProtocolMode == 1;
+    portEXIT_CRITICAL(&context.mutex);
+    return event;
+}
+
 Esp32BluetoothAdapter* currentOwner() {
     portENTER_CRITICAL(&context.mutex);
     auto* owner = context.owner;
@@ -246,6 +523,7 @@ void clearLifecycleState() {
     context.peers = {};
     context.referenceKey.fill(0);
     context.referenceKeyLoaded = false;
+    deinitializeHidService();
 }
 
 void onHostSynchronized() {
@@ -280,6 +558,7 @@ int gapEventCallback(ble_gap_event* event, void*) {
         }
         queued.type = RawEventType::PeerConnected;
         queued.connectionHandle = event->connect.conn_handle;
+        resetHidPeerState();
         setActiveConnectionHandle(queued.connectionHandle);
         {
             ble_gap_conn_desc descriptor{};
@@ -296,6 +575,7 @@ int gapEventCallback(ble_gap_event* event, void*) {
         queued.connectionHandle = event->disconnect.conn.conn_handle;
         clearActiveConnectionHandle(queued.connectionHandle);
         enqueue(queued);
+        resetHidPeerState();
         return 0;
     case BLE_GAP_EVENT_IDENTITY_RESOLVED:
         queued.type = RawEventType::PeerIdentityResolved;
@@ -328,9 +608,18 @@ int gapEventCallback(ble_gap_event* event, void*) {
             queued.security.authenticated = descriptor.sec_state.authenticated != 0;
             queued.security.bonded = descriptor.sec_state.bonded != 0;
         }
+        updateHidSecurity(queued.security);
         enqueue(queued);
+        enqueue(hidReadinessEvent(queued.connectionHandle));
         return 0;
     }
+    case BLE_GAP_EVENT_SUBSCRIBE:
+        if (event->subscribe.attr_handle == context.keyboardInputHandle ||
+            event->subscribe.attr_handle == context.consumerInputHandle) {
+            updateHidSubscription(event->subscribe.attr_handle, event->subscribe.cur_notify != 0);
+            enqueue(hidReadinessEvent(event->subscribe.conn_handle));
+        }
+        return 0;
     case BLE_GAP_EVENT_REPEAT_PAIRING:
         return BLE_GAP_REPEAT_PAIRING_IGNORE;
     case BLE_GAP_EVENT_ADV_COMPLETE:
@@ -379,6 +668,11 @@ connectivity::BluetoothFailureClass classifyAdvertisingError(int error) {
 connectivity::BluetoothAdvertisingResult issueAdvertisingStart() {
     ble_hs_adv_fields fields{};
     fields.flags = BLE_HS_ADV_F_DISC_GEN | BLE_HS_ADV_F_BREDR_UNSUP;
+    fields.uuids16 = &hidServiceUuid;
+    fields.num_uuids16 = 1;
+    fields.uuids16_is_complete = 1;
+    fields.appearance = keyboardAppearance;
+    fields.appearance_is_present = 1;
     const auto advertisedNameLength =
         std::min(context.deviceName.size(), maximumLegacyAdvertisingNameLength);
     fields.name = reinterpret_cast<const std::uint8_t*>(context.deviceName.data());
@@ -618,7 +912,11 @@ bool stopAdvertisingAndPeers() {
 
 bool quiesceStack() {
     if (isHostRunning()) {
-        if (!stopAdvertisingAndPeers() || nimble_port_stop() != 0 ||
+        if (!stopAdvertisingAndPeers()) {
+            return false;
+        }
+        deinitializeHidService();
+        if (nimble_port_stop() != 0 ||
             xSemaphoreTake(context.hostStopped, hostStopTimeout) != pdTRUE) {
             return false;
         }
@@ -641,9 +939,11 @@ bool quiesceStack() {
 }
 
 void suppressIdentityBearingBluetoothLogTags() {
-    constexpr std::array tags = {"BT",          "BTDM_INIT",  "BLE_INIT", "NimBLE",
-                                 "NIMBLE_PORT", "NIMBLE_NVS", "ble_hs",   "BLE_HS",
-                                 "BLE_ATT",     "BLE_SMP",    "ble_store"};
+    constexpr std::array tags = {
+        "BT",       "BTDM_INIT", "BLE_INIT",    "NimBLE",      "NIMBLE_PORT", "NIMBLE_NVS",
+        "ble_hs",   "BLE_HS",    "BLE_ATT",     "BLE_SMP",     "ble_store",   "BT_HIDD",
+        "BLE_HIDD", "ESP_HIDH",  "NIMBLE_HIDD", "NIMBLE_HIDH", "hid_parser",
+    };
     std::for_each(tags.begin(), tags.end(),
                   [](const auto* tag) { esp_log_level_set(tag, ESP_LOG_NONE); });
 }
@@ -746,6 +1046,10 @@ Esp32BluetoothAdapter::initialize(const connectivity::BluetoothDeviceConfig& con
     ble_svc_gap_init();
     ble_svc_gatt_init();
     ble_store_config_init();
+    if (!initializeHidService()) {
+        (void)quiesceStack();
+        return connectivity::BluetoothAdapterResult::AdapterError;
+    }
     if (!ensureReferenceKey()) {
         (void)quiesceStack();
         return connectivity::BluetoothAdapterResult::AdapterError;
@@ -950,6 +1254,26 @@ connectivity::BluetoothPollResult Esp32BluetoothAdapter::pollEvent() {
             }
             return connectivity::BluetoothPollResult::withEvent(completed);
         }
+        case RawEventType::HidReadinessChanged: {
+            const auto* peer = findPeer(event.connectionHandle);
+            if (peer == nullptr) {
+                break;
+            }
+            connectivity::BluetoothEvent readiness{
+                connectivity::BluetoothEventType::HidReadinessChanged, peer->handle,
+                connectivity::BluetoothFailureClass::Fatal, event.lifecycle};
+            readiness.security = event.security;
+            if (const auto stored = storedBondSecurity(*peer); stored.has_value()) {
+                readiness.security.bonded = true;
+                readiness.security.secureConnections = stored->secureConnections;
+                readiness.security.authenticated =
+                    readiness.security.authenticated && stored->authenticated;
+            }
+            readiness.keyboardSubscribed = event.keyboardSubscribed;
+            readiness.consumerSubscribed = event.consumerSubscribed;
+            readiness.reportProtocol = event.reportProtocol;
+            return connectivity::BluetoothPollResult::withEvent(readiness);
+        }
         }
     }
     return connectivity::BluetoothPollResult::noEvent();
@@ -1087,6 +1411,104 @@ Esp32BluetoothAdapter::deleteBondForPeer(connectivity::BluetoothPeerHandle handl
     return ble_store_util_delete_peer(&peer->identityAddress) == 0
                ? connectivity::BluetoothAdapterResult::Success
                : connectivity::BluetoothAdapterResult::AdapterError;
+}
+
+connectivity::BluetoothHidAdapterResult
+Esp32BluetoothAdapter::hidReadiness(connectivity::BluetoothPeerHandle handle) {
+    const auto* peer = findPeer(handle);
+    if (currentOwner() != this || !context.stackOwned || !context.hidServiceRegistered ||
+        peer == nullptr) {
+        return connectivity::BluetoothHidAdapterResult::AdapterError;
+    }
+    ble_gap_conn_desc descriptor{};
+    const auto findResult = ble_gap_conn_find(peer->connectionHandle, &descriptor);
+    if (findResult == BLE_HS_ENOTCONN) {
+        return connectivity::BluetoothHidAdapterResult::Disconnected;
+    }
+    if (findResult != 0) {
+        return connectivity::BluetoothHidAdapterResult::AdapterError;
+    }
+
+    portENTER_CRITICAL(&context.mutex);
+    const bool subscribed = context.keyboardSubscribed && context.consumerSubscribed;
+    const bool reportProtocol = context.hidProtocolMode == 1;
+    portEXIT_CRITICAL(&context.mutex);
+    return descriptor.sec_state.encrypted != 0 && descriptor.sec_state.authenticated != 0 &&
+                   descriptor.sec_state.bonded != 0 && subscribed && reportProtocol
+               ? connectivity::BluetoothHidAdapterResult::Ready
+               : connectivity::BluetoothHidAdapterResult::NotReady;
+}
+
+namespace {
+
+connectivity::BluetoothHidAdapterResult classifyHidSendResult(int result) {
+    switch (result) {
+    case 0:
+        return connectivity::BluetoothHidAdapterResult::Sent;
+    case BLE_HS_EAGAIN:
+    case BLE_HS_EBUSY:
+    case BLE_HS_ENOMEM:
+    case BLE_HS_ENOMEM_EVT:
+        return connectivity::BluetoothHidAdapterResult::Busy;
+    case BLE_HS_ENOTCONN:
+        return connectivity::BluetoothHidAdapterResult::Disconnected;
+    default:
+        return connectivity::BluetoothHidAdapterResult::AdapterError;
+    }
+}
+
+connectivity::BluetoothHidAdapterResult sendHidPayload(std::uint16_t connectionHandle,
+                                                       std::uint16_t attributeHandle,
+                                                       const void* data, std::size_t size) {
+    auto* payload = ble_hs_mbuf_from_flat(data, static_cast<std::uint16_t>(size));
+    if (payload == nullptr) {
+        return connectivity::BluetoothHidAdapterResult::Busy;
+    }
+    return classifyHidSendResult(
+        ble_gatts_notify_custom(connectionHandle, attributeHandle, payload));
+}
+
+} // namespace
+
+connectivity::BluetoothHidAdapterResult
+Esp32BluetoothAdapter::sendHidReport(connectivity::BluetoothPeerHandle handle,
+                                     const connectivity::HidReport& report) {
+    const auto readiness = hidReadiness(handle);
+    if (readiness != connectivity::BluetoothHidAdapterResult::Ready) {
+        return readiness;
+    }
+    const auto* peer = findPeer(handle);
+    if (peer == nullptr) {
+        return connectivity::BluetoothHidAdapterResult::Disconnected;
+    }
+    if (const auto* keyboard = std::get_if<connectivity::HidKeyboardReport>(&report);
+        keyboard != nullptr) {
+        std::array<std::uint8_t, 8> payload{};
+        payload[0] = keyboard->modifiers;
+        std::copy(keyboard->usages.begin(), keyboard->usages.end(), payload.begin() + 2);
+        return sendHidPayload(peer->connectionHandle, context.keyboardInputHandle, payload.data(),
+                              payload.size());
+    }
+    const auto consumer = std::get<connectivity::HidConsumerReport>(report);
+    const std::array<std::uint8_t, 2> payload{
+        static_cast<std::uint8_t>(consumer.usage & 0xFF),
+        static_cast<std::uint8_t>((consumer.usage >> 8) & 0xFF),
+    };
+    return sendHidPayload(peer->connectionHandle, context.consumerInputHandle, payload.data(),
+                          payload.size());
+}
+
+connectivity::BluetoothHidAdapterResult
+Esp32BluetoothAdapter::releaseHidReports(connectivity::BluetoothPeerHandle handle) {
+    const auto readiness = hidReadiness(handle);
+    if (readiness != connectivity::BluetoothHidAdapterResult::Ready) {
+        return readiness;
+    }
+    const auto keyboardResult = sendHidReport(handle, connectivity::HidKeyboardReport::neutral());
+    if (keyboardResult != connectivity::BluetoothHidAdapterResult::Sent) {
+        return keyboardResult;
+    }
+    return sendHidReport(handle, connectivity::HidConsumerReport::neutral());
 }
 
 } // namespace cardputer_hub::hardware

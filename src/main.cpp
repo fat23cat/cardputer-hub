@@ -16,6 +16,8 @@
 #include "validation/plan_012_device_harness.h"
 #elif CARDPUTER_HUB_PLAN_014_VALIDATION
 #include "validation/plan_014_device_harness.h"
+#elif CARDPUTER_HUB_PLAN_015_VALIDATION
+#include "validation/plan_015_device_harness.h"
 #endif
 
 namespace {
@@ -32,6 +34,9 @@ cardputer_hub::validation::Plan012DeviceHarness validationHarness(logger);
 #elif CARDPUTER_HUB_PLAN_014_VALIDATION
 cardputer_hub::validation::Plan014DeviceHarness validationHarness(platform, keyboard, display,
                                                                   logger);
+#elif CARDPUTER_HUB_PLAN_015_VALIDATION
+cardputer_hub::validation::Plan015DeviceHarness validationHarness(platform, keyboard, display,
+                                                                  logger);
 #endif
 
 } // namespace
@@ -40,7 +45,7 @@ extern "C" void app_main(void) {
 #if CARDPUTER_HUB_PLAN_012_VALIDATION
     (void)fcntl(STDIN_FILENO, F_SETFL, O_NONBLOCK);
     validationHarness.start();
-#elif CARDPUTER_HUB_PLAN_014_VALIDATION
+#elif CARDPUTER_HUB_PLAN_014_VALIDATION || CARDPUTER_HUB_PLAN_015_VALIDATION
     validationHarness.start();
 #else
     runtime.start();
@@ -49,7 +54,7 @@ extern "C" void app_main(void) {
     for (;;) {
 #if CARDPUTER_HUB_PLAN_012_VALIDATION
         validationHarness.update();
-#elif CARDPUTER_HUB_PLAN_014_VALIDATION
+#elif CARDPUTER_HUB_PLAN_014_VALIDATION || CARDPUTER_HUB_PLAN_015_VALIDATION
         validationHarness.update();
 #else
         (void)runtime.update();
