@@ -1,6 +1,6 @@
 # Bluetooth Pairing and Bond Management Plan
 
-Status: **Implemented — physical validation pending**
+Status: **Implemented — physical validation complete with documented equipment gaps**
 
 Physical validation on 2026-09-07 first exposed two thin ESP-IDF integration
 regressions before any bond was created: USB Serial/JTAG accepted output but
@@ -27,6 +27,13 @@ driver, independently of whether Bluetooth has run. A clean reboot then
 connected Wi-Fi before Bluetooth was enabled. After an injected Bluetooth poll
 failure, Wi-Fi remained connected, microSD access passed, a physical key event
 was observed, the display remained normal, and no reset or watchdog occurred.
+
+The available Mac and iPhone peers both negotiated numeric comparison, so the
+passkey-display, passkey-entry, and explicit legacy/Just Works rejection cases
+could not be forced. The 16/17 distinct-identity boundary likewise requires a
+programmable BLE peer or a larger controlled device set. These cases were
+consciously left unexecuted rather than recorded as passes; the implemented
+configuration and native tests continue to enforce their required behavior.
 
 This plan describes the fourth granular Phase 2 change. It adds authenticated
 BLE pairing, persistent opaque bond references, explicit bond management, and

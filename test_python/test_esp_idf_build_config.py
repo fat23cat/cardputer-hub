@@ -213,6 +213,7 @@ class EspIdfBuildConfigurationTests(unittest.TestCase):
         self.assertIn("keyboard_.poll", harness)
         self.assertIn("usb_serial_jtag_driver_install", harness)
         self.assertIn("usb_serial_jtag_read_bytes", harness)
+        self.assertIn("Pairing responses use Enter/Fn+`", harness)
         self.assertNotIn('Serial.printf("%06', harness)
         self.assertNotIn("reference.bytes", harness)
         self.assertNotIn("challenge->value", harness)

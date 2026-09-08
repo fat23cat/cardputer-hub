@@ -385,7 +385,7 @@ void Plan014DeviceHarness::printHelp() const {
     Serial.println("  bond remove <index> | bonds remove-all");
     Serial.println("  reference save <index> | reference verify | reference clear");
     Serial.println("  wifi connect | wifi disconnect | storage check | fault bluetooth");
-    Serial.println("  Pairing responses use Cardputer Enter/Esc; passkeys use digit keys");
+    Serial.println("  Pairing responses use Enter/Fn+`; passkeys use digit keys");
 }
 
 void Plan014DeviceHarness::printStatus() {
