@@ -641,8 +641,9 @@ bool quiesceStack() {
 }
 
 void suppressIdentityBearingBluetoothLogTags() {
-    constexpr std::array tags = {"BT",     "BTDM_INIT", "BLE_INIT", "NimBLE",  "NIMBLE_PORT",
-                                 "ble_hs", "BLE_HS",    "BLE_ATT",  "BLE_SMP", "ble_store"};
+    constexpr std::array tags = {"BT",          "BTDM_INIT",  "BLE_INIT", "NimBLE",
+                                 "NIMBLE_PORT", "NIMBLE_NVS", "ble_hs",   "BLE_HS",
+                                 "BLE_ATT",     "BLE_SMP",    "ble_store"};
     std::for_each(tags.begin(), tags.end(),
                   [](const auto* tag) { esp_log_level_set(tag, ESP_LOG_NONE); });
 }
@@ -700,6 +701,13 @@ Esp32BluetoothAdapter::initialize(const connectivity::BluetoothDeviceConfig& con
         }
     }
     while (xSemaphoreTake(context.hostStopped, 0) == pdTRUE) {
+    }
+
+    if (nvs_flash_init() != ESP_OK) {
+        context.stackOwned = false;
+        clearLifecycleState();
+        setOwner(nullptr);
+        return connectivity::BluetoothAdapterResult::AdapterError;
     }
 
     if (!context.controllerInitialized) {

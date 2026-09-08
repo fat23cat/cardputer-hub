@@ -74,6 +74,17 @@ class EspIdfBuildConfigurationTests(unittest.TestCase):
         self.assertIn("cardputer_hub.bin", makefile)
         self.assertIn('CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="partitions.csv"', configuration)
 
+    def test_fat_supports_the_managed_root_and_logical_path_lengths(self) -> None:
+        configuration = self.read("sdkconfig.defaults")
+        adapter = self.read(
+            "src/hardware/storage/microsd/cardputer_microsd_file_storage_adapter.cpp"
+        )
+
+        self.assertIn("CONFIG_FATFS_LFN_HEAP=y", configuration)
+        self.assertIn("CONFIG_FATFS_MAX_LFN=255", configuration)
+        self.assertNotIn("CONFIG_FATFS_LFN_NONE=y", configuration)
+        self.assertIn("constexpr int microSdFrequencyKhz = 10'000;", adapter)
+
     def test_project_code_retains_cxx17_and_warnings_as_errors(self) -> None:
         component = self.read("main/CMakeLists.txt")
 
@@ -153,7 +164,6 @@ class EspIdfBuildConfigurationTests(unittest.TestCase):
             "    (void)fcntl(STDIN_FILENO, F_SETFL, O_NONBLOCK);\n"
             "    validationHarness.start();\n"
             "#elif CARDPUTER_HUB_PLAN_014_VALIDATION\n"
-            "    (void)fcntl(STDIN_FILENO, F_SETFL, O_NONBLOCK);\n"
             "    validationHarness.start();\n"
             "#else\n"
             "    runtime.start();\n"
@@ -201,6 +211,8 @@ class EspIdfBuildConfigurationTests(unittest.TestCase):
 
         self.assertIn("displayPairingChallenge", harness)
         self.assertIn("keyboard_.poll", harness)
+        self.assertIn("usb_serial_jtag_driver_install", harness)
+        self.assertIn("usb_serial_jtag_read_bytes", harness)
         self.assertNotIn('Serial.printf("%06', harness)
         self.assertNotIn("reference.bytes", harness)
         self.assertNotIn("challenge->value", harness)

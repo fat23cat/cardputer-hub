@@ -1649,11 +1649,14 @@ known path, permit empty files, create parents only within the owned root, and
 flush before success. Removal never recursively removes directories.
 
 The Cardputer adapter uses the pinned framework's SD and SPI interfaces and
-keeps every managed path below `/cardputer-hub`. Its initial state is
-`Uninitialized`; an explicit refresh produces `Ready`, `NotPresent`, or
-`MountError`. It never formats, repairs, erases, or repartitions media. It is
-compiled but not constructed by `main.cpp`, so Phase 1 performs no automatic
-mount and writes no product data.
+keeps every managed path below `/cardputer-hub`. Production FAT configuration
+enables filenames up to 255 characters with the work buffer allocated on the
+heap, and the Cardputer-Adv SDSPI adapter uses the physically validated 10 MHz
+clock for media compatibility. Its initial state is `Uninitialized`; an
+explicit refresh produces `Ready`, `NotPresent`, or `MountError`. It never
+formats, repairs, erases, or repartitions media. It is compiled but not
+constructed by `main.cpp`, so Phase 1 performs no automatic mount and writes no
+product data.
 
 The microSD card is optional and removable. Missing media, mount failure,
 read-only media, capacity exhaustion, and ordinary I/O failure must remain

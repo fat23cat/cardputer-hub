@@ -46,6 +46,13 @@ once if the banner was emitted before the monitor attached. The serial console
 accepts `help`; record its output only after confirming the terminal is not
 logging keyboard input containing credentials.
 
+On macOS, pressing reset disconnects the `/dev/cu.usbmodem*` device and exits
+the monitor. Reset the Cardputer first, wait for the port to return, then start
+the monitor again without pressing reset. The harness reports
+`serial input=ready` when its buffered command channel is available. Miniterm
+does not echo typed commands locally; press Enter and confirm the harness emits
+a response.
+
 Result enum values follow the declarations in
 `src/connectivity/bluetooth/bluetooth_service.h`. A result of zero is the first
 successful outcome for enable, open, cancel, selection, and removal operations.
@@ -59,13 +66,14 @@ Enter `bt enable`, wait for `Bluetooth state=advertising`, then enter
 | --- | --- |
 | Keyboard only | Passkey shown on Cardputer; type it on the peer |
 | Display only | Type the peer's six digits on Cardputer; Enter submits |
-| Display with Yes/No | Matching number appears on both; Enter accepts, Esc rejects |
+| Display with Yes/No | Matching number appears on both; Enter accepts, Fn+\` rejects |
 
 No pairing value may appear in serial output. Repeat numeric comparison once
-with Esc and confirm the peer disconnects. Open pairing, connect but do not
-complete the challenge, enter `pair cancel`, and confirm disconnection. Open it
-again without connecting; measure from `pairing state=advertising` until the
-window closes at 120 seconds. An incomplete peer must be rejected at timeout.
+with Fn+\` (the Cardputer-Adv Escape combination) and confirm the peer
+disconnects. Open pairing, connect but do not complete the challenge, enter
+`pair cancel`, and confirm disconnection. Open it again without connecting;
+measure from `pairing state=advertising` until the window closes at 120 seconds.
+An incomplete peer must be rejected at timeout.
 
 Attempt Just Works and legacy pairing with the controlled peer. Both must fail;
 `status` must not report a new bond.

@@ -15,9 +15,6 @@
 
 #include "validation/plan_012_device_harness.h"
 #elif CARDPUTER_HUB_PLAN_014_VALIDATION
-#include <fcntl.h>
-#include <unistd.h>
-
 #include "validation/plan_014_device_harness.h"
 #endif
 
@@ -44,7 +41,6 @@ extern "C" void app_main(void) {
     (void)fcntl(STDIN_FILENO, F_SETFL, O_NONBLOCK);
     validationHarness.start();
 #elif CARDPUTER_HUB_PLAN_014_VALIDATION
-    (void)fcntl(STDIN_FILENO, F_SETFL, O_NONBLOCK);
     validationHarness.start();
 #else
     runtime.start();

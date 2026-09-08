@@ -2,6 +2,23 @@
 
 Status: **Implemented — physical validation pending**
 
+Physical validation on 2026-09-07 first exposed two thin ESP-IDF integration
+regressions before any bond was created: USB Serial/JTAG accepted output but
+not commands through the simplified VFS path, and the NimBLE bond store started
+before the framework's default NVS partition was initialized. The hardware
+validation itself serves as the RED case allowed by step 12's thin-adapter TDD
+exception. The validation console now uses the buffered USB Serial/JTAG receive
+driver, and the Bluetooth adapter non-destructively initializes default NVS
+before controller or NimBLE startup. Full physical validation remains pending.
+
+The same validation session exposed two pre-existing microSD integration
+issues while checking subsystem isolation: the 25 MHz SDSPI clock caused CSD
+CRC failures with working SDHC media, and the default short-name-only FAT
+configuration rejected the owned `/cardputer-hub` root. The adapter now uses
+the physically verified 10 MHz clock and production enables 255-character FAT
+long names on the heap. A FAT32/MBR 32 GB SDHC card passed four consecutive
+mount, write, read, and remove cycles after the fix.
+
 This plan describes the fourth granular Phase 2 change. It adds authenticated
 BLE pairing, persistent opaque bond references, explicit bond management, and
 selected-bond reconnection without adding pairing UI, Host Profiles, or HID

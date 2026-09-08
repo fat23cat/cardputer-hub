@@ -1,15 +1,15 @@
 #include "validation/plan_014_device_harness.h"
 
+#include "driver/usb_serial_jtag.h"
+#include "esp_system.h"
+#include "esp_timer.h"
+#include "nvs.h"
+#include "nvs_flash.h"
 #include <algorithm>
 #include <chrono>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
-#include <unistd.h>
-
-#include "esp_system.h"
-#include "esp_timer.h"
-#include "nvs.h"
 
 namespace cardputer_hub::validation {
 namespace {
@@ -31,9 +31,23 @@ std::uint32_t millis() { return static_cast<std::uint32_t>(esp_timer_get_time() 
 
 class NativeSerialConsole {
   public:
+    bool begin() {
+        if (!usb_serial_jtag_is_driver_installed()) {
+            auto config = USB_SERIAL_JTAG_DRIVER_CONFIG_DEFAULT();
+            if (usb_serial_jtag_driver_install(&config) != ESP_OK) {
+                return false;
+            }
+        }
+        ready_ = true;
+        return true;
+    }
+
     int read() const {
+        if (!ready_) {
+            return -1;
+        }
         unsigned char value = 0;
-        return ::read(STDIN_FILENO, &value, 1) == 1 ? value : -1;
+        return usb_serial_jtag_read_bytes(&value, 1, 0) == 1 ? value : -1;
     }
 
     void println(const char* message) const { std::printf("%s\n", message); }
@@ -41,9 +55,12 @@ class NativeSerialConsole {
     template <typename... Arguments> void printf(const char* format, Arguments... arguments) const {
         std::printf(format, arguments...);
     }
+
+  private:
+    bool ready_{false};
 };
 
-constexpr NativeSerialConsole Serial;
+NativeSerialConsole Serial;
 
 const char* bluetoothStateName(connectivity::BluetoothState state) {
     switch (state) {
@@ -102,6 +119,14 @@ const char* wifiStateName(connectivity::WifiState state) {
 void clearString(std::string& value) {
     std::fill(value.begin(), value.end(), '\0');
     value.clear();
+}
+
+esp_err_t openValidationStorage(nvs_open_mode_t mode, nvs_handle_t* handle) {
+    const auto initialization = nvs_flash_init_partition(validationPartition);
+    if (initialization != ESP_OK) {
+        return initialization;
+    }
+    return nvs_open_from_partition(validationPartition, validationNamespace, mode, handle);
 }
 
 } // namespace
@@ -188,11 +213,13 @@ void Plan014DeviceHarness::start() {
     }
     started_ = true;
     platform_.begin();
+    const bool serialInputReady = Serial.begin();
     lastUpdateMilliseconds_ = millis();
     previousBluetoothState_ = bluetoothService_.state();
     previousPairingState_ = bluetoothService_.pairingState();
     displayStatus("type help in serial monitor");
     Serial.println("[VALIDATION 014] authenticated pairing harness active");
+    Serial.printf("[VALIDATION 014] serial input=%s\n", serialInputReady ? "ready" : "error");
     Serial.printf("[VALIDATION 014] reset_reason=%d\n", static_cast<int>(esp_reset_reason()));
     Serial.println("[VALIDATION 014] pairing values appear only on the Cardputer display");
     printStatus();
@@ -221,10 +248,7 @@ void Plan014DeviceHarness::readSerial() {
             return;
         }
         const char value = static_cast<char>(next);
-        if (value == '\r') {
-            continue;
-        }
-        if (value == '\n') {
+        if (value == '\r' || value == '\n') {
             if (inputOverflow_) {
                 Serial.println("[VALIDATION 014] input rejected: line too long");
             } else {
@@ -481,7 +505,7 @@ void Plan014DeviceHarness::displayPairingChallenge(
     char value[7] = {};
     if (challenge.type == connectivity::BluetoothPairingChallengeType::EnterPasskey) {
         display_.drawText({8, 38}, "Enter host passkey", bodyStyle);
-        display_.drawText({8, 105}, "Enter=accept  Esc=reject", bodyStyle);
+        display_.drawText({8, 105}, "Enter=accept Fn+`=reject", bodyStyle);
         displayPasskeyEntry();
         return;
     }
@@ -494,7 +518,7 @@ void Plan014DeviceHarness::displayPairingChallenge(
     } else {
         display_.drawText({8, 38}, "Does the host match?", bodyStyle);
         display_.drawText({55, 62}, value, valueStyle);
-        display_.drawText({8, 105}, "Enter=yes  Esc=no", bodyStyle);
+        display_.drawText({8, 105}, "Enter=yes Fn+`=no", bodyStyle);
     }
 }
 
@@ -553,8 +577,7 @@ void Plan014DeviceHarness::saveReference(std::size_t index) {
         return;
     }
     nvs_handle_t handle = 0;
-    esp_err_t result =
-        nvs_open_from_partition(validationPartition, validationNamespace, NVS_READWRITE, &handle);
+    esp_err_t result = openValidationStorage(NVS_READWRITE, &handle);
     if (result == ESP_OK) {
         result = nvs_set_blob(handle, savedReferenceKey, &bonds_[index], sizeof(bonds_[index]));
     }
@@ -572,8 +595,7 @@ void Plan014DeviceHarness::verifyReference() {
     connectivity::BluetoothBondReference saved;
     std::size_t size = sizeof(saved);
     nvs_handle_t handle = 0;
-    esp_err_t result =
-        nvs_open_from_partition(validationPartition, validationNamespace, NVS_READONLY, &handle);
+    esp_err_t result = openValidationStorage(NVS_READONLY, &handle);
     if (result == ESP_OK) {
         result = nvs_get_blob(handle, savedReferenceKey, &saved, &size);
     }
@@ -591,8 +613,7 @@ void Plan014DeviceHarness::verifyReference() {
 
 void Plan014DeviceHarness::clearSavedReference() {
     nvs_handle_t handle = 0;
-    esp_err_t result =
-        nvs_open_from_partition(validationPartition, validationNamespace, NVS_READWRITE, &handle);
+    esp_err_t result = openValidationStorage(NVS_READWRITE, &handle);
     if (result == ESP_OK) {
         result = nvs_erase_key(handle, savedReferenceKey);
         if (result == ESP_ERR_NVS_NOT_FOUND) {

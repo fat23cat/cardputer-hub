@@ -11,6 +11,8 @@
 
 #include "driver/sdspi_host.h"
 #include "driver/spi_master.h"
+#include "esp_err.h"
+#include "esp_log.h"
 #include "esp_vfs_fat.h"
 #include "hardware/storage/microsd/microsd_io_error.h"
 #include "sdmmc_cmd.h"
@@ -22,9 +24,10 @@ constexpr gpio_num_t microSdClockPin = GPIO_NUM_40;
 constexpr gpio_num_t microSdMisoPin = GPIO_NUM_39;
 constexpr gpio_num_t microSdMosiPin = GPIO_NUM_14;
 constexpr gpio_num_t microSdChipSelectPin = GPIO_NUM_12;
-constexpr int microSdFrequencyKhz = 25'000;
+constexpr int microSdFrequencyKhz = 10'000;
 constexpr const char* mountPoint = "/sd";
 constexpr const char* managedRoot = "/sd/cardputer-hub";
+constexpr const char* logTag = "microsd";
 constexpr std::size_t maxBackendSegmentLength = 255;
 
 bool isFatForbiddenCharacter(unsigned char character) {
@@ -164,6 +167,8 @@ core::FileStorageState CardputerMicroSdFileStorageAdapter::refresh() {
     const auto mountResult =
         esp_vfs_fat_sdspi_mount(mountPoint, &host, &slotConfig, &mountConfig, &card_);
     if (mountResult != ESP_OK) {
+        ESP_LOGE(logTag, "mount failed: %s (0x%x)", esp_err_to_name(mountResult),
+                 static_cast<unsigned int>(mountResult));
         unmount();
         state_ = mountResult == ESP_ERR_TIMEOUT || mountResult == ESP_ERR_NOT_FOUND
                      ? core::FileStorageState::NotPresent
@@ -171,6 +176,8 @@ core::FileStorageState CardputerMicroSdFileStorageAdapter::refresh() {
         return state_;
     }
     if (!ensureManagedRoot()) {
+        const int managedRootError = errno;
+        ESP_LOGE(logTag, "managed root unavailable: errno=%d", managedRootError);
         unmount();
         state_ = core::FileStorageState::MountError;
         return state_;

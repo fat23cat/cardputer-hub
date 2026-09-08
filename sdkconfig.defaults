@@ -11,6 +11,12 @@ CONFIG_ESP_DEFAULT_CPU_FREQ_MHZ_240=y
 CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG=y
 CONFIG_ESP_CONSOLE_SECONDARY_NONE=y
 
+# File Storage owns long logical paths below /cardputer-hub. Allocate the FAT
+# long-filename work buffer on the heap so adapter calls do not consume a large
+# fixed stack buffer.
+CONFIG_FATFS_LFN_HEAP=y
+CONFIG_FATFS_MAX_LFN=255
+
 # BLE-only ESP-NimBLE peripheral with one connection. Scanning roles and the
 # Bluedroid host are intentionally excluded.
 CONFIG_BT_ENABLED=y
