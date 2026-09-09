@@ -107,7 +107,9 @@ make upload
 
 The first run may take several minutes while ESP-IDF downloads the locked
 managed components. It then builds the production firmware, selects the
-connected serial port, flashes the image, and resets the device.
+connected ROM download port, flashes the image, and resets the device. The
+running application then re-enumerates as a composite CDC/HID device; its CDC
+path may differ from the download port.
 
 If ESP-IDF cannot enter download mode:
 
@@ -115,6 +117,10 @@ If ESP-IDF cannot enter download mode:
 2. Press and release the reset button.
 3. Release `G0`.
 4. Run the selected installation command again.
+
+If the device remains on the ROM USB Serial/JTAG port after flashing, press
+reset once more without holding `G0`. The application should then enumerate as
+`Cardputer Hub`; list serial ports again before starting the monitor.
 
 ### Updating with Published Release Assets
 
@@ -157,6 +163,14 @@ black boot screen. To inspect serial output, run:
 make monitor
 ```
 
+If automatic selection is ambiguous, list ports after the application has
+started and pass its CDC path explicitly:
+
+```bash
+python -m serial.tools.list_ports
+make monitor UPLOAD_PORT=/dev/ttyACM1
+```
+
 Press reset once after the monitor opens if the startup records have already
 scrolled past. A successful boot prints records similar to:
 
@@ -177,8 +191,11 @@ Exit the serial monitor with `Ctrl+]`. Continue with the
 * If Linux reports permission denied, confirm membership in the `dialout`
   group with `groups`, then log out and back in.
 * If upload waits for a connection or times out, use the `G0` download-mode
-  sequence above and retry.
-* If the monitor is blank, confirm the device reset and that no other program
-  has the serial port open. The configured monitor speed is 115200 baud.
+  sequence above, select the ROM port if necessary, and retry. If the completed
+  upload remains in ROM mode, press reset once without `G0`.
+* If the monitor is blank, confirm the device reset, list ports again, select
+  the application CDC port rather than a stale ROM port, and confirm no other
+  program has it open. The configured monitor speed is 115200 baud even though
+  USB CDC does not use a physical baud clock.
 * To discard local build output and rebuild from scratch, run `make clean`,
   followed by `make upload`.

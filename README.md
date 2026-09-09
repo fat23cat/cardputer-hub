@@ -299,7 +299,8 @@ migration and release-asset flashing procedure.
 
 ESP-IDF's flash command normally resets the device automatically. If it cannot enter
 download mode, hold the `G0` button, press and release reset, release `G0`, and
-retry the upload. You may need to grant access to the serial device on Linux.
+retry the upload. If it remains in ROM mode after flashing, press reset once
+without `G0`. You may need to grant access to the serial device on Linux.
 
 ---
 
@@ -309,7 +310,10 @@ retry the upload. You may need to grant access to the serial device on Linux.
 make monitor
 ```
 
-The configured baud rate is 115200. Exit the monitor with `Ctrl+]`.
+The application exposes serial diagnostics through the CDC function of its
+native USB composite CDC/HID device. Its path may differ from the ROM download
+port; use `make monitor UPLOAD_PORT=<application-cdc-port>` when selection is
+ambiguous. The configured baud convention is 115200. Exit with `Ctrl+]`.
 
 ---
 
@@ -367,12 +371,13 @@ See [`docs/ENGINEERING.md`](docs/ENGINEERING.md) for the complete workflow.
 
 The Phase 1 System Core foundations are complete, and Phase 2 Connectivity is
 in progress with its Wi-Fi, Bluetooth lifecycle, authenticated pairing, and
-bond-management foundations plus the BLE keyboard/consumer HID transport
-delivered.
+bond-management foundations plus BLE and native USB keyboard/consumer HID
+transports delivered. Native USB also preserves diagnostics through one
+composite CDC interface.
 These milestones establish testable contracts and hardware adapters; they do
 not make Wi-Fi, Bluetooth, or other planned product features user-visible.
-Native USB HID transport is the next Phase 2 foundation in the documented
-architecture order.
+USB-over-BLE transport arbitration is the next Phase 2 foundation in the
+documented architecture order.
 
 The authoritative development order is defined in
 [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md#47-initial-development-order):

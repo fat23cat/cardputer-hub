@@ -1,6 +1,5 @@
 #include "validation/plan_014_device_harness.h"
 
-#include "driver/usb_serial_jtag.h"
 #include "esp_system.h"
 #include "esp_timer.h"
 #include "nvs.h"
@@ -10,6 +9,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <unistd.h>
 
 namespace cardputer_hub::validation {
 namespace {
@@ -31,23 +31,14 @@ std::uint32_t millis() { return static_cast<std::uint32_t>(esp_timer_get_time() 
 
 class NativeSerialConsole {
   public:
-    bool begin() {
-        if (!usb_serial_jtag_is_driver_installed()) {
-            auto config = USB_SERIAL_JTAG_DRIVER_CONFIG_DEFAULT();
-            if (usb_serial_jtag_driver_install(&config) != ESP_OK) {
-                return false;
-            }
-        }
-        ready_ = true;
-        return true;
-    }
+    void begin() { ready_ = true; }
 
     int read() const {
         if (!ready_) {
             return -1;
         }
         unsigned char value = 0;
-        return usb_serial_jtag_read_bytes(&value, 1, 0) == 1 ? value : -1;
+        return ::read(STDIN_FILENO, &value, 1) == 1 ? value : -1;
     }
 
     void println(const char* message) const { std::printf("%s\n", message); }
@@ -245,7 +236,7 @@ void Plan014DeviceHarness::start() {
     }
     started_ = true;
     platform_.begin();
-    const bool serialInputReady = Serial.begin();
+    Serial.begin();
     lastUpdateMilliseconds_ = millis();
     previousBluetoothState_ = bluetoothService_.state();
     previousPairingState_ = bluetoothService_.pairingState();
@@ -255,7 +246,7 @@ void Plan014DeviceHarness::start() {
 #else
     Serial.println("[VALIDATION 014] authenticated pairing harness active");
 #endif
-    Serial.printf("[VALIDATION 014] serial input=%s\n", serialInputReady ? "ready" : "error");
+    Serial.println("[VALIDATION 014] serial input=ready");
     Serial.printf("[VALIDATION 014] reset_reason=%d\n", static_cast<int>(esp_reset_reason()));
     Serial.println("[VALIDATION 014] pairing values appear only on the Cardputer display");
     printStatus();

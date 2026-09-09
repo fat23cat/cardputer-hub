@@ -1031,6 +1031,13 @@ applies to framework and dependency diagnostics as well as project-owned log
 records; dependency log levels must be capped when their higher levels expose
 such data.
 
+The Cardputer-Adv application runtime carries project and ESP-IDF console
+output over the native TinyUSB composite device's CDC-ACM interface. Its VFS is
+non-blocking: an absent or slow monitor may truncate diagnostics but must never
+delay System Core updates or HID reports. The documented 115200 baud remains a
+monitor convention; USB CDC has no physical baud clock. The ROM download port
+and application CDC port may have different device paths.
+
 Log levels should be configurable where practical.
 
 ---
