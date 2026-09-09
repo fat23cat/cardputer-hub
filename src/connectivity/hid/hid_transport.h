@@ -29,6 +29,10 @@ constexpr bool operator==(HidConsumerReport left, HidConsumerReport right) noexc
 
 using HidReport = std::variant<HidKeyboardReport, HidConsumerReport>;
 
+inline constexpr std::uint8_t keyboardHidReportId = 1;
+inline constexpr std::uint8_t consumerHidReportId = 2;
+extern const std::array<std::uint8_t, 90> hidReportDescriptor;
+
 enum class HidTransportState : std::uint8_t { Unavailable, Starting, Ready, Busy, Error };
 enum class HidSendResult : std::uint8_t { Sent, NotReady, Busy, AdapterError };
 

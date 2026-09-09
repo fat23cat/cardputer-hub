@@ -416,6 +416,23 @@ Device Manager exposes that selection in Phase 6. Before those phases exist,
 Phase 2 transport arbitration remains hardware-independent and testable with
 opaque targets and fake transports.
 
+The native USB foundation is one full-speed USB-OTG composite device, not a
+second controller beside the ESP32-S3 fixed USB Serial/JTAG peripheral. It
+exposes one CDC-ACM function for diagnostics and one report-protocol HID
+interface containing report ID 1 for the six-key keyboard and report ID 2 for
+consumer control. The device has no unique serial-number string and exposes no
+mass-storage, MIDI, network, vendor, DFU-runtime, mouse, or gamepad function.
+ROM download mode remains separate and may enumerate on a different host port.
+
+`NativeUsbHidService` implements `IHidTransport` over `INativeUsbAdapter`.
+Construction is side-effect free; explicit initialization installs the device
+once. Readiness requires a mounted, non-suspended device and a ready HID
+endpoint. Callback data crosses into the polling loop through a bounded owned
+queue with lifecycle generations. Backpressure is retryable and non-blocking;
+partial neutral release is retained across suspend, while confirmed unmount is
+definitive host-side neutralization. Fatal installation, queue, polling, or
+send errors remain local to USB.
+
 The shared HID boundary is `IHidTransport` under `connectivity/hid`. It accepts
 only hardware-neutral six-key keyboard reports or one Consumer Page usage,
 reports explicit `Unavailable`, `Starting`, `Ready`, `Busy`, and `Error`
@@ -1733,6 +1750,14 @@ Esp32WifiAdapter
 ```
 
 ```text
+NativeUsbHidService
+      ↓
+INativeUsbAdapter
+      ↓
+Esp32NativeUsbAdapter / TinyUSB
+```
+
+```text
 InputService
       ↓
 IKeyboardAdapter
@@ -1815,6 +1840,18 @@ would initialize unrelated services and conflict with the adapter's existing
 host, advertising, callback, and teardown ownership. Direct ESP-NimBLE GATT
 registration keeps those responsibilities explicit.
 
+`NativeUsbHidService` and `INativeUsbAdapter` contain no ESP32 or TinyUSB
+types. `Esp32NativeUsbAdapter` owns the ESP32-S3 internal USB-OTG PHY through
+the exactly locked Espressif TinyUSB component. It installs project-owned
+device, configuration, string, and HID report descriptors, initializes one
+CDC-ACM interface, redirects standard console streams through its non-blocking
+VFS, and translates shared HID reports only at the adapter edge. Mount,
+unmount, suspend, and resume callbacks enqueue bounded lifecycle events;
+endpoint readiness is polled without sleeping. The fixed USB Serial/JTAG
+runtime console is disabled so two device controllers never compete for the
+internal PHY. TinyUSB framework diagnostics are disabled, and project logs do
+not contain report values, host identity, or control-transfer contents.
+
 NimBLE is configured for bonding, MITM protection, Secure Connections-only
 security, identity-key distribution, `KeyboardDisplay` I/O, one connection,
 and at most 16 bonds. The adapter initiates security only after Service policy
@@ -1881,6 +1918,11 @@ System Core state. Because
 the Bluetooth foundation is not part of runtime composition yet, it also cannot
 delay or fail normal boot.
 
+Native USB initialization and HID failures enter only the USB transport's
+`Error` state. `app_main` continues into `SystemRuntime` after an initialization
+failure, and CDC absence or backpressure cannot block local display or keyboard
+updates. Wi-Fi and Bluetooth do not depend on USB state.
+
 ---
 
 ## 47. Initial Development Order
@@ -1934,13 +1976,15 @@ later composition owner supplies runtime configuration and elapsed time.
 The Bluetooth lifecycle plus authenticated pairing and bond-management
 foundations are implemented: their Service state machines and direct
 ESP-NimBLE peripheral adapter compile with the firmware but remain inactive.
-The shared HID report contract and BLE keyboard/consumer transport are also
-implemented behind the selected authenticated bond, but normal firmware does
-not route input or Actions into them. Pairing UI, native USB HID, and transport
+The shared HID report contract and BLE keyboard/consumer transport are
+implemented behind the selected authenticated bond. Native USB is also
+implemented as one composite CDC/HID application device and is initialized at
+normal boot so diagnostics remain available, but normal firmware does not
+route input or Actions into either HID transport. Pairing UI and transport
 arbitration remain subsequent Phase 2 work. USB owns HID output only after
-enumeration reports the native HID
-transport mounted and ready. USB removal returns output to an opaque BLE target
-provided from above; Phase 2 does not select or store a `HostProfile`.
+enumeration reports the native HID transport mounted and ready. USB removal
+returns output to an opaque BLE target provided from above; Phase 2 does not
+select or store a `HostProfile`.
 
 ### Phase 3 — Core Services
 

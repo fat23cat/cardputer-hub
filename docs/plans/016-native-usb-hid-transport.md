@@ -1,6 +1,6 @@
 # Native USB HID Transport Plan
 
-Status: **Planned**
+Status: **Implemented — physical validation complete with documented coverage gaps**
 
 This plan describes the sixth granular Phase 2 change. It replaces the fixed
 runtime USB Serial/JTAG console with one native TinyUSB composite CDC and HID
@@ -219,3 +219,109 @@ Assumptions and defaults:
 * native USB remains physically present at runtime, while Action-to-HID routing
   remains later work;
 * USB-first arbitration is introduced only by plan 017.
+
+## 8. Implementation Record
+
+Implemented on 2026-09-08 with:
+
+* exact locked `espressif/esp_tinyusb` 2.2.1 and its resolved
+  `espressif/tinyusb` 0.21.0~1 dependency, with component hashes
+  `9a73a76a6bc17907f6e523342ff6b1e440023e8aac2c11f4691212106ec24e66`
+  and
+  `a72b7d67472914ab76309340fd50d578b31e310963d45ad0f81144bde3314752`;
+* one project-described full-speed composite device using Espressif VID
+  `0x303A` and default composite PID `0x4005`, CDC control/data plus one HID
+  interface, report IDs 1 and 2, and no serial-number descriptor;
+* a hardware-neutral `NativeUsbHidService`, bounded callback queue, generation
+  filtering, mount/suspend/endpoint readiness, non-blocking backpressure, and
+  suspend-safe partial neutral release;
+* a thin ESP32 TinyUSB adapter, non-blocking CDC console redirection, runtime
+  initialization before boot metadata, and continued local boot after USB
+  initialization failure;
+* shared BLE/USB HID report descriptors and an opt-in plan-016 physical
+  validation harness;
+* native descriptor/lifecycle/report/release/error tests, build-configuration
+  regressions, and updated architecture, engineering, installation, and device
+  documentation.
+
+RED evidence: the focused build-configuration suite failed on the missing
+TinyUSB dependency, USB configuration, adapter integration, and validation
+harness assertions before those changes were added. GREEN evidence: the
+focused build-configuration suite then passed 28 tests, the shared HID suite
+passed 3 tests, and the new native USB suite passed 9 tests before the complete
+repository check.
+
+The final `make check` run passed lock consistency, formatting, static
+analysis, 45 Python tests, 171 native C++ tests across 15 suites, and the
+ESP32-S3 production build. The resulting application image was 469,920 bytes
+(`0x72ba0`), leaving 86% of the smallest application partition free. The
+opt-in plan-016 validation build also passed at 471,360 bytes (`0x73140`) with
+86% free.
+
+Physical Cardputer-Adv validation followed
+`docs/validation/plan-016-device-harness.md`; results and unavailable coverage
+are recorded below.
+
+Physical validation ran from 2026-09-08 through 2026-09-10 using macOS 26.6.2
+on arm64:
+
+* the validation image flashed successfully through the pre-existing
+  ESP32-S3 USB Serial/JTAG port and rebooted into the application;
+* macOS enumerated `Cardputer Hub` at full speed with VID `0x303A`, PID
+  `0x4005`, device class `0xEF`, and `iSerialNumber = 0`;
+* the application exposed `/dev/cu.usbmodem1101` as CDC while macOS registered
+  a USB HID keyboard device with primary Usage Page 1 / Usage 6;
+* the CDC validation command `status` returned `USB HID state=ready`, proving
+  simultaneous CDC communication and HID endpoint readiness.
+* an application reset caused the monitor to observe disconnect and
+  re-enumeration, after which all firmware name, version, commit, and build-type
+  metadata plus the validation banner arrived over CDC and HID returned to
+  `ready`;
+* passive macOS raw-report capture confirmed keyboard report ID 1 with Shift
+  plus usage `0x04`, all six keyboard usages `0x04` through `0x09`, consumer
+  report ID 2 with usage `0x00E9` in little-endian wire order, and zero-filled
+  keyboard and consumer release reports;
+* back-to-back neutral keyboard and consumer sends exercised actual endpoint
+  backpressure: the harness returned `Busy` after accepting the keyboard
+  neutral report, and the documented retry accepted only the pending consumer
+  neutral report;
+* with the CDC port open but its output deliberately unread, 500 status
+  responses filled the diagnostic path without blocking the firmware: a
+  subsequent Shift-plus-`0x04` HID report and both neutral reports were captured
+  successfully, and reopening the monitor returned `USB HID state=ready`;
+* one battery-backed disconnect and power-only interval left the local display
+  operating and changed the validation indicator from `USB: ready` to
+  `USB: unavailable`. After a functioning host data connection was restored,
+  the indicator returned to `USB: ready`, macOS registered the same descriptor
+  identity and HID keyboard, and CDC returned `USB HID state=ready`. Moving the
+  side power switch to the documented charging position (`ON`) left the same
+  `0x303A:0x4005` CDC connection active and the HID state `ready`, confirming
+  that charging-mode power and USB data can coexist;
+* a second host disconnect/reconnect created a fresh macOS USB session with
+  the same descriptor identity and HID keyboard. CDC reused
+  `/dev/cu.usbmodem101`; restarting the monitor on that path returned
+  `USB HID state=ready`;
+* the documented `G0` plus Reset sequence entered the ESP32-S3 ROM USB
+  Serial/JTAG personality (`0x303A:0x1001`). Flashing the validation image on
+  that ROM port succeeded with SHA verification; one ordinary Reset without
+  `G0` then returned to `Cardputer Hub` (`0x303A:0x4005`), restored CDC and HID,
+  and returned `USB HID state=ready`;
+* a macOS sleep/wake cycle retained the same USB session rather than
+  unmounting it. CDC remained usable, HID remained registered, `status`
+  returned `ready`, and a post-resume Shift-plus-`0x04` report followed by both
+  neutral reports was captured successfully;
+* the final 469,920-byte production image was restored with the validation
+  option disabled. It enumerated again as `Cardputer Hub` (`0x303A:0x4005`),
+  displayed `Cardputer Hub` and `0.1.0-dev` without the validation indicator,
+  and emitted the firmware name, version, commit, and `cardputer-adv` build type
+  through CDC after an application reset. No validation banner was present.
+
+Only a macOS host was available, so enumeration and basic HID validation on an
+additional host family are recorded as unavailable rather than passed. The
+production runtime visibly exercises the display and CDC and polls the
+keyboard, but it exposes no observable keyboard action, does not compose the
+microSD adapter, and has no IR implementation; those production smoke items
+could not be claimed as physically exercised. The slow-monitor result covers
+the System Core loop and USB HID; Bluetooth and Wi-Fi remain inactive
+foundations in this validation image and likewise were not claimed as
+physically exercised by that check.
