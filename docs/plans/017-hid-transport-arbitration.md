@@ -8,9 +8,13 @@ The plan number and filename remain stable for branch/history references.
 Neither a router nor an Active channel setting is part of the current scope.
 
 ```text
-branch:   fix/017-ble-only-connectivity
+branch:   feat/017-hid-transport-arbitration
 PR title: [017] Keep BLE host control and remove USB HID
 ```
+
+PR #21 retains its existing branch. Its `feat/` prefix intentionally selects a
+minor release under the engineering versioning rules: if the highest permanent
+tag at release time is `v0.10.0`, the next release is `v0.11.0`.
 
 ## 1. Final Phase 2 Scope
 

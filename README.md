@@ -309,6 +309,17 @@ retry the upload. You may need to grant access to the serial device on Linux.
 make monitor
 ```
 
+When multiple serial devices are connected, list the ports with
+`python -m serial.tools.list_ports` and select the Cardputer's fixed USB
+Serial/JTAG port explicitly:
+
+```bash
+make monitor UPLOAD_PORT=<port>
+```
+
+Replace `<port>` with the detected device path, such as `/dev/ttyACM0` on Linux
+or `/dev/cu.usbmodem...` on macOS.
+
 The configured baud rate is 115200. Exit the monitor with `Ctrl+]`.
 
 ---
