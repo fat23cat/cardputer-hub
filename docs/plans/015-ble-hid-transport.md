@@ -1,6 +1,6 @@
 # BLE HID Transport Plan
 
-Status: **Implemented; physical validation pending**
+Status: **Implemented; historical physical results recorded; final BLE-only rerun pending**
 
 This plan describes the fifth granular Phase 2 change. It defines the shared
 hardware-neutral HID report contract and adds a BLE HID keyboard and consumer
@@ -21,7 +21,7 @@ merged.
 Add:
 
 * shared hardware-neutral keyboard and consumer-control report types;
-* a common `IHidTransport` contract for later USB/BLE arbitration;
+* a common `IHidTransport` contract for future transport implementations;
 * BLE HID readiness based on authenticated connection and subscriptions;
 * a standard HID-over-GATT service using the selected plan-014 bond;
 * checked, non-blocking keyboard, consumer-control, and release reports;
@@ -29,7 +29,7 @@ Add:
 
 This plan does not translate text, interpret logical Actions, define host
 shortcuts, implement mouse reports, or activate host control during normal
-boot. Phase 7 will resolve Actions into the HID transactions routed by Phase 2.
+boot. Phase 7 will resolve Actions into HID reports delivered through this boundary.
 
 ## 2. Shared HID Contract
 
@@ -210,7 +210,8 @@ Assumptions and defaults:
 * the BLE host remains a single ESP-NimBLE peripheral lifecycle;
 * normal firmware still does not route keyboard input or logical Actions to a
   host;
-* native USB implements the same contract in plan 016.
+* BLE is the sole current implementation; future transports may implement the
+  same contract under a new plan. USB plan 016 was cancelled on 2026-09-11.
 
 ## 8. Implementation Record
 

@@ -93,6 +93,19 @@ six-key, modifier, consumer, and release checks. Confirm both Wi-Fi and BLE HID
 remain responsive without reset, watchdog, or boot loop. Finish with
 `wifi disconnect`.
 
+### BLE-only cable and pairing regression checks
+
+The final BLE-only image uses the fixed USB Serial/JTAG console and must not
+enumerate a USB keyboard. With the Cardputer running from its battery and the
+selected BLE host ready, unplug and reconnect USB at least five times. Confirm
+BLE still accepts reports, releases neutralize them, the saved bond is not
+changed, and serial diagnostics return. No output channel switch is involved.
+
+During an explicit pairing window, interrupt an incomplete host connection.
+The device must clear the obsolete challenge and resume advertising within
+the same 120-second deadline. Cancel or allow the window to expire and verify
+that it stays closed. Do not erase existing bonds merely to test USB removal.
+
 ## 5. Privacy audit and cleanup
 
 Retain the complete serial output from boot through cleanup. Search for MAC
@@ -132,6 +145,9 @@ interrupted report replay after reconnect: yes/no
 repeated subscribe/disconnect/disable/re-enable: pass/fail
 selected-host switch and old-host neutralization: pass/fail
 Wi-Fi coexistence: pass/fail
+USB cable cycles preserve BLE and serial returns: pass/fail
+USB keyboard enumerated: yes/no
+interrupted pairing resumes without extending deadline: pass/fail
 resets or watchdogs: count
 identity/reference/report/key/pairing values in logs: yes/no
 test bonds removed and production firmware restored: yes/no

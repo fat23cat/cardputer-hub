@@ -516,6 +516,39 @@ void test_cancel_pairing_rejects_incomplete_peer_and_waits_for_disconnect_to_rec
     TEST_ASSERT_EQUAL_INT(2, adapter.startAdvertisingCount);
 }
 
+void test_disconnected_pairing_peer_resumes_window_without_extending_deadline() {
+    FakeBluetoothAdapter adapter;
+    adapter.bondResult = BluetoothBondQueryResult::Unbonded;
+    BluetoothService service(adapter);
+    (void)service.enable({"Cardputer Hub"});
+    adapter.events.push_back(advertisingStarted());
+    service.update(std::chrono::milliseconds::zero());
+    (void)service.openPairing();
+    service.update(std::chrono::seconds(30));
+    adapter.events.push_back(peerConnected(8));
+    adapter.events.push_back(
+        pairingChallenge(8, BluetoothPairingChallengeType::ConfirmComparison, 123456));
+    service.update(std::chrono::milliseconds::zero());
+    const auto challenge = *service.pairingChallenge();
+    adapter.events.push_back(peerDisconnected(8));
+    service.update(std::chrono::milliseconds::zero());
+
+    TEST_ASSERT_EQUAL_UINT8(static_cast<unsigned>(BluetoothPairingState::Advertising),
+                            static_cast<unsigned>(service.pairingState()));
+    TEST_ASSERT_FALSE(service.pairingChallenge().has_value());
+    TEST_ASSERT_EQUAL_INT(2, adapter.startAdvertisingCount);
+    TEST_ASSERT_TRUE(adapter.deletedBonds.empty());
+    TEST_ASSERT_TRUE(adapter.deletedPeerBonds.empty());
+    TEST_ASSERT_EQUAL_UINT8(static_cast<unsigned>(BluetoothPairingResponseResult::NoChallenge),
+                            static_cast<unsigned>(service.respondToPairing(
+                                {challenge.generation, challenge.type, true, ""})));
+    adapter.events.push_back(advertisingStarted());
+    service.update(std::chrono::milliseconds::zero());
+    service.update(std::chrono::seconds(90));
+    TEST_ASSERT_EQUAL_UINT8(static_cast<unsigned>(BluetoothPairingState::Closed),
+                            static_cast<unsigned>(service.pairingState()));
+}
+
 void test_pairing_rejects_every_insecure_completion_and_deletes_a_created_bond() {
     const cardputer_hub::connectivity::BluetoothSecurityProperties insecure[] = {
         {false, true, true, true},
@@ -1473,6 +1506,7 @@ int main() {
     RUN_TEST(test_pairing_response_validates_generation_kind_and_six_digit_entry);
     RUN_TEST(test_disable_forgets_the_previous_pairing_response_generation);
     RUN_TEST(test_cancel_pairing_rejects_incomplete_peer_and_waits_for_disconnect_to_reconnect);
+    RUN_TEST(test_disconnected_pairing_peer_resumes_window_without_extending_deadline);
     RUN_TEST(test_pairing_rejects_every_insecure_completion_and_deletes_a_created_bond);
     RUN_TEST(test_successful_pairing_returns_one_opaque_reference_and_keeps_connection);
     RUN_TEST(test_full_bond_registry_refuses_pairing_without_eviction);

@@ -8,7 +8,6 @@
 #include <string>
 #include <vector>
 
-#include "connectivity/bluetooth/bluetooth_hid_target.h"
 #include "connectivity/hid/hid_transport.h"
 #include "core/logging/logger.h"
 
@@ -28,6 +27,35 @@ constexpr bool operator==(BluetoothPeerHandle left, BluetoothPeerHandle right) n
 
 constexpr bool operator!=(BluetoothPeerHandle left, BluetoothPeerHandle right) noexcept {
     return !(left == right);
+}
+
+struct BluetoothBondReference {
+    std::array<std::uint8_t, 16> bytes{};
+};
+
+constexpr bool operator==(const BluetoothBondReference& left,
+                          const BluetoothBondReference& right) noexcept {
+    for (std::size_t index = 0; index < left.bytes.size(); ++index) {
+        if (left.bytes[index] != right.bytes[index]) {
+            return false;
+        }
+    }
+    return true;
+}
+
+constexpr bool operator!=(const BluetoothBondReference& left,
+                          const BluetoothBondReference& right) noexcept {
+    return !(left == right);
+}
+
+constexpr bool operator<(const BluetoothBondReference& left,
+                         const BluetoothBondReference& right) noexcept {
+    for (std::size_t index = 0; index < left.bytes.size(); ++index) {
+        if (left.bytes[index] != right.bytes[index]) {
+            return left.bytes[index] < right.bytes[index];
+        }
+    }
+    return false;
 }
 
 enum class BluetoothState : std::uint8_t {
@@ -178,6 +206,14 @@ enum class BluetoothPairingResponseResult : std::uint8_t {
     MalformedPasskey,
     AdapterError,
 };
+enum class BluetoothBondSelectionResult : std::uint8_t {
+    Selected,
+    Cleared,
+    AlreadySelected,
+    NotFound,
+    Disabled,
+    AdapterError,
+};
 enum class BluetoothBondRemovalResult : std::uint8_t {
     Removed,
     Pending,
@@ -222,7 +258,7 @@ class IBluetoothAdapter {
     virtual BluetoothHidAdapterResult releaseHidReports(BluetoothPeerHandle peer) = 0;
 };
 
-class BluetoothService : public IBluetoothHidTarget {
+class BluetoothService {
   public:
     static constexpr std::size_t maximumBondCount = 16;
     static constexpr auto pairingWindowDuration = std::chrono::seconds(120);
@@ -243,14 +279,13 @@ class BluetoothService : public IBluetoothHidTarget {
     std::optional<BluetoothPairingChallenge> pairingChallenge() const noexcept;
     std::optional<BluetoothBondReference> completedPairing() const noexcept;
     BluetoothBondListResult bonds();
-    BluetoothBondSelectionResult
-    selectBond(std::optional<BluetoothBondReference> reference) override;
-    std::optional<BluetoothBondReference> selectedBond() const noexcept override;
+    BluetoothBondSelectionResult selectBond(std::optional<BluetoothBondReference> reference);
+    std::optional<BluetoothBondReference> selectedBond() const noexcept;
     BluetoothBondRemovalResult removeBond(const BluetoothBondReference& reference);
     BluetoothBondRemovalResult lastBondRemovalResult() const noexcept;
     BluetoothRemoveAllBondsResult removeAllBonds();
     BluetoothRemoveAllBondsResult lastRemoveAllResult() const noexcept;
-    IHidTransport& hidTransport() noexcept override;
+    IHidTransport& hidTransport() noexcept;
     const IHidTransport& hidTransport() const noexcept;
 
   private:

@@ -1,9 +1,6 @@
 set(CARDPUTER_HUB_SOURCES
     "${CMAKE_CURRENT_LIST_DIR}/../src/connectivity/bluetooth/bluetooth_service.cpp"
     "${CMAKE_CURRENT_LIST_DIR}/../src/connectivity/hid/hid_transport.cpp"
-    "${CMAKE_CURRENT_LIST_DIR}/../src/connectivity/hid/hid_transport_router.cpp"
-    "${CMAKE_CURRENT_LIST_DIR}/../src/connectivity/usb/native_usb_descriptors.cpp"
-    "${CMAKE_CURRENT_LIST_DIR}/../src/connectivity/usb/native_usb_hid.cpp"
     "${CMAKE_CURRENT_LIST_DIR}/../src/connectivity/wifi/wifi_service.cpp"
     "${CMAKE_CURRENT_LIST_DIR}/../src/core/actions/action.cpp"
     "${CMAKE_CURRENT_LIST_DIR}/../src/core/actions/action_bus.cpp"
@@ -23,7 +20,6 @@ set(CARDPUTER_HUB_SOURCES
     "${CMAKE_CURRENT_LIST_DIR}/../src/hardware/cardputer/serial_log_sink.cpp"
     "${CMAKE_CURRENT_LIST_DIR}/../src/hardware/esp32/bluetooth/esp32_bluetooth_adapter.cpp"
     "${CMAKE_CURRENT_LIST_DIR}/../src/hardware/esp32/esp32_nvs_storage_adapter.cpp"
-    "${CMAKE_CURRENT_LIST_DIR}/../src/hardware/esp32/usb/esp32_native_usb_adapter.cpp"
     "${CMAKE_CURRENT_LIST_DIR}/../src/hardware/esp32/wifi/esp32_wifi_adapter.cpp"
     "${CMAKE_CURRENT_LIST_DIR}/../src/hardware/storage/microsd/cardputer_microsd_file_storage_adapter.cpp"
     "${CMAKE_CURRENT_LIST_DIR}/../src/hardware/storage/microsd/microsd_io_error.cpp"
@@ -37,12 +33,6 @@ elseif(CARDPUTER_HUB_PLAN_014_VALIDATION)
     list(APPEND CARDPUTER_HUB_SOURCES
          "${CMAKE_CURRENT_LIST_DIR}/../src/validation/plan_014_device_harness.cpp")
 elseif(CARDPUTER_HUB_PLAN_015_VALIDATION)
-    list(APPEND CARDPUTER_HUB_SOURCES
-         "${CMAKE_CURRENT_LIST_DIR}/../src/validation/plan_014_device_harness.cpp")
-elseif(CARDPUTER_HUB_PLAN_016_VALIDATION)
-    list(APPEND CARDPUTER_HUB_SOURCES
-         "${CMAKE_CURRENT_LIST_DIR}/../src/validation/plan_016_device_harness.cpp")
-elseif(CARDPUTER_HUB_PLAN_017_VALIDATION)
     list(APPEND CARDPUTER_HUB_SOURCES
          "${CMAKE_CURRENT_LIST_DIR}/../src/validation/plan_014_device_harness.cpp")
 endif()
@@ -59,7 +49,6 @@ idf_component_register(
         esp_hid
         esp_netif
         esp_wifi
-        espressif__esp_tinyusb
         fatfs
         mbedtls
         m5stack__m5gfx
@@ -77,12 +66,6 @@ elseif(CARDPUTER_HUB_PLAN_014_VALIDATION)
 elseif(CARDPUTER_HUB_PLAN_015_VALIDATION)
     target_compile_definitions(${COMPONENT_LIB}
                                PRIVATE CARDPUTER_HUB_PLAN_015_VALIDATION=1)
-elseif(CARDPUTER_HUB_PLAN_016_VALIDATION)
-    target_compile_definitions(${COMPONENT_LIB}
-                               PRIVATE CARDPUTER_HUB_PLAN_016_VALIDATION=1)
-elseif(CARDPUTER_HUB_PLAN_017_VALIDATION)
-    target_compile_definitions(${COMPONENT_LIB}
-                               PRIVATE CARDPUTER_HUB_PLAN_017_VALIDATION=1)
 endif()
 
 set(CARDPUTER_HUB_VERSION "$ENV{CARDPUTER_HUB_VERSION}")

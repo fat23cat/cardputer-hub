@@ -34,7 +34,7 @@ These rules apply consistently to:
 
 They do not change the architectural dependency direction. Mini Apps own their
 presentation and interaction, Services own reusable state and behavior,
-Connectivity owns USB, Wi-Fi, and Bluetooth transport behavior, and hardware
+Connectivity owns Wi-Fi and Bluetooth transport behavior, and hardware
 adapters own the physical display, backlight, speaker, and keyboard calls.
 User intent must still be represented as logical Actions before it reaches
 application behavior or a host transport.
@@ -294,35 +294,33 @@ Menus, pairing, notifications, and Mini Apps retain their literal semantic
 colors and use backlight dimming only. This prevents a low-power transform from
 changing the meaning of active UI state.
 
-## 9. USB and BLE HID Precedence
+## 9. BLE Host Control and USB Diagnostics
 
-When native USB HID is mounted and ready, Cardputer Hub must route host-control
-HID exclusively over USB. Physical cable power alone is insufficient; the USB
-HID transport must have completed enumeration.
+BLE is the only implemented host-control transport. Settings has no Active
+channel control, Auto mode, or persisted USB/Bluetooth output preference.
+Device Manager selects a BLE Host Profile through the shared Action and
+HostService infrastructure; pairing and connection state belong to
+BluetoothService, not to the UI.
 
-While USB owns HID output:
+A selected BLE host's availability must be visible separately from selection.
+If it is disconnected or not HID-ready, host-control Actions report
+unavailability without sending to another host. Reconnection must not replay
+interrupted commands. Releases belong to the original selected peer.
 
-* the selected BLE channel and its `HostProfile` remain selected;
-* the same logical Action must never be emitted over both transports;
-* transport handover must release or neutralize in-flight key state so a host
-  cannot receive a stuck key;
-* local UI navigation continues to work independently of host transport.
+USB supports charging, firmware installation, and serial diagnostics only.
+Cable attachment or removal must not change the selected BLE host, open
+pairing, clear bonds, or interrupt the local UI through transport policy.
+There is no USB HID output and no automatic transport switching.
 
-When USB HID disconnects, Cardputer Hub must automatically return HID output to
-the selected BLE channel, reconnecting it when necessary. This fallback must
-not require pairing again or silently select a different host. If the selected
-BLE host is unavailable, the UI reports that state without sending the Action
-elsewhere.
+Wake-only input is consumed before host-control Action dispatch. Background
+connection changes may update a passive status indicator, but must not change
+focus, navigate away, or open a blocking popup. Future transport selection UI
+requires an explicit architecture revision when another transport is added.
 
-A wake-only input is consumed before transport selection and must not reach
-either USB or BLE. Transport changes may update a small status indicator, but
-must not navigate away from the current screen or display a blocking popup.
-
-Delivery is split across the architectural phases: Phase 2 implements both HID
-transports and their USB-first arbitration, Phase 3 supplies the active host,
-Phase 6 exposes host selection in Device Manager, and Phase 7 maps logical
-Actions to host-control HID reports. This section defines the end-to-end
-interaction and does not move host selection into Connectivity.
+Phase 2 implements the BLE transport boundary; Phase 3 supplies HostService
+and ConfigurationService; Phase 6 exposes pairing and BLE host selection;
+Phase 7 resolves logical host-control Actions into HID reports. These are
+planned UI requirements, not controls in the current boot-only firmware.
 
 ## 10. Verification Requirements
 
@@ -336,8 +334,9 @@ Host-side tests must cover at least:
 * wake-only consumption from both Dimmed and Off;
 * splash-only color collapse preserving light pixels and darkening non-light
   pixels;
-* USB-over-BLE precedence, disconnect fallback, duplicate suppression, and
-  in-flight key release;
+* selected BLE host readiness, unavailable-target feedback, neutral release,
+  and no stale output after disconnect/reconnect;
+* USB diagnostics remaining independent of BLE host selection;
 * sound cue selection, mute, volume, and non-blocking dispatch.
 
 Representative stable frames should be capturable without altering live state
@@ -352,8 +351,10 @@ Physical Cardputer-Adv validation must confirm:
 * the first dimmed/off input is consumed and the second operates normally;
 * motion remains smooth while Connectivity is active;
 * cue timing, volume, and speaker output match the intended reference;
-* USB attachment and removal switch HID transport without duplicate or stuck
-  keys.
+* BLE reconnects and selected-host changes produce no duplicate commands or
+  stale presses, and release neutralizes controls on the original peer;
+* USB cable cycles preserve BLE selection and bonds while local input and
+  display remain responsive; serial diagnostics return after reconnection.
 
 ## 11. Current-Firmware Boundary
 

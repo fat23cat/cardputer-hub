@@ -107,9 +107,7 @@ make upload
 
 The first run may take several minutes while ESP-IDF downloads the locked
 managed components. It then builds the production firmware, selects the
-connected ROM download port, flashes the image, and resets the device. The
-running application then re-enumerates as a composite CDC/HID device; its CDC
-path may differ from the download port.
+connected serial port, flashes the image, and resets the device.
 
 If ESP-IDF cannot enter download mode:
 
@@ -117,10 +115,6 @@ If ESP-IDF cannot enter download mode:
 2. Press and release the reset button.
 3. Release `G0`.
 4. Run the selected installation command again.
-
-If the device remains on the ROM USB Serial/JTAG port after flashing, press
-reset once more without holding `G0`. The application should then enumerate as
-`Cardputer Hub`; list serial ports again before starting the monitor.
 
 ### Updating with Published Release Assets
 
@@ -154,6 +148,19 @@ esptool.py --chip esp32s3 --port /dev/ttyACM0 erase_region \
 The release images are a matched pair. Never install a new application image
 while leaving an older partition table on the device.
 
+### Upgrading from the Removed USB HID Experiments
+
+The application now uses the fixed USB Serial/JTAG console. It no longer
+creates a `Cardputer Hub` CDC/HID composite device. List serial ports again
+after flashing; do not reuse a stale application CDC path.
+
+If this checkout has a generated `sdkconfig` from plans 016/017 with the console
+disabled, move that file aside and rebuild so `sdkconfig.defaults` selects
+USB Serial/JTAG. This affects local build configuration only. Do not erase
+flash, NVS, saved Bluetooth pairs, or `hub_config` to change the console.
+If the old application does not accept an upload reset, use the `G0` download
+sequence above and specify its detected serial port.
+
 ## 6. Verify the Installation
 
 The display should show `Cardputer Hub` and the embedded firmware version on a
@@ -161,14 +168,6 @@ black boot screen. To inspect serial output, run:
 
 ```bash
 make monitor
-```
-
-If automatic selection is ambiguous, list ports after the application has
-started and pass its CDC path explicitly:
-
-```bash
-python -m serial.tools.list_ports
-make monitor UPLOAD_PORT=/dev/ttyACM1
 ```
 
 Press reset once after the monitor opens if the startup records have already
@@ -191,11 +190,8 @@ Exit the serial monitor with `Ctrl+]`. Continue with the
 * If Linux reports permission denied, confirm membership in the `dialout`
   group with `groups`, then log out and back in.
 * If upload waits for a connection or times out, use the `G0` download-mode
-  sequence above, select the ROM port if necessary, and retry. If the completed
-  upload remains in ROM mode, press reset once without `G0`.
-* If the monitor is blank, confirm the device reset, list ports again, select
-  the application CDC port rather than a stale ROM port, and confirm no other
-  program has it open. The configured monitor speed is 115200 baud even though
-  USB CDC does not use a physical baud clock.
+  sequence above and retry.
+* If the monitor is blank, confirm the device reset and that no other program
+  has the serial port open. The configured monitor speed is 115200 baud.
 * To discard local build output and rebuild from scratch, run `make clean`,
   followed by `make upload`.

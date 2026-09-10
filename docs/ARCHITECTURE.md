@@ -390,8 +390,7 @@ Initial connectivity consists of:
 Connectivity
 ├── WiFiService
 ├── BluetoothService
-├── native USB HID transport
-└── host-control transport routing
+└── BLE HID transport
 ```
 
 Additional mechanisms may later include:
@@ -404,36 +403,26 @@ LoRa
 
 when needed.
 
-Phase 2 owns the hardware-neutral HID transport boundary, native USB HID,
-BLE HID, and exclusive routing between them. A mounted and ready USB HID
-connection takes priority. When it disconnects, routing returns automatically
-to the BLE target supplied by the higher layer. Handover must not duplicate a
-logical Action or leave a pressed key active on either host.
+Phase 2 delivers Wi-Fi connectivity and BLE as the only implemented
+host-control HID transport. USB is used for power, firmware installation, and
+diagnostics through the ESP32-S3 fixed USB Serial/JTAG peripheral. It is not a
+host-control transport, and attaching or removing a cable never selects a
+host, switches HID output, restarts Bluetooth, or changes a bond.
 
-Connectivity does not choose a personal device or depend on `HostProfile`.
-`HostService` supplies the active host and selected BLE target in Phase 3;
-Device Manager exposes that selection in Phase 6. Before those phases exist,
-Phase 2 transport arbitration remains hardware-independent and testable with
-opaque targets and fake transports.
+There is no transport selector, automatic fallback, channel preference, or
+USB HID implementation. `BluetoothService` exposes its selected-host HID view
+through `IHidTransport`. Future Services receive this hardware-neutral boundary
+rather than depending on BLE hardware. `HostService` will own the active
+`HostProfile` and supply its opaque BLE bond; device names and platforms remain
+data, not Connectivity policy.
 
-The native USB foundation is one full-speed USB-OTG composite device, not a
-second controller beside the ESP32-S3 fixed USB Serial/JTAG peripheral. It
-exposes one CDC-ACM function for diagnostics and one report-protocol HID
-interface containing report ID 1 for the six-key keyboard and report ID 2 for
-consumer control. The device has no unique serial-number string and exposes no
-mass-storage, MIDI, network, vendor, DFU-runtime, mouse, or gamepad function.
-ROM download mode remains separate and may enumerate on a different host port.
-
-`NativeUsbHidService` implements `IHidTransport` over `INativeUsbAdapter`.
-Construction is side-effect free; explicit initialization installs the device
-once. Readiness requires a mounted, non-suspended device and a ready HID
-endpoint. Callback data crosses into the polling loop through a bounded owned
-queue with lifecycle generations. Backpressure is retryable and non-blocking;
-partial neutral release is retained across suspend, while confirmed unmount is
-definitive host-side neutralization. Fatal installation, queue, polling, or
-send errors remain local to USB. After a runtime error the transport remains in
-`Error`, but it continues observing lifecycle events so a later confirmed
-unmount can release router cleanup ownership and leave BLE routing available.
+Future transport support remains an extension point: add an implementation of
+`IHidTransport` under Connectivity with hardware behavior behind an adapter.
+Introduce selection, session-bound transaction delivery, persistence, and UI
+only when a second transport is actually required and has its own approved
+plan and physical validation. Do not keep speculative routers, channel enums,
+configuration fields, or dormant USB descriptors in the current firmware.
+The cancelled USB and routing work is recorded in plans 016 and 017.
 
 The shared HID boundary is `IHidTransport` under `connectivity/hid`. It accepts
 only hardware-neutral six-key keyboard reports or one Consumer Page usage,
@@ -443,25 +432,6 @@ validation rejects keyboard rollover-error usages and duplicate non-zero keys
 before an adapter is called. Text encoding, shortcut interpretation, logical
 Action resolution, host selection, and mouse or NKRO reports remain above or
 outside this boundary.
-
-`HidTransportRouter` owns bounded one-to-sixteen-frame `HidTransaction`
-copies. Each frame contains one resolved report and a non-negative dwell; the
-last state for every activated report kind must be neutral. The router advances
-from injected monotonic elapsed time and never sleeps. It accepts only one
-transaction at a time and binds every frame to the transport selected at
-acceptance. A mounted, resumed, endpoint-ready USB transport has exclusive
-precedence; otherwise only the explicitly supplied BLE bond may receive new
-output. A missing or unavailable selected bond never falls back to another
-persisted peer.
-
-In-flight handover is conservative. USB becoming ready during BLE delivery
-stops progression, releases BLE, cancels the old transaction, and never replays
-it on USB. Confirmed USB unmount is definitive neutralization; suspension keeps
-release ownership until resume or later unmount. Busy cleanup is retried by
-later updates, ambiguous send or release failure blocks output in `Error`, and
-service resumes only after release or definitive disconnection. Passive router
-state never navigates or changes local input behavior, and neither transactions
-nor reports are logged.
 
 ---
 
@@ -585,6 +555,11 @@ incomplete peer before normal reconnect advertising resumes. A successful
 completion must be encrypted, authenticated, bonded LE Secure Connections and
 publishes exactly one opaque bond reference while retaining the connection.
 
+If an admitted pairing peer disconnects before completion, its challenge is
+cleared and advertising resumes within the original pairing deadline. This
+does not remove bonds or open a fresh window. A cancelled or expired window
+stays closed; reconnection then follows the normal bonded-peer policy.
+
 Bond references are stable, ordered, opaque 128-bit values. The Service can
 enumerate up to 16 bonds, select or clear a reconnect target, remove one bond,
 or remove all. A selected target causes every other bonded peer to be rejected.
@@ -595,13 +570,10 @@ active-bond deletion advance only through `update(elapsed)` callback events.
 Future `HostService` owns the mapping from these references to `HostProfile`
 data; Connectivity never stores host names, platforms, or user-specific cases.
 
-The Service implements `IBluetoothHidTarget` and exposes its BLE
-`IHidTransport` implementation through `hidTransport()` so the existing
-Bluetooth lifecycle `state()` remains source-compatible. This narrow target
-boundary lets the router supply and verify one opaque bond reference without
-learning a host name, platform, or profile. The HID view is unavailable without
-the current selected bond. It becomes ready only when that link is encrypted,
-authenticated, bonded,
+The Service exposes its BLE `IHidTransport` implementation through
+`hidTransport()` so the existing Bluetooth lifecycle `state()` remains
+source-compatible. The HID view is unavailable without the current selected
+bond. It becomes ready only when that link is encrypted, authenticated, bonded,
 uses report protocol, and has subscriptions for both keyboard and consumer
 input reports. Every send rechecks adapter readiness and targets only that
 peer. Busy is retryable; adapter failure enters Bluetooth and HID error.
@@ -765,8 +737,6 @@ Bluetooth bond
      ↓
 HostProfile
 ```
-
----
 
 ## 17. Host Profiles
 
@@ -1299,10 +1269,9 @@ Not all actions need to be implemented initially.
 ## 34. Host HID Actions
 
 Simple host actions may be executed using the Phase 2 HID transport boundary.
-Phase 7 resolves a logical Action into an owned neutral-ending HID transaction
-and submits it without choosing a transport. Native USB HID is preferred while
-mounted and ready; otherwise output returns only to the active host's selected
-BLE bond.
+BLE is the only current HID implementation and sends only to the selected
+host's authenticated BLE connection. An unavailable target rejects output;
+there is no alternate transport or implicit host fallback.
 
 Example:
 
@@ -1313,11 +1282,11 @@ Action resolution
       ↓
 configured shortcut
       ↓
-host-control transport routing
-      ├── native USB HID
-      └── BLE HID
+IHidTransport
       ↓
-active host
+BLE HID
+      ↓
+selected BLE host
 ```
 
 Logical Actions must remain independent of their HID representation and the
@@ -1478,7 +1447,7 @@ Examples:
 Launcher
 Bluetooth
 Host switching
-USB and BLE HID
+BLE HID
 local configuration
 RGB indicator
 local Mini Apps
@@ -1605,8 +1574,6 @@ internal persistent storage. A removable microSD card may be used for explicit
 import, export, backup, and restore operations, but its absence must not make
 the current configuration unavailable. Secrets must not be copied to removable
 media unless a later feature defines an explicit user flow and security model.
-
----
 
 ## 44. Persistence
 
@@ -1776,14 +1743,6 @@ Esp32WifiAdapter
 ```
 
 ```text
-NativeUsbHidService
-      ↓
-INativeUsbAdapter
-      ↓
-Esp32NativeUsbAdapter / TinyUSB
-```
-
-```text
 InputService
       ↓
 IKeyboardAdapter
@@ -1866,25 +1825,11 @@ would initialize unrelated services and conflict with the adapter's existing
 host, advertising, callback, and teardown ownership. Direct ESP-NimBLE GATT
 registration keeps those responsibilities explicit.
 
-`NativeUsbHidService` and `INativeUsbAdapter` contain no ESP32 or TinyUSB
-types. `Esp32NativeUsbAdapter` owns the ESP32-S3 internal USB-OTG PHY through
-the exactly locked Espressif TinyUSB component. It installs project-owned
-device, configuration, string, and HID report descriptors, initializes one
-CDC-ACM interface, redirects standard console streams through its non-blocking
-VFS, and translates shared HID reports only at the adapter edge. Mount,
-unmount, suspend, and resume callbacks enqueue bounded lifecycle events;
-endpoint readiness is polled without sleeping. The fixed USB Serial/JTAG
-runtime console is disabled so two device controllers never compete for the
-internal PHY. TinyUSB framework diagnostics are disabled, and project logs do
-not contain report values, host identity, or control-transfer contents.
-
-`HidTransportRouter` contains no ESP32, TinyUSB, NimBLE, display, keyboard, or
-`HostProfile` types. It observes the hardware-neutral USB physical-link state
-only to distinguish confirmed unmount from suspension, and controls BLE through
-the opaque target interface implemented by `BluetoothService`. USB failure can
-therefore leave selected BLE routing available, Bluetooth failure can leave USB
-and CDC available, and router failure remains ordinary update-loop state rather
-than a System Core failure.
+The runtime console uses the ESP32-S3 fixed USB Serial/JTAG peripheral, as
+configured by ESP-IDF. No TinyUSB driver or software USB HID device is installed.
+The validation harness's USB serial input is non-blocking and independent of
+BLE control. Cable removal cannot change HID readiness through routing policy;
+BLE readiness depends only on the selected peer's connection and security.
 
 NimBLE is configured for bonding, MITM protection, Secure Connections-only
 security, identity-key distribution, `KeyboardDisplay` I/O, one connection,
@@ -1952,10 +1897,8 @@ System Core state. Because
 the Bluetooth foundation is not part of runtime composition yet, it also cannot
 delay or fail normal boot.
 
-Native USB initialization and HID failures enter only the USB transport's
-`Error` state. `app_main` continues into `SystemRuntime` after an initialization
-failure, and CDC absence or backpressure cannot block local display or keyboard
-updates. Wi-Fi and Bluetooth do not depend on USB state.
+Unavailable USB diagnostics must not block local display/input polling or
+Bluetooth operation. Wi-Fi and BLE do not depend on a USB data connection.
 
 ---
 
@@ -1996,9 +1939,7 @@ Implement:
 ```text
 WiFiService
 BluetoothService
-native USB HID transport
 BLE HID transport
-USB-over-BLE transport arbitration
 pairing
 bond persistence
 reconnection
@@ -2011,15 +1952,17 @@ The Bluetooth lifecycle plus authenticated pairing and bond-management
 foundations are implemented: their Service state machines and direct
 ESP-NimBLE peripheral adapter compile with the firmware but remain inactive.
 The shared HID report contract and BLE keyboard/consumer transport are
-implemented behind the selected authenticated bond. Native USB is also
-implemented as one composite CDC/HID application device and is initialized at
-normal boot so diagnostics remain available. Hardware-independent USB-first
-transaction arbitration is implemented with cancellation, neutral release,
-selected-target retention, and no cross-transport replay. Normal firmware does
-not yet create transactions from input or Actions, and it does not construct
-Bluetooth, so user-visible pairing and host control remain later-phase work.
-Phase 2 infrastructure is implemented; its final physical routing and soak
-acceptance gate remains tracked by plan 017.
+implemented behind the selected authenticated bond. The BLE-only Phase 2
+scope consists of plans 010-015 plus the removal and closeout work in revised
+plan 017; plan 016 is cancelled. Transport expansion is deferred and does not
+block this scope. There is no remaining Phase 2 router or application Service
+to implement. The final BLE firmware still requires physical acceptance as
+recorded in plan 017 before Phase 2 is declared fully verified.
+
+Normal firmware does not yet compose Wi-Fi/Bluetooth or send host-control
+reports: it retains the boot screen and serial diagnostics. Phase 3 supplies
+application Services and configuration; pairing UI and Action mapping remain
+with their later owners. The opt-in plan-015 image exercises BLE on hardware.
 
 ### Phase 3 — Core Services
 
@@ -2077,7 +2020,7 @@ switch active host
 Implement:
 
 ```text
-basic HID actions over Phase 2 transport routing
+basic HID actions through the Phase 2 IHidTransport boundary
 application focus actions
 host-specific mappings
 ```
@@ -2155,9 +2098,7 @@ Navigation
 multiple host pairing
 Host Profiles
 host switching
-native USB HID
 BLE HID
-USB-over-BLE transport arbitration
 
 Device Manager Mini App
 basic host control

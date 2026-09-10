@@ -258,11 +258,7 @@ asynchronous disconnects for rejected peers have completed.
 The HID suites additionally cover neutral and six-key keyboard reports,
 consumer usages, invalid and duplicate usage rejection, selected-peer and dual
 subscription readiness, report ownership, retryable backpressure, neutral
-release, stale callbacks, controlled target changes, and clean re-enable. The
-router suite covers bounded neutral-ending transactions, owned copies,
-USB-ready precedence, selected-bond-only BLE fallback, non-blocking dwell and
-backpressure, cancellation, unmount, suspend/resume, error cleanup, and
-duplicate-free handover.
+release, stale callbacks, controlled target changes, and clean re-enable.
 
 Run formatting and static analysis separately with:
 
@@ -303,8 +299,7 @@ migration and release-asset flashing procedure.
 
 ESP-IDF's flash command normally resets the device automatically. If it cannot enter
 download mode, hold the `G0` button, press and release reset, release `G0`, and
-retry the upload. If it remains in ROM mode after flashing, press reset once
-without `G0`. You may need to grant access to the serial device on Linux.
+retry the upload. You may need to grant access to the serial device on Linux.
 
 ---
 
@@ -314,10 +309,7 @@ without `G0`. You may need to grant access to the serial device on Linux.
 make monitor
 ```
 
-The application exposes serial diagnostics through the CDC function of its
-native USB composite CDC/HID device. Its path may differ from the ROM download
-port; use `make monitor UPLOAD_PORT=<application-cdc-port>` when selection is
-ambiguous. The configured baud convention is 115200. Exit with `Ctrl+]`.
+The configured baud rate is 115200. Exit the monitor with `Ctrl+]`.
 
 ---
 
@@ -375,15 +367,17 @@ See [`docs/ENGINEERING.md`](docs/ENGINEERING.md) for the complete workflow.
 
 The Phase 1 System Core foundations are complete, and Phase 2 Connectivity is
 in progress with its Wi-Fi, Bluetooth lifecycle, authenticated pairing, and
-bond-management foundations plus BLE and native USB keyboard/consumer HID
-transports delivered. Native USB also preserves diagnostics through one
-composite CDC interface. Hardware-independent USB-first HID transaction routing
-is implemented with selected-BLE retention and release-before-handover safety.
+bond-management foundations plus the BLE keyboard/consumer HID transport
+delivered.
 These milestones establish testable contracts and hardware adapters; they do
 not make Wi-Fi, Bluetooth, or other planned product features user-visible.
-Normal firmware still creates no HID transactions from local input or Actions.
-Phase 2 remains open until plan 017's mandatory physical handover and
-coexistence validation is recorded.
+BLE is the only host-control transport in the current scope. USB is retained
+for power, flashing, and fixed USB Serial/JTAG diagnostics; software USB HID,
+transport arbitration, and channel settings have been removed. The generic
+`IHidTransport` boundary allows a future transport without coupling application
+logic to BLE hardware. Phase 2 code is ready for the final physical BLE checks
+tracked in [plan 017](docs/plans/017-hid-transport-arbitration.md); the next
+application work is Phase 3 HostService and ConfigurationService.
 
 The authoritative development order is defined in
 [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md#47-initial-development-order):

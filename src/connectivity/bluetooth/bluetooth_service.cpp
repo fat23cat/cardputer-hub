@@ -659,13 +659,14 @@ void BluetoothService::handlePairingCompleted(const BluetoothEvent& event) {
 
 void BluetoothService::handleDisconnectedPeer(BluetoothPeerHandle peer) {
     if (pairingPeer_.has_value() && *pairingPeer_ == peer) {
+        const bool pairingStillOpen = pairingWindowActive();
         pairingPeer_.reset();
         pairingChallenge_.reset();
-        if (pairingWindowActive()) {
-            pairingState_ = BluetoothPairingState::Error;
+        if (pairingStillOpen) {
+            pairingState_ = BluetoothPairingState::Advertising;
         }
         if (pendingRejectedPeers_.empty()) {
-            scheduleReconnect();
+            resumeAfterDisconnection();
         }
         return;
     }
