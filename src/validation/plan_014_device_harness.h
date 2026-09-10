@@ -8,6 +8,8 @@
 #include <vector>
 
 #include "connectivity/bluetooth/bluetooth_service.h"
+#include "connectivity/hid/hid_transport_router.h"
+#include "connectivity/usb/native_usb_hid.h"
 #include "connectivity/wifi/wifi_service.h"
 #include "core/display/display_adapter.h"
 #include "core/input/keyboard_adapter.h"
@@ -63,7 +65,8 @@ class Plan014BluetoothAdapter final : public connectivity::IBluetoothAdapter {
 class Plan014DeviceHarness final {
   public:
     Plan014DeviceHarness(core::IPlatformAdapter& platform, core::IKeyboardAdapter& keyboard,
-                         core::IDisplayAdapter& display, core::Logger& logger) noexcept;
+                         core::IDisplayAdapter& display, core::Logger& logger,
+                         connectivity::NativeUsbHidService* nativeUsb = nullptr) noexcept;
 
     void start();
     void update();
@@ -78,7 +81,9 @@ class Plan014DeviceHarness final {
     void printStatus();
     void observeStateChanges();
     void observePairingChallenge();
+    void observeRouterState();
     void handleKeyboard();
+    void handleRoutingKeys(const core::InputEvents& events);
     void displayStatus(const char* detail);
     void displayPairingChallenge(const connectivity::BluetoothPairingChallenge& challenge);
     void displayPasskeyEntry();
@@ -97,6 +102,8 @@ class Plan014DeviceHarness final {
     core::IDisplayAdapter& display_;
     Plan014BluetoothAdapter bluetoothAdapter_;
     connectivity::BluetoothService bluetoothService_;
+    connectivity::NativeUsbHidService* nativeUsb_ = nullptr;
+    std::optional<connectivity::HidTransportRouter> router_;
     hardware::Esp32WifiAdapter wifiAdapter_;
     connectivity::WiFiService wifiService_;
     hardware::CardputerMicroSdFileStorageAdapter storageAdapter_;
@@ -116,6 +123,7 @@ class Plan014DeviceHarness final {
     connectivity::BluetoothState previousBluetoothState_ = connectivity::BluetoothState::Disabled;
     connectivity::BluetoothPairingState previousPairingState_ =
         connectivity::BluetoothPairingState::Closed;
+    connectivity::HidRouterState previousRouterState_ = connectivity::HidRouterState::Unavailable;
     std::uint32_t lastUpdateMilliseconds_ = 0;
     std::size_t keyboardEvents_ = 0;
     bool displayPasskeyVisible_ = false;

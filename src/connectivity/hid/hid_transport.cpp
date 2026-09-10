@@ -117,4 +117,11 @@ bool isValidHidReport(const HidReport& report) noexcept {
     return true;
 }
 
+bool isNeutralHidReport(const HidReport& report) noexcept {
+    if (const auto* keyboard = std::get_if<HidKeyboardReport>(&report); keyboard != nullptr) {
+        return *keyboard == HidKeyboardReport::neutral();
+    }
+    return std::get<HidConsumerReport>(report) == HidConsumerReport::neutral();
+}
+
 } // namespace cardputer_hub::connectivity

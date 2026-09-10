@@ -59,7 +59,10 @@ The firmware logs build metadata but does not log keyboard characters,
 credentials, or other user data.
 
 The HID interface is transport infrastructure only. Normal keyboard input and
-Actions are not routed to the connected host yet.
+Actions are not routed to the connected host yet. The compiled connectivity
+layer includes USB-first transaction arbitration and selected-BLE fallback,
+but production startup does not construct Bluetooth or create HID transactions;
+the routing policy therefore adds no current control or shortcut.
 
 ## Current Limitations
 

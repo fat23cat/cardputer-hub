@@ -1,6 +1,6 @@
 # HID Transport Arbitration Plan
 
-Status: **Planned**
+Status: **Implemented — automated verification complete; physical validation pending**
 
 This plan describes the seventh and final granular Phase 2 change. It adds the
 hardware-independent USB-first router that delivers one complete HID
@@ -256,3 +256,59 @@ Assumptions and defaults:
 * local UI and wake-only input remain upstream from HID routing;
 * normal firmware exposes the completed infrastructure but no host-control
   shortcut until the owning later phases are implemented.
+
+## 9. Implementation Record
+
+Implemented on 2026-09-10 with:
+
+* bounded, owned `HidTransaction` and `HidTransactionFrame` values plus
+  validation for frame count, dwell, report validity, and neutral final state;
+* a hardware-independent `HidTransportRouter` with USB-first selection,
+  selected-bond-only BLE fallback, non-blocking dwell and backpressure,
+  transaction binding, cancellation, and passive routing state;
+* conservative BLE-to-USB and USB loss/suspend cleanup that never replays an
+  interrupted transaction on the other transport;
+* an `IBluetoothHidTarget` boundary implemented by `BluetoothService` and a
+  hardware-neutral USB link state that distinguishes disconnect from suspend;
+* 17 focused native routing scenarios covering validation, owned copies,
+  selection, delivery, timing, busy behavior, hotplug, suspend/resume, target
+  replacement, error cleanup, recovery, and transport isolation;
+* an opt-in plan-017 firmware harness and non-identifying physical validation
+  runbook. The validation-only `F1` and `F2` controls create five-second
+  keyboard and consumer transactions so cable handover can be exercised while
+  CDC is absent; normal firmware still creates no host-control transaction;
+* updated Connectivity, HID action, active-target, hardware-isolation, README,
+  and current-device documentation.
+
+RED evidence: the new router suite first failed to compile because the router
+and BLE-target contracts did not exist. The plan-017 build-configuration test
+then failed because the opt-in validation harness and runbook did not exist.
+Both failures occurred before their corresponding production or harness code
+was added. A later USB regression test reproduced that a fatal send error
+prevented the Service from observing a subsequent unmount; it passed after
+lifecycle polling was retained in the error state.
+
+Automated GREEN evidence:
+
+* `test_hid_transport`: 3/3 passed;
+* `test_hid_transport_router`: 17/17 passed;
+* `test_bluetooth_service`: 54/54 passed;
+* `test_native_usb_hid`: 10/10 passed;
+* full Python suite: 46/46 passed;
+* full native suite: 189/189 passed across 16 suites;
+* `make format`, `make format-check`, `make lint`, `make build`, and
+  `make check`: passed;
+* ESP-IDF 5.5.5 production image: 470,016 bytes (`0x72c00`), leaving 86% of
+  the smallest application partition free;
+* ESP-IDF 5.5.5 plan-017 validation image: 1,292,896 bytes (`0x13ba60`),
+  leaving 61% free.
+
+Static analysis reports only the pre-existing low-severity const suggestion
+for the fixed ESP-NimBLE callback signature; it reports no medium- or
+high-severity finding.
+
+Physical Cardputer-Adv handover, suspend/resume, unavailable-target, repeated
+cycle, one-hour coexistence soak, minimum-heap, and post-soak smoke validation
+have not been run in this implementation session. They remain mandatory under
+`docs/validation/plan-017-device-harness.md`; Phase 2 must not be marked
+complete until their non-identifying results are recorded.

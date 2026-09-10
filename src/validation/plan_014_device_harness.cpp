@@ -224,11 +224,15 @@ void Plan014BluetoothAdapter::failNextPoll() noexcept { failNextPoll_ = true; }
 
 Plan014DeviceHarness::Plan014DeviceHarness(core::IPlatformAdapter& platform,
                                            core::IKeyboardAdapter& keyboard,
-                                           core::IDisplayAdapter& display,
-                                           core::Logger& logger) noexcept
+                                           core::IDisplayAdapter& display, core::Logger& logger,
+                                           connectivity::NativeUsbHidService* nativeUsb) noexcept
     : platform_(platform), keyboard_(keyboard), display_(display),
-      bluetoothService_(bluetoothAdapter_, logger), wifiService_(wifiAdapter_, logger),
-      storage_(storageAdapter_) {}
+      bluetoothService_(bluetoothAdapter_, logger), nativeUsb_(nativeUsb),
+      wifiService_(wifiAdapter_, logger), storage_(storageAdapter_) {
+    if (nativeUsb_ != nullptr) {
+        router_.emplace(*nativeUsb_, bluetoothService_);
+    }
+}
 
 void Plan014DeviceHarness::start() {
     if (started_) {
@@ -243,6 +247,8 @@ void Plan014DeviceHarness::start() {
     displayStatus("type help in serial monitor");
 #if CARDPUTER_HUB_PLAN_015_VALIDATION
     Serial.println("[VALIDATION 015] BLE HID validation harness active");
+#elif CARDPUTER_HUB_PLAN_017_VALIDATION
+    Serial.println("[VALIDATION 017] HID transport routing validation harness active");
 #else
     Serial.println("[VALIDATION 014] authenticated pairing harness active");
 #endif
@@ -262,8 +268,12 @@ void Plan014DeviceHarness::update() {
     lastUpdateMilliseconds_ = now;
     bluetoothService_.update(elapsed);
     wifiService_.update(elapsed);
+    if (router_.has_value()) {
+        router_->update(elapsed);
+    }
     observeStateChanges();
     observePairingChallenge();
+    observeRouterState();
     handleKeyboard();
     readSerial();
 }
@@ -356,14 +366,25 @@ void Plan014DeviceHarness::handleCommand(const char* line) {
         const auto index = parseBondIndex(line + 12);
         if (!index.has_value()) {
             Serial.println("[VALIDATION 014] invalid bond index; run bonds first");
+        } else if (router_.has_value()) {
+            router_->setBleTarget(bonds_[*index]);
+            const bool applied = bluetoothService_.selectedBond() == bonds_[*index];
+            Serial.printf("[VALIDATION 017] BLE target applied=%s\n", applied ? "yes" : "no");
         } else {
             const auto result = bluetoothService_.selectBond(bonds_[*index]);
             Serial.printf("[VALIDATION 014] bond selection result=%u\n",
                           static_cast<unsigned>(result));
         }
     } else if (std::strcmp(line, "bond select none") == 0) {
-        const auto result = bluetoothService_.selectBond(std::nullopt);
-        Serial.printf("[VALIDATION 014] bond selection result=%u\n", static_cast<unsigned>(result));
+        if (router_.has_value()) {
+            router_->setBleTarget(std::nullopt);
+            Serial.printf("[VALIDATION 017] BLE target cleared=%s\n",
+                          bluetoothService_.selectedBond().has_value() ? "no" : "yes");
+        } else {
+            const auto result = bluetoothService_.selectBond(std::nullopt);
+            Serial.printf("[VALIDATION 014] bond selection result=%u\n",
+                          static_cast<unsigned>(result));
+        }
     } else if (std::strncmp(line, "bond remove ", 12) == 0) {
         const auto index = parseBondIndex(line + 12);
         if (!index.has_value()) {
@@ -462,6 +483,14 @@ void Plan014DeviceHarness::printStatus() {
                   static_cast<unsigned>(keyboardEvents_),
                   static_cast<unsigned>(bluetoothService_.lastBondRemovalResult()),
                   static_cast<unsigned>(bluetoothService_.lastRemoveAllResult()));
+    if (router_.has_value() && nativeUsb_ != nullptr) {
+        Serial.printf("[VALIDATION 017] router=%u active=%u transaction=%u usb=%u link=%u\n",
+                      static_cast<unsigned>(router_->state()),
+                      static_cast<unsigned>(router_->activeTransport()),
+                      static_cast<unsigned>(router_->activeTransactionTransport()),
+                      static_cast<unsigned>(nativeUsb_->state()),
+                      static_cast<unsigned>(nativeUsb_->linkState()));
+    }
     if (!activeChallenge_.has_value() && !displayPasskeyVisible_) {
         displayStatus("status refreshed");
     }
@@ -508,11 +537,24 @@ void Plan014DeviceHarness::observePairingChallenge() {
     }
 }
 
+void Plan014DeviceHarness::observeRouterState() {
+    if (!router_.has_value() || router_->state() == previousRouterState_) {
+        return;
+    }
+    previousRouterState_ = router_->state();
+    char detail[32] = {};
+    std::snprintf(detail, sizeof(detail), "router state %u active %u",
+                  static_cast<unsigned>(router_->state()),
+                  static_cast<unsigned>(router_->activeTransport()));
+    displayStatus(detail);
+}
+
 void Plan014DeviceHarness::handleKeyboard() {
     core::InputEvents events;
     keyboard_.poll(events);
     keyboardEvents_ += events.size();
     if (!activeChallenge_.has_value()) {
+        handleRoutingKeys(events);
         return;
     }
     for (const auto& event : events) {
@@ -549,9 +591,31 @@ void Plan014DeviceHarness::handleKeyboard() {
     }
 }
 
+void Plan014DeviceHarness::handleRoutingKeys(const core::InputEvents& events) {
+    if (!router_.has_value()) {
+        return;
+    }
+    for (const auto& event : events) {
+        if (event.type != core::InputEventType::NamedKey) {
+            continue;
+        }
+        if (event.namedKey == core::NamedKey::F1) {
+            sendHid(connectivity::HidKeyboardReport{0x02, {0x04}});
+        } else if (event.namedKey == core::NamedKey::F2) {
+            sendHid(connectivity::HidConsumerReport{0x00E9});
+        } else if (event.namedKey == core::NamedKey::F3) {
+            releaseHid();
+        }
+    }
+}
+
 void Plan014DeviceHarness::displayStatus(const char* detail) {
     display_.clear(black);
+#if CARDPUTER_HUB_PLAN_017_VALIDATION
+    display_.drawText({8, 8}, "Validation 017", headingStyle);
+#else
     display_.drawText({8, 8}, "Validation 014", headingStyle);
+#endif
     display_.drawText({8, 38}, detail, bodyStyle);
     display_.drawText({8, 58}, "Pairing values never use serial", bodyStyle);
 }
@@ -705,11 +769,28 @@ void Plan014DeviceHarness::checkStorage() {
 }
 
 void Plan014DeviceHarness::sendHid(const connectivity::HidReport& report) {
+    if (router_.has_value()) {
+        const connectivity::HidReport neutral =
+            std::holds_alternative<connectivity::HidKeyboardReport>(report)
+                ? connectivity::HidReport{connectivity::HidKeyboardReport::neutral()}
+                : connectivity::HidReport{connectivity::HidConsumerReport::neutral()};
+        const connectivity::HidTransaction transaction{
+            {{report, std::chrono::seconds(5)}, {neutral, std::chrono::milliseconds::zero()}}};
+        const auto result = router_->route(transaction);
+        Serial.printf("[VALIDATION 017] route result=%u\n", static_cast<unsigned>(result));
+        return;
+    }
     const auto result = bluetoothService_.hidTransport().send(report);
     Serial.printf("[VALIDATION 015] HID send result=%u\n", static_cast<unsigned>(result));
 }
 
 void Plan014DeviceHarness::releaseHid() {
+    if (router_.has_value()) {
+        router_->cancel();
+        Serial.printf("[VALIDATION 017] cancel state=%u\n",
+                      static_cast<unsigned>(router_->state()));
+        return;
+    }
     const auto result = bluetoothService_.hidTransport().releaseAll();
     Serial.printf("[VALIDATION 015] HID release result=%u\n", static_cast<unsigned>(result));
 }

@@ -137,11 +137,15 @@ void test_ready_requires_mount_resume_and_endpoint_readiness() {
     (void)service.initialize();
     TEST_ASSERT_EQUAL_UINT8(static_cast<unsigned int>(HidTransportState::Unavailable),
                             static_cast<unsigned int>(service.state()));
+    TEST_ASSERT_EQUAL_UINT8(static_cast<unsigned int>(HidPhysicalLinkState::Disconnected),
+                            static_cast<unsigned int>(service.linkState()));
 
     adapter.events.push_back(event(NativeUsbEventType::Mounted));
     service.update();
     TEST_ASSERT_EQUAL_UINT8(static_cast<unsigned int>(HidTransportState::Starting),
                             static_cast<unsigned int>(service.state()));
+    TEST_ASSERT_EQUAL_UINT8(static_cast<unsigned int>(HidPhysicalLinkState::Connected),
+                            static_cast<unsigned int>(service.linkState()));
     adapter.events.push_back(event(NativeUsbEventType::EndpointReadinessChanged, 1, true));
     service.update();
     TEST_ASSERT_EQUAL_UINT8(static_cast<unsigned int>(HidTransportState::Ready),
@@ -151,6 +155,8 @@ void test_ready_requires_mount_resume_and_endpoint_readiness() {
     service.update();
     TEST_ASSERT_EQUAL_UINT8(static_cast<unsigned int>(HidTransportState::Unavailable),
                             static_cast<unsigned int>(service.state()));
+    TEST_ASSERT_EQUAL_UINT8(static_cast<unsigned int>(HidPhysicalLinkState::Suspended),
+                            static_cast<unsigned int>(service.linkState()));
     adapter.events.push_back(event(NativeUsbEventType::Resumed));
     service.update();
     TEST_ASSERT_EQUAL_UINT8(static_cast<unsigned int>(HidTransportState::Starting),
@@ -164,6 +170,8 @@ void test_ready_requires_mount_resume_and_endpoint_readiness() {
     service.update();
     TEST_ASSERT_EQUAL_UINT8(static_cast<unsigned int>(HidTransportState::Unavailable),
                             static_cast<unsigned int>(service.state()));
+    TEST_ASSERT_EQUAL_UINT8(static_cast<unsigned int>(HidPhysicalLinkState::Disconnected),
+                            static_cast<unsigned int>(service.linkState()));
 }
 
 void test_send_preserves_semantics_owns_values_and_reports_backpressure() {
@@ -270,6 +278,29 @@ void test_stale_events_are_ignored_and_poll_or_adapter_failures_enter_error() {
                             static_cast<unsigned int>(eventService.state()));
 }
 
+void test_fatal_send_error_still_observes_a_later_unmount() {
+    FakeNativeUsbAdapter adapter;
+    NativeUsbHidService service(adapter);
+    (void)service.initialize();
+    mountReady(adapter, service);
+
+    adapter.sendResult = NativeUsbAdapterResult::Error;
+    TEST_ASSERT_EQUAL_UINT8(static_cast<unsigned int>(HidSendResult::AdapterError),
+                            static_cast<unsigned int>(service.send(HidConsumerReport{0x00CD})));
+    TEST_ASSERT_EQUAL_UINT8(static_cast<unsigned int>(HidTransportState::Error),
+                            static_cast<unsigned int>(service.state()));
+    TEST_ASSERT_EQUAL_UINT8(static_cast<unsigned int>(HidPhysicalLinkState::Connected),
+                            static_cast<unsigned int>(service.linkState()));
+
+    adapter.events.push_back(event(NativeUsbEventType::Unmounted));
+    service.update();
+
+    TEST_ASSERT_EQUAL_UINT8(static_cast<unsigned int>(HidTransportState::Error),
+                            static_cast<unsigned int>(service.state()));
+    TEST_ASSERT_EQUAL_UINT8(static_cast<unsigned int>(HidPhysicalLinkState::Disconnected),
+                            static_cast<unsigned int>(service.linkState()));
+}
+
 void test_bounded_callback_queue_reports_overflow_instead_of_replaying_stale_events() {
     NativeUsbEventQueue queue;
     for (std::size_t index = 0; index < NativeUsbEventQueue::capacity; ++index) {
@@ -292,6 +323,7 @@ int main() {
     RUN_TEST(test_release_all_retries_only_the_unsent_neutral_report);
     RUN_TEST(test_suspend_preserves_release_requirement_but_unmount_neutralizes_it);
     RUN_TEST(test_stale_events_are_ignored_and_poll_or_adapter_failures_enter_error);
+    RUN_TEST(test_fatal_send_error_still_observes_a_later_unmount);
     RUN_TEST(test_bounded_callback_queue_reports_overflow_instead_of_replaying_stale_events);
     return UNITY_END();
 }

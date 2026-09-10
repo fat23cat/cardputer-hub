@@ -46,7 +46,7 @@ NativeUsbInitializeResult NativeUsbHidService::initialize() {
 }
 
 void NativeUsbHidService::update() {
-    if (!initialized_ || error_) {
+    if (!initialized_) {
         return;
     }
     for (std::size_t count = 0; count < maxEventsPerUpdate; ++count) {
@@ -75,6 +75,13 @@ HidTransportState NativeUsbHidService::state() const noexcept {
         return HidTransportState::Starting;
     }
     return busy_ ? HidTransportState::Busy : HidTransportState::Ready;
+}
+
+HidPhysicalLinkState NativeUsbHidService::linkState() const noexcept {
+    if (!initialized_ || !mounted_) {
+        return HidPhysicalLinkState::Disconnected;
+    }
+    return suspended_ ? HidPhysicalLinkState::Suspended : HidPhysicalLinkState::Connected;
 }
 
 HidSendResult NativeUsbHidService::send(const HidReport& report) {

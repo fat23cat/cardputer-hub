@@ -1,6 +1,7 @@
 set(CARDPUTER_HUB_SOURCES
     "${CMAKE_CURRENT_LIST_DIR}/../src/connectivity/bluetooth/bluetooth_service.cpp"
     "${CMAKE_CURRENT_LIST_DIR}/../src/connectivity/hid/hid_transport.cpp"
+    "${CMAKE_CURRENT_LIST_DIR}/../src/connectivity/hid/hid_transport_router.cpp"
     "${CMAKE_CURRENT_LIST_DIR}/../src/connectivity/usb/native_usb_descriptors.cpp"
     "${CMAKE_CURRENT_LIST_DIR}/../src/connectivity/usb/native_usb_hid.cpp"
     "${CMAKE_CURRENT_LIST_DIR}/../src/connectivity/wifi/wifi_service.cpp"
@@ -41,6 +42,9 @@ elseif(CARDPUTER_HUB_PLAN_015_VALIDATION)
 elseif(CARDPUTER_HUB_PLAN_016_VALIDATION)
     list(APPEND CARDPUTER_HUB_SOURCES
          "${CMAKE_CURRENT_LIST_DIR}/../src/validation/plan_016_device_harness.cpp")
+elseif(CARDPUTER_HUB_PLAN_017_VALIDATION)
+    list(APPEND CARDPUTER_HUB_SOURCES
+         "${CMAKE_CURRENT_LIST_DIR}/../src/validation/plan_014_device_harness.cpp")
 endif()
 
 idf_component_register(
@@ -76,6 +80,9 @@ elseif(CARDPUTER_HUB_PLAN_015_VALIDATION)
 elseif(CARDPUTER_HUB_PLAN_016_VALIDATION)
     target_compile_definitions(${COMPONENT_LIB}
                                PRIVATE CARDPUTER_HUB_PLAN_016_VALIDATION=1)
+elseif(CARDPUTER_HUB_PLAN_017_VALIDATION)
+    target_compile_definitions(${COMPONENT_LIB}
+                               PRIVATE CARDPUTER_HUB_PLAN_017_VALIDATION=1)
 endif()
 
 set(CARDPUTER_HUB_VERSION "$ENV{CARDPUTER_HUB_VERSION}")

@@ -82,6 +82,26 @@ class EspIdfBuildConfigurationTests(unittest.TestCase):
         self.assertIn("-D CARDPUTER_HUB_PLAN_016_VALIDATION=ON", instructions)
         self.assertIn("build-validation-016", instructions)
 
+    def test_plan_017_device_harness_is_opt_in_and_routes_only_validation_input(self) -> None:
+        project = self.read("CMakeLists.txt")
+        component = self.read("main/CMakeLists.txt")
+        entrypoint = self.read("src/main.cpp")
+        harness = self.read("src/validation/plan_014_device_harness.cpp")
+        instructions = self.read("docs/validation/plan-017-device-harness.md")
+
+        self.assertIn("option(CARDPUTER_HUB_PLAN_017_VALIDATION", project)
+        self.assertIn('"Build the local HID routing validation harness for plan 017" OFF)', project)
+        self.assertIn("CARDPUTER_HUB_PLAN_017_VALIDATION", component)
+        self.assertIn("CARDPUTER_HUB_PLAN_017_VALIDATION=1", component)
+        self.assertIn("Plan017DeviceHarness validationHarness", entrypoint)
+        self.assertIn("logger, &nativeUsb", entrypoint)
+        self.assertIn("router_.emplace", harness)
+        self.assertIn("router_->route", harness)
+        self.assertIn("core::NamedKey::F1", harness)
+        self.assertIn("-D CARDPUTER_HUB_PLAN_017_VALIDATION=ON", instructions)
+        self.assertIn("build-validation-017", instructions)
+        self.assertIn("production firmware", instructions)
+
     def test_platformio_is_only_a_native_test_runner(self) -> None:
         configuration = self.read("platformio.ini")
 

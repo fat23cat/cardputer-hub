@@ -258,7 +258,11 @@ asynchronous disconnects for rejected peers have completed.
 The HID suites additionally cover neutral and six-key keyboard reports,
 consumer usages, invalid and duplicate usage rejection, selected-peer and dual
 subscription readiness, report ownership, retryable backpressure, neutral
-release, stale callbacks, controlled target changes, and clean re-enable.
+release, stale callbacks, controlled target changes, and clean re-enable. The
+router suite covers bounded neutral-ending transactions, owned copies,
+USB-ready precedence, selected-bond-only BLE fallback, non-blocking dwell and
+backpressure, cancellation, unmount, suspend/resume, error cleanup, and
+duplicate-free handover.
 
 Run formatting and static analysis separately with:
 
@@ -373,11 +377,13 @@ The Phase 1 System Core foundations are complete, and Phase 2 Connectivity is
 in progress with its Wi-Fi, Bluetooth lifecycle, authenticated pairing, and
 bond-management foundations plus BLE and native USB keyboard/consumer HID
 transports delivered. Native USB also preserves diagnostics through one
-composite CDC interface.
+composite CDC interface. Hardware-independent USB-first HID transaction routing
+is implemented with selected-BLE retention and release-before-handover safety.
 These milestones establish testable contracts and hardware adapters; they do
 not make Wi-Fi, Bluetooth, or other planned product features user-visible.
-USB-over-BLE transport arbitration is the next Phase 2 foundation in the
-documented architecture order.
+Normal firmware still creates no HID transactions from local input or Actions.
+Phase 2 remains open until plan 017's mandatory physical handover and
+coexistence validation is recorded.
 
 The authoritative development order is defined in
 [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md#47-initial-development-order):

@@ -431,7 +431,9 @@ endpoint. Callback data crosses into the polling loop through a bounded owned
 queue with lifecycle generations. Backpressure is retryable and non-blocking;
 partial neutral release is retained across suspend, while confirmed unmount is
 definitive host-side neutralization. Fatal installation, queue, polling, or
-send errors remain local to USB.
+send errors remain local to USB. After a runtime error the transport remains in
+`Error`, but it continues observing lifecycle events so a later confirmed
+unmount can release router cleanup ownership and leave BLE routing available.
 
 The shared HID boundary is `IHidTransport` under `connectivity/hid`. It accepts
 only hardware-neutral six-key keyboard reports or one Consumer Page usage,
@@ -441,6 +443,25 @@ validation rejects keyboard rollover-error usages and duplicate non-zero keys
 before an adapter is called. Text encoding, shortcut interpretation, logical
 Action resolution, host selection, and mouse or NKRO reports remain above or
 outside this boundary.
+
+`HidTransportRouter` owns bounded one-to-sixteen-frame `HidTransaction`
+copies. Each frame contains one resolved report and a non-negative dwell; the
+last state for every activated report kind must be neutral. The router advances
+from injected monotonic elapsed time and never sleeps. It accepts only one
+transaction at a time and binds every frame to the transport selected at
+acceptance. A mounted, resumed, endpoint-ready USB transport has exclusive
+precedence; otherwise only the explicitly supplied BLE bond may receive new
+output. A missing or unavailable selected bond never falls back to another
+persisted peer.
+
+In-flight handover is conservative. USB becoming ready during BLE delivery
+stops progression, releases BLE, cancels the old transaction, and never replays
+it on USB. Confirmed USB unmount is definitive neutralization; suspension keeps
+release ownership until resume or later unmount. Busy cleanup is retried by
+later updates, ambiguous send or release failure blocks output in `Error`, and
+service resumes only after release or definitive disconnection. Passive router
+state never navigates or changes local input behavior, and neither transactions
+nor reports are logged.
 
 ---
 
@@ -574,10 +595,13 @@ active-bond deletion advance only through `update(elapsed)` callback events.
 Future `HostService` owns the mapping from these references to `HostProfile`
 data; Connectivity never stores host names, platforms, or user-specific cases.
 
-The Service exposes its BLE `IHidTransport` implementation through
-`hidTransport()` so the existing Bluetooth lifecycle `state()` remains
-source-compatible. The HID view is unavailable without the current selected
-bond. It becomes ready only when that link is encrypted, authenticated, bonded,
+The Service implements `IBluetoothHidTarget` and exposes its BLE
+`IHidTransport` implementation through `hidTransport()` so the existing
+Bluetooth lifecycle `state()` remains source-compatible. This narrow target
+boundary lets the router supply and verify one opaque bond reference without
+learning a host name, platform, or profile. The HID view is unavailable without
+the current selected bond. It becomes ready only when that link is encrypted,
+authenticated, bonded,
 uses report protocol, and has subscriptions for both keyboard and consumer
 input reports. Every send rechecks adapter readiness and targets only that
 peer. Busy is retryable; adapter failure enters Bluetooth and HID error.
@@ -1275,8 +1299,10 @@ Not all actions need to be implemented initially.
 ## 34. Host HID Actions
 
 Simple host actions may be executed using the Phase 2 HID transport boundary.
-Native USB HID is preferred while mounted and ready; otherwise output returns
-to the active host's BLE HID connection.
+Phase 7 resolves a logical Action into an owned neutral-ending HID transaction
+and submits it without choosing a transport. Native USB HID is preferred while
+mounted and ready; otherwise output returns only to the active host's selected
+BLE bond.
 
 Example:
 
@@ -1852,6 +1878,14 @@ runtime console is disabled so two device controllers never compete for the
 internal PHY. TinyUSB framework diagnostics are disabled, and project logs do
 not contain report values, host identity, or control-transfer contents.
 
+`HidTransportRouter` contains no ESP32, TinyUSB, NimBLE, display, keyboard, or
+`HostProfile` types. It observes the hardware-neutral USB physical-link state
+only to distinguish confirmed unmount from suspension, and controls BLE through
+the opaque target interface implemented by `BluetoothService`. USB failure can
+therefore leave selected BLE routing available, Bluetooth failure can leave USB
+and CDC available, and router failure remains ordinary update-loop state rather
+than a System Core failure.
+
 NimBLE is configured for bonding, MITM protection, Secure Connections-only
 security, identity-key distribution, `KeyboardDisplay` I/O, one connection,
 and at most 16 bonds. The adapter initiates security only after Service policy
@@ -1979,12 +2013,13 @@ ESP-NimBLE peripheral adapter compile with the firmware but remain inactive.
 The shared HID report contract and BLE keyboard/consumer transport are
 implemented behind the selected authenticated bond. Native USB is also
 implemented as one composite CDC/HID application device and is initialized at
-normal boot so diagnostics remain available, but normal firmware does not
-route input or Actions into either HID transport. Pairing UI and transport
-arbitration remain subsequent Phase 2 work. USB owns HID output only after
-enumeration reports the native HID transport mounted and ready. USB removal
-returns output to an opaque BLE target provided from above; Phase 2 does not
-select or store a `HostProfile`.
+normal boot so diagnostics remain available. Hardware-independent USB-first
+transaction arbitration is implemented with cancellation, neutral release,
+selected-target retention, and no cross-transport replay. Normal firmware does
+not yet create transactions from input or Actions, and it does not construct
+Bluetooth, so user-visible pairing and host control remain later-phase work.
+Phase 2 infrastructure is implemented; its final physical routing and soak
+acceptance gate remains tracked by plan 017.
 
 ### Phase 3 — Core Services
 

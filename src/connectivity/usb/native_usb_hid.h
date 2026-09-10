@@ -60,7 +60,7 @@ class INativeUsbAdapter {
     virtual NativeUsbAdapterResult sendHidReport(const HidReport& report) = 0;
 };
 
-class NativeUsbHidService final : public IHidTransport {
+class NativeUsbHidService final : public IUsbHidTransport {
   public:
     explicit NativeUsbHidService(INativeUsbAdapter& adapter) noexcept;
 
@@ -68,6 +68,7 @@ class NativeUsbHidService final : public IHidTransport {
     void update();
 
     HidTransportState state() const noexcept override;
+    HidPhysicalLinkState linkState() const noexcept override;
     HidSendResult send(const HidReport& report) override;
     HidSendResult releaseAll() override;
 
