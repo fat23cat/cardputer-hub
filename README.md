@@ -77,8 +77,9 @@ Read:
 
 * [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) — system architecture, Services, Mini Apps, connectivity, host management, remote control, and planned development phases
 * [`docs/ENGINEERING.md`](docs/ENGINEERING.md) — testing, CI/CD, build system, versioning, releases, and development requirements
-* [`docs/UI_REQUIREMENTS.md`](docs/UI_REQUIREMENTS.md) — planned visual,
-  motion, sound, display-power, and HID interaction rules for future UI
+* [`docs/UI_REQUIREMENTS.md`](docs/UI_REQUIREMENTS.md) — delivered UI behavior
+  and the remaining visual, motion, sound, display-power and input requirements
+* [`docs/plans/README.md`](docs/plans/README.md) — implementation-plan status index
 * [`docs/manuals/`](docs/manuals/) — installation, supported features, device
   controls, and user-facing procedures
 * [`AGENTS.md`](AGENTS.md) — instructions for Codex and other coding agents working in this repository
@@ -112,8 +113,8 @@ docs/
 scripts/
 ```
 
-The empty `apps`, `connectivity`, and `services` directories reserve the
-documented boundaries. No product behavior is implemented in the bootstrap.
+The `apps`, `connectivity`, and `services` directories contain the built-in
+system UI, connectivity foundations, and host/configuration/battery Services.
 
 ---
 
@@ -199,10 +200,13 @@ keeps the framework's default NVS separate from the dedicated `hub_config` NVS
 partition reserved for authoritative configuration records. On startup, the
 firmware enters through native ESP-IDF, initializes M5Unified directly, writes
 structured informational records for the product name, version, commit, and
-build type to serial, and renders the product name and version as a minimal boot screen. Its update loop
-refreshes the hardware and polls semantic keyboard input events. Those events
-are intentionally not routed to product behavior yet, and no connectivity or
-Mini Apps are started.
+build type to serial, briefly renders the product name/version, then opens a compact Home with the selected host, BT status, an estimated battery
+percentage, and a slow dotted wave. The future clock and Wi-Fi slots currently
+show `--:--` and `OFFLINE`. Tab (also G0 or Fn+Tab) opens Settings; its Bluetooth entry opens the existing BLE panel.
+Screen navigation uses short horizontal transitions with live input. The update loop polls semantic keyboard events, routes
+local settings Actions, and advances HostService/BluetoothService. Host selection,
+BLE On/Off, pairing, renaming, and per-host deletion are available; keyboard-to-HID mappings and the
+full Mini App shell are not yet implemented.
 
 System Core also provides standalone navigation history, capability, and
 application-metadata registries plus record- and file-storage boundaries for
@@ -223,13 +227,21 @@ stable opaque bond references, a 16-bond registry, selected-bond reconnection,
 explicit bond removal, and a shared hardware-neutral HID report contract. The
 direct ESP-NimBLE adapter exposes a secured keyboard and consumer-control HID
 service, accepts reports only for the selected authenticated and subscribed
-peer, and releases active reports before controlled disconnects. Bluetooth
-remains unconstructed at runtime and there is no pairing UI or Action-to-HID
-routing, so normal device behavior is unchanged.
+peer, and releases active reports before controlled disconnects. HostService
+composes this boundary with ConfigurationService: profiles, selection, and BLE
+On/Off are stored in internal `hub_config` NVS. First use defaults to Off and
+imports existing pairs without advertising. Switching closes the old connection
+before allowing the selected host. Tab (also G0 or Fn+Tab) opens Settings, whose Bluetooth entry exposes these
+operations through ActionBus; see the [device guide](docs/manuals/device-guide.md).
 
 ---
 
 ## Tests
+
+The host-management suites cover persistence, selected-host switching and Off,
+error handling, pairing cancellation/completion, and local settings Actions
+through real Services with fake hardware. Physical two-host acceptance is tracked
+separately in plan 017.
 
 Native tests run on the host and require no Cardputer hardware:
 
@@ -299,8 +311,7 @@ migration and release-asset flashing procedure.
 
 ESP-IDF's flash command normally resets the device automatically. If it cannot enter
 download mode, hold the `G0` button, press and release reset, release `G0`, and
-retry the upload. If it remains in ROM mode after flashing, press reset once
-without `G0`. You may need to grant access to the serial device on Linux.
+retry the upload. You may need to grant access to the serial device on Linux.
 
 ---
 
@@ -310,10 +321,18 @@ without `G0`. You may need to grant access to the serial device on Linux.
 make monitor
 ```
 
-The application exposes serial diagnostics through the CDC function of its
-native USB composite CDC/HID device. Its path may differ from the ROM download
-port; use `make monitor UPLOAD_PORT=<application-cdc-port>` when selection is
-ambiguous. The configured baud convention is 115200. Exit with `Ctrl+]`.
+When multiple serial devices are connected, list the ports with
+`python -m serial.tools.list_ports` and select the Cardputer's fixed USB
+Serial/JTAG port explicitly:
+
+```bash
+make monitor UPLOAD_PORT=<port>
+```
+
+Replace `<port>` with the detected device path, such as `/dev/ttyACM0` on Linux
+or `/dev/cu.usbmodem...` on macOS.
+
+The configured baud rate is 115200. Exit the monitor with `Ctrl+]`.
 
 ---
 
@@ -369,35 +388,35 @@ See [`docs/ENGINEERING.md`](docs/ENGINEERING.md) for the complete workflow.
 
 ## Current Status
 
-The Phase 1 System Core foundations are complete, and Phase 2 Connectivity is
-in progress with its Wi-Fi, Bluetooth lifecycle, authenticated pairing, and
-bond-management foundations plus BLE and native USB keyboard/consumer HID
-transports delivered. Native USB also preserves diagnostics through one
-composite CDC interface.
-These milestones establish testable contracts and hardware adapters; they do
-not make Wi-Fi, Bluetooth, or other planned product features user-visible.
-USB-over-BLE transport arbitration is the next Phase 2 foundation in the
-documented architecture order.
+Reviewed on **2026-09-11**. The authoritative
+[phase checklist](docs/ARCHITECTURE.md#47-initial-development-order) records
+completed steps and remaining work; the [plan index](docs/plans/README.md)
+links implementation and validation history.
 
-The authoritative development order is defined in
-[`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md#47-initial-development-order):
+| Phase | Status |
+| --- | --- |
+| 1 — System Core | Complete |
+| 2 — Connectivity | Software complete; physical acceptance partial |
+| 3 — Core Services | HostService, host configuration and battery delivered; broader Services pending |
+| 4 — Application Shell | Home, Settings, Tab navigation and page transitions delivered; Launcher/power/sound pending |
+| 5 — Mini App Infrastructure | Pending; registry primitives exist |
+| 6 — Device Manager | Built-in host list/pair/rename/delete/select delivered; full Mini App integration pending |
+| 7–11 — Host Control, Weather, RGB, Remote, Extensions | Pending |
 
-```text
-1. System Core
-2. Connectivity
-3. Core Services
-4. Application Shell
-5. Mini App Infrastructure
-6. Device Manager
-7. Host Control
-8. Weather
-9. RGB Indicator
-10. Remote Boundary
-11. Extensions
-```
+Normal firmware provides a BLE-only host connection, saved profiles and On/Off,
+Home telemetry, and local Settings. USB is for power, flashing and fixed serial
+diagnostics. USB HID and arbitration are removed; IHidTransport remains the
+future extension boundary. Wi-Fi is not yet composed; clock synchronization,
+Action-to-HID mappings and a Mac companion are not implemented.
 
-Product features should follow this order and the documented dependency
-direction.
+Physical checks confirmed fresh pairing, one local Off/On cycle, adding and
+switching two computers, and reconnection to the last selected host after Reset
+and power-on. The operator accepted the Home/navigation appearance.
+[Plan 017](docs/plans/017-hid-transport-arbitration.md#0-current-closeout-status)
+keeps longer Off/reboot-Off checks, report/interruption reruns, long-duration
+and equipment-limited cases, and USB serial hotplug open. Historical harness passes are not represented
+as final-image acceptance. Latest local checks passed: 44 Python tests, 214
+native tests, formatting, static analysis and ESP-IDF production compilation.
 
 ---
 

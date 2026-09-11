@@ -35,7 +35,8 @@ BluetoothService::BluetoothService(IBluetoothAdapter& adapter) noexcept
 BluetoothService::BluetoothService(IBluetoothAdapter& adapter, core::Logger& logger) noexcept
     : adapter_(adapter), hidTransportView_(*this), logger_(&logger) {}
 
-BluetoothEnableResult BluetoothService::enable(const BluetoothDeviceConfig& config) {
+BluetoothEnableResult BluetoothService::enable(const BluetoothDeviceConfig& config,
+                                               BluetoothStartup startup) {
     if (enabled_ && state_ != BluetoothState::Error) {
         return BluetoothEnableResult::AlreadyEnabled;
     }
@@ -75,6 +76,11 @@ BluetoothEnableResult BluetoothService::enable(const BluetoothDeviceConfig& conf
     }
 
     enabled_ = true;
+    if (startup == BluetoothStartup::Idle) {
+        state_ = BluetoothState::Idle;
+        advertisingPendingOrActive_ = false;
+        return BluetoothEnableResult::Enabled;
+    }
     const auto advertisingResult = launchAdvertising();
     if (advertisingResult == BluetoothAdvertisingResult::AdapterError) {
         enabled_ = false;
@@ -87,6 +93,19 @@ BluetoothEnableResult BluetoothService::enable(const BluetoothDeviceConfig& conf
     }
     log(core::LogLevel::Info, "Bluetooth enabled");
     return BluetoothEnableResult::Enabled;
+}
+
+BluetoothAdvertisingResult BluetoothService::advertise() {
+    if (!enabled_ || state_ == BluetoothState::Error || currentConnection_ ||
+        advertisingPendingOrActive_) {
+        return BluetoothAdvertisingResult::AdapterError;
+    }
+    const auto result = launchAdvertising();
+    if (result == BluetoothAdvertisingResult::RetryableFailure)
+        scheduleAdvertisingRetry();
+    else if (result == BluetoothAdvertisingResult::AdapterError)
+        enterError("advertising launch failed");
+    return result;
 }
 
 BluetoothDisableResult BluetoothService::disable() {
@@ -161,7 +180,9 @@ void BluetoothService::update(std::chrono::milliseconds elapsed) {
     }
 
     if (enabled_ && pendingBondOperation_ != PendingBondOperation::None &&
-        !currentConnection_.has_value()) {
+        (!currentConnection_.has_value() ||
+         (pendingBondOperation_ == PendingBondOperation::RemoveOne &&
+          pendingRemoval_ != currentBond_))) {
         completePendingBondOperation();
     }
 
@@ -264,6 +285,11 @@ BluetoothPairingOpenResult BluetoothService::openPairing() {
             return BluetoothPairingOpenResult::AdapterError;
         }
     }
+    if (selectedBond_ && advertisingPendingOrActive_) {
+        pairingState_ = BluetoothPairingState::Preparing;
+        if (!refreshAdvertisingPolicy())
+            return BluetoothPairingOpenResult::AdapterError;
+    }
     log(core::LogLevel::Info, "pairing window opened");
     return BluetoothPairingOpenResult::Opened;
 }
@@ -282,6 +308,8 @@ BluetoothPairingCancelResult BluetoothService::cancelPairing() {
         }
     }
     closePairing(BluetoothPairingState::Closed);
+    if (selectedBond_ && !refreshAdvertisingPolicy())
+        return BluetoothPairingCancelResult::AdapterError;
     log(core::LogLevel::Info, "pairing window closed");
     return BluetoothPairingCancelResult::Cancelled;
 }
@@ -333,6 +361,10 @@ std::optional<BluetoothPairingChallenge> BluetoothService::pairingChallenge() co
     return pairingChallenge_;
 }
 
+std::optional<BluetoothPeerHandle> BluetoothService::pairingPeer() const noexcept {
+    return pairingPeer_;
+}
+
 std::optional<BluetoothBondReference> BluetoothService::completedPairing() const noexcept {
     return completedPairing_;
 }
@@ -362,6 +394,8 @@ BluetoothService::selectBond(std::optional<BluetoothBondReference> reference) {
     if (!reference.has_value()) {
         selectedBond_.reset();
         hidBusy_ = false;
+        if (!pairingWindowActive() && !refreshAdvertisingPolicy())
+            return BluetoothBondSelectionResult::AdapterError;
         return BluetoothBondSelectionResult::Cleared;
     }
     const auto knownBonds = adapter_.bonds();
@@ -380,6 +414,8 @@ BluetoothService::selectBond(std::optional<BluetoothBondReference> reference) {
             return BluetoothBondSelectionResult::AdapterError;
         }
     }
+    if (!pairingWindowActive() && !refreshAdvertisingPolicy())
+        return BluetoothBondSelectionResult::AdapterError;
     return BluetoothBondSelectionResult::Selected;
 }
 
@@ -469,8 +505,21 @@ BluetoothRemoveAllBondsResult BluetoothService::lastRemoveAllResult() const noex
     return lastRemoveAllResult_;
 }
 
+bool BluetoothService::refreshAdvertisingPolicy() {
+    if (!advertisingPendingOrActive_)
+        return true;
+    if (adapter_.requestAdvertisingStop() != BluetoothAdapterResult::Success) {
+        enterError("advertising policy change failed");
+        return false;
+    }
+    advertisingPendingOrActive_ = false;
+    scheduleReconnect();
+    return true;
+}
+
 BluetoothAdvertisingResult BluetoothService::launchAdvertising() {
-    const auto result = adapter_.startAdvertising(lifecycle_);
+    const auto result =
+        adapter_.startAdvertising(lifecycle_, pairingWindowActive() ? std::nullopt : selectedBond_);
     advertisingPendingOrActive_ = result == BluetoothAdvertisingResult::Started;
     if (advertisingPendingOrActive_) {
         state_ = BluetoothState::Idle;
@@ -583,6 +632,10 @@ void BluetoothService::handleConnectedPeer(BluetoothPeerHandle peer) {
         currentBond_ = reference.reference;
         state_ = BluetoothState::Connected;
         retryIndex_ = 0;
+        if (adapter_.restoreBondSecurity(peer) != BluetoothAdapterResult::Success) {
+            enterError("bond security restoration failed");
+            return;
+        }
         log(core::LogLevel::Info, "bonded peer connected");
         return;
     }
@@ -659,13 +712,14 @@ void BluetoothService::handlePairingCompleted(const BluetoothEvent& event) {
 
 void BluetoothService::handleDisconnectedPeer(BluetoothPeerHandle peer) {
     if (pairingPeer_.has_value() && *pairingPeer_ == peer) {
+        const bool pairingStillOpen = pairingWindowActive();
         pairingPeer_.reset();
         pairingChallenge_.reset();
-        if (pairingWindowActive()) {
-            pairingState_ = BluetoothPairingState::Error;
+        if (pairingStillOpen) {
+            pairingState_ = BluetoothPairingState::Advertising;
         }
         if (pendingRejectedPeers_.empty()) {
-            scheduleReconnect();
+            resumeAfterDisconnection();
         }
         return;
     }

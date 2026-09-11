@@ -16,71 +16,35 @@ class EspIdfBuildConfigurationTests(unittest.TestCase):
         self.assertIn('idf: "==5.5.5"', manifest)
         self.assertIn('m5stack/m5unified: "==0.2.21"', manifest)
         self.assertIn('m5stack/m5gfx: "==0.2.28"', manifest)
-        self.assertIn('espressif/esp_tinyusb: "==2.2.1"', manifest)
         self.assertNotIn("espressif/arduino-esp32", manifest)
         self.assertNotIn("espressif/arduino-esp32", lock)
         self.assertIn('version: 0.2.21', lock)
         self.assertIn('version: 0.2.28', lock)
-        self.assertIn('version: 2.2.1', lock)
-        self.assertIn('espressif/esp_tinyusb', lock)
-        self.assertIn('espressif/tinyusb', lock)
 
-    def test_native_usb_owns_the_internal_phy_and_enables_only_cdc_and_hid(self) -> None:
+    def test_usb_is_diagnostics_only_and_has_no_hid_runtime(self) -> None:
         configuration = self.read("sdkconfig.defaults")
-
-        expected_settings = (
-            "CONFIG_ESP_CONSOLE_NONE=y",
-            "CONFIG_TINYUSB_CDC_ENABLED=y",
-            "CONFIG_TINYUSB_CDC_COUNT=1",
-            "CONFIG_TINYUSB_HID_COUNT=1",
-            "CONFIG_TINYUSB_SUSPEND_CALLBACK=y",
-            "CONFIG_TINYUSB_RESUME_CALLBACK=y",
-            "CONFIG_TINYUSB_DEBUG_LEVEL=0",
-            "CONFIG_TINYUSB_DESC_USE_ESPRESSIF_VID=y",
-            "CONFIG_TINYUSB_DESC_USE_DEFAULT_PID=y",
-            "CONFIG_TINYUSB_MSC_ENABLED=n",
-            "CONFIG_TINYUSB_MIDI_COUNT=0",
-            "CONFIG_TINYUSB_DFU_MODE_NONE=y",
-            "CONFIG_TINYUSB_NET_MODE_NONE=y",
-            "CONFIG_TINYUSB_BTH_ENABLED=n",
-            "CONFIG_TINYUSB_VENDOR_COUNT=0",
-        )
-        for setting in expected_settings:
-            self.assertIn(setting, configuration)
-        self.assertNotIn("CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG=y", configuration)
-
-    def test_native_usb_adapter_uses_project_descriptors_and_cdc_console(self) -> None:
+        manifest = self.read("main/idf_component.yml")
+        lock = self.read("dependencies.lock")
         component = self.read("main/CMakeLists.txt")
-        adapter = self.read("src/hardware/esp32/usb/esp32_native_usb_adapter.cpp")
         entrypoint = self.read("src/main.cpp")
-
-        self.assertIn("espressif__esp_tinyusb", component)
-        self.assertIn("native_usb_descriptors", component)
-        self.assertIn("tinyusb_driver_install", adapter)
-        self.assertIn("tinyusb_cdcacm_init", adapter)
-        self.assertIn("tinyusb_console_init", adapter)
-        self.assertIn("nativeUsbDeviceDescriptor", adapter)
-        self.assertIn("nativeUsbConfigurationDescriptor", adapter)
-        self.assertIn("iSerialNumber = 0", adapter)
-        self.assertLess(entrypoint.index("nativeUsb.initialize()"), entrypoint.index("runtime.start()"))
-
-    def test_plan_016_device_harness_is_opt_in_and_non_shipping(self) -> None:
         project = self.read("CMakeLists.txt")
-        component = self.read("main/CMakeLists.txt")
-        entrypoint = self.read("src/main.cpp")
-        instructions = self.read("docs/validation/plan-016-device-harness.md")
 
-        self.assertIn("option(CARDPUTER_HUB_PLAN_016_VALIDATION", project)
-        self.assertIn('"Build the local native USB HID validation harness for plan 016" OFF)', project)
-        self.assertIn("CARDPUTER_HUB_PLAN_016_VALIDATION", component)
-        self.assertIn("validation/plan_016_device_harness.cpp", component)
-        self.assertIn("CARDPUTER_HUB_PLAN_016_VALIDATION=1", component)
-        self.assertIn("Plan016DeviceHarness validationHarness", entrypoint)
-        self.assertIn("unavailable_after_ready", self.read("src/validation/plan_016_device_harness.cpp"))
-        self.assertIn("USB: %-11s", self.read("src/validation/plan_016_device_harness.cpp"))
-        self.assertIn("validationHarness(runtime, nativeUsb, display)", entrypoint)
-        self.assertIn("-D CARDPUTER_HUB_PLAN_016_VALIDATION=ON", instructions)
-        self.assertIn("build-validation-016", instructions)
+        self.assertIn("CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG=y", configuration)
+        self.assertNotIn("CONFIG_TINYUSB_", configuration)
+        for source in (manifest, lock, component):
+            self.assertNotIn("tinyusb", source)
+        self.assertNotIn("nativeUsb", entrypoint)
+        self.assertNotIn("PLAN_016_VALIDATION", project)
+        self.assertNotIn("PLAN_017_VALIDATION", project)
+        self.assertFalse((ROOT / "src/connectivity/usb").exists())
+        self.assertFalse((ROOT / "src/hardware/esp32/usb").exists())
+        self.assertFalse((ROOT / "src/connectivity/hid/hid_transport_router.cpp").exists())
+
+    def test_stale_composite_console_configuration_is_rejected(self) -> None:
+        project = self.read("CMakeLists.txt")
+        self.assertIn("if(NOT CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG)", project)
+        self.assertIn("message(FATAL_ERROR", project)
+        self.assertIn("sdkconfig.defaults", project)
 
     def test_platformio_is_only_a_native_test_runner(self) -> None:
         configuration = self.read("platformio.ini")
@@ -173,7 +137,7 @@ class EspIdfBuildConfigurationTests(unittest.TestCase):
         platform = self.read("src/hardware/cardputer/cardputer_platform.cpp")
 
         self.assertNotIn("M5GFX_BOARD=", project)
-        self.assertIn("CONFIG_ESP_CONSOLE_NONE=y", defaults)
+        self.assertIn("CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG=y", defaults)
         self.assertIn('extern "C" void app_main(void)', entrypoint)
         self.assertNotIn("void setup()", entrypoint)
         self.assertNotIn("void loop()", entrypoint)
@@ -234,20 +198,39 @@ class EspIdfBuildConfigurationTests(unittest.TestCase):
         self.assertIn("validation/plan_012_device_harness.cpp", component)
         self.assertIn("CARDPUTER_HUB_PLAN_012_VALIDATION=1", component)
         self.assertIn("#if CARDPUTER_HUB_PLAN_012_VALIDATION", entrypoint)
-        self.assertIn("(void)fcntl(STDIN_FILENO, F_SETFL, O_NONBLOCK);", entrypoint)
-        self.assertIn("CARDPUTER_HUB_PLAN_016_VALIDATION", entrypoint)
-        self.assertIn("validationHarness.start();", entrypoint)
-        self.assertIn("runtime.start();", entrypoint)
+        self.assertIn(
+            "#if CARDPUTER_HUB_PLAN_012_VALIDATION\n"
+            "    (void)fcntl(STDIN_FILENO, F_SETFL, O_NONBLOCK);\n"
+            "    validationHarness.start();\n"
+            "#elif CARDPUTER_HUB_PLAN_014_VALIDATION || CARDPUTER_HUB_PLAN_015_VALIDATION\n"
+            "    validationHarness.start();\n"
+            "#else\n"
+            "    runtime.start();\n",
+            entrypoint,
+        )
         self.assertIn("-D CARDPUTER_HUB_PLAN_012_VALIDATION=ON", instructions)
         self.assertIn("build-validation-012", instructions)
 
     def test_plan_012_device_harness_yields_to_the_idle_task(self) -> None:
         entrypoint = self.read("src/main.cpp")
 
-        self.assertIn("nativeUsb.update();", entrypoint)
-        self.assertIn("validationHarness.update();", entrypoint)
-        self.assertIn("(void)runtime.update();", entrypoint)
-        self.assertIn("vTaskDelay(pdMS_TO_TICKS(1));", entrypoint)
+        self.assertIn(
+            "#if CARDPUTER_HUB_PLAN_012_VALIDATION\n"
+            "        validationHarness.update();\n"
+            "#elif CARDPUTER_HUB_PLAN_014_VALIDATION || CARDPUTER_HUB_PLAN_015_VALIDATION\n"
+            "        validationHarness.update();\n"
+            "#else\n"
+            "        const auto& input = runtime.update();\n"
+            "        const auto now = esp_timer_get_time() / 1000;\n"
+            "        const auto elapsed = std::chrono::milliseconds(now - previousHostUpdateMilliseconds);\n"
+            "        hosts.update(elapsed);\n"
+            "        battery.update(elapsed);\n"
+            "        previousHostUpdateMilliseconds = now;\n"
+            "        applicationShell.update(input, elapsed, battery.percent());\n"
+            "#endif\n"
+            "        vTaskDelay(pdMS_TO_TICKS(1));",
+            entrypoint,
+        )
 
     def test_plan_014_device_harness_is_opt_in_and_non_shipping(self) -> None:
         project = self.read("CMakeLists.txt")
@@ -288,8 +271,8 @@ class EspIdfBuildConfigurationTests(unittest.TestCase):
 
         self.assertIn("displayPairingChallenge", harness)
         self.assertIn("keyboard_.poll", harness)
-        self.assertIn("::read(STDIN_FILENO", harness)
-        self.assertNotIn("usb_serial_jtag_driver_install", harness)
+        self.assertIn("usb_serial_jtag_driver_install", harness)
+        self.assertIn("usb_serial_jtag_read_bytes", harness)
         self.assertIn("Pairing responses use Enter/Fn+`", harness)
         self.assertNotIn('Serial.printf("%06', harness)
         self.assertNotIn("reference.bytes", harness)

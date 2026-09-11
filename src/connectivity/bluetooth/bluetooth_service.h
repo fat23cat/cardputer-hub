@@ -182,6 +182,8 @@ struct BluetoothBondReferenceResult {
     BluetoothBondReference reference{};
 };
 
+enum class BluetoothStartup { Advertising, Idle };
+
 enum class BluetoothEnableResult : std::uint8_t { Enabled, AlreadyEnabled, AdapterError };
 enum class BluetoothDisableResult : std::uint8_t { Disabled, AlreadyDisabled, AdapterError };
 enum class BluetoothPairingOpenResult : std::uint8_t {
@@ -238,12 +240,16 @@ class IBluetoothAdapter {
     virtual BluetoothAdapterResult initialize(const BluetoothDeviceConfig& config,
                                               std::uint32_t lifecycle) = 0;
     virtual BluetoothAdapterResult shutdown() = 0;
-    virtual BluetoothAdvertisingResult startAdvertising(std::uint32_t lifecycle) = 0;
+    virtual BluetoothAdvertisingResult
+    startAdvertising(std::uint32_t lifecycle,
+                     std::optional<BluetoothBondReference> target = std::nullopt) = 0;
     virtual BluetoothAdapterResult requestAdvertisingStop() = 0;
     virtual BluetoothAdapterResult disconnectPeer(BluetoothPeerHandle peer) = 0;
     virtual BluetoothPollResult pollEvent() = 0;
     virtual BluetoothBondQueryResult bondState(BluetoothPeerHandle peer) = 0;
     virtual BluetoothAdapterResult beginPairing(BluetoothPeerHandle peer) = 0;
+    // Restore protection for an existing bond; never admit a new pairing here.
+    virtual BluetoothAdapterResult restoreBondSecurity(BluetoothPeerHandle peer) = 0;
     virtual BluetoothAdapterResult respondToPairing(BluetoothPeerHandle peer,
                                                     BluetoothPairingChallengeType type,
                                                     bool accepted,
@@ -266,7 +272,9 @@ class BluetoothService {
     explicit BluetoothService(IBluetoothAdapter& adapter) noexcept;
     BluetoothService(IBluetoothAdapter& adapter, core::Logger& logger) noexcept;
 
-    BluetoothEnableResult enable(const BluetoothDeviceConfig& config);
+    BluetoothEnableResult enable(const BluetoothDeviceConfig& config,
+                                 BluetoothStartup startup = BluetoothStartup::Advertising);
+    BluetoothAdvertisingResult advertise();
     BluetoothDisableResult disable();
     void update(std::chrono::milliseconds elapsed);
     BluetoothState state() const noexcept;
@@ -277,6 +285,7 @@ class BluetoothService {
     BluetoothPairingResponseResult respondToPairing(const BluetoothPairingResponse& response);
     BluetoothPairingState pairingState() const noexcept;
     std::optional<BluetoothPairingChallenge> pairingChallenge() const noexcept;
+    std::optional<BluetoothPeerHandle> pairingPeer() const noexcept;
     std::optional<BluetoothBondReference> completedPairing() const noexcept;
     BluetoothBondListResult bonds();
     BluetoothBondSelectionResult selectBond(std::optional<BluetoothBondReference> reference);
@@ -304,6 +313,7 @@ class BluetoothService {
     enum class RetryKind : std::uint8_t { None, Reconnect, Advertising };
     enum class PendingBondOperation : std::uint8_t { None, RemoveOne, RemoveAll };
 
+    bool refreshAdvertisingPolicy();
     BluetoothAdvertisingResult launchAdvertising();
     void handleEvent(const BluetoothEvent& event);
     void handleConnectedPeer(BluetoothPeerHandle peer);

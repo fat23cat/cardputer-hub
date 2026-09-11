@@ -1,6 +1,7 @@
 #include "hardware/cardputer/cardputer_keyboard_adapter.h"
 
 #include <Adafruit_TCA8418.h>
+#include <M5Unified.hpp>
 
 #include <cstdint>
 #include <memory>
@@ -35,6 +36,15 @@ bool CardputerKeyboardAdapter::initialize() {
 }
 
 void CardputerKeyboardAdapter::poll(core::InputEvents& events) {
+    pollKeyboard(events);
+    // Platform.update() has already refreshed the debounced G0/BtnA state.
+    // Keep the button usable even while the matrix controller is retrying.
+    if (M5.BtnA.wasPressed()) {
+        events.push_back({core::InputEventType::NamedKey, 0, core::NamedKey::SystemMenu, {}});
+    }
+}
+
+void CardputerKeyboardAdapter::pollKeyboard(core::InputEvents& events) {
     if (!initialized_) {
         const auto now = millisecondsSinceBoot();
         if (now < retryAfterMilliseconds_) {

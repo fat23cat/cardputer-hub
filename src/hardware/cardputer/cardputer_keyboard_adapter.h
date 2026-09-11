@@ -19,6 +19,7 @@ class CardputerKeyboardAdapter final : public core::IKeyboardAdapter {
 
   private:
     bool initialize();
+    void pollKeyboard(core::InputEvents& events);
 
     std::unique_ptr<Adafruit_TCA8418> controller_;
     CardputerAdvPressedKeys pressedKeys_{};

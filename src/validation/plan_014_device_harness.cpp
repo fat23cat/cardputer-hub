@@ -1,5 +1,6 @@
 #include "validation/plan_014_device_harness.h"
 
+#include "driver/usb_serial_jtag.h"
 #include "esp_system.h"
 #include "esp_timer.h"
 #include "nvs.h"
@@ -9,7 +10,6 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
-#include <unistd.h>
 
 namespace cardputer_hub::validation {
 namespace {
@@ -31,14 +31,23 @@ std::uint32_t millis() { return static_cast<std::uint32_t>(esp_timer_get_time() 
 
 class NativeSerialConsole {
   public:
-    void begin() { ready_ = true; }
+    bool begin() {
+        if (!usb_serial_jtag_is_driver_installed()) {
+            auto config = USB_SERIAL_JTAG_DRIVER_CONFIG_DEFAULT();
+            if (usb_serial_jtag_driver_install(&config) != ESP_OK) {
+                return false;
+            }
+        }
+        ready_ = true;
+        return true;
+    }
 
     int read() const {
         if (!ready_) {
             return -1;
         }
         unsigned char value = 0;
-        return ::read(STDIN_FILENO, &value, 1) == 1 ? value : -1;
+        return usb_serial_jtag_read_bytes(&value, 1, 0) == 1 ? value : -1;
     }
 
     void println(const char* message) const { std::printf("%s\n", message); }
@@ -148,9 +157,9 @@ connectivity::BluetoothAdapterResult Plan014BluetoothAdapter::shutdown() {
     return adapter_.shutdown();
 }
 
-connectivity::BluetoothAdvertisingResult
-Plan014BluetoothAdapter::startAdvertising(std::uint32_t lifecycle) {
-    return adapter_.startAdvertising(lifecycle);
+connectivity::BluetoothAdvertisingResult Plan014BluetoothAdapter::startAdvertising(
+    std::uint32_t lifecycle, std::optional<connectivity::BluetoothBondReference> target) {
+    return adapter_.startAdvertising(lifecycle, target);
 }
 
 connectivity::BluetoothAdapterResult Plan014BluetoothAdapter::requestAdvertisingStop() {
@@ -167,7 +176,25 @@ connectivity::BluetoothPollResult Plan014BluetoothAdapter::pollEvent() {
         failNextPoll_ = false;
         return connectivity::BluetoothPollResult::adapterError();
     }
-    return adapter_.pollEvent();
+    const auto result = adapter_.pollEvent();
+#if CARDPUTER_HUB_PLAN_015_VALIDATION
+    if (result.status == connectivity::BluetoothPollStatus::Event &&
+        (result.event.type == connectivity::BluetoothEventType::PairingCompleted ||
+         result.event.type == connectivity::BluetoothEventType::HidReadinessChanged)) {
+        const auto& event = result.event;
+        Serial.printf("[VALIDATION 015] readiness event=%s encrypted=%u authenticated=%u "
+                      "bonded=%u keyboard=%u consumer=%u report_protocol=%u\n",
+                      event.type == connectivity::BluetoothEventType::PairingCompleted ? "security"
+                                                                                       : "hid",
+                      static_cast<unsigned>(event.security.encrypted),
+                      static_cast<unsigned>(event.security.authenticated),
+                      static_cast<unsigned>(event.security.bonded),
+                      static_cast<unsigned>(event.keyboardSubscribed),
+                      static_cast<unsigned>(event.consumerSubscribed),
+                      static_cast<unsigned>(event.reportProtocol));
+    }
+#endif
+    return result;
 }
 
 connectivity::BluetoothBondQueryResult
@@ -178,6 +205,11 @@ Plan014BluetoothAdapter::bondState(connectivity::BluetoothPeerHandle peer) {
 connectivity::BluetoothAdapterResult
 Plan014BluetoothAdapter::beginPairing(connectivity::BluetoothPeerHandle peer) {
     return adapter_.beginPairing(peer);
+}
+
+connectivity::BluetoothAdapterResult
+Plan014BluetoothAdapter::restoreBondSecurity(connectivity::BluetoothPeerHandle peer) {
+    return adapter_.restoreBondSecurity(peer);
 }
 
 connectivity::BluetoothAdapterResult
@@ -236,7 +268,7 @@ void Plan014DeviceHarness::start() {
     }
     started_ = true;
     platform_.begin();
-    Serial.begin();
+    const bool serialInputReady = Serial.begin();
     lastUpdateMilliseconds_ = millis();
     previousBluetoothState_ = bluetoothService_.state();
     previousPairingState_ = bluetoothService_.pairingState();
@@ -246,7 +278,7 @@ void Plan014DeviceHarness::start() {
 #else
     Serial.println("[VALIDATION 014] authenticated pairing harness active");
 #endif
-    Serial.println("[VALIDATION 014] serial input=ready");
+    Serial.printf("[VALIDATION 014] serial input=%s\n", serialInputReady ? "ready" : "error");
     Serial.printf("[VALIDATION 014] reset_reason=%d\n", static_cast<int>(esp_reset_reason()));
     Serial.println("[VALIDATION 014] pairing values appear only on the Cardputer display");
     printStatus();
@@ -445,6 +477,12 @@ void Plan014DeviceHarness::printHelp() const {
 }
 
 void Plan014DeviceHarness::printStatus() {
+#if CARDPUTER_HUB_PLAN_015_VALIDATION
+    if (const auto peer = bluetoothService_.currentConnection(); peer.has_value()) {
+        const auto readiness = bluetoothAdapter_.hidReadiness(*peer);
+        Serial.printf("[VALIDATION 015] adapter readiness=%u\n", static_cast<unsigned>(readiness));
+    }
+#endif
     const auto result = bluetoothService_.bonds();
     const bool bondQuerySucceeded = result.status == connectivity::BluetoothBondListStatus::Success;
     Serial.printf("[VALIDATION 014] status bluetooth=%s pairing=%s connected=%s bonds=%s",

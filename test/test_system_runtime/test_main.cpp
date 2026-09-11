@@ -57,6 +57,8 @@ struct TextCommand {
 
 class FakeDisplay final : public IDisplayAdapter {
   public:
+    void fillRectangle(cardputer_hub::core::PixelPosition, std::int32_t, std::int32_t,
+                       cardputer_hub::core::RgbColor) override {}
     explicit FakeDisplay(std::vector<std::string>& trace) : trace_(trace) {}
 
     void clear(RgbColor color) override {

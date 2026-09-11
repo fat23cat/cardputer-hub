@@ -32,6 +32,15 @@ flow from [`plan-014-device-harness.md`](plan-014-device-harness.md). Run
 both HID notifications while connecting; `status` must reach `hid=ready` only
 after the selected authenticated bond reconnects and both subscriptions exist.
 
+The harness prints `readiness` records with boolean encryption, authentication,
+bond, keyboard/consumer subscription, and report-protocol flags. Use `hid`
+events for the complete readiness snapshot; `security` events describe the
+security result only. These diagnostics contain no peer identifiers or pairing
+values and do not initiate security or change the connection state. `status`
+also prints an adapter snapshot using the live link's security and the current
+subscription/protocol state. Logging runs from the harness's polling task;
+Bluetooth callbacks do not write to serial.
+
 ## 2. Keyboard and release reports
 
 Open a host-side HID key viewer with no sensitive application focused. For
@@ -82,6 +91,17 @@ the current selected host subscribes again. Send no report while status is not
 ready; an attempted validation send must return NotReady and must not appear in
 the host viewer.
 
+The current implementation resumes advertising after every disconnection,
+including the host's explicit Disconnect control. Automatic reconnection in
+that case is permitted by the revised Cardputer-side On/Off policy in plan 017;
+it does not count as validation of local Off. Earlier Mac-only Disconnect/Connect
+failures remain recorded as historical evidence. The harness records the numeric
+NimBLE disconnect reason from its polling task. Keep host-requested disconnect,
+unexpected link loss, and persistent product Off as separate acceptance cases. Use `bt disable` to keep the device disconnected during a
+controlled pause, and `bt enable` to resume. After a
+device Reset, this opt-in harness starts with Bluetooth disabled: enable it,
+run `bonds`, and select the intended session index again without deleting bonds.
+
 Pair a second controlled host through the plan-014 flow. While the first host
 is ready, select the second bond. Confirm the first host receives neutral
 state before disconnection, only the selected host can reconnect, and no old
@@ -92,6 +112,19 @@ ordinary local network traffic. While traffic is active, repeat the keyboard,
 six-key, modifier, consumer, and release checks. Confirm both Wi-Fi and BLE HID
 remain responsive without reset, watchdog, or boot loop. Finish with
 `wifi disconnect`.
+
+### BLE-only cable and pairing regression checks
+
+The final BLE-only image uses the fixed USB Serial/JTAG console and must not
+enumerate a USB keyboard. With the Cardputer running from its battery and the
+selected BLE host ready, unplug and reconnect USB at least five times. Confirm
+BLE still accepts reports, releases neutralize them, the saved bond is not
+changed, and serial diagnostics return. No output channel switch is involved.
+
+During an explicit pairing window, interrupt an incomplete host connection.
+The device must clear the obsolete challenge and resume advertising within
+the same 120-second deadline. Cancel or allow the window to expire and verify
+that it stays closed. Do not erase existing bonds merely to test USB removal.
 
 ## 5. Privacy audit and cleanup
 
@@ -115,7 +148,9 @@ make upload UPLOAD_PORT="$CARDPUTER_VALIDATION_PORT"
 ```
 
 After reset, the validation banner must be absent and the normal Cardputer Hub
-boot display must appear.
+startup screen followed by Home must appear. Run plan 017's product
+acceptance separately: the diagnostic harness does not exercise HostService's
+persisted selection or the local settings controls.
 
 ## Result record
 
@@ -132,6 +167,9 @@ interrupted report replay after reconnect: yes/no
 repeated subscribe/disconnect/disable/re-enable: pass/fail
 selected-host switch and old-host neutralization: pass/fail
 Wi-Fi coexistence: pass/fail
+USB cable cycles preserve BLE and serial returns: pass/fail
+USB keyboard enumerated: yes/no
+interrupted pairing resumes without extending deadline: pass/fail
 resets or watchdogs: count
 identity/reference/report/key/pairing values in logs: yes/no
 test bonds removed and production firmware restored: yes/no

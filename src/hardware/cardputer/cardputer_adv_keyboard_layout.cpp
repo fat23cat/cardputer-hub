@@ -12,6 +12,10 @@ bool isModifier(std::size_t row, std::size_t column) {
 }
 
 bool namedKey(std::size_t row, std::size_t column, bool functionLayer, core::NamedKey& result) {
+    if (row == 1 && column == 0) {
+        result = core::NamedKey::Tab;
+        return true;
+    }
     if (functionLayer) {
         if (row == 0 && column == 0) {
             result = core::NamedKey::Escape;
@@ -41,10 +45,6 @@ bool namedKey(std::size_t row, std::size_t column, bool functionLayer, core::Nam
 
     if (row == 0 && column == 13) {
         result = core::NamedKey::Backspace;
-        return true;
-    }
-    if (row == 1 && column == 0) {
-        result = core::NamedKey::Tab;
         return true;
     }
     if (row == 2 && column == 13) {

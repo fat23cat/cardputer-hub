@@ -1,6 +1,6 @@
 # Supported Toolchain and ESP-NimBLE Migration Plan
 
-Status: **Implemented — physical validation pending**
+Status: **Implemented — physical validation partial; extended checks remain**
 
 This plan describes the third granular Phase 2 change. It moves the production
 firmware to a maintained Espressif toolchain and replaces the Bluetooth
@@ -305,3 +305,24 @@ Still pending: keyboard, microSD, serial, and IR production smoke tests; the
 60-minute concurrent Wi-Fi/BLE watch; the separate one-hour traffic-generating
 criterion; and a final full-log privacy audit. These results must be recorded
 before this plan can be marked complete.
+
+
+### Status reconciliation — 2026-09-11
+
+Later plan-014 hardware validation closed the keyboard-event, microSD
+mount/write/read/remove and serial-command smoke checks, plus its recorded
+failure-isolation/privacy cases. Product display/input, serial startup, pairing,
+two-host switching and selected-host power-on restoration were subsequently
+confirmed under plan 017. These are later-image observations, not a rerun of
+every original plan-012 criterion.
+
+- [x] Build/toolchain migration and native production boot/display.
+- [x] Wi-Fi connection, BLE lifecycle stress and short coexistence checks.
+- [x] Keyboard, microSD and serial-command smoke evidence carried from plan 014.
+- [ ] IR hardware smoke.
+- [ ] 60-minute concurrent Wi-Fi/BLE watch and separate one-hour traffic run.
+- [ ] Final-image extended log/privacy review; USB hotplug remains a separate
+  open observation in plan 017.
+
+Use [plan 017's current status](017-hid-transport-arbitration.md#0-current-closeout-status)
+for remaining product acceptance; the earlier records above remain historical.

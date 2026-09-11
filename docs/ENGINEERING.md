@@ -221,7 +221,10 @@ Then:
 HostService requests connection to Personal MacBook
 
 And:
-activeHost becomes Personal MacBook after successful connection
+activeHost is saved as Personal MacBook before advertising for that host
+
+And:
+connection readiness is reported separately without fallback to another host
 ```
 
 Avoid tests that fail only because internal functions or classes were renamed.
@@ -1031,12 +1034,12 @@ applies to framework and dependency diagnostics as well as project-owned log
 records; dependency log levels must be capped when their higher levels expose
 such data.
 
-The Cardputer-Adv application runtime carries project and ESP-IDF console
-output over the native TinyUSB composite device's CDC-ACM interface. Its VFS is
-non-blocking: an absent or slow monitor may truncate diagnostics but must never
-delay System Core updates or HID reports. The documented 115200 baud remains a
-monitor convention; USB CDC has no physical baud clock. The ROM download port
-and application CDC port may have different device paths.
+The Cardputer-Adv runtime console uses the fixed ESP32-S3 USB Serial/JTAG
+peripheral. USB is reserved for diagnostics and firmware installation, with
+no TinyUSB or USB HID host-control stack. Console absence must not gate
+Bluetooth lifecycle or local input. Build configuration must select
+`CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG`; stale generated configuration from the
+removed composite-USB builds must be regenerated from the current defaults.
 
 Log levels should be configurable where practical.
 

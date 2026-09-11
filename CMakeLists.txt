@@ -6,15 +6,12 @@ option(CARDPUTER_HUB_PLAN_014_VALIDATION
        "Build the local pairing validation harness for plan 014" OFF)
 option(CARDPUTER_HUB_PLAN_015_VALIDATION
        "Build the local BLE HID validation harness for plan 015" OFF)
-option(CARDPUTER_HUB_PLAN_016_VALIDATION
-       "Build the local native USB HID validation harness for plan 016" OFF)
 
 set(CARDPUTER_HUB_VALIDATION_HARNESS_COUNT 0)
 foreach(CARDPUTER_HUB_VALIDATION_OPTION
         CARDPUTER_HUB_PLAN_012_VALIDATION
         CARDPUTER_HUB_PLAN_014_VALIDATION
-        CARDPUTER_HUB_PLAN_015_VALIDATION
-        CARDPUTER_HUB_PLAN_016_VALIDATION)
+        CARDPUTER_HUB_PLAN_015_VALIDATION)
     if(${CARDPUTER_HUB_VALIDATION_OPTION})
         math(EXPR CARDPUTER_HUB_VALIDATION_HARNESS_COUNT
              "${CARDPUTER_HUB_VALIDATION_HARNESS_COUNT}+1")
@@ -31,3 +28,10 @@ include($ENV{IDF_PATH}/tools/cmake/project.cmake)
 
 add_compile_definitions(CORE_DEBUG_LEVEL=3)
 project(cardputer_hub)
+
+# sdkconfig.defaults does not replace a cached console selection. Reject old
+# composite-USB configurations instead of silently producing a console-less image.
+if(NOT CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG)
+    message(FATAL_ERROR
+            "BLE-only firmware requires USB Serial/JTAG diagnostics. Move the generated sdkconfig aside and reconfigure from sdkconfig.defaults; do not erase device NVS.")
+endif()
