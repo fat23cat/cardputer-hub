@@ -1,9 +1,11 @@
 #include "hardware/esp32/bluetooth/esp32_bluetooth_adapter.h"
+#include "hardware/esp32/bluetooth/ble_peer_event_order.h"
 
 #include <algorithm>
 #include <array>
 #include <cstddef>
 #include <cstdint>
+#include <cstdio>
 #include <cstring>
 #include <string>
 
@@ -34,6 +36,9 @@ extern "C" void ble_store_config_init(void);
 
 namespace cardputer_hub::hardware {
 namespace {
+
+using bluetooth_detail::PeerEventDisposition;
+using bluetooth_detail::PeerEventKind;
 
 #if defined(CORE_DEBUG_LEVEL)
 constexpr int configuredFrameworkDebugLevel = CORE_DEBUG_LEVEL;
@@ -133,16 +138,18 @@ struct AdapterContext {
     bool controllerEnabled = false;
     bool hostInitialized = false;
     bool hostRunning = false;
+    bool hostStartupComplete = false;
     bool stackOwned = false;
     bool synchronized = false;
     bool advertisingRequested = false;
     bool advertisingActive = false;
     bool advertisingStopRequested = false;
-    std::uint16_t activeConnectionHandle = invalidConnectionHandle;
+    bluetooth_detail::BlePeerEventOrder peerEventOrder;
     std::uint8_t ownAddressType = BLE_OWN_ADDR_PUBLIC;
     std::uint32_t lifecycle = 0;
     std::uint32_t nextPeerHandle = 1;
     std::string deviceName;
+    std::optional<connectivity::BluetoothBondReference> advertisingTarget;
     std::array<PeerRecord, peerCapacity> peers{};
     std::array<std::uint8_t, referenceKeySize> referenceKey{};
     bool referenceKeyLoaded = false;
@@ -403,23 +410,9 @@ bool isHostRunning() {
 
 std::uint16_t activeConnectionHandle() {
     portENTER_CRITICAL(&context.mutex);
-    const auto connectionHandle = context.activeConnectionHandle;
+    const auto connectionHandle = context.peerEventOrder.active().value_or(invalidConnectionHandle);
     portEXIT_CRITICAL(&context.mutex);
     return connectionHandle;
-}
-
-void setActiveConnectionHandle(std::uint16_t connectionHandle) {
-    portENTER_CRITICAL(&context.mutex);
-    context.activeConnectionHandle = connectionHandle;
-    portEXIT_CRITICAL(&context.mutex);
-}
-
-void clearActiveConnectionHandle(std::uint16_t connectionHandle) {
-    portENTER_CRITICAL(&context.mutex);
-    if (context.activeConnectionHandle == connectionHandle) {
-        context.activeConnectionHandle = invalidConnectionHandle;
-    }
-    portEXIT_CRITICAL(&context.mutex);
 }
 
 void resetHidPeerState() {
@@ -427,6 +420,8 @@ void resetHidPeerState() {
     context.keyboardSubscribed = false;
     context.consumerSubscribed = false;
     context.hidSecurity = {};
+    context.hidProtocolMode = 1;
+    context.hidControlPoint = 1;
     portEXIT_CRITICAL(&context.mutex);
 }
 
@@ -501,7 +496,8 @@ void clearLifecycleState() {
     context.eventCount = 0;
     context.queueOverflow = false;
     context.lifecycle = 0;
-    context.activeConnectionHandle = invalidConnectionHandle;
+    context.peerEventOrder.reset();
+    context.hostStartupComplete = false;
     portEXIT_CRITICAL(&context.mutex);
     context.synchronized = false;
     context.advertisingRequested = false;
@@ -509,6 +505,7 @@ void clearLifecycleState() {
     context.advertisingStopRequested = false;
     context.ownAddressType = BLE_OWN_ADDR_PUBLIC;
     context.deviceName.clear();
+    context.advertisingTarget.reset();
     context.peers = {};
     context.referenceKey.fill(0);
     context.referenceKeyLoaded = false;
@@ -516,6 +513,9 @@ void clearLifecycleState() {
 }
 
 void onHostSynchronized() {
+    portENTER_CRITICAL(&context.mutex);
+    context.hostStartupComplete = true;
+    portEXIT_CRITICAL(&context.mutex);
     if (currentOwner() != nullptr) {
         enqueue({RawEventType::HostSynchronized, currentLifecycle()});
     }
@@ -525,6 +525,37 @@ void onHostReset(int reason) {
     if (currentOwner() != nullptr) {
         enqueue({RawEventType::HostFailed, currentLifecycle(), reason});
     }
+}
+
+bool preparePeerEvent(std::uint16_t connectionHandle, PeerEventKind kind, std::uint32_t lifecycle) {
+    portENTER_CRITICAL(&context.mutex);
+    const auto disposition = context.peerEventOrder.observe(connectionHandle, kind);
+    portEXIT_CRITICAL(&context.mutex);
+    if (disposition == PeerEventDisposition::Ignore) {
+        return false;
+    }
+    if (disposition == PeerEventDisposition::Reject) {
+        enqueue({RawEventType::HostFailed, lifecycle});
+        return false;
+    }
+    if (disposition == PeerEventDisposition::AnnounceConnection) {
+        // ESP-NimBLE can deliver security and restored CCCDs before CONNECT
+        // (which waits for remote feature discovery). Announce the live peer
+        // first so those events cannot be dropped or reset by a late CONNECT.
+        ble_gap_conn_desc descriptor{};
+        if (ble_gap_conn_find(connectionHandle, &descriptor) != 0) {
+            enqueue({RawEventType::HostFailed, lifecycle});
+            return false;
+        }
+        resetHidPeerState();
+        RawEvent connected{};
+        connected.type = RawEventType::PeerConnected;
+        connected.lifecycle = lifecycle;
+        connected.connectionHandle = connectionHandle;
+        connected.identityAddress = descriptor.peer_id_addr;
+        enqueue(connected);
+    }
+    return kind != PeerEventKind::Connected;
 }
 
 int gapEventCallback(ble_gap_event* event, void*) {
@@ -540,40 +571,51 @@ int gapEventCallback(ble_gap_event* event, void*) {
     switch (event->type) {
     case BLE_GAP_EVENT_CONNECT:
         if (event->connect.status != 0) {
+            // A link lost before NimBLE's delayed CONNECT is reported as a
+            // failed CONNECT, even if we already announced its early events.
+            if (activeConnectionHandle() == event->connect.conn_handle) {
+                queued.type = RawEventType::PeerDisconnected;
+                queued.connectionHandle = event->connect.conn_handle;
+                if (preparePeerEvent(queued.connectionHandle, PeerEventKind::Disconnected,
+                                     queued.lifecycle)) {
+                    enqueue(queued);
+                    resetHidPeerState();
+                }
+                return 0;
+            }
             queued.type = RawEventType::AdvertisingCompleted;
             queued.status = event->connect.status;
             enqueue(queued);
             return 0;
         }
-        queued.type = RawEventType::PeerConnected;
-        queued.connectionHandle = event->connect.conn_handle;
-        resetHidPeerState();
-        setActiveConnectionHandle(queued.connectionHandle);
-        {
-            ble_gap_conn_desc descriptor{};
-            if (ble_gap_conn_find(queued.connectionHandle, &descriptor) != 0) {
-                enqueue({RawEventType::HostFailed, queued.lifecycle});
-                return 0;
-            }
-            queued.identityAddress = descriptor.peer_id_addr;
-        }
-        enqueue(queued);
+        (void)preparePeerEvent(event->connect.conn_handle, PeerEventKind::Connected,
+                               queued.lifecycle);
         return 0;
     case BLE_GAP_EVENT_DISCONNECT:
         queued.type = RawEventType::PeerDisconnected;
         queued.connectionHandle = event->disconnect.conn.conn_handle;
-        clearActiveConnectionHandle(queued.connectionHandle);
+        queued.status = event->disconnect.reason;
+        if (!preparePeerEvent(queued.connectionHandle, PeerEventKind::Disconnected,
+                              queued.lifecycle)) {
+            return 0;
+        }
         enqueue(queued);
         resetHidPeerState();
         return 0;
     case BLE_GAP_EVENT_IDENTITY_RESOLVED:
         queued.type = RawEventType::PeerIdentityResolved;
         queued.connectionHandle = event->identity_resolved.conn_handle;
+        if (!preparePeerEvent(queued.connectionHandle, PeerEventKind::Data, queued.lifecycle)) {
+            return 0;
+        }
         queued.identityAddress = event->identity_resolved.peer_id_addr;
         enqueue(queued);
         return 0;
     case BLE_GAP_EVENT_PASSKEY_ACTION:
         queued.connectionHandle = event->passkey.conn_handle;
+        if (!preparePeerEvent(queued.connectionHandle, PeerEventKind::Data, queued.lifecycle)) {
+            return 0;
+        }
         queued.securityAction = event->passkey.params.action;
         if (queued.securityAction == BLE_SM_IOACT_DISP) {
             queued.securityValue = esp_random() % 1'000'000U;
@@ -590,6 +632,9 @@ int gapEventCallback(ble_gap_event* event, void*) {
     case BLE_GAP_EVENT_ENC_CHANGE: {
         queued.type = RawEventType::SecurityCompleted;
         queued.connectionHandle = event->enc_change.conn_handle;
+        if (!preparePeerEvent(queued.connectionHandle, PeerEventKind::Data, queued.lifecycle)) {
+            return 0;
+        }
         queued.status = event->enc_change.status;
         ble_gap_conn_desc descriptor{};
         if (queued.status == 0 && ble_gap_conn_find(queued.connectionHandle, &descriptor) == 0) {
@@ -603,6 +648,10 @@ int gapEventCallback(ble_gap_event* event, void*) {
         return 0;
     }
     case BLE_GAP_EVENT_SUBSCRIBE:
+        if (!preparePeerEvent(event->subscribe.conn_handle, PeerEventKind::Data,
+                              queued.lifecycle)) {
+            return 0;
+        }
         if (event->subscribe.attr_handle == context.keyboardInputHandle ||
             event->subscribe.attr_handle == context.consumerInputHandle) {
             updateHidSubscription(event->subscribe.attr_handle, event->subscribe.cur_notify != 0);
@@ -654,6 +703,8 @@ connectivity::BluetoothFailureClass classifyAdvertisingError(int error) {
                                               : connectivity::BluetoothFailureClass::Fatal;
 }
 
+bool findBondAddress(const connectivity::BluetoothBondReference& requested, ble_addr_t& address);
+
 connectivity::BluetoothAdvertisingResult issueAdvertisingStart() {
     ble_hs_adv_fields fields{};
     fields.flags = BLE_HS_ADV_F_DISC_GEN | BLE_HS_ADV_F_BREDR_UNSUP;
@@ -678,6 +729,22 @@ connectivity::BluetoothAdvertisingResult issueAdvertisingStart() {
     ble_gap_adv_params parameters{};
     parameters.conn_mode = BLE_GAP_CONN_MODE_UND;
     parameters.disc_mode = BLE_GAP_DISC_MODE_GEN;
+    if (context.advertisingTarget) {
+        ble_addr_t target{};
+        if (!findBondAddress(*context.advertisingTarget, target)) {
+            context.advertisingRequested = false;
+            return connectivity::BluetoothAdvertisingResult::AdapterError;
+        }
+        target.type &= 1; // Controller list uses public/random identity address types.
+        result = ble_gap_wl_set(&target, 1);
+        if (result != 0) {
+            context.advertisingRequested = false;
+            return isRetryableAdvertisingError(result)
+                       ? connectivity::BluetoothAdvertisingResult::RetryableFailure
+                       : connectivity::BluetoothAdvertisingResult::AdapterError;
+        }
+        parameters.filter_policy = BLE_HCI_ADV_FILT_CONN;
+    }
     result = ble_gap_adv_start(context.ownAddressType, nullptr, BLE_HS_FOREVER, &parameters,
                                gapEventCallback, nullptr);
     if (result != 0) {
@@ -780,9 +847,11 @@ bool deriveReference(const ble_addr_t& identityAddress,
 
 bool enumerateBondAddresses(std::array<ble_addr_t, bondCapacity>& addresses, int& count) {
     count = 0;
-    return ble_store_util_bonded_peers(addresses.data(), &count,
-                                       static_cast<int>(addresses.size())) == 0 &&
-           count >= 0 && static_cast<std::size_t>(count) <= addresses.size();
+    const int result =
+        ble_store_util_bonded_peers(addresses.data(), &count, static_cast<int>(addresses.size()));
+    if (result != 0)
+        ESP_LOGE("hub_ble", "bond enumeration failed: rc=%d", result);
+    return result == 0 && count >= 0 && static_cast<std::size_t>(count) <= addresses.size();
 }
 
 connectivity::BluetoothBondListResult enumerateBondReferences() {
@@ -899,8 +968,27 @@ bool stopAdvertisingAndPeers() {
     return true;
 }
 
+bool waitForHostStartup() {
+    const auto start = xTaskGetTickCount();
+    for (;;) {
+        portENTER_CRITICAL(&context.mutex);
+        const bool complete = context.hostStartupComplete;
+        portEXIT_CRITICAL(&context.mutex);
+        if (complete)
+            return true;
+        if (xTaskGetTickCount() - start >= hostStopTimeout)
+            return false;
+        vTaskDelay(pdMS_TO_TICKS(1));
+    }
+}
+
 bool quiesceStack() {
     if (isHostRunning()) {
+        // Idle initialization may be followed immediately by Off. NimBLE's
+        // stage-2 startup still owns its timer resources until the first sync.
+        // Stopping before that callback races startup; keep ownership on timeout.
+        if (!waitForHostStartup())
+            return false;
         if (!stopAdvertisingAndPeers()) {
             return false;
         }
@@ -1059,6 +1147,13 @@ Esp32BluetoothAdapter::initialize(const connectivity::BluetoothDeviceConfig& con
         (void)quiesceStack();
         return connectivity::BluetoothAdapterResult::AdapterError;
     }
+    // Stage-2 privacy startup reloads the bond store with STATIC_TO_DYNAMIC.
+    // Do not expose a transiently empty registry to immediate host selection.
+    if (!waitForHostStartup()) {
+        ESP_LOGE("hub_ble", "host startup did not complete before deadline");
+        (void)quiesceStack();
+        return connectivity::BluetoothAdapterResult::AdapterError;
+    }
     return connectivity::BluetoothAdapterResult::Success;
 }
 
@@ -1074,13 +1169,14 @@ connectivity::BluetoothAdapterResult Esp32BluetoothAdapter::shutdown() {
                           : connectivity::BluetoothAdapterResult::AdapterError;
 }
 
-connectivity::BluetoothAdvertisingResult
-Esp32BluetoothAdapter::startAdvertising(std::uint32_t lifecycle) {
+connectivity::BluetoothAdvertisingResult Esp32BluetoothAdapter::startAdvertising(
+    std::uint32_t lifecycle, std::optional<connectivity::BluetoothBondReference> target) {
     if (currentOwner() != this || !context.stackOwned || lifecycle == 0 ||
         context.advertisingRequested || context.advertisingActive ||
         context.advertisingStopRequested) {
         return connectivity::BluetoothAdvertisingResult::AdapterError;
     }
+    context.advertisingTarget = target;
     setLifecycle(lifecycle);
     context.advertisingRequested = true;
     if (!context.synchronized) {
@@ -1103,6 +1199,10 @@ connectivity::BluetoothAdapterResult Esp32BluetoothAdapter::requestAdvertisingSt
         context.advertisingStopRequested = false;
         return connectivity::BluetoothAdapterResult::AdapterError;
     }
+    // In pinned ESP-NimBLE, ble_gap_adv_stop() is synchronous and does not
+    // emit ADV_COMPLETE. Do not wait for a callback that will never arrive.
+    context.advertisingActive = false;
+    context.advertisingStopRequested = false;
     return connectivity::BluetoothAdapterResult::Success;
 }
 
@@ -1182,6 +1282,9 @@ connectivity::BluetoothPollResult Esp32BluetoothAdapter::pollEvent() {
                  connectivity::BluetoothFailureClass::Fatal, event.lifecycle});
         }
         case RawEventType::PeerDisconnected: {
+#if CARDPUTER_HUB_PLAN_015_VALIDATION
+            std::printf("[VALIDATION 015] disconnect reason=%d\n", event.status);
+#endif
             auto* peer = findPeer(event.connectionHandle);
             if (peer == nullptr) {
                 break;
@@ -1309,6 +1412,30 @@ Esp32BluetoothAdapter::beginPairing(connectivity::BluetoothPeerHandle handle) {
 }
 
 connectivity::BluetoothAdapterResult
+Esp32BluetoothAdapter::restoreBondSecurity(connectivity::BluetoothPeerHandle handle) {
+    const auto* peer = findPeer(handle);
+    if (currentOwner() != this || !context.stackOwned || peer == nullptr ||
+        bondState(handle) != connectivity::BluetoothBondQueryResult::Bonded) {
+        return connectivity::BluetoothAdapterResult::AdapterError;
+    }
+    ble_gap_conn_desc descriptor{};
+    if (ble_gap_conn_find(peer->connectionHandle, &descriptor) != 0) {
+        return connectivity::BluetoothAdapterResult::AdapterError;
+    }
+    if (descriptor.sec_state.encrypted && descriptor.sec_state.authenticated &&
+        descriptor.sec_state.bonded) {
+        return connectivity::BluetoothAdapterResult::Success;
+    }
+    // For a bonded peripheral, request the central to restore encryption using
+    // the stored keys. A simultaneous central-initiated procedure is already
+    // sufficient; new pairing challenges remain subject to the Service window.
+    const int result = ble_gap_security_initiate(peer->connectionHandle);
+    return result == 0 || result == BLE_HS_EALREADY
+               ? connectivity::BluetoothAdapterResult::Success
+               : connectivity::BluetoothAdapterResult::AdapterError;
+}
+
+connectivity::BluetoothAdapterResult
 Esp32BluetoothAdapter::respondToPairing(connectivity::BluetoothPeerHandle handle,
                                         connectivity::BluetoothPairingChallengeType type,
                                         bool accepted, std::optional<std::uint32_t> passkey) {
@@ -1419,11 +1546,22 @@ Esp32BluetoothAdapter::hidReadiness(connectivity::BluetoothPeerHandle handle) {
     }
 
     portENTER_CRITICAL(&context.mutex);
-    const bool subscribed = context.keyboardSubscribed && context.consumerSubscribed;
+    const bool keyboardSubscribed = context.keyboardSubscribed;
+    const bool consumerSubscribed = context.consumerSubscribed;
     const bool reportProtocol = context.hidProtocolMode == 1;
     portEXIT_CRITICAL(&context.mutex);
+#if CARDPUTER_HUB_PLAN_015_VALIDATION
+    std::printf("[VALIDATION 015] adapter state encrypted=%u authenticated=%u bonded=%u "
+                "keyboard=%u consumer=%u report_protocol=%u\n",
+                static_cast<unsigned>(descriptor.sec_state.encrypted),
+                static_cast<unsigned>(descriptor.sec_state.authenticated),
+                static_cast<unsigned>(descriptor.sec_state.bonded),
+                static_cast<unsigned>(keyboardSubscribed),
+                static_cast<unsigned>(consumerSubscribed), static_cast<unsigned>(reportProtocol));
+#endif
     return descriptor.sec_state.encrypted != 0 && descriptor.sec_state.authenticated != 0 &&
-                   descriptor.sec_state.bonded != 0 && subscribed && reportProtocol
+                   descriptor.sec_state.bonded != 0 && keyboardSubscribed && consumerSubscribed &&
+                   reportProtocol
                ? connectivity::BluetoothHidAdapterResult::Ready
                : connectivity::BluetoothHidAdapterResult::NotReady;
 }

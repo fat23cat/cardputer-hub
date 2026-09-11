@@ -1,5 +1,7 @@
 # 004 — Automatic Semantic Releases
 
+Status: **Implemented — release-policy and workflow checks passed**
+
 ## Goal
 
 Publish firmware automatically after CI validates an eligible pull request

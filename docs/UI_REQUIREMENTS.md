@@ -1,10 +1,13 @@
 # UI and Interaction Requirements
 
-Status: **Approved requirements — planned, not yet implemented**
+Status: **Approved requirements — Home and Bluetooth panel implemented; full UI pending**
 
 This document defines the shared visual, motion, sound, display-power, and
-input-routing rules for future Cardputer Hub system UI and Mini Apps. It does
-not describe behavior supported by the current boot-only firmware.
+input-routing rules for Cardputer Hub system UI and Mini Apps. It distinguishes the delivered Home and Bluetooth panel from the full UI still
+planned. The screen implements the palette, flat layout, local controls, and
+Micro5 pairing digits, and horizontal page transitions. Full Launcher transitions,
+audio, idle dimming, wake-input
+consumption, and the Home display-power treatment are not implemented yet.
 
 The visual and acoustic direction is derived from
 [Codex Microputer ADV](https://github.com/fat23cat/codex-microputer-adv), its
@@ -76,6 +79,7 @@ Cardputer Hub must use the following reference palette as named design tokens:
 | Light neutral | `#CED0CB` | Acknowledged, viewed, or completed state |
 | Pale | `#DEDBD1` | Idle, disabled, or unbound state |
 | Ordinal | `#ABA89D` | Quiet row numbers and secondary reference marks |
+| Home wave | `#D1CEC4` | Slightly stronger ambient dotted wave on Bone |
 
 Token meaning must stay stable between screens. Feature code must request a
 semantic token instead of introducing near-duplicate colors. Ink and Bone are
@@ -176,7 +180,8 @@ physical controls justify one.
 
 ## 6. Motion and Transitions
 
-Motion must be event-driven. A settled screen must stop requesting animation
+Motion must be event-driven except for the explicitly approved Home ambient wave
+described below. Settled functional screens must stop requesting animation
 frames, and background polling must not make the interface twitch or repaint
 continuously.
 
@@ -317,10 +322,69 @@ connection changes may update a passive status indicator, but must not change
 focus, navigate away, or open a blocking popup. Future transport selection UI
 requires an explicit architecture revision when another transport is added.
 
-Phase 2 implements the BLE transport boundary; Phase 3 supplies HostService
-and ConfigurationService; Phase 6 exposes pairing and BLE host selection;
-Phase 7 resolves logical host-control Actions into HID reports. These are
-planned UI requirements, not controls in the current boot-only firmware.
+Plan 017 brings forward HostService and host configuration from Phase 3 and Home with a Bluetooth panel from Phases 4/6. It supports pairing, selection,
+rename, and persisted BLE On/Off. The saved selection is marked SELECTED, separately from OFF/CONNECTING/SECURING/READY status. Background
+connection updates preserve focus. Settings keys remain local. In lists, the
+physical Up/Down-marked keys (`;` / `.`) navigate without Fn; in name/code entry
+the same keys retain their text-input semantics. Existing named arrow events
+remain supported. Focus movement redraws only changed rows; status, footer, and
+error updates redraw their own regions. Scrolling must not clear the whole LCD.
+Returning from a modal invalidates the list cache and paints the list again.
+
+Home is the default root view. The approved dashboard has an eight-pixel gutter,
+a compact top line for time, one Wi-Fi icon and status (no network name), and
+battery percentage (without an icon) above a one-pixel rule at y=24. Time is `--:--` until a
+clock source is implemented; Wi-Fi is `OFFLINE` because normal firmware does
+not yet compose Wi-Fi connectivity. BatteryService supplies the hardware's
+estimated percentage, or `--%` when unavailable. No demo telemetry is rendered.
+
+Below it, SELECTED HOST is a quiet label at y=38. The selected name uses Micro 5
+at optical size 36, with uppercase ink at y=55..70; long labels are truncated
+with an ellipsis within 224 pixels. This display conversion does not rename the
+stored profile. No selection is labelled NO HOST SELECTED. One Bluetooth icon
+and an explicit OFF/CONNECTING/SECURING/PAIRING/READY/ERROR label sit below the
+name. The icon uses Ordinal for Off, Blue for connection/pairing, Leaf for Ready,
+and Vermilion for Error; the label stays Ink. There is no title or footer on Home.
+
+A low-contrast Home wave dotted texture moves only in y=99..134, with a 28-second cycle
+and at most two frames per second. It advances from injected monotonic elapsed
+time, pauses whenever Home is hidden, never moves text or icons, and redraws
+only that lower region. This is an explicit exception to the event-only motion
+rule. It must eventually pause while the display is off and must never count as
+user activity. Battery updates repaint only their header region; host/status
+updates repaint only the host region. Pairing's Micro 5 digits are unchanged.
+
+Tab on the main keyboard (also G0 or Fn+Tab) opens a general SETTINGS list with a single implemented Bluetooth entry,
+using the existing ordinal and Ink focus plate, without a bottom bar or
+Esc Home label. Enter opens
+the existing Bluetooth panel without modifying its controls or layout. Its Esc
+Home behavior is retained; Tab, G0 or Fn+Tab from the BLE list returns to Settings. The
+menu input is consumed without dismissing host submenus, rename/delete prompts,
+or pairing. Enter/B do not open anything on Home. Repeated Tab/G0/Fn+Tab
+in Settings does not add history entries or repaint a settled view. Background
+connection updates never navigate away from the current screen. G0 uses the
+debounced press edge from M5Unified BtnA and emits the local SystemMenu input;
+holding it does not repeat. Its hardware boot/download function is unchanged. Plain Tab is a built-in
+system-screen control, not a global shortcut for future text-entry Mini Apps.
+
+The Cardputer adapter composes drawing into a persistent RGB565 canvas and copies
+only completed dirty regions to the LCD. Settled functional views cause no display transfer; Home transfers only its
+changed regions, including the bounded ambient wave.
+Page changes use a 220 ms cubic ease-out slide: forward navigation enters from
+right, Back from left. Home, Settings, Bluetooth, host actions, rename/delete,
+and pairing participate; focus moves, typed characters, and status updates do
+not restart transitions. The Home wave pauses during a slide. Input remains
+live; a newer navigation transition starts from the currently presented pixels.
+No event is queued for later host replay. Animation positions update at most
+once per 16 ms and stop at completion. Spring focus motion, sound, and
+display-power policy remain pending. If canvas allocation
+fails, the adapter retains direct drawing as a usable fallback. Full Device
+Manager integration and Phase 7 Action-to-HID mappings remain planned.
+
+BLE Off is the explicit persistent disconnect control on Cardputer. While BLE
+is On, the selected host may reconnect automatically, including after macOS's
+Disconnect command. Other saved hosts must not take over. Physical acceptance
+of filtering and the final UI is tracked in plan 017.
 
 ## 10. Verification Requirements
 
@@ -358,7 +422,31 @@ Physical Cardputer-Adv validation must confirm:
 
 ## 11. Current-Firmware Boundary
 
-This document is a requirement for future implementation. Until the relevant
-phase delivers and validates each behavior, the current supported UI remains
-the one described in `docs/manuals/`. Requirements here must be copied into the
-user manual only when they become available in shipped firmware.
+This document includes delivered behavior and future requirements. Home,
+Settings/Bluetooth, per-host menus, partial frame presentation, page slides,
+and the ambient wave are implemented. Launcher integration, spring focus motion,
+sound, dim/off/wake policy, and live clock/Wi-Fi composition remain open in the
+[phase checklist](ARCHITECTURE.md#47-initial-development-order). The manuals
+describe current operation; planned behavior must not be presented there as
+already supported.
+
+### First Bluetooth enable
+
+When no host is selected, the Bluetooth row directs focus to a saved host (or
+Add device for an empty list) with a visible Enter instruction. Focus alone does
+not select a host or start pairing. Home displays OFF until the user confirms;
+missing selection and invalid input are not Bluetooth ERROR states. Actual
+storage, Bluetooth, and missing-bond failures retain the ERROR treatment.
+
+Saved host intent is labelled SELECTED, never ACTIVE; selection remains visible
+while Off or after a failed connection attempt. READY denotes the actual secured
+HID connection. Home labels the corresponding name SELECTED HOST.
+
+Settings and the Bluetooth list have no bottom separator or Esc Home footer.
+Escape/backtick still returns Home; arrow and Enter controls remain unchanged. Enter on a saved host opens a
+Connect / Rename / Delete menu with Esc Back; opening it does not connect or
+change selection. The current host name appears below the actions. Rename and
+Delete use Esc Cancel; Delete shows the exact host name and needs confirmation.
+Back from either returns to the host menu, then the Bluetooth list, then Home.
+The global X / Forget all hosts UI and Action are removed. Host action list
+navigation retains incremental painting and the shared palette/font geometry.

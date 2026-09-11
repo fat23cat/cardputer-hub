@@ -15,7 +15,9 @@ class Esp32BluetoothAdapter final : public connectivity::IBluetoothAdapter {
     connectivity::BluetoothAdapterResult
     initialize(const connectivity::BluetoothDeviceConfig& config, std::uint32_t lifecycle) override;
     connectivity::BluetoothAdapterResult shutdown() override;
-    connectivity::BluetoothAdvertisingResult startAdvertising(std::uint32_t lifecycle) override;
+    connectivity::BluetoothAdvertisingResult startAdvertising(
+        std::uint32_t lifecycle,
+        std::optional<connectivity::BluetoothBondReference> target = std::nullopt) override;
     connectivity::BluetoothAdapterResult requestAdvertisingStop() override;
     connectivity::BluetoothAdapterResult
     disconnectPeer(connectivity::BluetoothPeerHandle peer) override;
@@ -24,6 +26,8 @@ class Esp32BluetoothAdapter final : public connectivity::IBluetoothAdapter {
     bondState(connectivity::BluetoothPeerHandle peer) override;
     connectivity::BluetoothAdapterResult
     beginPairing(connectivity::BluetoothPeerHandle peer) override;
+    connectivity::BluetoothAdapterResult
+    restoreBondSecurity(connectivity::BluetoothPeerHandle peer) override;
     connectivity::BluetoothAdapterResult
     respondToPairing(connectivity::BluetoothPeerHandle peer,
                      connectivity::BluetoothPairingChallengeType type, bool accepted,

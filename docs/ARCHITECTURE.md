@@ -192,6 +192,52 @@ IndicatorService  → status
 
 Home must not implement these functions itself.
 
+The initial Home dashboard is implemented under plan 017. It displays actual
+HostService state, a compact Micro 5 host label, a single Wi-Fi status, and
+battery telemetry. It does not act as the future AppRegistry-driven Launcher.
+`ApplicationShell` owns a NavigationStack rooted at `home`; Tab (also G0 or Fn+Tab) routes
+`ui.settings` through ActionBus to a general Settings list. Its Bluetooth entry
+routes `ui.bluetooth` to the existing HostSettings view. `ui.back` dismisses a
+local modal before returning Home; navigation never changes radio policy.
+Full Launcher and Mini App lifecycle remain pending.
+
+`BatteryService` owns a read-only optional estimated percentage and samples
+`IBatteryAdapter` immediately on its first update, then at most once every five
+seconds of injected monotonic elapsed time. Invalid/unavailable readings clear
+the value; delayed updates never cause catch-up sampling bursts. The Cardputer
+adapter obtains the estimate from the pinned M5Unified power driver. The main
+composition passes the snapshot into the shell; drawing code does not read
+hardware or manage polling. This does not add a BLE battery service.
+
+The clock slot displays `--:--` pending a time source. Normal firmware does not
+yet compose WiFiService, so its status is explicitly OFFLINE without an SSID.
+Future clock and Wi-Fi indicators must consume their owning Services or
+Connectivity state. Battery percentage is a voltage-derived estimate, especially
+while externally powered, rather than a calibrated charge gauge.
+
+Home's approved ambient dotted wave is presentation state owned by the shell:
+a 28-second cycle, at most two updates per second, using injected elapsed time
+and only the lower 36 rows. It pauses while Home is hidden. Static labels and
+icons have separate dirty regions; menus and pairing do not animate this wave.
+
+The display contract adds optional `beginFrame`/`endFrame` grouping. The Cardputer
+adapter lazily creates a 240×135 RGB565 canvas after board initialization, tracks
+drawing damage, and presents only the completed clipped region at frame end.
+No drawing and no active transition means no transfer. `SlideTransition` in
+System Core provides bounded, testable 220 ms cubic timing and pixel composition
+for interruption. Views request forward/backward presentation through the
+optional display transition contract, before replacing page content; the shell
+supplies monotonic elapsed time each frame. UI navigation semantics remain in
+the shell/HostSettings, and LCD snapshot memory and presentation remain in the
+adapter. A transient second RGB565 buffer holds outgoing pixels. It is freed
+when the slide finishes; allocation failure falls back to immediate completed
+presentation. New navigation during a slide snapshots the currently visible
+composition, keeping input responsive without jumping to a hidden destination.
+Multiple navigation Actions in one input poll retain one source snapshot and
+target the final page. Direct drawing remains available for startup,
+validation harnesses, and allocation failure. UI objects retain ownership of
+layout and view state; the adapter owns canvas memory and physical LCD I/O.
+
 ---
 
 ## 6. App Registry
@@ -368,8 +414,19 @@ reset, push, current-route inspection, and root-preserving Back traversal. It
 does not interpret route syntax, carry route parameters, render a destination,
 activate application lifecycle, or restore view state.
 
-Phase 4 application-shell code will own and integrate this history with Home,
-Launcher, global shortcuts, and navigation Actions. Phase 5 will define Mini
+The initial application shell now integrates this history with Home, a general Settings menu,
+Bluetooth settings, and navigation Actions. Tab (also G0 or Fn+Tab) dispatches `ui.settings` and
+the Settings Bluetooth entry dispatches `ui.bluetooth`; opening either menu has
+no host-control side effects. The existing BLE list keeps Esc Home; Tab, G0 or Fn+Tab can
+return from that list to Settings. Host submenus and editing/pairing modals consume
+the shortcut without abandoning their state. Ordinary Enter/B on Home do
+nothing. The hardware layout exposes Tab on the Fn layer while the shell owns
+its meaning. The Cardputer input adapter additionally emits a local
+`NamedKey::SystemMenu` on the debounced G0/BtnA press edge, independently of
+keyboard-matrix initialization. Shell routes it to the same Settings Action;
+it never becomes host input or repeats while held. The ROM download behavior
+of G0 at boot/reset is unchanged. Plain Tab is scoped to built-in system
+screens; future text-entry Mini Apps must retain their normal Tab behavior. Launcher and broader global-shortcut integration remain Phase 4 work. Phase 5 will define Mini
 App view objects and lifecycle; those view implementations remain outside the
 navigation history primitive.
 
@@ -412,7 +469,7 @@ host, switches HID output, restarts Bluetooth, or changes a bond.
 There is no transport selector, automatic fallback, channel preference, or
 USB HID implementation. `BluetoothService` exposes its selected-host HID view
 through `IHidTransport`. Future Services receive this hardware-neutral boundary
-rather than depending on BLE hardware. `HostService` will own the active
+rather than depending on BLE hardware. `HostService` owns the active
 `HostProfile` and supply its opaque BLE bond; device names and platforms remain
 data, not Connectivity policy.
 
@@ -528,10 +585,17 @@ The public lifecycle state is one of `Disabled`, `Idle`, `Advertising`,
 `Connected`, `RetryWaiting`, or `Error`. Only one peer may be current. Outside
 an explicit pairing window, a newly connected peer must already have a bond;
 unbonded and additional peers are disconnected without replacing the current
-connection. Advertising remains blocked while any requested peer rejection is
-in flight; the one-second reconnect delay starts only after the final rejected
-peer reports disconnection. An unexpected disconnection likewise waits one
-second before advertising again. Retryable advertising failures wait 1, 2, 4,
+connection. For an admitted bonded peer, the Service explicitly requests
+`IBluetoothAdapter.restoreBondSecurity(peer)`. The adapter verifies that the
+bond exists and asks the central to restore encryption using its saved keys;
+it accepts an already protected link or an already-running security procedure.
+This operation is independent of new-pairing capacity and never opens a pairing
+window or deletes bonds. Initiation failure enters Error with normal adapter
+cleanup. HID remains Starting until security and both subscriptions are
+confirmed by current-peer events. Advertising remains blocked while any
+requested peer rejection is in flight; the one-second reconnect delay starts
+only after the final rejected peer reports disconnection. An unexpected
+disconnection likewise waits one second before advertising again. Retryable advertising failures wait 1, 2, 4,
 8, 16, and then 30 seconds,
 remaining capped at 30 seconds; successful advertising or connection resets
 that backoff. Documented NimBLE resource-pressure, busy, and timeout advertising
@@ -541,6 +605,14 @@ resources and require a later explicit enable. Each asynchronous advertising
 operation retains the non-identifying lifecycle generation that issued it.
 Combined with definitive shutdown on disable, this prevents queued callbacks
 from an older attempt from being relabeled as or reactivating a new attempt.
+
+The ESP32 adapter normalizes NimBLE peer-event ordering: security, identity,
+pairing challenges, and restored subscriptions may precede NimBLE's CONNECT
+callback. It announces the live peer before forwarding that peer's first event
+and ignores a later duplicate CONNECT without resetting HID state. Disconnect
+or definitive shutdown clears this ordering state before a handle is reused.
+A failed delayed CONNECT closes an already-announced peer. This normalization
+does not bypass the Service's bond, target, pairing, or HID admission checks.
 
 `BluetoothService` owns the hardware-independent authenticated-pairing policy.
 `openPairing` creates one explicit 120-second Add Device window; its timer
@@ -567,7 +639,7 @@ Changing targets disconnects the previous peer without deleting either bond.
 Removing an active bond disconnects before deletion, and remove-all visits
 every known bond and reports partial failure. Pairing, target replacement, and
 active-bond deletion advance only through `update(elapsed)` callback events.
-Future `HostService` owns the mapping from these references to `HostProfile`
+`HostService` owns the mapping from these references to `HostProfile`
 data; Connectivity never stores host names, platforms, or user-specific cases.
 
 The Service exposes its BLE `IHidTransport` implementation through
@@ -587,9 +659,19 @@ callbacks cannot restore it.
 The Service holds non-owning adapter and optional logger references, which must
 outlive it. Logs describe fixed lifecycle outcomes and never include device
 names, peer handles, addresses, passkeys, comparison values, bond references,
-or other identity data. The foundation is not composed into `main.cpp`, so
-Bluetooth remains inactive during normal boot. Device Manager pairing UI and
-Action-to-HID routing remain separate later changes.
+or other identity data. Normal firmware composes Bluetooth through HostService.
+It first initializes without advertising to reconcile saved bonds, then applies
+the persisted active host and BLE enabled setting. Missing configuration defaults
+to BLE Off. The local Hosts settings screen supports pairing and host selection;
+Action-to-HID mapping remains Phase 7 work.
+
+Outside explicit pairing, the production composition advertises only for its
+selected bond. The ESP32 controller connection accept list contains that peer's
+resolved identity; other peers are also rejected at the Service boundary.
+Changing an advertising target or opening/closing pairing stops and restarts
+advertising with the new filter. A filter setup error never falls back to an
+unrestricted advertisement. `BluetoothStartup::Idle` and `advertise()` allow
+HostService to install policy before the first advertisement.
 
 Responsibilities:
 
@@ -738,9 +820,77 @@ Bluetooth bond
 HostProfile
 ```
 
+### Implemented HostService contract
+
+The initial implementation provides `start`, `update`, `selectHost`,
+`setEnabled`, `renameHost`, `startPairing`, `cancelPairing`, and `deleteHost`. UI intentions
+use the shared ActionBus: `host.select` (`id`), `host.bluetooth` (`enabled`),
+`host.rename` (`id`, `name`), `host.pair`, `host.cancel-pairing`, and
+`host.pair-response` (`generation`, `accepted`, optional six-digit `passkey`),
+and `host.delete` (`id`).
+IDs are positive 32-bit Action integers; names are printable ASCII, 1–24
+characters, and cannot be entirely spaces. Unknown/invalid Actions are rejected.
+Pairing responses must match the current challenge generation. Secrets and
+pairing codes are displayed locally, never logged.
+
+At startup, existing opaque bonds are imported once as `Host N` profiles without
+advertising or deleting pairs. Profile IDs stay stable across rename/reboot.
+New authenticated pairs are added and selected automatically. Cancelling or
+expiring the two-minute pairing window restores the previous saved selection
+and enabled state. Pairing temporarily permits a new peer; ordinary operation
+permits only the selected bond.
+
+Selection means persisted user intent, not proof of a live connection. Changing
+host releases reports and shuts down the previous BLE lifecycle before saving
+and advertising for the new target. BLE Off shuts down advertising and active
+connections while retaining profiles and selection. The setting survives reboot.
+An unavailable host never causes fallback to another laptop. A missing bond or
+storage/adapter failure closes BLE and exposes a failure result; saved data is
+not erased. Shutdown uses the adapter's bounded synchronous lifecycle barrier;
+connection and pairing progress are driven by `update(elapsed)`. An immediate
+Off after Idle initialization waits for the adapter's initial NimBLE sync before
+stopping the stack. If that bounded wait expires, cleanup retains ownership and
+reports failure; startup resources must not be freed while stage-2 initialization
+still uses them.
+The adapter also waits for that first synchronization before returning successful
+initialization: with NimBLE STATIC_TO_DYNAMIC enabled, stage-2 privacy startup
+reloads the bond store. Immediate registry queries must not observe its transient
+empty state. This uses the completion signal and a bounded deadline, not a fixed
+sleep. Host activation failures can emit non-identifying stage diagnostics through
+the shared Logger; addresses, references, names, keys, and codes are excluded.
+The UI labels persisted intent SELECTED, including while Off or after a fault;
+READY alone confirms secured HID connectivity.
+
+Enabling without an active host returns `HostSelectionRequired`, with no adapter
+calls or configuration writes. The Bluetooth panel moves focus to the first saved
+host, or to Add device when the list is empty, and asks for Enter to confirm.
+It never selects a laptop or opens pairing merely by moving focus. Home keeps
+showing OFF for this prerequisite and for invalid input; ERROR is reserved for
+storage, Bluetooth, and missing-bond failures or an actual Bluetooth Error state.
+
+`deleteHost(id)` removes only the named profile and its Bluetooth bond through
+BluetoothService. The local host menu exposes Connect, Rename, and Delete;
+opening it has no radio side effects and deletion requires confirmation.
+Deleting the selected host first releases/disconnects it and persists Off, then
+clears selection without fallback. Deleting an unselected host leaves the live
+selected connection intact; BluetoothService completes that unrelated bond
+removal without waiting for the current peer to disconnect. A missing bond can
+still have its stale profile removed. Failures retain the profile for retry and
+stop BLE; other profiles and the monotonic next-host ID are preserved. There is
+no global delete UI or `host.forget-all` Action.
+
+The accepted interaction is Cardputer-side host selection and BLE On/Off.
+A computer's Disconnect button is not the persistent Off setting: macOS may
+reconnect its system HID client while that host remains selected and BLE is On.
+A future companion can reuse these logical operations through an authenticated
+control API, but that API and its network/security lifecycle are not implemented.
+
 ## 17. Host Profiles
 
-A `HostProfile` should contain information such as:
+The delivered `HostProfile` contains `id`, `name`, and an opaque BLE `bond`.
+Platform, capabilities, application configuration, and Action mappings remain
+future profile extensions; no personal laptop is encoded in application logic.
+The broader profile model should eventually contain information such as:
 
 ```text
 id
@@ -769,7 +919,10 @@ They must not be hardcoded as special cases.
 
 ## 18. Adding a Host
 
-Expected pairing flow:
+The current Hosts settings screen creates a default-named profile after
+successful pairing and allows renaming with R. Platform and template editing
+belong to the later full Device Manager flow:
+
 
 ```text
 Device Manager
@@ -843,7 +996,16 @@ Device Control → host required
 
 ## 21. Device Manager Mini App
 
-Device management UI is implemented as a Mini App.
+The full Device Manager is planned as a Mini App. The delivered minimal
+`HostSettings` screen opens from Home and handles list navigation, BLE On/Off,
+pairing prompts, selection, and renaming. It renders Service state and routes
+logical Actions; it does not own pairing, persistence, or connection policy.
+Its keys remain local and are not forwarded as HID input. The list maps plain
+`;`/`.` input to Up/Down Actions without changing the shared keyboard translator;
+text-entry views retain punctuation. A cached list view limits painting to changed
+rows and status/footer/error regions, while a modal transition invalidates that
+cache. Hardware adapters retain ownership of actual display calls. Launcher integration,
+platform editing, and templates remain later work.
 
 Example:
 
@@ -1553,12 +1715,21 @@ defaults, validation, migrations, and application-level configuration
 operations. It uses the configuration interfaces and persistence primitives
 provided by System Core; System Core must not duplicate this domain behavior.
 
-Configuration includes:
+The initial delivered schema contains Host Profiles, `activeHost`, monotonic
+`nextHostId`, and `bluetoothEnabled`. One versioned binary record at
+`StorageAddress{"hosts", "configuration"}` lives in internal `hub_config` NVS.
+Its `HUBH`/version-1 header, bounded lengths/count (up to 16 hosts), unique IDs
+and bonds, valid names and selected ID are checked before acceptance. Missing
+records default to an empty list and BLE Off. Invalid, unknown-version, or
+unreadable records are preserved and reported as errors, never reset silently.
+Writes publish the new in-memory value only after successful storage. Schema
+migration must be added explicitly when a later version is introduced.
+
+Broader configuration remains planned and includes:
 
 ```text
 Wi-Fi settings
-Host Profiles
-active host
+HostProfile platform/capability extensions
 enabled Mini Apps
 Mini App settings
 Service configuration
@@ -1629,10 +1800,10 @@ separate because Arduino startup may erase that partition while recovering
 from incompatible or exhausted NVS metadata. The adapter explicitly
 initializes `hub_config`, never erases or reinitializes it as recovery, and
 reports initialization failure as `BackendError`. This dedicated NVS
-partition is authoritative for future boot-critical configuration, but no
-configuration value, credential, or other product data is currently persisted
-by the firmware. `ConfigurationService`, when introduced, will own schemas,
-serialization, defaults, domain validation, and migrations.
+partition now stores the authoritative HostConfiguration record.
+`ConfigurationService` owns its schema, serialization, defaults, and domain
+validation. Bluetooth bond keys remain in the separate NimBLE store; profiles
+contain only opaque references. Wi-Fi credentials are not persisted yet.
 
 The Phase 2 Wi-Fi foundation does not persist credentials. Connection
 configuration is supplied in memory to `WiFiService`, and the ESP32 adapter
@@ -1904,176 +2075,164 @@ Bluetooth operation. Wi-Fi and BLE do not depend on a USB data connection.
 
 ## 47. Initial Development Order
 
+Reviewed against the implementation and verification records on **2026-09-11**.
+A checked implementation item is delivered and covered by the applicable local
+checks; it is not a claim that every physical acceptance case has passed.
+The current device evidence and remaining checks are in
+[plan 017](plans/017-hid-transport-arbitration.md#0-current-closeout-status).
+Earlier plan records retain their historical test counts and toolchains.
+
+| Phase | Current status |
+| --- | --- |
+| 1 — System Core | Complete |
+| 2 — Connectivity | Software scope complete; physical acceptance partial |
+| 3 — Core Services | Partial: host/configuration Services delivered |
+| 4 — Application Shell | Partial: Home, Settings, navigation and page transitions delivered |
+| 5 — Mini App Infrastructure | Not implemented; Phase 1 registry prerequisites exist |
+| 6 — Device Manager | Partial: built-in Bluetooth/host UI delivered |
+| 7 — Host Control | Not implemented; Phase 2 HID transport prerequisite exists |
+| 8 — Weather | Not implemented |
+| 9 — RGB Indicator | Not implemented; Unit Puzzle hardware required |
+| 10 — Remote Boundary | Not implemented |
+| 11 — Extensions | Future scope |
+
 ### Phase 1 — System Core
 
-Implement:
+**Complete** — plans 001–009 establish the foundations.
 
-```text
-Boot
-Logging
-Configuration interfaces
-Record Storage facade and ESP32 NVS adapter
-File Storage facade and Cardputer microSD adapter
-Input
-Display
-Navigation history primitive
-Capability Registry
-AppRegistry
-Action model
-Action Bus
-```
+- [x] Boot, build identity, and structured logging.
+- [x] Configuration interfaces and record Storage with ESP32 NVS adapter.
+- [x] File Storage facade and Cardputer microSD adapter.
+- [x] Semantic keyboard input and display boundary.
+- [x] NavigationStack history primitive.
+- [x] Capability Registry and metadata-only AppRegistry.
+- [x] Action model and ActionBus routing.
 
-Phase 1 establishes the microSD boundary and verifies the adapter, but does not
-make removable media a boot dependency or introduce a file browser, automatic
-backup, configuration import, or application-specific card contents.
-
-The verified microSD facade and Cardputer adapter complete the Phase 1
-foundations. This does not make later-phase behavior operational: connectivity
-begins in Phase 2, Launcher behavior remains Phase 4, and AppRegistry and
-capability integration remain Phase 5.
+microSD remains optional and is not mounted by normal boot. These foundations
+do not imply a file browser, backup/import flow, or running Mini Apps.
 
 ### Phase 2 — Connectivity
 
-Implement:
+**Software scope complete; physical acceptance partial** — plans 010–015 and
+017. Plan 016 and transport arbitration are cancelled, not outstanding work.
 
-```text
-WiFiService
-BluetoothService
-BLE HID transport
-pairing
-bond persistence
-reconnection
-```
+- [x] WiFiService state machine and ESP32 station adapter.
+- [x] BluetoothService lifecycle and direct ESP-NimBLE adapter.
+- [x] Authenticated pairing, interruption recovery, cancellation and timeout.
+- [x] Opaque bond references, persistence, selection and removal.
+- [x] Selected-bond reconnection, restored security and HID subscriptions.
+- [x] Shared IHidTransport/report contract and BLE keyboard/consumer transport.
+- [x] USB HID removal; fixed USB Serial/JTAG diagnostics and build guards.
+- [x] Native unit/integration checks and Cardputer-Adv production compilation.
+- [ ] Final physical acceptance matrix in plan 017, including
+  report/cable/interruption reruns, long Off/reboot-Off, and the
+  explicitly retained duration/equipment gaps from plans 012/014.
 
-The Wi-Fi connectivity foundation is complete: the Service state machine and
-ESP32 station adapter compile with the firmware, but remain inactive until a
-later composition owner supplies runtime configuration and elapsed time.
-The Bluetooth lifecycle plus authenticated pairing and bond-management
-foundations are implemented: their Service state machines and direct
-ESP-NimBLE peripheral adapter compile with the firmware but remain inactive.
-The shared HID report contract and BLE keyboard/consumer transport are
-implemented behind the selected authenticated bond. The BLE-only Phase 2
-scope consists of plans 010-015 plus the removal and closeout work in revised
-plan 017; plan 016 is cancelled. Transport expansion is deferred and does not
-block this scope. There is no remaining Phase 2 router or application Service
-to implement. The final BLE firmware still requires physical acceptance as
-recorded in plan 017 before Phase 2 is declared fully verified.
+The operator confirmed adding two computers, switching between them, and
+reconnection to the last selected host on power-on on 2026-09-11.
 
-Normal firmware does not yet compose Wi-Fi/Bluetooth or send host-control
-reports: it retains the boot screen and serial diagnostics. Phase 3 supplies
-application Services and configuration; pairing UI and Action mapping remain
-with their later owners. The opt-in plan-015 image exercises BLE on hardware.
+Wi-Fi is compiled but uncomposed in normal firmware; configuration and Wi-Fi UI
+are later work. BLE is composed by HostService. USB serial hotplug is an open
+observation independent of the BLE transport, not a reason to restore routing.
+Transport expansion does not block the BLE-only software scope.
 
 ### Phase 3 — Core Services
 
-Implement:
+**Partial** — the host/configuration slice was brought forward under plan 017.
 
-```text
-HostService
-ConfigurationService
-```
-
-Prepare:
-
-```text
-IndicatorService abstraction
-```
+- [x] HostService: import existing bonds, pair/add, select, rename and delete hosts.
+- [x] Persisted active-host intent and Cardputer BLE On/Off.
+- [x] Selection isolation, release-before-switch and failure results through Actions.
+- [x] ConfigurationService: bounded version-1 host schema, validation, defaults,
+  stable IDs and writes that publish state only after successful storage.
+- [x] BatteryService: optional hardware estimate, bounded five-second sampling.
+- [ ] Broader HostProfile platform/capability data and mapping templates.
+- [ ] Wi-Fi, Mini App, Service, shortcut, indicator and remote configuration.
+- [ ] Explicit schema migrations when a later schema version is introduced.
+- [ ] IndicatorService abstraction.
 
 ### Phase 4 — Application Shell
 
-Implement:
+**Partial** — the delivered built-in shell is not the full Launcher.
 
-```text
-Home
-Launcher
-Navigation history integration
-Global shortcuts
-Settings foundation
-```
+- [x] Home with selected host, real BLE state, estimated battery and ambient wave.
+- [x] General Settings menu and Bluetooth entry.
+- [x] NavigationStack/ActionBus integration and modal-aware Back behavior.
+- [x] Plain Tab for built-in settings; Fn+Tab and G0 alternatives.
+- [x] Shared palette, bitmap typography, buffered dirty-region presentation.
+- [x] Non-blocking 220 ms page slides and interruption from the visible frame.
+- [ ] AppRegistry-driven Launcher and navigation into arbitrary Mini Apps.
+- [ ] Configurable global shortcuts and broader shell controls.
+- [ ] Live clock and Wi-Fi status composition; current placeholders are explicit.
+- [ ] Spring focus motion, synthesized sound and persistent sound settings.
+- [ ] Idle dim/off, brightness policy and wake-input consumption.
 
 ### Phase 5 — Mini App Infrastructure
 
-Implement:
+**Not implemented** — AppRegistry and Capability Registry already exist as
+Phase 1 primitives, but their runtime integration remains here.
 
-```text
-MiniApp interface
-AppRegistry integration
-App lifecycle
-Mini App views
-Capability checks
-```
+- [ ] MiniApp interface and Mini App view model.
+- [ ] AppRegistry integration with Launcher.
+- [ ] Mini App lifecycle and Service lifecycle composition.
+- [ ] Runtime capability checks for launching/running Mini Apps.
 
 ### Phase 6 — Device Manager
 
-Implement:
+**Partial** — built-in HostSettings is delivered; full Device Manager integration
+with the Phase 5 Mini App contract remains open.
 
-```text
-host list
-pair device
-edit profile
-delete device
-switch active host
-```
+- [x] Host list and separate SELECTED versus connection status.
+- [x] Add device and authenticated pairing prompts.
+- [x] Rename a host while preserving its identity.
+- [x] Delete one host and bond with confirmation; preserve other profiles.
+- [x] Select/connect a host and control persisted BLE On/Off through HostService.
+- [ ] Platform/capability editing and templates beyond the display name.
+- [ ] Full Device Manager Mini App registration, lifecycle and capability checks.
 
 ### Phase 7 — Host Control
 
-Implement:
+**Not implemented** — Phase 2 provides the HID transport and diagnostic report
+commands; normal firmware does not map Cardputer typing or Actions to host input.
 
-```text
-basic HID actions through the Phase 2 IHidTransport boundary
-application focus actions
-host-specific mappings
-```
+- [ ] Basic host HID Actions through IHidTransport.
+- [ ] Application focus Actions.
+- [ ] Host-specific mappings and templates.
 
 ### Phase 8 — Weather
 
-Implement:
+**Not implemented.** This will validate one Service consumed by several UI views.
 
-```text
-WeatherService
-WeatherApp
-Home weather summary
-```
-
-This validates that one Service can be consumed by several UI surfaces.
+- [ ] WeatherService.
+- [ ] WeatherApp.
+- [ ] Home weather summary.
 
 ### Phase 9 — RGB Indicator
 
-When Unit Puzzle hardware is available, implement:
+**Not implemented; requires Unit Puzzle hardware.**
 
-```text
-Puzzle adapter
-IndicatorService states
-animations
-priority
-```
+- [ ] Puzzle hardware adapter.
+- [ ] IndicatorService states.
+- [ ] Animations and priority arbitration.
 
 ### Phase 10 — Remote Boundary
 
-Implement the architectural boundary:
+**Not implemented.** A full Web UI or Telegram integration is not required yet.
 
-```text
-RemoteControlService
-authentication boundary
-Action Bus integration
-```
-
-A complete Web UI or Telegram integration is not required yet.
+- [ ] RemoteControlService.
+- [ ] Authentication boundary.
+- [ ] ActionBus integration.
 
 ### Phase 11 — Extensions
 
-Possible future work:
+**Future scope; none of these integrations is implemented.**
 
-```text
-VpsService
-VPS Monitor
-TelegramService
-Telegram integration
-MediaService
-Home Assistant
-Web UI
-Host Companion
-```
+- [ ] VpsService and VPS Monitor.
+- [ ] TelegramService and Telegram integration.
+- [ ] MediaService.
+- [ ] Home Assistant.
+- [ ] Web UI.
+- [ ] Host companion/CLI and authenticated control protocol.
 
 ---
 

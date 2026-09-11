@@ -221,7 +221,10 @@ Then:
 HostService requests connection to Personal MacBook
 
 And:
-activeHost becomes Personal MacBook after successful connection
+activeHost is saved as Personal MacBook before advertising for that host
+
+And:
+connection readiness is reported separately without fallback to another host
 ```
 
 Avoid tests that fail only because internal functions or classes were renamed.

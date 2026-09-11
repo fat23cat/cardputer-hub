@@ -2,6 +2,11 @@
 
 Status: **Implemented; historical physical results recorded; final BLE-only rerun pending**
 
+Current BLE-only product acceptance is consolidated in
+[plan 017](017-hid-transport-arbitration.md#0-current-closeout-status). The results
+below belong to their recorded harness/image; they are not a complete rerun of
+the final HostService firmware.
+
 This plan describes the fifth granular Phase 2 change. It defines the shared
 hardware-neutral HID report contract and adds a BLE HID keyboard and consumer
 control transport to the authenticated, selected Bluetooth connection.

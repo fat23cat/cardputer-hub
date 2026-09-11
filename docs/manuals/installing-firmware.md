@@ -116,6 +116,14 @@ If ESP-IDF cannot enter download mode:
 3. Release `G0`.
 4. Run the selected installation command again.
 
+If the USB port remains absent, use the manufacturer's cold-start download
+procedure: disconnect USB, set the side switch to `OFF`, hold `G0`, reconnect
+USB, then release `G0`. List serial ports again before retrying the upload.
+This procedure restored the downloader during BLE-only validation after a
+battery-powered USB replug failed to restore serial; it does not erase stored
+data or prove the cause of the USB issue. See the
+[M5Stack Cardputer/Adv programming guide](https://docs.m5stack.com/en/arduino/m5cardputer/program).
+
 ### Updating with Published Release Assets
 
 Each GitHub Release contains a versioned application image, its matching
@@ -164,7 +172,7 @@ sequence above and specify its detected serial port.
 ## 6. Verify the Installation
 
 The display should show `Cardputer Hub` and the embedded firmware version on a
-black boot screen. To inspect serial output, run:
+startup screen, followed by Home. To inspect serial output, run:
 
 ```bash
 make monitor

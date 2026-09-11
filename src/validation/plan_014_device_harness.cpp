@@ -157,9 +157,9 @@ connectivity::BluetoothAdapterResult Plan014BluetoothAdapter::shutdown() {
     return adapter_.shutdown();
 }
 
-connectivity::BluetoothAdvertisingResult
-Plan014BluetoothAdapter::startAdvertising(std::uint32_t lifecycle) {
-    return adapter_.startAdvertising(lifecycle);
+connectivity::BluetoothAdvertisingResult Plan014BluetoothAdapter::startAdvertising(
+    std::uint32_t lifecycle, std::optional<connectivity::BluetoothBondReference> target) {
+    return adapter_.startAdvertising(lifecycle, target);
 }
 
 connectivity::BluetoothAdapterResult Plan014BluetoothAdapter::requestAdvertisingStop() {
@@ -176,7 +176,25 @@ connectivity::BluetoothPollResult Plan014BluetoothAdapter::pollEvent() {
         failNextPoll_ = false;
         return connectivity::BluetoothPollResult::adapterError();
     }
-    return adapter_.pollEvent();
+    const auto result = adapter_.pollEvent();
+#if CARDPUTER_HUB_PLAN_015_VALIDATION
+    if (result.status == connectivity::BluetoothPollStatus::Event &&
+        (result.event.type == connectivity::BluetoothEventType::PairingCompleted ||
+         result.event.type == connectivity::BluetoothEventType::HidReadinessChanged)) {
+        const auto& event = result.event;
+        Serial.printf("[VALIDATION 015] readiness event=%s encrypted=%u authenticated=%u "
+                      "bonded=%u keyboard=%u consumer=%u report_protocol=%u\n",
+                      event.type == connectivity::BluetoothEventType::PairingCompleted ? "security"
+                                                                                       : "hid",
+                      static_cast<unsigned>(event.security.encrypted),
+                      static_cast<unsigned>(event.security.authenticated),
+                      static_cast<unsigned>(event.security.bonded),
+                      static_cast<unsigned>(event.keyboardSubscribed),
+                      static_cast<unsigned>(event.consumerSubscribed),
+                      static_cast<unsigned>(event.reportProtocol));
+    }
+#endif
+    return result;
 }
 
 connectivity::BluetoothBondQueryResult
@@ -187,6 +205,11 @@ Plan014BluetoothAdapter::bondState(connectivity::BluetoothPeerHandle peer) {
 connectivity::BluetoothAdapterResult
 Plan014BluetoothAdapter::beginPairing(connectivity::BluetoothPeerHandle peer) {
     return adapter_.beginPairing(peer);
+}
+
+connectivity::BluetoothAdapterResult
+Plan014BluetoothAdapter::restoreBondSecurity(connectivity::BluetoothPeerHandle peer) {
+    return adapter_.restoreBondSecurity(peer);
 }
 
 connectivity::BluetoothAdapterResult
@@ -454,6 +477,12 @@ void Plan014DeviceHarness::printHelp() const {
 }
 
 void Plan014DeviceHarness::printStatus() {
+#if CARDPUTER_HUB_PLAN_015_VALIDATION
+    if (const auto peer = bluetoothService_.currentConnection(); peer.has_value()) {
+        const auto readiness = bluetoothAdapter_.hidReadiness(*peer);
+        Serial.printf("[VALIDATION 015] adapter readiness=%u\n", static_cast<unsigned>(readiness));
+    }
+#endif
     const auto result = bluetoothService_.bonds();
     const bool bondQuerySucceeded = result.status == connectivity::BluetoothBondListStatus::Success;
     Serial.printf("[VALIDATION 014] status bluetooth=%s pairing=%s connected=%s bonds=%s",

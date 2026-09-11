@@ -93,7 +93,10 @@ class FakeBluetoothAdapter final : public IBluetoothAdapter {
         initializedConfigs.push_back(lastConfig = config);
         return initializeResult;
     }
-    BluetoothAdvertisingResult startAdvertising(std::uint32_t lifecycle) override {
+    BluetoothAdvertisingResult
+    startAdvertising(std::uint32_t lifecycle,
+                     std::optional<BluetoothBondReference> target = std::nullopt) override {
+        advertisingTargets.push_back(target);
         ++callCount;
         ++startAdvertisingCount;
         advertisingLifecycles.push_back(lifecycle);
@@ -151,6 +154,19 @@ class FakeBluetoothAdapter final : public IBluetoothAdapter {
         pairingPeers.push_back(peer);
         return beginPairingResult;
     }
+    BluetoothAdapterResult restoreBondSecurity(BluetoothPeerHandle peer) override {
+        restoredSecurityPeers.push_back(peer);
+        if (restoreSecurityEmitsReady && restoreSecurityResult == BluetoothAdapterResult::Success) {
+            BluetoothEvent ready{BluetoothEventType::HidReadinessChanged, peer,
+                                 BluetoothFailureClass::Fatal, initializeLifecycles.back()};
+            ready.security = {true, true, true, true};
+            ready.keyboardSubscribed = true;
+            ready.consumerSubscribed = true;
+            ready.reportProtocol = true;
+            events.push_back(ready);
+        }
+        return restoreSecurityResult;
+    }
     BluetoothAdapterResult respondToPairing(BluetoothPeerHandle peer,
                                             BluetoothPairingChallengeType type, bool accepted,
                                             std::optional<std::uint32_t> passkey) override {
@@ -200,6 +216,7 @@ class FakeBluetoothAdapter final : public IBluetoothAdapter {
         std::optional<std::uint32_t> passkey;
     };
 
+    std::vector<std::optional<BluetoothBondReference>> advertisingTargets;
     int callCount = 0;
     int initializeCount = 0;
     int startAdvertisingCount = 0;
@@ -215,6 +232,8 @@ class FakeBluetoothAdapter final : public IBluetoothAdapter {
     BluetoothPollResult pollResult = BluetoothPollResult::noEvent();
     BluetoothBondQueryResult bondResult = BluetoothBondQueryResult::Bonded;
     BluetoothAdapterResult beginPairingResult = BluetoothAdapterResult::Success;
+    BluetoothAdapterResult restoreSecurityResult = BluetoothAdapterResult::Success;
+    bool restoreSecurityEmitsReady = false;
     BluetoothAdapterResult pairingResponseResult = BluetoothAdapterResult::Success;
     BluetoothAdapterResult deleteResult = BluetoothAdapterResult::Success;
     BluetoothAdapterResult deletePeerBondResult = BluetoothAdapterResult::Success;
@@ -236,6 +255,7 @@ class FakeBluetoothAdapter final : public IBluetoothAdapter {
     std::deque<BluetoothAdapterResult> deleteResults;
     std::vector<std::uint32_t> advertisingLifecycles;
     std::vector<BluetoothPeerHandle> pairingPeers;
+    std::vector<BluetoothPeerHandle> restoredSecurityPeers;
     std::vector<PairingResponseCall> pairingResponses;
     std::vector<BluetoothBondReference> deletedBonds;
     std::vector<BluetoothPeerHandle> deletedPeerBonds;
@@ -280,6 +300,8 @@ class IsolationKeyboard final : public IKeyboardAdapter {
 
 class IsolationDisplay final : public IDisplayAdapter {
   public:
+    void fillRectangle(cardputer_hub::core::PixelPosition, std::int32_t, std::int32_t,
+                       cardputer_hub::core::RgbColor) override {}
     void clear(RgbColor) override { ++clearCount; }
     void drawText(PixelPosition, const char*, TextStyle) override { ++drawCount; }
 
@@ -1496,9 +1518,147 @@ void test_hid_releases_before_target_change_and_disable_and_reenable_starts_clea
                             static_cast<unsigned int>(service.hidTransport().state()));
 }
 
+void test_bonded_reconnect_requests_security_and_restores_hid_without_pairing_at_capacity() {
+    FakeBluetoothAdapter adapter;
+    for (std::uint8_t index = 1; index <= BluetoothService::maximumBondCount; ++index) {
+        adapter.bondListResult.bonds.push_back(bond(index));
+    }
+    const auto target = bond(1);
+    adapter.peerReferences[51] = target;
+    adapter.peerReferences[52] = target;
+    adapter.restoreSecurityEmitsReady = true;
+    BluetoothService service(adapter);
+    (void)service.enable({"Cardputer Hub"});
+    (void)service.selectBond(target);
+    adapter.events.push_back(peerConnected(51));
+    service.update(std::chrono::milliseconds::zero());
+
+    TEST_ASSERT_EQUAL_UINT8(static_cast<unsigned>(HidTransportState::Ready),
+                            static_cast<unsigned>(service.hidTransport().state()));
+    adapter.events.push_back(peerDisconnected(51));
+    service.update(std::chrono::milliseconds::zero());
+    TEST_ASSERT_EQUAL_UINT8(static_cast<unsigned>(HidTransportState::Unavailable),
+                            static_cast<unsigned>(service.hidTransport().state()));
+    service.update(std::chrono::seconds(1));
+    adapter.events.push_back(advertisingStarted());
+    adapter.events.push_back(peerConnected(52));
+    service.update(std::chrono::milliseconds::zero());
+
+    TEST_ASSERT_EQUAL_UINT8(static_cast<unsigned>(HidTransportState::Ready),
+                            static_cast<unsigned>(service.hidTransport().state()));
+    TEST_ASSERT_EQUAL_UINT32(2, adapter.restoredSecurityPeers.size());
+    TEST_ASSERT_EQUAL_UINT32(52, adapter.restoredSecurityPeers.back().value);
+    TEST_ASSERT_EQUAL_UINT8(static_cast<unsigned>(BluetoothPairingState::Closed),
+                            static_cast<unsigned>(service.pairingState()));
+    TEST_ASSERT_TRUE(service.selectedBond() == target);
+    TEST_ASSERT_TRUE(adapter.pairingPeers.empty());
+    TEST_ASSERT_TRUE(adapter.deletedBonds.empty());
+    TEST_ASSERT_TRUE(adapter.deletedPeerBonds.empty());
+    TEST_ASSERT_EQUAL_UINT32(BluetoothService::maximumBondCount, service.bonds().bonds.size());
+}
+
+void test_security_restore_failure_closes_connection_without_removing_bond() {
+    FakeBluetoothAdapter adapter;
+    const auto target = bond(1);
+    adapter.bondListResult.bonds = {target};
+    adapter.restoreSecurityResult = BluetoothAdapterResult::AdapterError;
+    BluetoothService service(adapter);
+    (void)service.enable({"Cardputer Hub"});
+    (void)service.selectBond(target);
+    adapter.events.push_back(peerConnected(53));
+    service.update(std::chrono::milliseconds::zero());
+
+    TEST_ASSERT_EQUAL_UINT8(static_cast<unsigned>(BluetoothState::Error),
+                            static_cast<unsigned>(service.state()));
+    TEST_ASSERT_FALSE(service.currentConnection().has_value());
+    TEST_ASSERT_EQUAL_INT(1, adapter.shutdownCount);
+    TEST_ASSERT_TRUE(service.selectedBond() == target);
+    TEST_ASSERT_TRUE(adapter.deletedBonds.empty());
+    TEST_ASSERT_TRUE(adapter.deletedPeerBonds.empty());
+    TEST_ASSERT_TRUE(adapter.pairingPeers.empty());
+}
+
+void test_rejected_peers_do_not_start_security_restoration() {
+    for (bool unbonded : {false, true}) {
+        FakeBluetoothAdapter adapter;
+        adapter.bondListResult.bonds = {bond(1), bond(2)};
+        adapter.peerReferences[54] = bond(2);
+        adapter.bondResult =
+            unbonded ? BluetoothBondQueryResult::Unbonded : BluetoothBondQueryResult::Bonded;
+        BluetoothService service(adapter);
+        (void)service.enable({"Cardputer Hub"});
+        (void)service.selectBond(bond(1));
+        adapter.events.push_back(peerConnected(54));
+        service.update(std::chrono::milliseconds::zero());
+
+        TEST_ASSERT_TRUE(adapter.restoredSecurityPeers.empty());
+        TEST_ASSERT_TRUE(adapter.pairingPeers.empty());
+        TEST_ASSERT_EQUAL_UINT32(1, adapter.disconnectedPeers.size());
+        TEST_ASSERT_FALSE(service.currentConnection().has_value());
+    }
+}
+
+void test_idle_startup_installs_selected_filter_before_first_advertisement() {
+    FakeBluetoothAdapter adapter;
+    BluetoothService service(adapter);
+    BluetoothBondReference bond{};
+    bond.bytes[0] = 42;
+    adapter.bondListResult = {BluetoothBondListStatus::Success, {bond}};
+    TEST_ASSERT_TRUE(service.enable({"Hub"}, cardputer_hub::connectivity::BluetoothStartup::Idle) ==
+                     BluetoothEnableResult::Enabled);
+    TEST_ASSERT_EQUAL(0, adapter.startAdvertisingCount);
+    TEST_ASSERT_TRUE(service.selectBond(bond) == BluetoothBondSelectionResult::Selected);
+    TEST_ASSERT_TRUE(service.advertise() == BluetoothAdvertisingResult::Started);
+    TEST_ASSERT_EQUAL(1, adapter.advertisingTargets.size());
+    TEST_ASSERT_TRUE(adapter.advertisingTargets.back() == bond);
+}
+
+void test_pairing_replaces_selected_only_advertising_with_open_advertising() {
+    FakeBluetoothAdapter adapter;
+    BluetoothService service(adapter);
+    BluetoothBondReference target{};
+    target.bytes[0] = 23;
+    adapter.bondListResult = {BluetoothBondListStatus::Success, {target}};
+    service.enable({"Hub"}, cardputer_hub::connectivity::BluetoothStartup::Idle);
+    service.selectBond(target);
+    service.advertise();
+    TEST_ASSERT_TRUE(service.openPairing() == BluetoothPairingOpenResult::Opened);
+    TEST_ASSERT_EQUAL(1, adapter.stopAdvertisingCount);
+    service.update(std::chrono::seconds(1));
+    TEST_ASSERT_EQUAL_UINT(2, adapter.advertisingTargets.size());
+    TEST_ASSERT_FALSE(adapter.advertisingTargets.back().has_value());
+}
+
+void test_advertising_filter_changes_with_selection_and_pairing_cancel() {
+    FakeBluetoothAdapter adapter;
+    BluetoothService service(adapter);
+    const auto first = bond(21), second = bond(22);
+    adapter.bondListResult = {BluetoothBondListStatus::Success, {first, second}};
+    service.enable({"Hub"}, cardputer_hub::connectivity::BluetoothStartup::Idle);
+    service.selectBond(first);
+    service.advertise();
+    service.selectBond(second);
+    TEST_ASSERT_EQUAL(1, adapter.stopAdvertisingCount);
+    service.update(std::chrono::seconds(1));
+    TEST_ASSERT_TRUE(adapter.advertisingTargets.back() == second);
+    service.openPairing();
+    service.update(std::chrono::seconds(1));
+    TEST_ASSERT_FALSE(adapter.advertisingTargets.back().has_value());
+    service.cancelPairing();
+    TEST_ASSERT_EQUAL(3, adapter.stopAdvertisingCount);
+    service.update(std::chrono::seconds(1));
+    TEST_ASSERT_TRUE(adapter.advertisingTargets.back() == second);
+}
+
 int main() {
     UNITY_BEGIN();
+    RUN_TEST(test_advertising_filter_changes_with_selection_and_pairing_cancel);
+    RUN_TEST(test_pairing_replaces_selected_only_advertising_with_open_advertising);
+    RUN_TEST(test_idle_startup_installs_selected_filter_before_first_advertisement);
     RUN_TEST(test_construction_has_no_adapter_side_effects);
+    RUN_TEST(test_bonded_reconnect_requests_security_and_restores_hid_without_pairing_at_capacity);
+    RUN_TEST(test_security_restore_failure_closes_connection_without_removing_bond);
+    RUN_TEST(test_rejected_peers_do_not_start_security_restoration);
     RUN_TEST(test_pairing_is_closed_until_explicitly_opened);
     RUN_TEST(test_pairing_requires_enable_is_idempotent_and_times_out_from_advertising_start);
     RUN_TEST(test_open_pairing_disconnects_current_bond_without_deleting_it);

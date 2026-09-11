@@ -205,8 +205,7 @@ class EspIdfBuildConfigurationTests(unittest.TestCase):
             "#elif CARDPUTER_HUB_PLAN_014_VALIDATION || CARDPUTER_HUB_PLAN_015_VALIDATION\n"
             "    validationHarness.start();\n"
             "#else\n"
-            "    runtime.start();\n"
-            "#endif",
+            "    runtime.start();\n",
             entrypoint,
         )
         self.assertIn("-D CARDPUTER_HUB_PLAN_012_VALIDATION=ON", instructions)
@@ -221,7 +220,13 @@ class EspIdfBuildConfigurationTests(unittest.TestCase):
             "#elif CARDPUTER_HUB_PLAN_014_VALIDATION || CARDPUTER_HUB_PLAN_015_VALIDATION\n"
             "        validationHarness.update();\n"
             "#else\n"
-            "        (void)runtime.update();\n"
+            "        const auto& input = runtime.update();\n"
+            "        const auto now = esp_timer_get_time() / 1000;\n"
+            "        const auto elapsed = std::chrono::milliseconds(now - previousHostUpdateMilliseconds);\n"
+            "        hosts.update(elapsed);\n"
+            "        battery.update(elapsed);\n"
+            "        previousHostUpdateMilliseconds = now;\n"
+            "        applicationShell.update(input, elapsed, battery.percent());\n"
             "#endif\n"
             "        vTaskDelay(pdMS_TO_TICKS(1));",
             entrypoint,

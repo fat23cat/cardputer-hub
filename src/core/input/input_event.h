@@ -27,6 +27,7 @@ enum class NamedKey : std::uint8_t {
     F10,
     F11,
     F12,
+    SystemMenu,
     Count,
 };
 

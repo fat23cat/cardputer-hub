@@ -2,6 +2,11 @@
 
 Status: **Implemented — physical validation complete with documented equipment gaps**
 
+Current BLE-only product acceptance is consolidated in
+[plan 017](017-hid-transport-arbitration.md#0-current-closeout-status). The results
+below belong to their recorded harness/image; they are not a complete rerun of
+the final HostService firmware.
+
 Physical validation on 2026-09-07 first exposed two thin ESP-IDF integration
 regressions before any bond was created: USB Serial/JTAG accepted output but
 not commands through the simplified VFS path, and the NimBLE bond store started
