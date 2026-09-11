@@ -300,6 +300,16 @@ class EspIdfBuildConfigurationTests(unittest.TestCase):
             self.assertIn("build/cardputer_hub.bin", workflow)
             self.assertIn("build/partition_table/partition-table.bin", workflow)
 
+    def test_firmware_manager_build_wrapper_activates_the_pinned_idf(self) -> None:
+        wrapper = self.read("scripts/build_firmware.sh")
+
+        self.assertIn("CARDPUTER_HUB_IDF_PATH", wrapper)
+        self.assertIn("CARDPUTER_HUB_IDF_TOOLS_PATH", wrapper)
+        self.assertIn("esp-idf-v5.5.5", wrapper)
+        self.assertIn("build-tools/idf-tools-v5.5.5", wrapper)
+        self.assertIn('source "${hub_idf_path}/export.sh"', wrapper)
+        self.assertIn('exec make -C "${hub_project}" build', wrapper)
+
     def test_ci_parallelizes_host_checks_and_firmware_build(self) -> None:
         workflow = self.read(".github/workflows/ci.yml")
         makefile = self.read("Makefile")

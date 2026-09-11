@@ -8,6 +8,8 @@ available features.
 
 * [Install Cardputer Hub](installing-firmware.md) — build and install the
   firmware from a fresh macOS or Ubuntu/Debian machine.
+* [Cardputer Firmware Manager](https://github.com/fat23cat/cardputer-firmware-manager) —
+  shared `crub` layout, independent app updates, backup, and recovery.
 * [Device Guide](device-guide.md) — current features, controls, key
   combinations, diagnostics, and limitations.
 
