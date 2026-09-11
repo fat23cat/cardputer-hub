@@ -631,6 +631,9 @@ If an admitted pairing peer disconnects before completion, its challenge is
 cleared and advertising resumes within the original pairing deadline. This
 does not remove bonds or open a fresh window. A cancelled or expired window
 stays closed; reconnection then follows the normal bonded-peer policy.
+The read-only `pairingPeer()` accessor exposes the admitted opaque peer handle
+so higher-level Services can invalidate a displayed prompt when that attempt
+ends, even if a replacement peer arrives in the same update.
 
 Bond references are stable, ordered, opaque 128-bit values. The Service can
 enumerate up to 16 bonds, select or clear a reconnect target, remove one bond,
@@ -831,10 +834,16 @@ and `host.delete` (`id`).
 IDs are positive 32-bit Action integers; names are printable ASCII, 1–24
 characters, and cannot be entirely spaces. Unknown/invalid Actions are rejected.
 Pairing responses must match the current challenge generation. Secrets and
-pairing codes are displayed locally, never logged.
+pairing codes are displayed locally, never logged. HostService retains a
+display passkey after acknowledging it only while the same pairing peer remains
+admitted. Disconnect clears the cached prompt; a new attempt gets a new challenge.
 
 At startup, existing opaque bonds are imported once as `Host N` profiles without
 advertising or deleting pairs. Profile IDs stay stable across rename/reboot.
+If initial loading, import, or BLE initialization fails, a later explicit host
+operation retries initialization. Recovery prepares profiles with BLE stopped,
+then executes the requested operation without first advertising for the previous
+host. Repeated failures preserve stored data and their specific error result.
 New authenticated pairs are added and selected automatically. Cancelling or
 expiring the two-minute pairing window restores the previous saved selection
 and enabled state. Pairing temporarily permits a new peer; ordinary operation

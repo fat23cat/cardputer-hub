@@ -41,6 +41,7 @@ class HostService final : public core::IActionHandler {
 
   private:
     HostResult fail(HostResult result, const char* reason = nullptr);
+    HostResult ensureReady();
     HostResult apply();
     HostResult initializeIdle();
     HostResult reconcile(HostConfiguration& value);
@@ -52,5 +53,6 @@ class HostService final : public core::IActionHandler {
     bool ready_ = false;
     bool pairing_ = false;
     std::optional<connectivity::BluetoothPairingChallenge> challenge_;
+    std::optional<connectivity::BluetoothPeerHandle> challengePeer_;
 };
 } // namespace cardputer_hub::services

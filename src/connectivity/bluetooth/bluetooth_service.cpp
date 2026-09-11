@@ -361,6 +361,10 @@ std::optional<BluetoothPairingChallenge> BluetoothService::pairingChallenge() co
     return pairingChallenge_;
 }
 
+std::optional<BluetoothPeerHandle> BluetoothService::pairingPeer() const noexcept {
+    return pairingPeer_;
+}
+
 std::optional<BluetoothBondReference> BluetoothService::completedPairing() const noexcept {
     return completedPairing_;
 }

@@ -37,9 +37,9 @@ override this summary or the [device guide](../manuals/device-guide.md).
 - [x] Buffered partial rendering, 220 ms page transitions, 28-second ambient
   wave, and removal of Settings/Bluetooth's Esc Home footer.
 - [x] Manuals and phase checklist aligned with the delivered behavior.
-- [x] Latest local validation: 44 Python tests, 214 native tests in 20 suites,
+- [x] Latest local validation: 44 Python tests, 217 native tests in 20 suites,
   lock/format/Cppcheck, and ESP-IDF 5.5.5 production compilation.
-- [x] Latest product image (779504 bytes) flashed to app0 with hash verification;
+- [x] Last flashed product image (779504 bytes) flashed to app0 with hash verification;
   NVS/configuration preserved. Startup and advertising observed at 16:26:48–49.
 
 ### Physical acceptance
@@ -867,3 +867,24 @@ bytes). Native Settings/Bluetooth captures confirm both footer regions are
 empty. The app-only flash was hash-verified with NVS preserved; normal startup
 and advertising were observed at 16:26:48–49 local time. `git diff --check`
 passed.
+
+
+### Review fixes and Linux CI (11 September 2026)
+
+Host actions now retry failed startup initialization before applying current
+intent, without briefly advertising for the previously saved host. Persistent
+errors retain their specific result and preserve stored data. Cached pairing
+prompts are tied to the admitted peer and disappear on interruption, including
+when a replacement peer arrives in the same update. Architecture and the device
+guide describe these recovery paths.
+
+Three new regression tests failed before implementation and passed afterward.
+They cover explicit retry, repeated failure, corrupt configuration preservation,
+all three pairing prompt types, same-update peer replacement, and the original
+pairing timeout. The previous PR CI failed on GCC's range-loop-copy warning in
+the font test; that loop now binds its pair by const reference.
+
+Final local checks passed: 44 Python and 217 native tests across 20 suites,
+lock/format/Cppcheck, documentation links and `git diff --check`. ESP-IDF 5.5.5
+production compilation passed (779808 bytes). This review-fix image has not been
+flashed; the physical acceptance evidence above still refers to earlier images.

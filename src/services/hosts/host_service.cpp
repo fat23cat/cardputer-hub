@@ -24,6 +24,7 @@ HostResult HostService::fail(HostResult result, const char* reason) {
         logger_->error("hosts", reason);
     pairing_ = false;
     challenge_.reset();
+    challengePeer_.reset();
     if (bluetooth_.disable() == BluetoothDisableResult::AdapterError)
         result = HostResult::BluetoothError;
     return lastResult_ = result;
@@ -69,6 +70,14 @@ HostResult HostService::reconcile(HostConfiguration& value) {
 HostResult HostService::start() {
     if (ready_)
         return lastResult_;
+    if (ensureReady() != HostResult::Success)
+        return lastResult_;
+    return apply();
+}
+
+HostResult HostService::ensureReady() {
+    if (ready_)
+        return HostResult::Success;
     const auto loaded = configuration_.load();
     if (loaded != ConfigurationResult::Success)
         return fail(HostResult::StorageError);
@@ -79,13 +88,17 @@ HostResult HostService::start() {
         return lastResult_;
     if (value.hosts.size() != settings().hosts.size() && save(value) != HostResult::Success)
         return lastResult_;
+    // Recovery prepares profiles only; the requested action decides whether to advertise.
+    if (bluetooth_.disable() == BluetoothDisableResult::AdapterError)
+        return fail(HostResult::BluetoothError);
     ready_ = true;
-    return apply();
+    return HostResult::Success;
 }
 
 HostResult HostService::apply() {
     pairing_ = false;
     challenge_.reset();
+    challengePeer_.reset();
     if (!settings().bluetoothEnabled) {
         return bluetooth_.disable() == BluetoothDisableResult::AdapterError
                    ? fail(HostResult::BluetoothError)
@@ -116,7 +129,9 @@ HostResult HostService::apply() {
 }
 
 HostResult HostService::selectHost(std::uint32_t id) {
-    if (!ready_ || findHost(settings(), id) == settings().hosts.end())
+    if (ensureReady() != HostResult::Success)
+        return lastResult_;
+    if (findHost(settings(), id) == settings().hosts.end())
         return lastResult_ = HostResult::InvalidInput;
     // Quiesce output before persisting intent or exposing another target.
     if (bluetooth_.disable() == BluetoothDisableResult::AdapterError)
@@ -130,8 +145,8 @@ HostResult HostService::selectHost(std::uint32_t id) {
 }
 
 HostResult HostService::setEnabled(bool enabled) {
-    if (!ready_)
-        return lastResult_ = HostResult::InvalidInput;
+    if (ensureReady() != HostResult::Success)
+        return lastResult_;
     if (enabled && !settings().activeHost)
         return lastResult_ = HostResult::HostSelectionRequired;
     if (bluetooth_.disable() == BluetoothDisableResult::AdapterError)
@@ -144,8 +159,8 @@ HostResult HostService::setEnabled(bool enabled) {
 }
 
 HostResult HostService::renameHost(std::uint32_t id, const std::string& name) {
-    if (!ready_)
-        return lastResult_ = HostResult::InvalidInput;
+    if (ensureReady() != HostResult::Success)
+        return lastResult_;
     auto value = settings();
     const auto host = std::find_if(value.hosts.begin(), value.hosts.end(),
                                    [id](const auto& h) { return h.id == id; });
@@ -156,8 +171,8 @@ HostResult HostService::renameHost(std::uint32_t id, const std::string& name) {
 }
 
 HostResult HostService::startPairing() {
-    if (!ready_)
-        return lastResult_ = HostResult::InvalidInput;
+    if (ensureReady() != HostResult::Success)
+        return lastResult_;
     if (pairing_)
         return HostResult::Success;
     if (settings().hosts.size() >= BluetoothService::maximumBondCount)
@@ -179,13 +194,15 @@ HostResult HostService::startPairing() {
 }
 
 HostResult HostService::cancelPairing() {
-    if (!ready_)
-        return lastResult_ = HostResult::InvalidInput;
+    if (ensureReady() != HostResult::Success)
+        return lastResult_;
     return apply(); // Shutdown is the barrier; the saved target is unchanged.
 }
 
 HostResult HostService::deleteHost(std::uint32_t id) {
-    if (!ready_ || pairing_ || findHost(settings(), id) == settings().hosts.end())
+    if (ensureReady() != HostResult::Success)
+        return lastResult_;
+    if (pairing_ || findHost(settings(), id) == settings().hosts.end())
         return lastResult_ = HostResult::InvalidInput;
     auto value = settings();
     const auto reference = findHost(value, id)->bond;
@@ -230,8 +247,13 @@ void HostService::update(std::chrono::milliseconds elapsed) {
     }
     if (!pairing_)
         return;
+    if (challengePeer_ != bluetooth_.pairingPeer()) {
+        challenge_.reset();
+        challengePeer_.reset();
+    }
     if (const auto challenge = bluetooth_.pairingChallenge()) {
         challenge_ = challenge;
+        challengePeer_ = bluetooth_.pairingPeer();
         if (challenge->type == BluetoothPairingChallengeType::DisplayPasskey) {
             const auto result =
                 bluetooth_.respondToPairing({challenge->generation, challenge->type, true, {}});
@@ -266,6 +288,7 @@ void HostService::update(std::chrono::milliseconds elapsed) {
         }
         pairing_ = false;
         challenge_.reset();
+        challengePeer_.reset();
     } else if (bluetooth_.pairingState() == BluetoothPairingState::Closed ||
                bluetooth_.pairingState() == BluetoothPairingState::Error) {
         (void)apply();
@@ -303,6 +326,7 @@ core::ActionHandlingResult HostService::handle(const core::Action& action) {
             if (response == BluetoothPairingResponseResult::Accepted ||
                 response == BluetoothPairingResponseResult::Rejected) {
                 challenge_.reset();
+                challengePeer_.reset();
                 result = HostResult::Success;
             }
         }

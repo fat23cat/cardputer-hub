@@ -42,7 +42,8 @@ class Adapter final : public IBluetoothAdapter {
                                       std::uint32_t generation) override {
         lifecycle = generation;
         trace.push_back("initialize");
-        return BluetoothAdapterResult::Success;
+        return failInitialize ? BluetoothAdapterResult::AdapterError
+                              : BluetoothAdapterResult::Success;
     }
     BluetoothAdapterResult shutdown() override {
         trace.push_back("shutdown");
@@ -121,6 +122,7 @@ class Adapter final : public IBluetoothAdapter {
     std::uint32_t lifecycle = 0;
     int deletions = 0;
     bool failDelete = false;
+    bool failInitialize = false;
     std::vector<BluetoothBondReference> known{bond(1), bond(2)};
     std::vector<std::optional<BluetoothBondReference>> targets;
     std::vector<std::string> trace;
@@ -134,6 +136,97 @@ struct Fixture {
     BluetoothService bluetooth{adapter};
     services::HostService hosts{bluetooth, config};
 };
+void test_host_actions_retry_failed_startup_without_activating_previous_target() {
+    Fixture saved;
+    TEST_ASSERT_TRUE(saved.hosts.start() == services::HostResult::Success);
+    TEST_ASSERT_TRUE(saved.hosts.selectHost(1) == services::HostResult::Success);
+    const std::vector<core::Action> actions{{"host.bluetooth", "test", {{"enabled", false}}},
+                                            {"host.select", "test", {{"id", std::int32_t{2}}}},
+                                            {"host.pair", "test", {}}};
+    for (const auto& action : actions) {
+        Fixture f;
+        f.memory.bytes = saved.memory.bytes;
+        f.adapter.failInitialize = true;
+        TEST_ASSERT_TRUE(f.hosts.start() == services::HostResult::BluetoothError);
+        const auto persisted = f.memory.bytes;
+        TEST_ASSERT_TRUE(f.hosts.handle(action) == core::ActionHandlingResult::Rejected);
+        TEST_ASSERT_TRUE(f.hosts.lastResult() == services::HostResult::BluetoothError);
+        TEST_ASSERT_TRUE(f.memory.bytes == persisted);
+        f.adapter.failInitialize = false;
+        TEST_ASSERT_TRUE(f.hosts.handle(action) == core::ActionHandlingResult::Handled);
+        TEST_ASSERT_EQUAL_UINT(2, f.hosts.settings().hosts.size());
+        TEST_ASSERT_EQUAL(0, f.adapter.deletions);
+        if (action.id == "host.bluetooth") {
+            TEST_ASSERT_TRUE(f.adapter.targets.empty());
+            TEST_ASSERT_FALSE(f.hosts.settings().bluetoothEnabled);
+        } else {
+            TEST_ASSERT_EQUAL_UINT(1, f.adapter.targets.size());
+            TEST_ASSERT_TRUE(f.adapter.targets.front() ==
+                             (action.id == "host.pair" ? std::nullopt : std::optional{bond(2)}));
+        }
+    }
+}
+
+void test_corrupt_configuration_is_not_overwritten_by_startup_retry() {
+    Fixture f;
+    f.memory.bytes = {1, 2, 3};
+    TEST_ASSERT_TRUE(f.hosts.start() == services::HostResult::StorageError);
+    const auto persisted = f.memory.bytes;
+    TEST_ASSERT_TRUE(f.hosts.startPairing() == services::HostResult::StorageError);
+    TEST_ASSERT_TRUE(f.memory.bytes == persisted);
+    TEST_ASSERT_TRUE(f.adapter.trace.empty());
+}
+
+void test_interrupted_pairing_invalidates_cached_challenge_for_all_prompt_types() {
+    for (const auto type : {BluetoothPairingChallengeType::DisplayPasskey,
+                            BluetoothPairingChallengeType::EnterPasskey,
+                            BluetoothPairingChallengeType::ConfirmComparison}) {
+        for (const bool replacementQueued : {false, true}) {
+            Fixture f;
+            TEST_ASSERT_TRUE(f.hosts.start() == services::HostResult::Success);
+            TEST_ASSERT_TRUE(f.hosts.startPairing() == services::HostResult::Success);
+            f.adapter.connect(3);
+            f.hosts.update(std::chrono::milliseconds(1));
+            BluetoothEvent challenge{BluetoothEventType::PairingChallenge,
+                                     {3},
+                                     BluetoothFailureClass::Fatal,
+                                     f.adapter.lifecycle};
+            challenge.challengeType = type;
+            if (type != BluetoothPairingChallengeType::EnterPasskey)
+                challenge.challengeValue = 123456;
+            f.adapter.events.push_back(challenge);
+            f.hosts.update(std::chrono::milliseconds(1));
+            TEST_ASSERT_TRUE(f.hosts.pairingChallenge().has_value());
+            const auto generation = f.hosts.pairingChallenge()->generation;
+            f.hosts.update(std::chrono::milliseconds(1));
+            TEST_ASSERT_TRUE(f.hosts.pairingChallenge().has_value());
+            f.adapter.events.emplace_back(BluetoothEventType::PeerDisconnected,
+                                          BluetoothPeerHandle{3}, BluetoothFailureClass::Fatal,
+                                          f.adapter.lifecycle);
+            if (replacementQueued)
+                f.adapter.connect(4);
+            f.hosts.update(std::chrono::milliseconds(1));
+            TEST_ASSERT_TRUE(f.hosts.pairing());
+            TEST_ASSERT_FALSE(f.hosts.pairingChallenge().has_value());
+            TEST_ASSERT_EQUAL(0, f.adapter.deletions);
+            if (!replacementQueued) {
+                f.hosts.update(std::chrono::seconds(1));
+                TEST_ASSERT_TRUE(f.hosts.pairingState() == BluetoothPairingState::Advertising);
+                f.adapter.connect(4);
+                f.hosts.update(std::chrono::milliseconds(1));
+            }
+            challenge.peer = {4};
+            f.adapter.events.push_back(challenge);
+            f.hosts.update(std::chrono::milliseconds(1));
+            TEST_ASSERT_TRUE(f.hosts.pairingChallenge().has_value());
+            TEST_ASSERT_NOT_EQUAL(generation, f.hosts.pairingChallenge()->generation);
+            f.hosts.update(std::chrono::seconds(120));
+            TEST_ASSERT_FALSE(f.hosts.pairing());
+            TEST_ASSERT_FALSE(f.hosts.pairingChallenge().has_value());
+        }
+    }
+}
+
 void test_import_existing_pairs_without_advertising_then_persist_selected_host() {
     Fixture f;
     TEST_ASSERT_TRUE(f.hosts.start() == services::HostResult::Success);
@@ -474,7 +567,7 @@ void test_home_distinguishes_missing_selection_and_invalid_input_from_fault() {
 
 void test_pairing_digits_follow_the_reference_font_character_order() {
     // The upstream sheet is ordered "1234560789", not ASCII digit order.
-    for (const auto item : {std::pair<std::uint32_t, int>{0, 6}, {123456, 0}}) {
+    for (const auto& item : {std::pair<std::uint32_t, int>{0, 6}, {123456, 0}}) {
         Fixture f;
         f.hosts.start();
         f.hosts.startPairing();
@@ -541,6 +634,9 @@ void setUp() {}
 void tearDown() {}
 int main() {
     UNITY_BEGIN();
+    RUN_TEST(test_host_actions_retry_failed_startup_without_activating_previous_target);
+    RUN_TEST(test_corrupt_configuration_is_not_overwritten_by_startup_retry);
+    RUN_TEST(test_interrupted_pairing_invalidates_cached_challenge_for_all_prompt_types);
     RUN_TEST(test_host_menu_rename_and_confirmed_delete_affect_only_that_host);
     RUN_TEST(test_delete_selected_stays_off_and_nonselected_preserves_live_host);
     RUN_TEST(test_delete_failure_preserves_profile_and_missing_bond_can_be_removed);

@@ -91,6 +91,10 @@ forward typing, shortcuts, or media commands to the computer.
 4. After authenticated pairing succeeds, the new `Host N` profile is saved and
    selected. Wait for READY, then rename the profile if desired.
 
+If the computer disconnects before pairing completes, the old code disappears
+and Cardputer returns to discovery within the original two-minute window.
+Follow the fresh prompt when you connect again.
+
 Pairing cancellation or timeout restores the previous selection and BLE setting.
 Normal switching does not require pairing again. Up to 16 pairs are supported.
 Delete removes the named profile and its Cardputer pairing. Deleting the
@@ -111,7 +115,10 @@ Cardputer's Off setting for a persistent disconnect.
 
 A missing pair or settings/backend error stops BLE and displays an error instead
 of silently erasing data or choosing another host. A missing pair requires
-pairing repair; there is no automatic NVS reset.
+pairing repair; there is no automatic NVS reset. After a transient startup error,
+retry the Bluetooth toggle, a saved host’s Connect action, or Add device. These
+actions retry initialization without requiring a reboot. A continuing failure
+keeps its error visible and leaves stored profiles intact.
 
 ## Repair a Pairing
 

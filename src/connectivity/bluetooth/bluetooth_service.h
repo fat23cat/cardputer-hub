@@ -285,6 +285,7 @@ class BluetoothService {
     BluetoothPairingResponseResult respondToPairing(const BluetoothPairingResponse& response);
     BluetoothPairingState pairingState() const noexcept;
     std::optional<BluetoothPairingChallenge> pairingChallenge() const noexcept;
+    std::optional<BluetoothPeerHandle> pairingPeer() const noexcept;
     std::optional<BluetoothBondReference> completedPairing() const noexcept;
     BluetoothBondListResult bonds();
     BluetoothBondSelectionResult selectBond(std::optional<BluetoothBondReference> reference);
