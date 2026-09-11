@@ -171,8 +171,9 @@ sequence above and specify its detected serial port.
 
 ## 6. Verify the Installation
 
-The display should show `Cardputer Hub` and the embedded firmware version on a
-startup screen, followed by Home. To inspect serial output, run:
+The display should show a two-second `Cardputer Hub` startup screen with the
+embedded firmware version and a twelve-segment progress bar, followed by Home.
+To inspect serial output, run:
 
 ```bash
 make monitor

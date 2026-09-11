@@ -52,6 +52,7 @@ cardputer_hub::core::ActionBus actions;
 cardputer_hub::apps::HostSettings hostSettings(hosts, actions, display);
 cardputer_hub::apps::ApplicationShell applicationShell(hosts, actions, display, hostSettings);
 std::int64_t previousHostUpdateMilliseconds = 0;
+bool homeVisible = false;
 #endif
 #if CARDPUTER_HUB_PLAN_012_VALIDATION
 cardputer_hub::validation::Plan012DeviceHarness validationHarness(logger);
@@ -79,7 +80,6 @@ extern "C" void app_main(void) {
     }
     (void)hosts.start();
     battery.update(std::chrono::milliseconds(0));
-    applicationShell.update({}, std::chrono::milliseconds(0), battery.percent());
     previousHostUpdateMilliseconds = esp_timer_get_time() / 1000;
 #endif
 
@@ -89,13 +89,21 @@ extern "C" void app_main(void) {
 #elif CARDPUTER_HUB_PLAN_014_VALIDATION || CARDPUTER_HUB_PLAN_015_VALIDATION
         validationHarness.update();
 #else
-        const auto& input = runtime.update();
         const auto now = esp_timer_get_time() / 1000;
         const auto elapsed = std::chrono::milliseconds(now - previousHostUpdateMilliseconds);
+        previousHostUpdateMilliseconds = now;
+        const auto& input = runtime.update(elapsed);
         hosts.update(elapsed);
         battery.update(elapsed);
-        previousHostUpdateMilliseconds = now;
-        applicationShell.update(input, elapsed, battery.percent());
+        if (!homeVisible) {
+            if (runtime.splashFinished()) {
+                // Consume any key sampled on the frame that dismisses the splash.
+                applicationShell.update({}, std::chrono::milliseconds(0), battery.percent());
+                homeVisible = true;
+            }
+        } else {
+            applicationShell.update(input, elapsed, battery.percent());
+        }
 #endif
         vTaskDelay(pdMS_TO_TICKS(1));
     }

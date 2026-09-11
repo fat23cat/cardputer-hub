@@ -424,7 +424,10 @@ Physical Cardputer-Adv validation must confirm:
 
 This document includes delivered behavior and future requirements. Home,
 Settings/Bluetooth, per-host menus, partial frame presentation, page slides,
-and the ambient wave are implemented. Launcher integration, spring focus motion,
+the ambient wave, and the two-second segmented startup splash are implemented.
+The splash uses Bone, Ink, Blue, Pale, and Ordinal tokens, keeps the firmware
+version visible throughout, and advances without blocking background work.
+Launcher integration, spring focus motion,
 sound, dim/off/wake policy, and live clock/Wi-Fi composition remain open in the
 [phase checklist](ARCHITECTURE.md#47-initial-development-order). The manuals
 describe current operation; planned behavior must not be presented there as

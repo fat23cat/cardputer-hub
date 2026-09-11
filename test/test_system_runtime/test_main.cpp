@@ -1,5 +1,6 @@
 #include <unity.h>
 
+#include <chrono>
 #include <string>
 #include <vector>
 
@@ -55,10 +56,15 @@ struct TextCommand {
     TextStyle style;
 };
 
+struct RectangleCommand {
+    PixelPosition position;
+    std::int32_t width;
+    std::int32_t height;
+    RgbColor color;
+};
+
 class FakeDisplay final : public IDisplayAdapter {
   public:
-    void fillRectangle(cardputer_hub::core::PixelPosition, std::int32_t, std::int32_t,
-                       cardputer_hub::core::RgbColor) override {}
     explicit FakeDisplay(std::vector<std::string>& trace) : trace_(trace) {}
 
     void clear(RgbColor color) override {
@@ -71,8 +77,14 @@ class FakeDisplay final : public IDisplayAdapter {
         texts.push_back({position, text, style});
     }
 
+    void fillRectangle(PixelPosition position, std::int32_t width, std::int32_t height,
+                       RgbColor color) override {
+        rectangles.push_back({position, width, height, color});
+    }
+
     std::vector<RgbColor> clears;
     std::vector<TextCommand> texts;
+    std::vector<RectangleCommand> rectangles;
 
   private:
     std::vector<std::string>& trace_;
@@ -121,7 +133,7 @@ void setUp() {}
 
 void tearDown() {}
 
-void test_startup_orders_platform_logging_and_display_and_uses_build_info() {
+void test_startup_draws_branded_splash_with_visible_version() {
     RuntimeFixture fixture;
 
     fixture.runtime.start();
@@ -133,7 +145,9 @@ void test_startup_orders_platform_logging_and_display_and_uses_build_info() {
         "log:firmware.commit:abc123",
         "log:firmware.build_type:test",
         "display.clear",
+        "display.text:SYSTEM STARTUP",
         "display.text:Test Hub",
+        "display.text:VERSION",
         "display.text:9.8.7",
     };
     TEST_ASSERT_EQUAL_UINT(sizeof(expectedTrace) / sizeof(expectedTrace[0]), fixture.trace.size());
@@ -143,16 +157,42 @@ void test_startup_orders_platform_logging_and_display_and_uses_build_info() {
 
     TEST_ASSERT_EQUAL_UINT(4, fixture.logSink.records.size());
     TEST_ASSERT_EQUAL_UINT(1, fixture.display.clears.size());
-    assertColor({0, 0, 0}, fixture.display.clears[0]);
-    TEST_ASSERT_EQUAL_UINT(2, fixture.display.texts.size());
-    TEST_ASSERT_EQUAL_INT(8, fixture.display.texts[0].position.x);
-    TEST_ASSERT_EQUAL_INT(8, fixture.display.texts[0].position.y);
-    TEST_ASSERT_EQUAL_INT(8, fixture.display.texts[1].position.x);
-    TEST_ASSERT_EQUAL_INT(32, fixture.display.texts[1].position.y);
-    assertColor({255, 255, 255}, fixture.display.texts[0].style.foreground);
-    assertColor({0, 0, 0}, fixture.display.texts[0].style.background);
-    TEST_ASSERT_GREATER_THAN_UINT8(0, fixture.display.texts[0].style.scale);
-    TEST_ASSERT_GREATER_THAN_UINT8(0, fixture.display.texts[1].style.scale);
+    assertColor({0xF4, 0xF2, 0xEC}, fixture.display.clears[0]);
+    TEST_ASSERT_EQUAL_UINT(4, fixture.display.texts.size());
+    TEST_ASSERT_EQUAL_STRING("Test Hub", fixture.display.texts[1].text.c_str());
+    TEST_ASSERT_EQUAL_STRING("9.8.7", fixture.display.texts[3].text.c_str());
+    assertColor({0x17, 0x15, 0x0F}, fixture.display.texts[1].style.foreground);
+    assertColor({0xF4, 0xF2, 0xEC}, fixture.display.texts[1].style.background);
+    TEST_ASSERT_EQUAL_UINT8(2, fixture.display.texts[1].style.scale);
+    TEST_ASSERT_FALSE(fixture.runtime.splashFinished());
+}
+
+void test_splash_progresses_in_segments_and_finishes_after_two_seconds() {
+    RuntimeFixture fixture;
+    fixture.runtime.start();
+    const auto initialRectangleCount = fixture.display.rectangles.size();
+
+    (void)fixture.runtime.update(std::chrono::milliseconds(149));
+    TEST_ASSERT_EQUAL_UINT(initialRectangleCount, fixture.display.rectangles.size());
+    TEST_ASSERT_FALSE(fixture.runtime.splashFinished());
+
+    (void)fixture.runtime.update(std::chrono::milliseconds(1));
+    TEST_ASSERT_EQUAL_UINT(initialRectangleCount + 1, fixture.display.rectangles.size());
+    assertColor({0x1B, 0x4F, 0xD0}, fixture.display.rectangles.back().color);
+    TEST_ASSERT_FALSE(fixture.runtime.splashFinished());
+
+    (void)fixture.runtime.update(std::chrono::milliseconds(1649));
+    TEST_ASSERT_EQUAL_UINT(initialRectangleCount + 11, fixture.display.rectangles.size());
+    TEST_ASSERT_FALSE(fixture.runtime.splashFinished());
+
+    (void)fixture.runtime.update(std::chrono::milliseconds(1));
+    TEST_ASSERT_EQUAL_UINT(initialRectangleCount + 12, fixture.display.rectangles.size());
+    TEST_ASSERT_FALSE(fixture.runtime.splashFinished());
+
+    (void)fixture.runtime.update(std::chrono::milliseconds(199));
+    TEST_ASSERT_FALSE(fixture.runtime.splashFinished());
+    (void)fixture.runtime.update(std::chrono::milliseconds(1));
+    TEST_ASSERT_TRUE(fixture.runtime.splashFinished());
 }
 
 void test_repeated_startup_is_idempotent() {
@@ -194,7 +234,8 @@ void test_running_update_refreshes_platform_before_polling_and_returns_events() 
 
 int main() {
     UNITY_BEGIN();
-    RUN_TEST(test_startup_orders_platform_logging_and_display_and_uses_build_info);
+    RUN_TEST(test_startup_draws_branded_splash_with_visible_version);
+    RUN_TEST(test_splash_progresses_in_segments_and_finishes_after_two_seconds);
     RUN_TEST(test_repeated_startup_is_idempotent);
     RUN_TEST(test_update_before_start_is_safe_and_returns_no_events);
     RUN_TEST(test_running_update_refreshes_platform_before_polling_and_returns_events);
