@@ -22,6 +22,7 @@ not phase numbers. The authoritative delivered/pending step checklist is in
 | [015](015-ble-hid-transport.md) | BLE HID transport | Implemented; historical report checks, remaining final-image matrix in 017 |
 | [016](016-native-usb-hid-transport.md) | USB HID | Cancelled and removed; not unfinished product work |
 | [017](017-hid-transport-arbitration.md#0-current-closeout-status) | BLE-only closeout, hosts and system UI | Software complete; core device scenarios passed, extended acceptance partial |
+| [019](019-startup-splash.md) | Startup splash | Implemented; automated checks and firmware build passed |
 
 The work referred to historically as 013 is the approved
 [UI requirements](../UI_REQUIREMENTS.md); there is no separate plan-013 file.

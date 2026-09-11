@@ -1264,7 +1264,7 @@ void test_bluetooth_failure_leaves_wifi_and_system_core_operational() {
     TEST_ASSERT_EQUAL_INT(1, platform.updateCount);
     TEST_ASSERT_EQUAL_INT(1, keyboard.pollCount);
     TEST_ASSERT_EQUAL_INT(1, display.clearCount);
-    TEST_ASSERT_EQUAL_INT(2, display.drawCount);
+    TEST_ASSERT_EQUAL_INT(4, display.drawCount);
 }
 
 void test_fatal_retry_launch_enters_error_and_later_explicit_enable_recovers() {

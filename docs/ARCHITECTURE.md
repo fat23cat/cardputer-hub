@@ -140,6 +140,13 @@ Mac-specific application mappings
 WS2812 animation implementation
 ```
 
+`SystemRuntime` owns the normal-firmware startup presentation. It renders the
+firmware identity and version with the shared UI palette, then advances a
+twelve-segment progress treatment from injected monotonic elapsed time for two
+seconds. This presentation does not block platform, input, Connectivity, or
+Service updates. Home is composed only after the splash completes, and input
+sampled on the handoff frame is consumed rather than routed as a UI action.
+
 ---
 
 ## 4. Application Shell

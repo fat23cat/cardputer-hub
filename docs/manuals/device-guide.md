@@ -1,6 +1,9 @@
 # Cardputer Hub Device Guide
 
-Normal firmware opens **Home** after the build/version startup screen. Home
+Normal firmware opens **Home** after a two-second segmented startup screen. The
+startup screen keeps the embedded firmware version visible while its progress
+bar fills; it does not pause Bluetooth, other background work, or input polling.
+Input sampled as the startup screen hands off to Home is consumed. Home
 shows the selected host in compact Micro 5 text and live BT status, with a slow
 dotted wave below. The top line has time, Wi-Fi status, and estimated battery
 percentage, with no battery icon. Time currently shows `--:--`; Wi-Fi shows `OFFLINE` until Wi-Fi
