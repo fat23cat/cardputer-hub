@@ -82,7 +82,10 @@ during a transition; navigation does not wait for the animation to finish.
 Moving between rows and live Bluetooth status updates do not slide the screen.
 
 These keys operate Cardputer locally. The current settings screen does not
-forward typing, shortcuts, or media commands to the computer.
+forward typing, shortcuts, or media commands to the computer. Firmware Services
+can persist bounded platform, capability, and mapping-template identifiers for
+each host, but this metadata has no editing UI and does not enable a mapping or
+host command by itself.
 
 ## Add a Computer
 
@@ -165,7 +168,7 @@ selected host after Reset/power-on were confirmed on Cardputer-Adv. Extended
 Off, report/interruption and USB hotplug acceptance remains tracked in
 [plan 017](../plans/017-hid-transport-arbitration.md#0-current-closeout-status).
 The current firmware does not
-include the full Launcher/Mini App shell, profile platform/templates,
-Action-to-HID mappings, a Mac companion CLI/control protocol, Wi-Fi setup, or
+include the full Launcher/Mini App shell, profile-metadata editing or template
+resolution, Action-to-HID mappings, a Mac companion CLI/control protocol, Wi-Fi setup, or
 weather/VPS/Telegram/RGB features. Sound, idle dimming, and wake-input behavior
 from the broader UI requirements remain planned.

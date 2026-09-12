@@ -205,7 +205,9 @@ percentage, and a slow dotted wave. The future clock and Wi-Fi slots currently
 show `--:--` and `OFFLINE`. Tab (also G0 or Fn+Tab) opens Settings; its Bluetooth entry opens the existing BLE panel.
 Screen navigation uses short horizontal transitions with live input. The update loop polls semantic keyboard events, routes
 local settings Actions, and advances HostService/BluetoothService. Host selection,
-BLE On/Off, pairing, renaming, and per-host deletion are available; keyboard-to-HID mappings and the
+BLE On/Off, pairing, renaming, per-host deletion, and persisted host
+platform/capability/template-reference metadata are available through Services;
+the current UI does not edit that metadata. Keyboard-to-HID mappings and the
 full Mini App shell are not yet implemented.
 
 System Core also provides standalone navigation history, capability, and
@@ -397,17 +399,17 @@ links implementation and validation history.
 | --- | --- |
 | 1 — System Core | Complete |
 | 2 — Connectivity | Software complete; physical acceptance partial |
-| 3 — Core Services | HostService, host configuration and battery delivered; broader Services pending |
+| 3 — Core Services | HostService, v2 host configuration/metadata and battery delivered; broader Services pending |
 | 4 — Application Shell | Home, Settings, Tab navigation and page transitions delivered; Launcher/power/sound pending |
 | 5 — Mini App Infrastructure | Pending; registry primitives exist |
 | 6 — Device Manager | Built-in host list/pair/rename/delete/select delivered; full Mini App integration pending |
-| 7–11 — Host Control, Weather, RGB, Remote, Extensions | Pending |
+| 7–12 — Host Control, Companion, Weather, RGB, Remote, Extensions | Pending |
 
 Normal firmware provides a BLE-only host connection, saved profiles and On/Off,
 Home telemetry, and local Settings. USB is for power, flashing and fixed serial
 diagnostics. USB HID and arbitration are removed; IHidTransport remains the
 future extension boundary. Wi-Fi is not yet composed; clock synchronization,
-Action-to-HID mappings and a Mac companion are not implemented.
+metadata editing, Action-to-HID mappings and a Mac companion are not implemented.
 
 Physical checks confirmed fresh pairing, one local Off/On cycle, adding and
 switching two computers, and reconnection to the last selected host after Reset

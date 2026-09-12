@@ -55,6 +55,8 @@ Core principle:
 │               SERVICES               │
 │                                      │
 │ HostService                          │
+│ HostControlService                   │
+│ CompanionService                     │
 │ WeatherService                       │
 │ VpsService                           │
 │ TelegramService                      │
@@ -457,6 +459,13 @@ Connectivity
 └── BLE HID transport
 ```
 
+A future companion data transport is separate from `IHidTransport`: HID carries
+keyboard/consumer reports, while the companion protocol carries bounded semantic
+commands, responses, capabilities, and events. The first planned companion
+transport is an authenticated custom GATT service in the existing BLE peripheral
+lifecycle. It must not initialize a second Bluetooth host/controller stack or
+change selected-host policy.
+
 Additional mechanisms may later include:
 
 ```text
@@ -487,6 +496,12 @@ only when a second transport is actually required and has its own approved
 plan and physical validation. Do not keep speculative routers, channel enums,
 configuration fields, or dormant USB descriptors in the current firmware.
 The cancelled USB and routing work is recorded in plans 016 and 017.
+
+The same rule applies to companion transports. Phase 8 introduces one BLE GATT
+transport, not a speculative BLE/USB/Wi-Fi router. USB or Wi-Fi companion
+delivery, priority, fallback, replay, and handoff require a later approved plan
+after a second concrete transport is justified. USB remains fixed Serial/JTAG
+diagnostics until such a plan explicitly revises that boundary.
 
 The shared HID boundary is `IHidTransport` under `connectivity/hid`. It accepts
 only hardware-neutral six-key keyboard reports or one Consumer Page usage,
@@ -718,6 +733,8 @@ Initial/future examples:
 ```text
 Services
 ├── HostService
+├── HostControlService
+├── CompanionService
 ├── WeatherService
 ├── VpsService
 ├── TelegramService
@@ -770,6 +787,9 @@ WeatherService
 HostService
     connection monitoring
 
+CompanionService
+    session monitoring and request timeouts
+
 TelegramService
     polling / event handling
 
@@ -798,6 +818,14 @@ HostService
 ├── DISCONNECTED
 ├── CONNECTING
 └── CONNECTED
+```
+
+```text
+CompanionService
+├── UNAVAILABLE
+├── CONNECTING
+├── READY
+└── ERROR
 ```
 
 Mini Apps render Service state rather than reimplementing state detection.
@@ -832,10 +860,14 @@ HostProfile
 
 ### Implemented HostService contract
 
-The initial implementation provides `start`, `update`, `selectHost`,
-`setEnabled`, `renameHost`, `startPairing`, `cancelPairing`, and `deleteHost`. UI intentions
-use the shared ActionBus: `host.select` (`id`), `host.bluetooth` (`enabled`),
-`host.rename` (`id`, `name`), `host.pair`, `host.cancel-pairing`, and
+The implementation provides `start`, `update`, `selectHost`, `setEnabled`,
+`renameHost`, `setHostPlatform`, `setHostCapability`,
+`setHostMappingTemplate`, `startPairing`, `cancelPairing`, and `deleteHost`.
+UI intentions use the shared ActionBus: `host.select` (`id`),
+`host.bluetooth` (`enabled`), `host.rename` (`id`, `name`),
+`host.platform` (`id`, `platform`; empty clears), `host.capability` (`id`,
+`capability`, `enabled`), `host.mapping-template` (`id`, `template`; empty
+clears), `host.pair`, `host.cancel-pairing`, and
 `host.pair-response` (`generation`, `accepted`, optional six-digit `passkey`),
 and `host.delete` (`id`).
 IDs are positive 32-bit Action integers; names are printable ASCII, 1–24
@@ -851,10 +883,11 @@ If initial loading, import, or BLE initialization fails, a later explicit host
 operation retries initialization. Recovery prepares profiles with BLE stopped,
 then executes the requested operation without first advertising for the previous
 host. Repeated failures preserve stored data and their specific error result.
-New authenticated pairs are added and selected automatically. Cancelling or
-expiring the two-minute pairing window restores the previous saved selection
-and enabled state. Pairing temporarily permits a new peer; ordinary operation
-permits only the selected bond.
+New authenticated pairs are added and selected automatically. Imported and new
+profiles start without platform, capability, or mapping-template metadata.
+Cancelling or expiring the two-minute pairing window restores the previous
+saved selection and enabled state. Pairing temporarily permits a new peer;
+ordinary operation permits only the selected bond.
 
 Selection means persisted user intent, not proof of a live connection. Changing
 host releases reports and shuts down the previous BLE lifecycle before saving
@@ -895,18 +928,38 @@ still have its stale profile removed. Failures retain the profile for retry and
 stop BLE; other profiles and the monotonic next-host ID are preserved. There is
 no global delete UI or `host.forget-all` Action.
 
+Metadata changes validate and atomically save a complete candidate
+configuration before publishing it. An unchanged request succeeds without a
+write. These operations preserve host identity, name, bond, selection, and
+Bluetooth On/Off state and make no Bluetooth or HID call, including when they
+load persisted profiles before normal HostService startup. Storage failure
+retains both the published configuration and live radio state. The Actions are
+registered in normal firmware for later clients, but the current settings UI
+does not emit them.
+
 The accepted interaction is Cardputer-side host selection and BLE On/Off.
 A computer's Disconnect button is not the persistent Off setting: macOS may
 reconnect its system HID client while that host remains selected and BLE is On.
-A future companion can reuse these logical operations through an authenticated
-control API, but that API and its network/security lifecycle are not implemented.
+A future authenticated remote client can reuse these logical operations through
+`RemoteControlService`, but that inbound API and its network/security lifecycle
+are not implemented. This is separate from the outbound Host Companion boundary
+in section 35.
 
 ## 17. Host Profiles
 
-The delivered `HostProfile` contains `id`, `name`, and an opaque BLE `bond`.
-Platform, capabilities, application configuration, and Action mappings remain
-future profile extensions; no personal laptop is encoded in application logic.
-The broader profile model should eventually contain information such as:
+The delivered `HostProfile` contains `id`, `name`, an opaque BLE `bond`, an
+optional platform identifier, an ordered set of host-capability identifiers,
+and an optional mapping-template identifier. Metadata identifiers are exact,
+case-sensitive ASCII strings of 1–32 bytes matching
+`[a-z0-9][a-z0-9._-]*`; a host has at most 16 unique capabilities. Absence is
+represented explicitly, and syntactically valid unknown identifiers are
+preserved. Host capabilities describe configured expectations and are separate
+from the Cardputer runtime `CapabilityRegistry`.
+
+Platform metadata does not infer capabilities or a template. The template
+field is only a stable reference: the template catalog, resolution, application
+configuration, and Action mappings remain future work. No personal laptop is
+encoded in application logic. The broader profile model may eventually include:
 
 ```text
 id
@@ -1063,7 +1116,7 @@ Home
 Global shortcut
 Web UI
 Telegram
-Host Companion
+Authenticated remote client
 ```
 
 All sources must invoke the same HostService operation.
@@ -1382,7 +1435,7 @@ Keyboard ───────┐
 Mini App ───────┤
 Web UI ─────────┼──→ Action Bus
 Telegram ───────┤
-Companion ──────┘
+Remote client ──┘
 ```
 
 Actions are routed to the appropriate Service.
@@ -1442,6 +1495,29 @@ VS Code
 
 Not all actions need to be implemented initially.
 
+`HostControlService` will own resolution of logical host-control Actions. It
+uses `HostService` to identify the selected `HostProfile`, the BLE
+`IHidTransport` for configured keyboard/consumer mappings, and
+`CompanionService` for semantic operations supported by an authenticated host
+agent. Mini Apps and System UI must not choose a BLE characteristic, encode a
+companion frame, call a macOS API, or infer a host platform themselves.
+
+Conceptually:
+
+```text
+Mini App / System UI
+        ↓
+      ActionBus
+        ↓
+ HostControlService
+   ├── configured HID mapping ──→ IHidTransport
+   └── semantic host command ───→ CompanionService
+```
+
+The resolved operation has one explicit execution path. Unavailability rejects
+the operation; it must not silently retry the same intent through another path,
+because a partially completed command could otherwise be duplicated.
+
 ---
 
 ## 34. Host HID Actions
@@ -1472,41 +1548,84 @@ transport selected to deliver it.
 
 ---
 
-## 35. Future Host Companion
+## 35. Host Companion Boundary
 
-A future macOS/Windows companion application may provide deeper integration.
-
-```text
-Cardputer
-    ⇅
-Wi-Fi
-    ⇅
-Host Companion
-    ↓
-Operating System
-    ↓
-Applications
-```
-
-Potential functionality:
+An optional host-side companion provides semantic integration that cannot be
+expressed reliably as keyboard HID. The initial implementation is a small
+headless macOS CLI/agent in this repository, not a required dependency and not
+a polished menu-bar application.
 
 ```text
-application activation
-AppleScript
-macOS Shortcuts
-Accessibility automation
-shell commands
-system state
-application state
+HostControlService
+        ↓
+ CompanionService
+        ↓
+ICompanionTransport
+        ↓
+authenticated BLE GATT session
+        ⇅
+macOS companion
+        ↓
+    macOS APIs
 ```
 
-Host Companion is not required initially.
+`CompanionService` owns protocol state, request correlation, timeouts, live
+capabilities, responses, and events for the selected host. It may depend on
+`HostService` and a lower-level `ICompanionTransport`; it must not own Bluetooth
+hardware, host selection, UI, or macOS-specific behavior. The companion is a
+separate program and shares a versioned wire contract and conformance fixtures
+with firmware, not a cross-platform C++ implementation library.
+
+The version-1 feature surface is intentionally small:
+
+```text
+ping
+capabilities
+activate application by bundle identifier
+get active application
+```
+
+Application activation uses a semantic identifier supplied as configuration or
+Action data. Personal application names and bundle identifiers must not be
+hardcoded as special cases. Arbitrary shell execution, AppleScript payloads,
+clipboard access, notifications, file transfer, OTA, USB networking, and system
+automation are later features with separate permission and security reviews.
+
+The first concrete transport is a project-owned BLE GATT service registered
+inside the existing ESP-NimBLE peripheral lifecycle. The selected Mac acts as
+the central and the CLI maintains the application-level session. Companion
+characteristics require the existing encrypted, authenticated, bonded selected
+peer; an unselected or pairing-only peer cannot issue or receive commands.
+Adding the service must preserve HID readiness, advertising, pairing, bond
+identity, shutdown ownership, the single-connection limit, and log privacy.
+
+The protocol is bounded and versioned. Requests carry a session/generation and
+request identifier; responses identify the request; stale, duplicate,
+wrong-session, oversized, malformed, or unsupported messages are rejected.
+Timeout does not imply that a command can be replayed through another transport.
+Neither payloads nor host/application identity may be logged by firmware.
+
+The companion is optional at runtime. Without it, BLE HID, host selection,
+local configuration, Home, and unrelated Mini Apps continue to work. A
+companion failure removes only its live capabilities and fails its pending
+operations explicitly.
+
+Persisted `HostProfile` capability data describes configured expectations.
+Capabilities negotiated from a live companion session describe current
+availability and must not be written back automatically. `COMPANION` becomes a
+runtime Cardputer capability only while a compatible authenticated session for
+the selected host is ready.
+
+There is no companion transport arbitration in the initial implementation.
+USB and Wi-Fi transports, automatic preference or fallback, Internet sharing,
+and session handoff remain later work and must not add dormant routing state.
 
 ---
 
 ## 36. RemoteControlService
 
-External control should eventually pass through `RemoteControlService`.
+Inbound external control of Cardputer should eventually pass through
+`RemoteControlService`.
 
 Potential clients:
 
@@ -1514,7 +1633,6 @@ Potential clients:
 Local Web UI
 Telegram Bot
 VPS backend
-Host Companion
 future mobile application
 ```
 
@@ -1533,6 +1651,12 @@ Services
 ```
 
 Remote clients must not directly manipulate internal hardware or Service implementation details.
+
+This is a different direction and trust boundary from `CompanionService`:
+`RemoteControlService` accepts requests that operate Cardputer, while
+`CompanionService` sends selected-host operations to a computer and consumes
+that computer's state. A future host agent may implement both roles, but their
+authorization, protocol operations, and Service ownership remain distinct.
 
 ---
 
@@ -1635,9 +1759,9 @@ Failures in WeatherService, TelegramService, or VpsService must not break Blueto
 
 ---
 
-## 41. Remote Security Boundary
+## 41. External Security Boundaries
 
-Remote access must have an authentication and authorization boundary.
+Inbound remote access must have an authentication and authorization boundary.
 
 Conceptually:
 
@@ -1656,6 +1780,22 @@ Action Bus
 The exact security mechanism may be decided later.
 
 Remote APIs must not be designed around unrestricted arbitrary command execution.
+
+The host companion has a separate outbound integration boundary. BLE link
+encryption, authenticated bonding, and selected-host filtering are prerequisites,
+but protocol parsing must still validate version, session/generation, request
+identity, operation, and bounded payload before dispatch. Responses and events
+receive the same validation. A command must be allowlisted; a generic shell,
+script, AppleScript, or arbitrary operating-system invocation endpoint is not
+part of the initial protocol.
+
+The macOS companion must request only the operating-system permissions required
+by an enabled capability and expose failure or denial explicitly. Bluetooth
+permission is required for BLE transport. The initial application
+activation/status slice must avoid Accessibility, Automation, clipboard, and
+other broader permissions unless a later capability requires and documents
+them. Protocol payloads, host identity, application identity, authentication
+material, and permission-derived private data must not enter ordinary logs.
 
 ---
 
@@ -1707,6 +1847,14 @@ capabilities when those layers are implemented. Phase 5 will combine
 AppRegistry metadata with registry queries for application eligibility and
 presentation policy.
 
+`COMPANION` means that `CompanionService` currently has a compatible,
+authenticated session with the selected host; installation of the macOS binary
+or existence of a saved Host Profile is insufficient. More specific live
+operation capabilities may be registered from a validated companion capability
+response. They disappear when that session is unavailable. Persisted
+HostProfile capability expectations remain separate configuration data and are
+never treated as proof of live availability.
+
 `AppDescriptor::requiredCapabilities` records ordered, non-empty, unique
 capability IDs but registration does not verify that those capabilities are
 currently available or even known. The AppRegistry and CapabilityRegistry
@@ -1731,21 +1879,31 @@ defaults, validation, migrations, and application-level configuration
 operations. It uses the configuration interfaces and persistence primitives
 provided by System Core; System Core must not duplicate this domain behavior.
 
-The initial delivered schema contains Host Profiles, `activeHost`, monotonic
+The delivered schema contains Host Profiles, `activeHost`, monotonic
 `nextHostId`, and `bluetoothEnabled`. One versioned binary record at
 `StorageAddress{"hosts", "configuration"}` lives in internal `hub_config` NVS.
-Its `HUBH`/version-1 header, bounded lengths/count (up to 16 hosts), unique IDs
-and bonds, valid names and selected ID are checked before acceptance. Missing
-records default to an empty list and BLE Off. Invalid, unknown-version, or
-unreadable records are preserved and reported as errors, never reset silently.
-Writes publish the new in-memory value only after successful storage. Schema
-migration must be added explicitly when a later version is introduced.
+Version 2 retains the version-1 fields and appends each host's bounded platform,
+capability list, and mapping-template reference. Its maximum encoding is 10,255
+bytes for 16 maximally populated profiles, within the 64 KiB partition. The
+decoder consumes the complete record and validates version, booleans, lengths,
+counts, identifiers, unique capabilities, unique IDs and bonds, names, and the
+selected ID before acceptance.
+
+Missing records default to an empty list and BLE Off without a write. A valid
+version-1 record loads losslessly with absent metadata and is not rewritten at
+boot; the next successful configuration mutation atomically writes version 2.
+Valid version-2 records also load without rewriting. Invalid, truncated,
+trailing, unreadable, and future-version records are preserved and reported as
+errors, never reset silently. Failed writes retain the previous stored and
+published values. Firmware that only understands version 1 rejects a record
+after it has been upgraded by a successful mutation, so downgrade requires a
+compatible migration or an intentional configuration reset.
 
 Broader configuration remains planned and includes:
 
 ```text
 Wi-Fi settings
-HostProfile platform/capability extensions
+companion settings and non-secret bindings
 enabled Mini Apps
 Mini App settings
 Service configuration
@@ -1776,6 +1934,7 @@ Service settings
 Mini App settings
 global shortcuts
 remote settings
+companion settings
 ```
 
 Cardputer Hub has two distinct persistence roles:
@@ -1894,6 +2053,7 @@ Bluetooth host
 Internet
 Telegram
 VPS
+Host companion
 microSD
 ```
 
@@ -1917,6 +2077,16 @@ PuzzleWs2812Adapter
 BluetoothService
       ↓
 IBluetoothAdapter
+      ↓
+Esp32BleAdapter
+```
+
+```text
+CompanionService
+      ↓
+ICompanionTransport
+      ↓
+BLE companion transport
       ↓
 Esp32BleAdapter
 ```
@@ -2080,9 +2250,14 @@ or peer-rejection failure enters
 Bluetooth `Error` and shuts down that adapter; ordinary insecure pairing is
 rejected without affecting unrelated systems. Remove-all reports partial
 deletion instead of claiming success. These outcomes do not alter Wi-Fi or
-System Core state. Because
-the Bluetooth foundation is not part of runtime composition yet, it also cannot
-delay or fail normal boot.
+System Core state.
+
+A companion protocol, permission, timeout, or macOS-agent failure removes only
+the companion's live capabilities and fails its own pending operations. It must
+not disconnect an otherwise usable selected HID host, change selection, disable
+Bluetooth, replay commands through HID, or break unrelated Services and Mini
+Apps. Failure of the shared BLE lifecycle still follows BluetoothService's
+existing fail-closed policy.
 
 Unavailable USB diagnostics must not block local display/input polling or
 Bluetooth operation. Wi-Fi and BLE do not depend on a USB data connection.
@@ -2107,10 +2282,11 @@ Earlier plan records retain their historical test counts and toolchains.
 | 5 — Mini App Infrastructure | Not implemented; Phase 1 registry prerequisites exist |
 | 6 — Device Manager | Partial: built-in Bluetooth/host UI delivered |
 | 7 — Host Control | Not implemented; Phase 2 HID transport prerequisite exists |
-| 8 — Weather | Not implemented |
-| 9 — RGB Indicator | Not implemented; Unit Puzzle hardware required |
-| 10 — Remote Boundary | Not implemented |
-| 11 — Extensions | Future scope |
+| 8 — Host Companion | Not implemented; optional macOS CLI and protocol planned |
+| 9 — Weather | Not implemented |
+| 10 — RGB Indicator | Not implemented; Unit Puzzle hardware required |
+| 11 — Remote Boundary | Not implemented |
+| 12 — Extensions | Future scope |
 
 ### Phase 1 — System Core
 
@@ -2159,12 +2335,13 @@ Transport expansion does not block the BLE-only software scope.
 - [x] HostService: import existing bonds, pair/add, select, rename and delete hosts.
 - [x] Persisted active-host intent and Cardputer BLE On/Off.
 - [x] Selection isolation, release-before-switch and failure results through Actions.
-- [x] ConfigurationService: bounded version-1 host schema, validation, defaults,
+- [x] ConfigurationService: bounded version-2 host schema, validation, defaults,
   stable IDs and writes that publish state only after successful storage.
 - [x] BatteryService: optional hardware estimate, bounded five-second sampling.
-- [ ] Broader HostProfile platform/capability data and mapping templates.
+- [x] HostProfile platform/capability metadata and mapping-template references.
+- [x] Lazy, lossless version-1 to version-2 host-configuration migration.
+- [ ] Mapping-template catalog and resolution (Phase 7).
 - [ ] Wi-Fi, Mini App, Service, shortcut, indicator and remote configuration.
-- [ ] Explicit schema migrations when a later schema version is introduced.
 - [ ] IndicatorService abstraction.
 
 ### Phase 4 — Application Shell
@@ -2211,11 +2388,29 @@ with the Phase 5 Mini App contract remains open.
 **Not implemented** — Phase 2 provides the HID transport and diagnostic report
 commands; normal firmware does not map Cardputer typing or Actions to host input.
 
+- [ ] HostControlService and logical host-control Actions.
 - [ ] Basic host HID Actions through IHidTransport.
 - [ ] Application focus Actions.
 - [ ] Host-specific mappings and templates.
 
-### Phase 8 — Weather
+### Phase 8 — Host Companion
+
+**Not implemented.** The companion is part of the initial platform roadmap but
+remains optional at runtime. Phase 7 logical Actions and Phase 3 Host Profiles
+are prerequisites.
+
+- [ ] Versioned, bounded companion protocol and cross-implementation fixtures.
+- [ ] CompanionService and hardware-neutral ICompanionTransport.
+- [ ] One authenticated BLE GATT transport in the existing selected-host
+  lifecycle; no transport router or fallback.
+- [ ] Headless macOS CLI/agent in this repository.
+- [ ] `ping`, capability negotiation, application activation, and active-app
+  status only.
+- [ ] Dynamic capability publication and failure isolation.
+- [ ] Native protocol/Service tests, macOS tests, Cardputer-Adv compilation,
+  and physical BLE/HID coexistence validation.
+
+### Phase 9 — Weather
 
 **Not implemented.** This will validate one Service consumed by several UI views.
 
@@ -2223,7 +2418,7 @@ commands; normal firmware does not map Cardputer typing or Actions to host input
 - [ ] WeatherApp.
 - [ ] Home weather summary.
 
-### Phase 9 — RGB Indicator
+### Phase 10 — RGB Indicator
 
 **Not implemented; requires Unit Puzzle hardware.**
 
@@ -2231,7 +2426,7 @@ commands; normal firmware does not map Cardputer typing or Actions to host input
 - [ ] IndicatorService states.
 - [ ] Animations and priority arbitration.
 
-### Phase 10 — Remote Boundary
+### Phase 11 — Remote Boundary
 
 **Not implemented.** A full Web UI or Telegram integration is not required yet.
 
@@ -2239,7 +2434,7 @@ commands; normal firmware does not map Cardputer typing or Actions to host input
 - [ ] Authentication boundary.
 - [ ] ActionBus integration.
 
-### Phase 11 — Extensions
+### Phase 12 — Extensions
 
 **Future scope; none of these integrations is implemented.**
 
@@ -2248,7 +2443,10 @@ commands; normal firmware does not map Cardputer typing or Actions to host input
 - [ ] MediaService.
 - [ ] Home Assistant.
 - [ ] Web UI.
-- [ ] Host companion/CLI and authenticated control protocol.
+- [ ] Companion Wi-Fi/USB transports, explicit selection policy, and session
+  handoff if a second transport is justified.
+- [ ] Companion media, clipboard, notification, system-information, file, OTA,
+  and approved automation capabilities.
 
 ---
 
@@ -2263,6 +2461,8 @@ WiFiService
 BluetoothService
 
 HostService
+HostControlService
+CompanionService
 ConfigurationService
 IndicatorService
 
@@ -2277,6 +2477,8 @@ BLE HID
 
 Device Manager Mini App
 basic host control
+optional macOS companion CLI
+versioned authenticated companion protocol
 
 WeatherService
 Weather Mini App
@@ -2308,7 +2510,11 @@ VpsService
 VPS Monitor
 Local Web UI
 VPS backend
-Host Companion
+polished macOS menu-bar companion
+Windows/Linux companion
+companion Wi-Fi or USB transports
+USB networking or Internet sharing
+companion clipboard, file, OTA, notification, and arbitrary automation features
 advanced Telegram actions
 screen notification overlays
 Windows-specific automation
@@ -2341,13 +2547,16 @@ The architecture must allow these capabilities to be added without restructuring
 
 9. Actions are the common representation of user intent.
 
-10. Keyboard, Web UI, Telegram, and Companion are control surfaces, not separate business logic implementations.
+10. Keyboard, Web UI, and Telegram are control surfaces, while a Host Companion
+    is an optional semantic execution integration; all use shared logical
+    Actions and Service-owned behavior rather than duplicate Mini App logic.
 
 11. Configuration is data.
 
 12. Boot-critical configuration must not depend on removable storage.
 
-13. Remote functionality is an optional extension.
+13. Remote functionality and the Host Companion are optional at runtime;
+    absence or failure must not remove local platform behavior.
 
 14. Failure of one Service must not break unrelated Services.
 
@@ -2356,6 +2565,10 @@ The architecture must allow these capabilities to be added without restructuring
 16. Removable file storage is optional, bounded, and confined to a
     Cardputer Hub-owned root; boot-critical configuration remains in internal
     storage.
+
+17. A companion operation has one explicit delivery path. Additional transports
+    and fallback policy are added only with a concrete implementation and
+    validation plan.
 
 ---
 
@@ -2379,10 +2592,13 @@ src/
 │
 ├── connectivity/
 │   ├── wifi/
-│   └── bluetooth/
+│   ├── bluetooth/
+│   └── companion/
 │
 ├── services/
 │   ├── hosts/
+│   ├── host_control/
+│   ├── companion/
 │   ├── weather/
 │   ├── vps/
 │   ├── telegram/
@@ -2412,9 +2628,20 @@ src/
 │           └── cardputer_microsd_file_storage_adapter.*
 │
 └── main.cpp
+
+protocol/
+└── companion/          shared schema, fixtures, and conformance vectors
+
+companion/
+└── macos/              independent headless CLI/agent and tests
 ```
 
 Exact directories may evolve during implementation.
+
+The existing firmware remains rooted at `src/`; adding the companion does not
+require moving it under a new wrapper directory. Firmware and macOS code are
+independent programs. Only the protocol schema and language-neutral fixtures
+are shared across their build boundaries.
 
 The dependency direction should remain:
 

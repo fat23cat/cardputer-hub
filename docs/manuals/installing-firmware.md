@@ -105,6 +105,15 @@ device has the current layout, use the non-destructive upload path:
 make upload
 ```
 
+Current firmware reads the earlier version-1 host record without rewriting it.
+The next successful settings change upgrades that record to version 2 so host
+platform/capability/template-reference metadata can be stored. Firmware that
+only understands version 1 will then reject the settings record if you
+downgrade; it will not erase it. Downgrade safely only with a release that
+documents version-2 compatibility or an explicit migration. Clearing
+`hub_config` is a destructive last resort that removes saved Cardputer Hub
+configuration and is not part of a normal downgrade.
+
 The first run may take several minutes while ESP-IDF downloads the locked
 managed components. It then builds the production firmware, selects the
 connected serial port, flashes the image, and resets the device.
