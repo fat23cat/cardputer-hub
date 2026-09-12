@@ -376,6 +376,11 @@ Use version-controlled manifests and lockfiles where available. Production
 builds must not implicitly depend on floating tags, broad version ranges, or
 whatever version happens to be latest.
 
+`pyproject.toml`'s exact `[tool.uv].required-version` value is the single source
+for the `uv` version installed by CI, release, and historical-rebuild workflows.
+Each workflow must pass that file to `setup-uv` instead of duplicating the
+version number.
+
 Dependency upgrades should be explicit, reviewable changes. Automated update
 tools such as Dependabot or Renovate may prepare these changes, but the normal
 validation pipeline must pass before they are merged.

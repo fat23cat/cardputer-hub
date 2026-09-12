@@ -124,6 +124,16 @@ class FirmwareArtifactWorkflowTest(unittest.TestCase):
         self.assertIn("build/partition_table/partition-table.bin", workflow)
 
 
+class ToolchainWorkflowTest(unittest.TestCase):
+    def test_uv_version_comes_from_pyproject_in_every_workflow(self) -> None:
+        for workflow_path in (CI_WORKFLOW, RELEASE_WORKFLOW, REBUILD_WORKFLOW):
+            with self.subTest(workflow=workflow_path.name):
+                self.assertIn(
+                    "version-file: pyproject.toml",
+                    workflow_path.read_text(),
+                )
+
+
 class ConfigurationPartitionMigrationTest(unittest.TestCase):
     def test_one_time_migration_erases_only_the_new_configuration_range(self) -> None:
         makefile = MAKEFILE.read_text()
