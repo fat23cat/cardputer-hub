@@ -5,6 +5,26 @@ Cardputer-Adv over USB. No global PlatformIO or M5Stack library installation is
 required. Production builds use the repository's exact ESP-IDF 5.5.5 setup;
 PlatformIO is retained only for native host checks.
 
+For a microSD-based multiboot installation alongside Codex Microputer ADV, use
+the separate [Cardputer Firmware Manager](https://github.com/fat23cat/cardputer-firmware-manager).
+Its shared `crub` partition table replaces the standalone installation layout
+described below.
+
+With the manager cloned beside this repository, build Hub, enter `usbsd` in
+CRUB, and run:
+
+```bash
+cd ../cardputer-firmware-manager
+python3 -m firmware_manager doctor
+python3 -m firmware_manager local --app hub --sd /Volumes/CARDPUTER
+```
+
+For a published image, replace `local` with `release`. Safely eject the card,
+exit `usbsd`, run `sd` to remount it and reload aliases, then run `uphub` and
+wait for `app: ok` plus `flash complete`. These manager commands validate the
+ESP application descriptor and the `hub` partition size before the image can
+reach CRUB.
+
 ## What You Need
 
 * an M5Stack Cardputer-Adv;
@@ -48,7 +68,7 @@ downloaded installation scripts first when required by your environment's
 security policy.
 
 ```bash
-curl -LsSf https://astral.sh/uv/0.12.7/install.sh | sh
+curl -LsSf https://astral.sh/uv/0.12.12/install.sh | sh
 ```
 
 Restart the terminal if `uv` is not immediately available. Then install the

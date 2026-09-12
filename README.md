@@ -123,7 +123,7 @@ system UI, connectivity foundations, and host/configuration/battery Services.
 The locked development environment uses:
 
 * Python 3.12.14;
-* uv 0.12.7;
+* uv 0.12.12;
 * ESP-IDF 5.5.5 with its recommended compiler, CMake, and Ninja tools;
 * PlatformIO Core 6.1.19 only for native host tests and static analysis;
 * clang-format 23.1.0;
@@ -152,7 +152,7 @@ scripts before running them when required by your environment's security
 policy.
 
 ```bash
-curl -LsSf https://astral.sh/uv/0.12.7/install.sh | sh
+curl -LsSf https://astral.sh/uv/0.12.12/install.sh | sh
 uv python install 3.12.14
 bash scripts/install_esp_idf.sh \
   "$HOME/.espressif/frameworks/esp-idf-v5.5.5"
@@ -185,6 +185,38 @@ Follow the maintained
 [`docs/manuals/installing-firmware.md`](docs/manuals/installing-firmware.md)
 guide for prerequisites, USB installation, verification, and troubleshooting.
 
+To keep Cardputer Hub and Codex Microputer ADV installed simultaneously, use
+the separate [Cardputer Firmware Manager](https://github.com/fat23cat/cardputer-firmware-manager).
+It owns the shared `crub` layout, stages all or selected local builds and GitHub
+Release images on microSD, and keeps application data partitions intact during
+routine updates.
+
+For a local multiboot build, start CRUB's `usbsd` mode and validate/stage the
+Hub image through the sibling manager repository:
+
+```bash
+cd ../cardputer-firmware-manager
+python3 -m firmware_manager doctor
+python3 -m firmware_manager local --app hub --build --sd /Volumes/CARDPUTER
+```
+
+The manager calls `scripts/build_firmware.sh`, which activates the pinned
+ESP-IDF 5.5.5 installation from the documented setup path, or a repository-local
+`build-tools/` installation when present, without inheriting another
+application's ESP-IDF environment. Nonstandard installations may set
+`CARDPUTER_HUB_IDF_PATH` and, when needed, `CARDPUTER_HUB_IDF_TOOLS_PATH`.
+
+After safely ejecting the card and exiting `usbsd`, run `sd` so CRUB remounts
+the card and reloads its aliases. Then run `uphub` and require both `app: ok`
+and `flash complete` before launching `hub`. To install a published build
+instead, use:
+
+```bash
+python3 -m firmware_manager release --app hub --sd /Volumes/CARDPUTER
+```
+
+Do not copy or flash an unvalidated raw image directly.
+
 ---
 
 ## Build
@@ -192,6 +224,10 @@ guide for prerequisites, USB installation, verification, and troubleshooting.
 ```bash
 make build
 ```
+
+External orchestrators such as Cardputer Firmware Manager use the self-contained
+wrapper `scripts/build_firmware.sh`; interactive development may continue to
+activate ESP-IDF and call `make build` directly.
 
 The production application and matching partition-table images are written to
 `build/cardputer_hub.bin` and

@@ -1848,6 +1848,21 @@ one-time provisioning of the flash range repurposed from SPIFFS. Normal uploads
 and later upgrades must never erase `hub_config`; an initialization failure
 after provisioning remains a backend error rather than destructive recovery.
 
+The optional `crub` multiboot deployment is owned by the separate
+[Cardputer Firmware Manager](https://github.com/fat23cat/cardputer-firmware-manager),
+including its version-controlled shared partition layout and SD staging
+contract. In that layout `crub` owns the bootloader and partition table,
+Cardputer Hub occupies one OTA application partition, Codex Microputer occupies
+another, and the applications retain dedicated `hub_config` and `apps_nvs`
+data partitions. Cardputer Hub remains an ordinary ESP-IDF application image
+and must not attempt to replace the loader-owned table during an app-only
+update. This deployment changes packaging and boot ownership, not the Mini App,
+Service, Connectivity, or hardware-adapter layer boundaries.
+
+The multiboot layout keeps `crub`'s removable-media paths separate from the
+Cardputer Hub-owned `/cardputer-hub` root. A shared card uses directory
+ownership within one FAT filesystem; neither firmware repartitions the card.
+
 Phase 1 provides the hardware-neutral `FileStorage` facade and
 `IFileStorageAdapter`. File Storage exposes known-path files below a Cardputer
 Hub-owned root on the card. Paths are logical and relative to that root, and

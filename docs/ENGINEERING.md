@@ -664,6 +664,23 @@ its matching partition-table image. Their names and installation offsets must
 be documented. Routine upgrades must write the layout and application without
 erasing data partitions.
 
+The optional `crub` deployment is an explicit exception to writing Cardputer
+Hub's standalone partition image. The separate
+[Cardputer Firmware Manager](https://github.com/fat23cat/cardputer-firmware-manager)
+owns the shared loader partition contract, while routine updates write only the
+raw Cardputer Hub application image into the existing `hub` partition. The
+manager's checks must validate that the shared layout is non-overlapping, fits
+8 MiB, retains the loader partitions, and provides the required `hub_config`,
+`apps_nvs`, `hub`, and `codex` partitions. Its SD staging commands must reject
+oversized or non-application images before they reach `crub`.
+
+Before installing a local Cardputer Hub build into the shared layout, run the
+manager's `doctor` command and stage it with `local --app hub`; published assets
+must be obtained with `release --app hub`. The application repository must not
+duplicate the deployable shared layout or bypass the manager's raw-image and
+partition-size validation. The manager prepares removable media only; CRUB's
+`uphub` command remains the explicit device-side write boundary.
+
 A layout transition that repurposes an existing flash range must provide a
 separate, explicit one-time migration command. The migration may erase only the
 newly allocated range before it can contain authoritative data; it must not run
@@ -972,6 +989,13 @@ serial monitoring
 A clean recursive checkout should be enough to reproduce the build after
 installing the documented exact ESP-IDF and uv prerequisites. Production
 commands must reject an activated ESP-IDF version other than 5.5.5.
+
+External firmware orchestration uses `scripts/build_firmware.sh`. The wrapper
+activates the repository's pinned ESP-IDF installation itself from the
+documented global path or an available repository-local `build-tools/` path,
+accepts explicit `CARDPUTER_HUB_IDF_PATH` and
+`CARDPUTER_HUB_IDF_TOOLS_PATH` overrides for nonstandard installations, and
+must not depend on another application's active ESP-IDF environment.
 
 ---
 
