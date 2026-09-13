@@ -30,6 +30,11 @@ struct HostConfiguration {
     bool bluetoothEnabled = false;
 };
 
+struct SystemConfiguration {
+    HostConfiguration host;
+    std::uint8_t soundVolume = 60;
+};
+
 enum class ConfigurationResult { Success, InvalidData, StorageError };
 
 class ConfigurationService {
@@ -38,21 +43,24 @@ class ConfigurationService {
     static constexpr std::size_t maximumMetadataIdentifierLength = 32;
     static constexpr std::size_t maximumHostCapabilityCount = 16;
     static constexpr std::size_t maximumSerializedSize =
-        15 + connectivity::BluetoothService::maximumBondCount *
+        16 + connectivity::BluetoothService::maximumBondCount *
                  (4 + 1 + maximumNameLength + connectivity::BluetoothBondReference{}.bytes.size() +
                   1 + maximumMetadataIdentifierLength + 1 +
                   maximumHostCapabilityCount * (1 + maximumMetadataIdentifierLength) + 1 +
                   maximumMetadataIdentifierLength);
     explicit ConfigurationService(core::Storage& storage) : storage_(storage) {}
     ConfigurationResult load();
-    ConfigurationResult save(const HostConfiguration& value);
-    const HostConfiguration& value() const noexcept { return value_; }
-    static bool valid(const HostConfiguration& value);
+    ConfigurationResult ensureLoaded();
+    ConfigurationResult save(const SystemConfiguration& value);
+    const SystemConfiguration& value() const noexcept { return value_; }
+    bool loaded() const noexcept { return loaded_; }
+    static bool valid(const SystemConfiguration& value);
     static bool validMetadataIdentifier(std::string_view value);
 
   private:
     core::Storage& storage_;
-    HostConfiguration value_;
+    SystemConfiguration value_;
+    bool loaded_ = false;
 };
 
 } // namespace cardputer_hub::services

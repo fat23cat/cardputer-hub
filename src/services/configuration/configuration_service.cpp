@@ -9,6 +9,7 @@ const core::StorageAddress address{"hosts", "configuration"};
 constexpr std::uint32_t maximumId = std::numeric_limits<std::int32_t>::max();
 constexpr std::uint8_t versionOne = 1;
 constexpr std::uint8_t versionTwo = 2;
+constexpr std::uint8_t versionThree = 3;
 
 void appendInteger(core::StorageBytes& bytes, std::uint32_t value) {
     for (unsigned shift = 0; shift < 32; shift += 8) {
@@ -74,15 +75,17 @@ bool ConfigurationService::validMetadataIdentifier(std::string_view value) {
     return isValidMetadataIdentifier(value);
 }
 
-bool ConfigurationService::valid(const HostConfiguration& value) {
-    if (value.hosts.size() > connectivity::BluetoothService::maximumBondCount ||
-        value.nextHostId == 0 || value.nextHostId > maximumId ||
-        (value.bluetoothEnabled && !value.activeHost))
+bool ConfigurationService::valid(const SystemConfiguration& value) {
+    const auto& config = value.host;
+    if (config.hosts.size() > connectivity::BluetoothService::maximumBondCount ||
+        config.nextHostId == 0 || config.nextHostId > maximumId ||
+        (config.bluetoothEnabled && !config.activeHost) || value.soundVolume > 100 ||
+        value.soundVolume % 10 != 0)
         return false;
-    bool activeFound = !value.activeHost;
-    for (std::size_t i = 0; i < value.hosts.size(); ++i) {
-        const auto& host = value.hosts[i];
-        if (host.id == 0 || host.id >= value.nextHostId || host.name.empty() ||
+    bool activeFound = !config.activeHost;
+    for (std::size_t i = 0; i < config.hosts.size(); ++i) {
+        const auto& host = config.hosts[i];
+        if (host.id == 0 || host.id >= config.nextHostId || host.name.empty() ||
             host.name.size() > maximumNameLength ||
             std::any_of(host.name.begin(), host.name.end(),
                         [](unsigned char c) { return c < 32 || c > 126; }) ||
@@ -102,10 +105,10 @@ bool ConfigurationService::valid(const HostConfiguration& value) {
                     host.capabilities.begin() + static_cast<std::ptrdiff_t>(capability))
                 return false;
         }
-        if (value.activeHost == host.id)
+        if (config.activeHost == host.id)
             activeFound = true;
         for (std::size_t j = 0; j < i; ++j) {
-            if (value.hosts[j].id == host.id || value.hosts[j].bond == host.bond)
+            if (config.hosts[j].id == host.id || config.hosts[j].bond == host.bond)
                 return false;
         }
     }
@@ -113,9 +116,11 @@ bool ConfigurationService::valid(const HostConfiguration& value) {
 }
 
 ConfigurationResult ConfigurationService::load() {
+    loaded_ = false;
     const auto record = storage_.read(address);
     if (record.status == core::StorageReadStatus::NotFound) {
         value_ = {};
+        loaded_ = true;
         return ConfigurationResult::Success;
     }
     if (record.status != core::StorageReadStatus::Found)
@@ -128,18 +133,22 @@ ConfigurationResult ConfigurationService::load() {
             return ConfigurationResult::InvalidData;
     }
     std::uint8_t version = 0;
-    if (!reader.byte(version) || (version != versionOne && version != versionTwo))
+    if (!reader.byte(version) ||
+        (version != versionOne && version != versionTwo && version != versionThree))
         return ConfigurationResult::InvalidData;
-    HostConfiguration next;
+    SystemConfiguration next;
     std::uint8_t enabled = 0, count = 0;
     std::uint32_t active = 0;
     if (!reader.byte(enabled) || enabled > 1 || !reader.byte(count) ||
-        count > connectivity::BluetoothService::maximumBondCount ||
-        !reader.integer(next.nextHostId) || !reader.integer(active))
+        count > connectivity::BluetoothService::maximumBondCount)
         return ConfigurationResult::InvalidData;
-    next.bluetoothEnabled = enabled != 0;
+    if (version == versionThree && !reader.byte(next.soundVolume))
+        return ConfigurationResult::InvalidData;
+    if (!reader.integer(next.host.nextHostId) || !reader.integer(active))
+        return ConfigurationResult::InvalidData;
+    next.host.bluetoothEnabled = enabled != 0;
     if (active != 0)
-        next.activeHost = active;
+        next.host.activeHost = active;
     for (std::uint8_t index = 0; index < count; ++index) {
         HostProfile host;
         if (!reader.integer(host.id) || !reader.string(host.name, maximumNameLength))
@@ -148,7 +157,7 @@ ConfigurationResult ConfigurationService::load() {
             if (!reader.byte(b))
                 return ConfigurationResult::InvalidData;
         }
-        if (version == versionTwo) {
+        if (version >= versionTwo) {
             std::string platform;
             std::uint8_t capabilityCount = 0;
             if (!reader.string(platform, maximumMetadataIdentifierLength) ||
@@ -168,28 +177,36 @@ ConfigurationResult ConfigurationService::load() {
             if (!mappingTemplate.empty())
                 host.mappingTemplate = std::move(mappingTemplate);
         }
-        next.hosts.push_back(std::move(host));
+        next.host.hosts.push_back(std::move(host));
     }
     if (!reader.done() || !valid(next))
         return ConfigurationResult::InvalidData;
     value_ = std::move(next);
+    loaded_ = true;
     return ConfigurationResult::Success;
 }
 
-ConfigurationResult ConfigurationService::save(const HostConfiguration& value) {
+ConfigurationResult ConfigurationService::ensureLoaded() {
+    return loaded_ ? ConfigurationResult::Success : load();
+}
+
+ConfigurationResult ConfigurationService::save(const SystemConfiguration& value) {
+    if (!loaded_)
+        return ConfigurationResult::StorageError;
     if (!valid(value))
         return ConfigurationResult::InvalidData;
     core::StorageBytes bytes{'H',
                              'U',
                              'B',
                              'H',
-                             versionTwo,
-                             static_cast<std::uint8_t>(value.bluetoothEnabled),
-                             static_cast<std::uint8_t>(value.hosts.size())};
+                             versionThree,
+                             static_cast<std::uint8_t>(value.host.bluetoothEnabled),
+                             static_cast<std::uint8_t>(value.host.hosts.size()),
+                             value.soundVolume};
     bytes.reserve(maximumSerializedSize);
-    appendInteger(bytes, value.nextHostId);
-    appendInteger(bytes, value.activeHost.value_or(0));
-    for (const auto& host : value.hosts) {
+    appendInteger(bytes, value.host.nextHostId);
+    appendInteger(bytes, value.host.activeHost.value_or(0));
+    for (const auto& host : value.host.hosts) {
         appendInteger(bytes, host.id);
         appendString(bytes, host.name);
         bytes.insert(bytes.end(), host.bond.bytes.begin(), host.bond.bytes.end());

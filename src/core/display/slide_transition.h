@@ -19,4 +19,8 @@ class SlideTransition {
 // have identical pixel format. This lets a new input interrupt a slide smoothly.
 void composeSlideSnapshot(std::uint16_t* outgoing, const std::uint16_t* incoming, int width,
                           int height, int offset, SlideDirection direction);
+// Advance an already composed visible frame from priorOffset to nextOffset.
+// The incoming region is refreshed even when the quantized offset is unchanged.
+void advanceSlideSnapshot(std::uint16_t* visible, const std::uint16_t* incoming, int width,
+                          int height, int priorOffset, int nextOffset, SlideDirection direction);
 } // namespace cardputer_hub::core

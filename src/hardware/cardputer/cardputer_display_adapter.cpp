@@ -60,13 +60,16 @@ void CardputerDisplayAdapter::endFrame() {
         const auto offset = frame_->slide.offset();
         const bool dirty = frame_->left < frame_->right && frame_->top < frame_->bottom;
         if (dirty || offset != frame_->presentedOffset) {
-            const bool forward = frame_->slide.direction() == core::SlideDirection::Forward;
+            core::advanceSlideSnapshot(
+                static_cast<std::uint16_t*>(frame_->previous.getBuffer()),
+                static_cast<const std::uint16_t*>(frame_->canvas.getBuffer()), 240, 135,
+                std::max(0, frame_->presentedOffset), offset, frame_->slide.direction());
             M5.Display.startWrite();
             M5.Display.setClipRect(0, 0, 240, 135);
-            if (offset < 240)
-                frame_->previous.pushSprite(forward ? -offset : offset, 0);
-            if (offset > 0)
-                frame_->canvas.pushSprite(forward ? 240 - offset : offset - 240, 0);
+            // Present one contiguous frame. Two cropped DMA sprite transfers can
+            // leave the ST7789 on the first composition while application state
+            // continues to advance.
+            frame_->previous.pushSprite(0, 0);
             M5.Display.clearClipRect();
             M5.Display.endWrite();
             frame_->presentedOffset = offset;
@@ -102,13 +105,7 @@ void CardputerDisplayAdapter::beginTransition(core::SlideDirection direction) {
     if (!frame_ || !frame_->active)
         return;
     if (!frame_->transitionRequested) {
-        if (frame_->snapshotUsable) {
-            // Freeze what was actually presented, not the as-yet-hidden target.
-            core::composeSlideSnapshot(
-                static_cast<std::uint16_t*>(frame_->previous.getBuffer()),
-                static_cast<const std::uint16_t*>(frame_->canvas.getBuffer()), 240, 135,
-                std::max(0, frame_->presentedOffset), frame_->slide.direction());
-        } else {
+        if (!frame_->snapshotUsable) {
             frame_->previous.setColorDepth(16);
             if (!frame_->previous.createSprite(240, 135))
                 return;

@@ -34,7 +34,7 @@ class HostService final : public core::IActionHandler {
     HostResult cancelPairing();
     HostResult deleteHost(std::uint32_t id);
     core::ActionHandlingResult handle(const core::Action& action) override;
-    const HostConfiguration& settings() const noexcept { return configuration_.value(); }
+    const HostConfiguration& settings() const noexcept { return configuration_.value().host; }
     HostResult lastResult() const noexcept { return lastResult_; }
     bool pairing() const noexcept { return pairing_; }
     connectivity::BluetoothPairingState pairingState() const { return bluetooth_.pairingState(); }
@@ -50,9 +50,9 @@ class HostService final : public core::IActionHandler {
     HostResult ensureMetadataReady();
     HostResult apply();
     HostResult initializeIdle();
-    HostResult reconcile(HostConfiguration& value);
-    HostResult save(const HostConfiguration& value);
-    HostResult saveMetadata(const HostConfiguration& value);
+    HostResult reconcile(SystemConfiguration& value);
+    HostResult save(const SystemConfiguration& value);
+    HostResult saveMetadata(const SystemConfiguration& value);
     connectivity::BluetoothService& bluetooth_;
     ConfigurationService& configuration_;
     core::Logger* logger_;

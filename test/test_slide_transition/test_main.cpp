@@ -57,6 +57,38 @@ void test_interruption_snapshot_preserves_every_pixel_without_gaps_in_both_direc
         TEST_ASSERT_EQUAL_UINT16_ARRAY(to.data(), frame.data(), 8);
     }
 }
+void test_incremental_snapshot_advances_as_one_complete_frame_and_refreshes_incoming_pixels() {
+    const std::array<std::uint16_t, 4> from{1, 2, 3, 4};
+    std::array<std::uint16_t, 4> to{11, 12, 13, 14};
+    auto frame = from;
+
+    advanceSlideSnapshot(frame.data(), to.data(), 4, 1, 0, 1, SlideDirection::Forward);
+    const std::array<std::uint16_t, 4> forwardOne{2, 3, 4, 11};
+    TEST_ASSERT_EQUAL_UINT16_ARRAY(forwardOne.data(), frame.data(), 4);
+
+    to[0] = 21;
+    advanceSlideSnapshot(frame.data(), to.data(), 4, 1, 1, 1, SlideDirection::Forward);
+    const std::array<std::uint16_t, 4> forwardRefreshed{2, 3, 4, 21};
+    TEST_ASSERT_EQUAL_UINT16_ARRAY(forwardRefreshed.data(), frame.data(), 4);
+
+    advanceSlideSnapshot(frame.data(), to.data(), 4, 1, 1, 3, SlideDirection::Forward);
+    const std::array<std::uint16_t, 4> forwardThree{4, 21, 12, 13};
+    TEST_ASSERT_EQUAL_UINT16_ARRAY(forwardThree.data(), frame.data(), 4);
+
+    frame = from;
+    to = {11, 12, 13, 14};
+    advanceSlideSnapshot(frame.data(), to.data(), 4, 1, 0, 1, SlideDirection::Backward);
+    const std::array<std::uint16_t, 4> backwardOne{14, 1, 2, 3};
+    TEST_ASSERT_EQUAL_UINT16_ARRAY(backwardOne.data(), frame.data(), 4);
+
+    to[3] = 24;
+    advanceSlideSnapshot(frame.data(), to.data(), 4, 1, 1, 3, SlideDirection::Backward);
+    const std::array<std::uint16_t, 4> backwardThree{12, 13, 24, 1};
+    TEST_ASSERT_EQUAL_UINT16_ARRAY(backwardThree.data(), frame.data(), 4);
+
+    advanceSlideSnapshot(frame.data(), to.data(), 4, 1, 3, 4, SlideDirection::Backward);
+    TEST_ASSERT_EQUAL_UINT16_ARRAY(to.data(), frame.data(), 4);
+}
 } // namespace
 void setUp() {}
 void tearDown() {}
@@ -65,5 +97,7 @@ int main() {
     RUN_TEST(test_slide_finishes_in_220_ms_with_cubic_ease_out_and_bounded_frames);
     RUN_TEST(test_slide_restart_and_large_or_negative_time_are_safe);
     RUN_TEST(test_interruption_snapshot_preserves_every_pixel_without_gaps_in_both_directions);
+    RUN_TEST(
+        test_incremental_snapshot_advances_as_one_complete_frame_and_refreshes_incoming_pixels);
     return UNITY_END();
 }

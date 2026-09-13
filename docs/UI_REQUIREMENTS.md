@@ -1,12 +1,12 @@
 # UI and Interaction Requirements
 
-Status: **Approved requirements — Home and Bluetooth panel implemented; full UI pending**
+Status: **Approved requirements — Home, Bluetooth panel, and key feedback implemented; full UI pending**
 
 This document defines the shared visual, motion, sound, display-power, and
 input-routing rules for Cardputer Hub system UI and Mini Apps. It distinguishes the delivered Home and Bluetooth panel from the full UI still
 planned. The screen implements the palette, flat layout, local controls, and
-Micro5 pairing digits, and horizontal page transitions. Full Launcher transitions,
-audio, idle dimming, wake-input
+Micro5 pairing digits, horizontal page transitions, and synthesized key feedback.
+Full Launcher transitions, remaining semantic audio cues, idle dimming, wake-input
 consumption, and the Home display-power treatment are not implemented yet.
 
 The visual and acoustic direction is derived from
@@ -245,6 +245,18 @@ Sound must have a persistent mute control and a persistent 0-100% volume in
 10% steps. The initial default is 60%, matching the reference output level.
 Wake-only input must not play an action or key-confirmation sound.
 
+The delivered subset uses the reference low, dry `Select` thock for each
+debounced semantic key press after splash handoff. Eight deterministic variants
+follow a restrained pitch contour and release to digital silence to avoid an
+end-of-buffer transient. A press received while the interface cue is still
+active is coalesced instead of interrupting it or building an audio queue. The two directional
+reference gestures are used when Settings changes sound volume. All clips are
+generated as bounded constant PCM assets during development, so startup only
+initializes the audio adapter and M5Unified plays them asynchronously. Settings
+exposes `Sound volume` immediately below Bluetooth; Left/Right adjust 0-100 in
+ten-percent steps, 0 is mute, and the value persists. Boot, menu-open/apply,
+attention, success, error, idle, and broader state-driven cues remain pending.
+
 Any source code adapted from the reference repository must retain the notices
 required by its
 [Apache 2.0 license](https://github.com/fat23cat/codex-microputer-adv/blob/main/LICENSE).
@@ -354,17 +366,21 @@ rule. It must eventually pause while the display is off and must never count as
 user activity. Battery updates repaint only their header region; host/status
 updates repaint only the host region. Pairing's Micro 5 digits are unchanged.
 
-Tab on the main keyboard (also G0 or Fn+Tab) opens a general SETTINGS list with a single implemented Bluetooth entry,
+Plain Tab on the main keyboard opens a general SETTINGS list with
+Bluetooth followed by Sound volume,
 using the existing ordinal and Ink focus plate, without a bottom bar or
-Esc Home label. Enter opens
+Esc Home label. Up/Down move between the rows. On Sound volume, the physical
+`,` / `/` keys marked Left / Right work without Fn; logical Left/Right work as
+well. They change the right-aligned percentage in ten-percent steps without
+opening a separate page. Enter on Bluetooth opens
 the existing Bluetooth panel without modifying its controls or layout. Its Esc
-Home behavior is retained; Tab, G0 or Fn+Tab from the BLE list returns to Settings. The
+Home behavior is retained; plain Tab from the BLE list returns to Settings. The
 menu input is consumed without dismissing host submenus, rename/delete prompts,
-or pairing. Enter/B do not open anything on Home. Repeated Tab/G0/Fn+Tab
+or pairing. Enter/B do not open anything on Home. Repeated plain Tab
 in Settings does not add history entries or repaint a settled view. Background
-connection updates never navigate away from the current screen. G0 uses the
-debounced press edge from M5Unified BtnA and emits the local SystemMenu input;
-holding it does not repeat. Its hardware boot/download function is unchanged. Plain Tab is a built-in
+connection updates never navigate away from the current screen. Fn+Tab is
+inactive, and a normal G0 press has no application action. G0's hardware
+boot/download function is unchanged. Plain Tab is a built-in
 system-screen control, not a global shortcut for future text-entry Mini Apps.
 
 The Cardputer adapter composes drawing into a persistent RGB565 canvas and copies
@@ -376,7 +392,7 @@ and pairing participate; focus moves, typed characters, and status updates do
 not restart transitions. The Home wave pauses during a slide. Input remains
 live; a newer navigation transition starts from the currently presented pixels.
 No event is queued for later host replay. Animation positions update at most
-once per 16 ms and stop at completion. Spring focus motion, sound, and
+once per 16 ms and stop at completion. Spring focus motion, remaining sound cues, and
 display-power policy remain pending. If canvas allocation
 fails, the adapter retains direct drawing as a usable fallback. Full Device
 Manager integration and Phase 7 Action-to-HID mappings remain planned.
@@ -423,12 +439,13 @@ Physical Cardputer-Adv validation must confirm:
 ## 11. Current-Firmware Boundary
 
 This document includes delivered behavior and future requirements. Home,
-Settings/Bluetooth, per-host menus, partial frame presentation, page slides,
-the ambient wave, and the two-second segmented startup splash are implemented.
+Settings/Bluetooth and sound-volume rows, synthesized key feedback, per-host
+menus, partial frame presentation, page slides, the ambient wave, and the
+two-second segmented startup splash are implemented.
 The splash uses Bone, Ink, Blue, Pale, and Ordinal tokens, keeps the firmware
 version visible throughout, and advances without blocking background work.
-Launcher integration, spring focus motion,
-sound, dim/off/wake policy, and live clock/Wi-Fi composition remain open in the
+Launcher integration, spring focus motion, remaining semantic sound cues,
+dim/off/wake policy, and live clock/Wi-Fi composition remain open in the
 [phase checklist](ARCHITECTURE.md#47-initial-development-order). The manuals
 describe current operation; planned behavior must not be presented there as
 already supported.
@@ -445,11 +462,13 @@ Saved host intent is labelled SELECTED, never ACTIVE; selection remains visible
 while Off or after a failed connection attempt. READY denotes the actual secured
 HID connection. Home labels the corresponding name SELECTED HOST.
 
-Settings and the Bluetooth list have no bottom separator or Esc Home footer.
+Settings, the Bluetooth list, and the saved-host action menu have no bottom
+separator or Escape footer.
 Escape/backtick still returns Home; arrow and Enter controls remain unchanged. Enter on a saved host opens a
-Connect / Rename / Delete menu with Esc Back; opening it does not connect or
-change selection. The current host name appears below the actions. Rename and
-Delete use Esc Cancel; Delete shows the exact host name and needs confirmation.
+Connect / Rename / Delete menu; opening it does not connect or
+change selection. The current host name appears below the actions. Pairing,
+Rename, and Delete omit the Esc Cancel footer; Escape still cancels. Delete
+shows the exact host name and needs confirmation.
 Back from either returns to the host menu, then the Bluetooth list, then Home.
 The global X / Forget all hosts UI and Action are removed. Host action list
 navigation retains incremental painting and the shared palette/font geometry.

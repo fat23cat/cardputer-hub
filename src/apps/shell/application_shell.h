@@ -1,17 +1,24 @@
 #pragma once
 #include "apps/hosts/host_settings.h"
 #include "core/navigation/navigation_stack.h"
+#include "services/audio/audio_service.h"
 
 namespace cardputer_hub::apps {
 class ApplicationShell final : public core::IActionHandler {
   public:
     ApplicationShell(services::HostService& hosts, core::ActionBus& actions,
-                     core::IDisplayAdapter& display, HostSettings& settings);
+                     core::IDisplayAdapter& display, HostSettings& settings,
+                     services::AudioService& audio);
     void update(const core::InputEvents& input, std::chrono::milliseconds elapsed = {},
                 std::optional<std::uint8_t> batteryPercent = std::nullopt);
     core::ActionHandlingResult handle(const core::Action& action) override;
 
   private:
+    struct SettingsFrame {
+        std::uint8_t selection = 0;
+        std::uint8_t volume = 0;
+    };
+
     void renderHome(std::chrono::milliseconds elapsed, std::optional<std::uint8_t> batteryPercent);
     void renderSettings();
     bool atSettings() const;
@@ -21,10 +28,12 @@ class ApplicationShell final : public core::IActionHandler {
     core::ActionBus& actions_;
     core::IDisplayAdapter& display_;
     HostSettings& settings_;
+    services::AudioService& audio_;
     core::NavigationStack navigation_;
     std::string homeFrame_;
     std::string batteryFrame_;
     unsigned homePhaseMilliseconds_ = 0;
-    bool settingsFrame_ = false;
+    std::optional<SettingsFrame> settingsFrame_;
+    std::uint8_t settingsSelection_ = 0;
 };
 } // namespace cardputer_hub::apps

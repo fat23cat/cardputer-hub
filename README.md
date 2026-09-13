@@ -114,7 +114,7 @@ scripts/
 ```
 
 The `apps`, `connectivity`, and `services` directories contain the built-in
-system UI, connectivity foundations, and host/configuration/battery Services.
+system UI, connectivity foundations, and host/configuration/battery/audio Services.
 
 ---
 
@@ -205,6 +205,9 @@ ESP-IDF 5.5.5 installation from the documented setup path, or a repository-local
 `build-tools/` installation when present, without inheriting another
 application's ESP-IDF environment. Nonstandard installations may set
 `CARDPUTER_HUB_IDF_PATH` and, when needed, `CARDPUTER_HUB_IDF_TOOLS_PATH`.
+For local manager builds, the splash version includes the local build date and
+time as `VERSION+YYYYMMDD-HHMM`; release builds retain their assigned semantic
+version unchanged.
 
 After safely ejecting the card and exiting `usbsd`, run `sd` so CRUB remounts
 the card and reloads its aliases. Then run `uphub` and require both `app: ok`
@@ -238,7 +241,9 @@ firmware enters through native ESP-IDF, initializes M5Unified directly, writes
 structured informational records for the product name, version, commit, and
 build type to serial, briefly renders the product name/version, then opens a compact Home with the selected host, BT status, an estimated battery
 percentage, and a slow dotted wave. The future clock and Wi-Fi slots currently
-show `--:--` and `OFFLINE`. Tab (also G0 or Fn+Tab) opens Settings; its Bluetooth entry opens the existing BLE panel.
+show `--:--` and `OFFLINE`. Plain Tab opens Settings; Bluetooth
+opens the existing BLE panel and the following Sound volume row adjusts the
+persistent 0-100% key-click volume with Left/Right in 10% steps.
 Screen navigation uses short horizontal transitions with live input. The update loop polls semantic keyboard events, routes
 local settings Actions, and advances HostService/BluetoothService. Host selection,
 BLE On/Off, pairing, renaming, per-host deletion, and persisted host
@@ -269,8 +274,10 @@ peer, and releases active reports before controlled disconnects. HostService
 composes this boundary with ConfigurationService: profiles, selection, and BLE
 On/Off are stored in internal `hub_config` NVS. First use defaults to Off and
 imports existing pairs without advertising. Switching closes the old connection
-before allowing the selected host. Tab (also G0 or Fn+Tab) opens Settings, whose Bluetooth entry exposes these
-operations through ActionBus; see the [device guide](docs/manuals/device-guide.md).
+before allowing the selected host. Plain Tab opens Settings, whose Bluetooth entry exposes these
+operations through ActionBus. A hardware-separated AudioService supplies
+precomputed, asynchronous key clicks at a persistent default of 60%; see the
+[device guide](docs/manuals/device-guide.md).
 
 ---
 
@@ -435,8 +442,8 @@ links implementation and validation history.
 | --- | --- |
 | 1 — System Core | Complete |
 | 2 — Connectivity | Software complete; physical acceptance partial |
-| 3 — Core Services | HostService, v2 host configuration/metadata and battery delivered; broader Services pending |
-| 4 — Application Shell | Home, Settings, Tab navigation and page transitions delivered; Launcher/power/sound pending |
+| 3 — Core Services | HostService, v3 configuration with host metadata, battery and audio delivered; broader Services pending |
+| 4 — Application Shell | Home, Settings, key feedback, Tab navigation and page transitions delivered; Launcher/power/remaining cues pending |
 | 5 — Mini App Infrastructure | Pending; registry primitives exist |
 | 6 — Device Manager | Built-in host list/pair/rename/delete/select delivered; full Mini App integration pending |
 | 7–12 — Host Control, Companion, Weather, RGB, Remote, Extensions | Pending |
@@ -444,8 +451,10 @@ links implementation and validation history.
 Normal firmware provides a BLE-only host connection, saved profiles and On/Off,
 Home telemetry, and local Settings. USB is for power, flashing and fixed serial
 diagnostics. USB HID and arbitration are removed; IHidTransport remains the
-future extension boundary. Wi-Fi is not yet composed; clock synchronization,
-metadata editing, Action-to-HID mappings and a Mac companion are not implemented.
+future extension boundary. Services can persist bounded per-host
+platform/capability/template-reference metadata, but the UI does not edit it or
+execute mappings. Wi-Fi is not yet composed; clock synchronization,
+Action-to-HID mappings and a Mac companion are not implemented.
 
 Physical checks confirmed fresh pairing, one local Off/On cycle, adding and
 switching two computers, and reconnection to the last selected host after Reset
@@ -453,7 +462,7 @@ and power-on. The operator accepted the Home/navigation appearance.
 [Plan 017](docs/plans/017-hid-transport-arbitration.md#0-current-closeout-status)
 keeps longer Off/reboot-Off checks, report/interruption reruns, long-duration
 and equipment-limited cases, and USB serial hotplug open. Historical harness passes are not represented
-as final-image acceptance. Latest local checks passed: 44 Python tests, 214
+as final-image acceptance. Latest local checks passed: 47 Python tests, 240
 native tests, formatting, static analysis and ESP-IDF production compilation.
 
 ---

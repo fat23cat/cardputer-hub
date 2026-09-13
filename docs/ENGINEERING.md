@@ -1000,7 +1000,11 @@ activates the repository's pinned ESP-IDF installation itself from the
 documented global path or an available repository-local `build-tools/` path,
 accepts explicit `CARDPUTER_HUB_IDF_PATH` and
 `CARDPUTER_HUB_IDF_TOOLS_PATH` overrides for nonstandard installations, and
-must not depend on another application's active ESP-IDF environment.
+must not depend on another application's active ESP-IDF environment. Local
+wrapper builds append the machine's local `YYYYMMDD-HHMM` build time to the
+latest semantic tag in the splash version, so staged CRUB images can be
+distinguished on-device. An explicit `CARDPUTER_HUB_VERSION` remains unchanged
+for release and historical rebuilds.
 
 ---
 

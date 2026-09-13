@@ -1,9 +1,11 @@
 #include "apps/hosts/host_settings.h"
 #include "apps/shell/application_shell.h"
 #include "esp_timer.h"
+#include "hardware/cardputer/cardputer_audio_adapter.h"
 #include "hardware/cardputer/cardputer_battery_adapter.h"
 #include "hardware/esp32/bluetooth/esp32_bluetooth_adapter.h"
 #include "hardware/esp32/esp32_nvs_storage_adapter.h"
+#include "services/audio/audio_service.h"
 #include "services/battery/battery_service.h"
 #include "services/hosts/host_service.h"
 
@@ -34,6 +36,7 @@ namespace {
 cardputer_hub::hardware::CardputerPlatform platform;
 cardputer_hub::hardware::CardputerKeyboardAdapter keyboard;
 cardputer_hub::hardware::CardputerDisplayAdapter display;
+cardputer_hub::hardware::CardputerAudioAdapter audioAdapter;
 cardputer_hub::hardware::SerialLogSink logSink;
 cardputer_hub::core::Logger logger(logSink, cardputer_hub::core::LogLevel::Info);
 cardputer_hub::core::SystemRuntime runtime(platform, keyboard, display, logger,
@@ -43,6 +46,7 @@ cardputer_hub::core::SystemRuntime runtime(platform, keyboard, display, logger,
 cardputer_hub::hardware::Esp32NvsStorageAdapter configurationAdapter;
 cardputer_hub::core::Storage configurationStorage(configurationAdapter);
 cardputer_hub::services::ConfigurationService configuration(configurationStorage);
+cardputer_hub::services::AudioService audio(configuration, audioAdapter);
 cardputer_hub::hardware::Esp32BluetoothAdapter bluetoothAdapter;
 cardputer_hub::connectivity::BluetoothService bluetooth(bluetoothAdapter, logger);
 cardputer_hub::services::HostService hosts(bluetooth, configuration, &logger);
@@ -50,7 +54,8 @@ cardputer_hub::hardware::CardputerBatteryAdapter batteryAdapter;
 cardputer_hub::services::BatteryService battery(batteryAdapter);
 cardputer_hub::core::ActionBus actions;
 cardputer_hub::apps::HostSettings hostSettings(hosts, actions, display);
-cardputer_hub::apps::ApplicationShell applicationShell(hosts, actions, display, hostSettings);
+cardputer_hub::apps::ApplicationShell applicationShell(hosts, actions, display, hostSettings,
+                                                       audio);
 std::int64_t previousHostUpdateMilliseconds = 0;
 bool homeVisible = false;
 #endif
@@ -74,12 +79,15 @@ extern "C" void app_main(void) {
     validationHarness.start();
 #else
     runtime.start();
+    (void)configuration.ensureLoaded();
     for (const auto* id : {"host.select", "host.bluetooth", "host.rename", "host.platform",
                            "host.capability", "host.mapping-template", "host.pair",
                            "host.cancel-pairing", "host.pair-response", "host.delete"}) {
         (void)actions.registerHandler(id, hosts);
     }
+    (void)actions.registerHandler("audio.volume.step", audio);
     (void)hosts.start();
+    (void)audio.start();
     battery.update(std::chrono::milliseconds(0));
     previousHostUpdateMilliseconds = esp_timer_get_time() / 1000;
 #endif

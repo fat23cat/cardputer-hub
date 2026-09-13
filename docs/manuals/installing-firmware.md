@@ -19,6 +19,11 @@ python3 -m firmware_manager doctor
 python3 -m firmware_manager local --app hub --sd /Volumes/CARDPUTER
 ```
 
+The startup splash of a locally built image includes the local build date and
+time as `VERSION+YYYYMMDD-HHMM`, making it easy to confirm that CRUB installed
+the newly staged build. Published releases display their assigned semantic
+version without this local suffix.
+
 For a published image, replace `local` with `release`. Safely eject the card,
 exit `usbsd`, run `sd` to remount it and reload aliases, then run `uphub` and
 wait for `app: ok` plus `flash complete`. These manager commands validate the
@@ -125,14 +130,13 @@ device has the current layout, use the non-destructive upload path:
 make upload
 ```
 
-Current firmware reads the earlier version-1 host record without rewriting it.
-The next successful settings change upgrades that record to version 2 so host
-platform/capability/template-reference metadata can be stored. Firmware that
-only understands version 1 will then reject the settings record if you
-downgrade; it will not erase it. Downgrade safely only with a release that
-documents version-2 compatibility or an explicit migration. Clearing
+The current firmware lazily upgrades older `HUBH` configuration records to the
+combined version-3 schema on the next successful settings change. Versions 1
+and 2 remain readable, but firmware predating version 3 cannot read a record
+after that upgrade; it will not erase it. Downgrade safely only with a release
+that documents version-3 compatibility or an explicit migration. Clearing
 `hub_config` is a destructive last resort that removes saved Cardputer Hub
-configuration and is not part of a normal downgrade.
+configuration and is not part of a normal downgrade or routine upgrade.
 
 The first run may take several minutes while ESP-IDF downloads the locked
 managed components. It then builds the production firmware, selects the

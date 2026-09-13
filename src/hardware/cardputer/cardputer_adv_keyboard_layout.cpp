@@ -12,7 +12,7 @@ bool isModifier(std::size_t row, std::size_t column) {
 }
 
 bool namedKey(std::size_t row, std::size_t column, bool functionLayer, core::NamedKey& result) {
-    if (row == 1 && column == 0) {
+    if (!functionLayer && row == 1 && column == 0) {
         result = core::NamedKey::Tab;
         return true;
     }

@@ -3,7 +3,7 @@ RUN := $(UV) run --frozen
 IDF_PY ?= idf.py
 IDF_BUILD_DIR ?= build
 IDF_RUN := $(IDF_PY)
-IDF_ARGS := -B $(IDF_BUILD_DIR) -D IDF_TARGET=esp32s3
+IDF_ARGS := -B $(IDF_BUILD_DIR) -D IDF_TARGET=esp32s3 -D CARDPUTER_HUB_VERSION_OVERRIDE=$(CARDPUTER_HUB_VERSION)
 IDF_APP_IMAGE := $(IDF_BUILD_DIR)/cardputer_hub.bin
 IDF_PARTITION_IMAGE := $(IDF_BUILD_DIR)/partition_table/partition-table.bin
 CPP_FILES := $(shell find src test -type f \( -name '*.c' -o -name '*.cc' -o -name '*.cpp' -o -name '*.h' -o -name '*.hpp' \) | sort)

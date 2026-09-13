@@ -244,7 +244,6 @@ void HostSettings::renderList() {
     if (hosts_.lastResult() == services::HostResult::HostSelectionRequired &&
         settings.hosts.empty())
         next.error = "Add device, then Enter";
-    next.footer = detailHost_ ? "Esc Back" : "";
     for (std::size_t slot = 0; slot < next.labels.size(); ++slot) {
         const auto row = start + slot;
         if (row < settings.hosts.size() + 2) {
@@ -280,8 +279,6 @@ void HostSettings::renderList() {
         display_.clear(palette::bone);
         display_.drawText({6, 6}, detailHost_ ? "HOST" : "BLUETOOTH", normal);
         display_.fillRectangle({6, 20}, 228, 1, palette::ink);
-        if (detailHost_)
-            display_.fillRectangle({6, 118}, 228, 1, palette::ink);
     }
     if (full || next.status != listFrame_->status) {
         if (!full)
@@ -319,11 +316,6 @@ void HostSettings::renderList() {
         if (!full)
             display_.fillRectangle({6, 105}, 228, 8, palette::bone);
         display_.drawText({6, 105}, next.error.c_str(), {palette::vermilion, palette::bone, 1});
-    }
-    if (!next.footer.empty() && (full || next.footer != listFrame_->footer)) {
-        if (!full)
-            display_.fillRectangle({6, 123}, 228, 8, palette::bone);
-        display_.drawText({6, 123}, next.footer.c_str(), normal);
     }
     listFrame_ = std::move(next);
 }
@@ -372,9 +364,7 @@ void HostSettings::render() {
     if (deleting_) {
         display_.drawText({6, 35}, "Delete this host and its pairing?", normal);
         display_.drawText({6, 53}, hosts_.settings().hosts[focus_ - 2].name.c_str(), normal);
-        footer = "Esc Cancel";
     } else if (hosts_.pairing()) {
-        footer = "Esc Cancel";
         if (!challenge && hosts_.pairingState() == BluetoothPairingState::Completing) {
             display_.drawText({6, 35}, "Securing connection", normal);
             display_.drawText({6, 51}, "Please wait for the code or READY", normal);
@@ -388,20 +378,21 @@ void HostSettings::render() {
         } else if (challenge->type == BluetoothPairingChallengeType::ConfirmComparison) {
             display_.drawText({6, 32}, "Does the computer show this code?", normal);
             digits(code(challenge->value.value_or(0)));
-            footer = "Esc Cancel              Enter Yes";
+            footer = "Enter Yes";
         } else {
             display_.drawText({6, 32}, "Type the code from the computer", normal);
             digits(entry_);
             if (entry_.size() == 6)
-                footer = "Esc Cancel            Enter Apply";
+                footer = "Enter Apply";
         }
     } else if (renaming_) {
         display_.drawText({6, 35}, "Name (up to 24 characters)", normal);
         display_.drawText({6, 61}, entry_.c_str(), normal);
-        footer = "Esc Cancel";
     }
     display_.drawText({6, 105}, error(hosts_.lastResult()), {palette::vermilion, palette::bone, 1});
-    display_.fillRectangle({6, 118}, 228, 1, palette::ink);
-    display_.drawText({6, 123}, footer.c_str(), normal);
+    if (!footer.empty()) {
+        display_.fillRectangle({6, 118}, 228, 1, palette::ink);
+        display_.drawText({6, 123}, footer.c_str(), normal);
+    }
 }
 } // namespace cardputer_hub::apps

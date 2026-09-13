@@ -20,18 +20,26 @@ int SlideTransition::offset() const {
 }
 void composeSlideSnapshot(std::uint16_t* outgoing, const std::uint16_t* incoming, int width,
                           int height, int offset, SlideDirection direction) {
-    offset = std::clamp(offset, 0, width);
+    advanceSlideSnapshot(outgoing, incoming, width, height, 0, offset, direction);
+}
+void advanceSlideSnapshot(std::uint16_t* visible, const std::uint16_t* incoming, int width,
+                          int height, int priorOffset, int nextOffset, SlideDirection direction) {
+    if (!visible || !incoming || width <= 0 || height <= 0)
+        return;
+    priorOffset = std::clamp(priorOffset, 0, width);
+    nextOffset = std::clamp(nextOffset, priorOffset, width);
+    const auto advance = nextOffset - priorOffset;
     for (int y = 0; y < height; ++y) {
-        auto* row = outgoing + y * width;
+        auto* row = visible + y * width;
         const auto* next = incoming + y * width;
-        const auto retainedBytes = static_cast<std::size_t>(width - offset) * sizeof(*row);
-        const auto incomingBytes = static_cast<std::size_t>(offset) * sizeof(*row);
+        const auto retainedBytes = static_cast<std::size_t>(width - advance) * sizeof(*row);
+        const auto incomingBytes = static_cast<std::size_t>(nextOffset) * sizeof(*row);
         if (direction == SlideDirection::Forward) {
-            std::memmove(row, row + offset, retainedBytes);
-            std::memcpy(row + width - offset, next, incomingBytes);
+            std::memmove(row, row + advance, retainedBytes);
+            std::memcpy(row + width - nextOffset, next, incomingBytes);
         } else {
-            std::memmove(row + offset, row, retainedBytes);
-            std::memcpy(row, next + width - offset, incomingBytes);
+            std::memmove(row + advance, row, retainedBytes);
+            std::memcpy(row, next + width - nextOffset, incomingBytes);
         }
     }
 }

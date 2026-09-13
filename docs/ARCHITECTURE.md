@@ -204,10 +204,13 @@ Home must not implement these functions itself.
 The initial Home dashboard is implemented under plan 017. It displays actual
 HostService state, a compact Micro 5 host label, a single Wi-Fi status, and
 battery telemetry. It does not act as the future AppRegistry-driven Launcher.
-`ApplicationShell` owns a NavigationStack rooted at `home`; Tab (also G0 or Fn+Tab) routes
+`ApplicationShell` owns a NavigationStack rooted at `home`; plain Tab routes
 `ui.settings` through ActionBus to a general Settings list. Its Bluetooth entry
-routes `ui.bluetooth` to the existing HostSettings view. `ui.back` dismisses a
-local modal before returning Home; navigation never changes radio policy.
+routes `ui.bluetooth` to the existing HostSettings view. The next row exposes
+the persistent system sound volume directly; Left/Right dispatch
+`audio.volume.step` to change it from 0 to 100 percent in ten-percent steps,
+with zero acting as mute. `ui.back` dismisses a local modal before returning
+Home; navigation never changes radio policy.
 Full Launcher and Mini App lifecycle remain pending.
 
 `BatteryService` owns a read-only optional estimated percentage and samples
@@ -238,10 +241,13 @@ for interruption. Views request forward/backward presentation through the
 optional display transition contract, before replacing page content; the shell
 supplies monotonic elapsed time each frame. UI navigation semantics remain in
 the shell/HostSettings, and LCD snapshot memory and presentation remain in the
-adapter. A transient second RGB565 buffer holds outgoing pixels. It is freed
-when the slide finishes; allocation failure falls back to immediate completed
-presentation. New navigation during a slide snapshots the currently visible
-composition, keeping input responsive without jumping to a hidden destination.
+adapter. A transient second RGB565 buffer starts with the outgoing pixels and is
+advanced into one complete composed frame per animation step. It is freed when
+the slide finishes; allocation failure falls back to immediate completed
+presentation. Each step is transferred once as a full frame instead of relying
+on consecutive cropped DMA transfers. New navigation during a slide reuses that
+currently visible composition, keeping input responsive without jumping to a
+hidden destination.
 Multiple navigation Actions in one input poll retain one source snapshot and
 target the final page. Direct drawing remains available for startup,
 validation harnesses, and allocation failure. UI objects retain ownership of
@@ -424,17 +430,13 @@ does not interpret route syntax, carry route parameters, render a destination,
 activate application lifecycle, or restore view state.
 
 The initial application shell now integrates this history with Home, a general Settings menu,
-Bluetooth settings, and navigation Actions. Tab (also G0 or Fn+Tab) dispatches `ui.settings` and
+Bluetooth settings, and navigation Actions. Plain Tab dispatches `ui.settings` and
 the Settings Bluetooth entry dispatches `ui.bluetooth`; opening either menu has
-no host-control side effects. The existing BLE list keeps Esc Home; Tab, G0 or Fn+Tab can
+no host-control side effects. The existing BLE list keeps Esc Home; plain Tab can
 return from that list to Settings. Host submenus and editing/pairing modals consume
 the shortcut without abandoning their state. Ordinary Enter/B on Home do
-nothing. The hardware layout exposes Tab on the Fn layer while the shell owns
-its meaning. The Cardputer input adapter additionally emits a local
-`NamedKey::SystemMenu` on the debounced G0/BtnA press edge, independently of
-keyboard-matrix initialization. Shell routes it to the same Settings Action;
-it never becomes host input or repeats while held. The ROM download behavior
-of G0 at boot/reset is unchanged. Plain Tab is scoped to built-in system
+nothing. Fn+Tab is inactive, and a normal G0 press has no application action.
+The ROM download behavior of G0 at boot/reset is unchanged. Plain Tab is scoped to built-in system
 screens; future text-entry Mini Apps must retain their normal Tab behavior. Launcher and broader global-shortcut integration remain Phase 4 work. Phase 5 will define Mini
 App view objects and lifecycle; those view implementations remain outside the
 navigation history primitive.
@@ -872,6 +874,14 @@ clears), `host.pair`, `host.cancel-pairing`, and
 and `host.delete` (`id`).
 IDs are positive 32-bit Action integers; names are printable ASCII, 1–24
 characters, and cannot be entirely spaces. Unknown/invalid Actions are rejected.
+Metadata identifiers are lower-case bounded opaque values. Metadata changes
+load and atomically persist configuration without initializing, disconnecting,
+or otherwise changing Bluetooth; failed reads and writes leave both stored and
+published configuration unchanged.
+The public HostService state view is a host-only `HostConfiguration`; it does
+not expose system sound or other Service-owned settings. The shared
+`ConfigurationService` remains the atomic persistence owner behind that
+boundary.
 Pairing responses must match the current challenge generation. Secrets and
 pairing codes are displayed locally, never logged. HostService retains a
 display passkey after acknowledging it only while the same pairing peer remains
@@ -958,8 +968,10 @@ from the Cardputer runtime `CapabilityRegistry`.
 
 Platform metadata does not infer capabilities or a template. The template
 field is only a stable reference: the template catalog, resolution, application
-configuration, and Action mappings remain future work. No personal laptop is
-encoded in application logic. The broader profile model may eventually include:
+configuration, and Action mappings remain future work. The current UI does not
+edit these fields, and their presence alone does not execute mappings or host
+commands. No personal laptop is encoded in application logic. The broader
+profile model may eventually include:
 
 ```text
 id
@@ -988,9 +1000,9 @@ They must not be hardcoded as special cases.
 
 ## 18. Adding a Host
 
-The current Hosts settings screen creates a default-named profile after
-successful pairing and allows renaming with R. Platform and template editing
-belong to the later full Device Manager flow:
+The current Hosts settings screen creates a default-named profile with absent
+metadata after successful pairing and allows renaming with R. Platform and
+template editing belong to the later full Device Manager flow:
 
 
 ```text
@@ -1879,25 +1891,34 @@ defaults, validation, migrations, and application-level configuration
 operations. It uses the configuration interfaces and persistence primitives
 provided by System Core; System Core must not duplicate this domain behavior.
 
-The delivered schema contains Host Profiles, `activeHost`, monotonic
-`nextHostId`, and `bluetoothEnabled`. One versioned binary record at
+The delivered `SystemConfiguration` version-3 schema composes a host-only
+`HostConfiguration`—Host Profiles with bounded platform, capability, and
+mapping-template metadata, `activeHost`, monotonic `nextHostId`, and
+`bluetoothEnabled`—with the system `soundVolume`. One versioned binary record at
 `StorageAddress{"hosts", "configuration"}` lives in internal `hub_config` NVS.
-Version 2 retains the version-1 fields and appends each host's bounded platform,
-capability list, and mapping-template reference. Its maximum encoding is 10,255
-bytes for 16 maximally populated profiles, within the 64 KiB partition. The
-decoder consumes the complete record and validates version, booleans, lengths,
-counts, identifiers, unique capabilities, unique IDs and bonds, names, and the
-selected ID before acceptance.
-
-Missing records default to an empty list and BLE Off without a write. A valid
-version-1 record loads losslessly with absent metadata and is not rewritten at
-boot; the next successful configuration mutation atomically writes version 2.
-Valid version-2 records also load without rewriting. Invalid, truncated,
-trailing, unreadable, and future-version records are preserved and reported as
-errors, never reset silently. Failed writes retain the previous stored and
-published values. Firmware that only understands version 1 rejects a record
-after it has been upgraded by a successful mutation, so downgrade requires a
-compatible migration or an intentional configuration reset.
+The address retains its historical host-only name for in-place upgrade
+compatibility. The maximum version-3 encoding is 10,256 bytes for 16 maximally
+populated profiles, within the 64 KiB partition. The decoder consumes the
+complete record and validates its `HUBH` header, version, booleans, bounded
+lengths and counts, identifiers, unique capabilities, unique IDs and bonds,
+names, selected ID, and 0-100 volume in ten-percent steps before acceptance.
+Version-1 records load with absent host metadata and the 60-percent sound default.
+Version-2 records retain their metadata and receive the same sound default.
+Either legacy form is lazily written as version 3 after the next successful
+configuration change; migration never rewrites storage at boot.
+Missing records default to an empty list, BLE Off, and 60-percent sound. Invalid,
+truncated, trailing, unreadable, and future-version records are preserved and
+reported as errors, never reset silently. Failed writes retain the previous
+stored and published values.
+`ConfigurationService` must successfully load the record before any consumer
+can write it. `ensureLoaded()` centralizes this gate and safely retries a prior
+read failure; `save()` refuses candidates while the Service is not loaded so a
+caller cannot copy defaults before loading and then replace an existing record.
+Writes publish the new in-memory value only after successful storage. Schema
+migration must be added explicitly when a later version is introduced.
+Firmware predating version 3 rejects a record after it has been upgraded by a
+successful mutation, so downgrade requires a compatible migration or an
+intentional configuration reset.
 
 Broader configuration remains planned and includes:
 
@@ -1975,7 +1996,7 @@ separate because Arduino startup may erase that partition while recovering
 from incompatible or exhausted NVS metadata. The adapter explicitly
 initializes `hub_config`, never erases or reinitializes it as recovery, and
 reports initialization failure as `BackendError`. This dedicated NVS
-partition now stores the authoritative HostConfiguration record.
+partition now stores the authoritative SystemConfiguration record.
 `ConfigurationService` owns its schema, serialization, defaults, and domain
 validation. Bluetooth bond keys remain in the separate NimBLE store; profiles
 contain only opaque references. Wi-Fi credentials are not persisted yet.
@@ -2123,6 +2144,14 @@ M5CardputerKeyboardAdapter
 ```
 
 ```text
+AudioService
+      ↓
+IAudioAdapter
+      ↓
+CardputerAudioAdapter
+```
+
+```text
 ConfigurationService
       ↓
 Record Storage
@@ -2139,6 +2168,28 @@ CardputerMicroSdFileStorageAdapter
 ```
 
 This is necessary for automated testing and safe refactoring.
+
+`AudioService` owns logical volume, persistence changes, and the bounded PCM
+clips used for local feedback. Eight deterministic key-click variants and the
+directional value-step cues are generated into constant PCM assets during
+development; startup only initializes the adapter, and the input path only
+selects a prepared buffer and requests playback. The Cardputer adapter
+exclusively owns M5Unified speaker initialization, physical volume mapping, the
+asynchronous mixer channel, and observation of in-flight interface playback. The
+`audio.volume.step` Action carries `delta` as either -10 or 10; AudioService
+validates it, clamps the resulting value to 0-100, and persists the change. A
+volume Action loads the authoritative value before applying its delta and
+retries speaker initialization after a transient startup failure. A
+new key press is coalesced while the previous click is active, so fast typing
+neither interrupts a nonzero sample nor accumulates an audio queue. Zero volume suppresses playback without stopping input, display,
+Connectivity, or Service updates.
+
+On Cardputer-Adv, platform startup leaves M5Unified's internal-speaker callback
+disabled so the hardware audio adapter can sequence the ES8311 safely. The
+adapter starts silent I2S clocks first, initializes the codec with both DAC mute
+bits set, allows its analog references to settle, and then performs one soft
+unmute ramp. This keeps codec power-up transients out of the speaker while
+preserving asynchronous playback after startup.
 
 The `FileStorage` facade and its adapter interface contain no Arduino, SPI,
 filesystem, or board-library types. Those types and the Cardputer-Adv microSD
@@ -2292,8 +2343,8 @@ Earlier plan records retain their historical test counts and toolchains.
 | --- | --- |
 | 1 — System Core | Complete |
 | 2 — Connectivity | Software scope complete; physical acceptance partial |
-| 3 — Core Services | Partial: host/configuration Services delivered |
-| 4 — Application Shell | Partial: Home, Settings, navigation and page transitions delivered |
+| 3 — Core Services | Partial: host/configuration, battery and audio Services delivered |
+| 4 — Application Shell | Partial: Home, Settings, navigation, sound feedback and page transitions delivered |
 | 5 — Mini App Infrastructure | Not implemented; Phase 1 registry prerequisites exist |
 | 6 — Device Manager | Partial: built-in Bluetooth/host UI delivered |
 | 7 — Host Control | Not implemented; Phase 2 HID transport prerequisite exists |
@@ -2350,13 +2401,15 @@ Transport expansion does not block the BLE-only software scope.
 - [x] HostService: import existing bonds, pair/add, select, rename and delete hosts.
 - [x] Persisted active-host intent and Cardputer BLE On/Off.
 - [x] Selection isolation, release-before-switch and failure results through Actions.
-- [x] ConfigurationService: bounded version-2 host schema, validation, defaults,
-  stable IDs and writes that publish state only after successful storage.
-- [x] BatteryService: optional hardware estimate, bounded five-second sampling.
+- [x] ConfigurationService: bounded version-3 system schema, validation,
+  centralized safe loading, stable IDs and writes that publish state only after
+  successful storage.
 - [x] HostProfile platform/capability metadata and mapping-template references.
-- [x] Lazy, lossless version-1 to version-2 host-configuration migration.
+- [x] Lazy lossless version-1/version-2 to version-3 migration.
+- [x] BatteryService: optional hardware estimate, bounded five-second sampling.
 - [ ] Mapping-template catalog and resolution (Phase 7).
 - [ ] Wi-Fi, Mini App, Service, shortcut, indicator and remote configuration.
+- [ ] Explicit migration when a schema later than version 3 is introduced.
 - [ ] IndicatorService abstraction.
 
 ### Phase 4 — Application Shell
@@ -2364,15 +2417,16 @@ Transport expansion does not block the BLE-only software scope.
 **Partial** — the delivered built-in shell is not the full Launcher.
 
 - [x] Home with selected host, real BLE state, estimated battery and ambient wave.
-- [x] General Settings menu and Bluetooth entry.
+- [x] General Settings menu with Bluetooth and persistent 0-100% sound volume.
 - [x] NavigationStack/ActionBus integration and modal-aware Back behavior.
-- [x] Plain Tab for built-in settings; Fn+Tab and G0 alternatives.
+- [x] Plain Tab for built-in settings; Fn+Tab is inactive and normal G0 has no application action.
 - [x] Shared palette, bitmap typography, buffered dirty-region presentation.
 - [x] Non-blocking 220 ms page slides and interruption from the visible frame.
 - [ ] AppRegistry-driven Launcher and navigation into arbitrary Mini Apps.
 - [ ] Configurable global shortcuts and broader shell controls.
 - [ ] Live clock and Wi-Fi status composition; current placeholders are explicit.
-- [ ] Spring focus motion, synthesized sound and persistent sound settings.
+- [x] Synthesized key feedback, directional volume-step cues and persistent mute/volume.
+- [ ] Boot/status semantic sound cues and spring focus motion.
 - [ ] Idle dim/off, brightness policy and wake-input consumption.
 
 ### Phase 5 — Mini App Infrastructure

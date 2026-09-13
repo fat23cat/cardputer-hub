@@ -6,6 +6,9 @@ The user superseded both automatic USB-first routing and the proposed saved
 manual-channel setting on 2026-09-11. BLE is the only host-control transport.
 The plan number and filename remain stable for branch/history references.
 Neither a router nor an Active channel setting is part of the current scope.
+On 2026-09-13, a later plan-021 follow-up made plain Tab the only Settings
+shortcut: Fn+Tab is inactive and normal G0 no longer has an application action.
+The chronological implementation log below still records the earlier behavior.
 
 ```text
 branch:   feat/017-hid-transport-arbitration
@@ -857,8 +860,9 @@ and BLE-bond partitions were preserved. Normal startup, advertising, and
 
 After accepting the updated UI, the operator requested removal of the bottom
 Esc Home bar. Settings and the root Bluetooth list now omit both the separator
-and label. Escape/backtick navigation is unchanged. Contextual Esc Back and
-Esc Cancel hints in host submenus and confirmation/pairing views remain.
+and label. Escape/backtick navigation is unchanged. The saved-host action menu
+also omits its Esc Back separator and label; confirmation and pairing views omit
+the Esc Cancel hint while Escape still cancels.
 The existing footer test was updated and observed failing before removal.
 
 Verification: 44 Python tests and 214 native tests passed with formatting,
