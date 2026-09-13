@@ -975,6 +975,27 @@ but developers should not have to memorize long toolchain-specific commands.
 `host-check` and `firmware-check` may expose those categories separately for
 parallel CI, while `check` remains their local umbrella.
 
+Use narrow commands while iterating, then run the applicable CI-equivalent gate
+once after the last material change. Examples:
+
+```bash
+# One Python test module
+uv run --frozen python -m unittest test_python.test_audio_assets
+
+# One native Unity test group
+uv run --frozen pio test -e native -f test_audio_service
+
+# Final host-side gate
+make host-check
+
+# Final production-image gate, when applicable
+make firmware-check
+```
+
+Do not repeatedly run the full gate after edits that cannot affect its result.
+A passing gate must be repeated after a later source, configuration, dependency,
+or test change that is relevant to that gate.
+
 ---
 
 ## 33. Reproducible Local Setup
@@ -1005,6 +1026,21 @@ wrapper builds append the machine's local `YYYYMMDD-HHMM` build time to the
 latest semantic tag in the splash version, so staged CRUB images can be
 distinguished on-device. An explicit `CARDPUTER_HUB_VERSION` remains unchanged
 for release and historical rebuilds.
+
+Local development should preserve the normal tool caches and incremental build
+state:
+
+* uv and PlatformIO reuse their own download/package caches;
+* ESP-IDF's CMake/Ninja build reuses `build/`;
+* when `ccache` is installed, set `IDF_CCACHE_ENABLE=1` and keep `CCACHE_DIR`
+  stable (the repository-local `.ccache/` path is ignored by Git);
+* do not run `make clean`, delete `.pio/` or `build/`, or force reconfiguration
+  during a normal edit/test cycle.
+
+Invalidate build state only after a toolchain, target, dependency, generated
+configuration, or cache-integrity change requires it. A suspected stale-build
+problem is also a valid reason, but should be recorded when it changes the
+verification performed.
 
 ---
 
@@ -1177,6 +1213,29 @@ what defines completion
 Agents should not introduce parallel architectures when an existing Service or abstraction already owns the responsibility.
 
 Architectural changes should update documentation in the same PR.
+
+Agents should minimize context and verification churn without weakening the
+final evidence:
+
+1. Inspect the requested scope, nearby tests, and current diff before loading
+   long-form documentation.
+2. Search documentation headings and read only the sections that own the
+   affected contract. Do not load every plan or manual by default.
+3. For a multi-step change, keep a short working plan tied to observable
+   outcomes. Create or update a repository plan only when the work is large
+   enough to need a durable design record.
+4. During RED/GREEN/REFACTOR, run one affected test or the smallest useful
+   suite. Expand only when a failure crosses a boundary or the changed behavior
+   has no narrower meaningful test.
+5. After the last material edit, run the applicable final gate from section 32
+   once. Re-run it only when later changes can invalidate that result.
+6. Preserve incremental build outputs and caches. Clean builds are diagnostic
+   or release evidence, not a routine iteration step.
+
+Summaries from an earlier agent run are useful navigation aids, but source code,
+tests, and authoritative documentation remain the source of truth. Verify any
+summary fact that affects implementation rather than copying large source
+excerpts into a new permanent instruction file.
 
 ---
 
