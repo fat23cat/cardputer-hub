@@ -74,7 +74,8 @@ extern "C" void app_main(void) {
     validationHarness.start();
 #else
     runtime.start();
-    for (const auto* id : {"host.select", "host.bluetooth", "host.rename", "host.pair",
+    for (const auto* id : {"host.select", "host.bluetooth", "host.rename", "host.platform",
+                           "host.capability", "host.mapping-template", "host.pair",
                            "host.cancel-pairing", "host.pair-response", "host.delete"}) {
         (void)actions.registerHandler(id, hosts);
     }

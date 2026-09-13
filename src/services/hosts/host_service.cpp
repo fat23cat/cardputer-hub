@@ -13,6 +13,11 @@ auto findHost(const HostConfiguration& config, std::uint32_t id) {
                         [id](const auto& host) { return host.id == id; });
 }
 
+auto findHost(HostConfiguration& config, std::uint32_t id) {
+    return std::find_if(config.hosts.begin(), config.hosts.end(),
+                        [id](const auto& host) { return host.id == id; });
+}
+
 template <typename T> const T* parameter(const core::Action& action, const char* name) {
     const auto* value = action.findParameter(name);
     return value ? std::get_if<T>(value) : nullptr;
@@ -48,6 +53,15 @@ HostResult HostService::save(const HostConfiguration& value) {
     return lastResult_ = HostResult::Success;
 }
 
+HostResult HostService::saveMetadata(const HostConfiguration& value) {
+    const auto result = configuration_.save(value);
+    if (result == ConfigurationResult::InvalidData)
+        return lastResult_ = HostResult::InvalidInput;
+    if (result == ConfigurationResult::StorageError)
+        return lastResult_ = HostResult::StorageError;
+    return lastResult_ = HostResult::Success;
+}
+
 HostResult HostService::reconcile(HostConfiguration& value) {
     const auto registry = bluetooth_.bonds();
     if (registry.status != BluetoothBondListStatus::Success)
@@ -62,7 +76,8 @@ HostResult HostService::reconcile(HostConfiguration& value) {
             return fail(HostResult::CapacityReached);
         }
         const auto id = value.nextHostId++;
-        value.hosts.push_back({id, "Host " + std::to_string(id), bond});
+        value.hosts.push_back(
+            {id, "Host " + std::to_string(id), bond, std::nullopt, {}, std::nullopt});
     }
     return HostResult::Success;
 }
@@ -92,6 +107,14 @@ HostResult HostService::ensureReady() {
     if (bluetooth_.disable() == BluetoothDisableResult::AdapterError)
         return fail(HostResult::BluetoothError);
     ready_ = true;
+    return HostResult::Success;
+}
+
+HostResult HostService::ensureMetadataReady() {
+    if (ready_)
+        return HostResult::Success;
+    if (configuration_.load() != ConfigurationResult::Success)
+        return lastResult_ = HostResult::StorageError;
     return HostResult::Success;
 }
 
@@ -168,6 +191,65 @@ HostResult HostService::renameHost(std::uint32_t id, const std::string& name) {
         return lastResult_ = HostResult::InvalidInput;
     host->name = name;
     return save(value);
+}
+
+HostResult HostService::setHostPlatform(std::uint32_t id, std::optional<HostPlatformId> platform) {
+    if (id == 0 || (platform && !ConfigurationService::validMetadataIdentifier(*platform)))
+        return lastResult_ = HostResult::InvalidInput;
+    if (ensureMetadataReady() != HostResult::Success)
+        return lastResult_;
+    auto value = settings();
+    const auto host = findHost(value, id);
+    if (host == value.hosts.end())
+        return lastResult_ = HostResult::InvalidInput;
+    if (host->platform == platform)
+        return lastResult_ = HostResult::Success;
+    host->platform = std::move(platform);
+    return saveMetadata(value);
+}
+
+HostResult HostService::setHostCapability(std::uint32_t id, const HostCapabilityId& capability,
+                                          bool enabled) {
+    if (id == 0 || !ConfigurationService::validMetadataIdentifier(capability))
+        return lastResult_ = HostResult::InvalidInput;
+    if (ensureMetadataReady() != HostResult::Success)
+        return lastResult_;
+    auto value = settings();
+    const auto host = findHost(value, id);
+    if (host == value.hosts.end())
+        return lastResult_ = HostResult::InvalidInput;
+    const auto existing =
+        std::find(host->capabilities.begin(), host->capabilities.end(), capability);
+    if (enabled) {
+        if (existing != host->capabilities.end())
+            return lastResult_ = HostResult::Success;
+        if (host->capabilities.size() >= ConfigurationService::maximumHostCapabilityCount)
+            return lastResult_ = HostResult::CapacityReached;
+        host->capabilities.push_back(capability);
+    } else {
+        if (existing == host->capabilities.end())
+            return lastResult_ = HostResult::Success;
+        host->capabilities.erase(existing);
+    }
+    return saveMetadata(value);
+}
+
+HostResult
+HostService::setHostMappingTemplate(std::uint32_t id,
+                                    std::optional<HostMappingTemplateId> mappingTemplate) {
+    if (id == 0 ||
+        (mappingTemplate && !ConfigurationService::validMetadataIdentifier(*mappingTemplate)))
+        return lastResult_ = HostResult::InvalidInput;
+    if (ensureMetadataReady() != HostResult::Success)
+        return lastResult_;
+    auto value = settings();
+    const auto host = findHost(value, id);
+    if (host == value.hosts.end())
+        return lastResult_ = HostResult::InvalidInput;
+    if (host->mappingTemplate == mappingTemplate)
+        return lastResult_ = HostResult::Success;
+    host->mappingTemplate = std::move(mappingTemplate);
+    return saveMetadata(value);
 }
 
 HostResult HostService::startPairing() {
@@ -308,6 +390,27 @@ core::ActionHandlingResult HostService::handle(const core::Action& action) {
         const auto* name = parameter<std::string>(action, "name");
         if (id && *id > 0 && name)
             result = renameHost(static_cast<std::uint32_t>(*id), *name);
+    } else if (action.id == "host.platform") {
+        const auto* id = parameter<std::int32_t>(action, "id");
+        const auto* platform = parameter<std::string>(action, "platform");
+        if (id && *id > 0 && platform)
+            result = setHostPlatform(static_cast<std::uint32_t>(*id),
+                                     platform->empty() ? std::nullopt
+                                                       : std::optional<HostPlatformId>{*platform});
+    } else if (action.id == "host.capability") {
+        const auto* id = parameter<std::int32_t>(action, "id");
+        const auto* capability = parameter<std::string>(action, "capability");
+        const auto* enabled = parameter<bool>(action, "enabled");
+        if (id && *id > 0 && capability && enabled)
+            result = setHostCapability(static_cast<std::uint32_t>(*id), *capability, *enabled);
+    } else if (action.id == "host.mapping-template") {
+        const auto* id = parameter<std::int32_t>(action, "id");
+        const auto* mappingTemplate = parameter<std::string>(action, "template");
+        if (id && *id > 0 && mappingTemplate)
+            result = setHostMappingTemplate(
+                static_cast<std::uint32_t>(*id),
+                mappingTemplate->empty() ? std::nullopt
+                                         : std::optional<HostMappingTemplateId>{*mappingTemplate});
     } else if (action.id == "host.pair")
         result = startPairing();
     else if (action.id == "host.cancel-pairing")

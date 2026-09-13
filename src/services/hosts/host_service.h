@@ -25,6 +25,11 @@ class HostService final : public core::IActionHandler {
     HostResult selectHost(std::uint32_t id);
     HostResult setEnabled(bool enabled);
     HostResult renameHost(std::uint32_t id, const std::string& name);
+    HostResult setHostPlatform(std::uint32_t id, std::optional<HostPlatformId> platform);
+    HostResult setHostCapability(std::uint32_t id, const HostCapabilityId& capability,
+                                 bool enabled);
+    HostResult setHostMappingTemplate(std::uint32_t id,
+                                      std::optional<HostMappingTemplateId> mappingTemplate);
     HostResult startPairing();
     HostResult cancelPairing();
     HostResult deleteHost(std::uint32_t id);
@@ -42,10 +47,12 @@ class HostService final : public core::IActionHandler {
   private:
     HostResult fail(HostResult result, const char* reason = nullptr);
     HostResult ensureReady();
+    HostResult ensureMetadataReady();
     HostResult apply();
     HostResult initializeIdle();
     HostResult reconcile(HostConfiguration& value);
     HostResult save(const HostConfiguration& value);
+    HostResult saveMetadata(const HostConfiguration& value);
     connectivity::BluetoothService& bluetooth_;
     ConfigurationService& configuration_;
     core::Logger* logger_;

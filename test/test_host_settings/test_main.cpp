@@ -178,7 +178,8 @@ struct Fixture {
     apps::HostSettings ui{hosts, bus, display};
     Fixture() {
         services::HostConfiguration value;
-        value.hosts = {{8, "Office laptop", {}}, {9, "Travel laptop", {}}};
+        value.hosts = {{8, "Office laptop", {}, std::nullopt, {}, std::nullopt},
+                       {9, "Travel laptop", {}, std::nullopt, {}, std::nullopt}};
         value.hosts[0].bond.bytes[0] = 1;
         value.hosts[1].bond.bytes[0] = 2;
         value.nextHostId = 10;
@@ -264,7 +265,7 @@ void test_focus_move_only_repaints_changed_rows_without_clearing_screen() {
 void test_scrolling_repaints_list_content_and_return_from_rename_invalidates_list_cache() {
     Fixture f;
     auto value = f.config.value();
-    value.hosts.push_back({10, "Third laptop", {}});
+    value.hosts.push_back({10, "Third laptop", {}, std::nullopt, {}, std::nullopt});
     value.hosts.back().bond.bytes[0] = 3;
     value.nextHostId = 11;
     TEST_ASSERT_TRUE(f.config.save(value) == services::ConfigurationResult::Success);
@@ -527,7 +528,8 @@ void test_settings_dispatch_selection_and_do_not_redraw_an_unchanged_screen() {
     core::Storage storage(memory);
     services::ConfigurationService config(storage);
     services::HostConfiguration value;
-    value.hosts = {{8, "Office laptop", {}}, {9, "Travel laptop", {}}};
+    value.hosts = {{8, "Office laptop", {}, std::nullopt, {}, std::nullopt},
+                   {9, "Travel laptop", {}, std::nullopt, {}, std::nullopt}};
     value.hosts[0].bond.bytes[0] = 1;
     value.hosts[1].bond.bytes[0] = 2;
     value.nextHostId = 10;
