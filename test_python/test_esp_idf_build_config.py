@@ -349,7 +349,10 @@ class EspIdfBuildConfigurationTests(unittest.TestCase):
             )
 
         local_version = result.stdout.strip().splitlines()[-1]
-        self.assertRegex(local_version, r"^\d+\.\d+\.\d+\+\d{8}-\d{4}$")
+        self.assertRegex(
+            local_version,
+            r"^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?\+\d{8}-\d{4}$",
+        )
         self.assertEqual("9.8.7", release_result.stdout.strip().splitlines()[-1])
         self.assertIn("CARDPUTER_HUB_VERSION_OVERRIDE", self.read("Makefile"))
         self.assertIn("CARDPUTER_HUB_VERSION_OVERRIDE", self.read("main/CMakeLists.txt"))
