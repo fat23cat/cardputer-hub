@@ -112,6 +112,7 @@ class AudioAdapter final : public core::IAudioAdapter {
         return true;
     }
     void setVolume(std::uint8_t volumePercent) override { volumes.push_back(volumePercent); }
+    bool isPlaying() const override { return false; }
     bool play(const core::AudioClip& clip) override {
         clips.push_back(clip);
         return true;
@@ -125,7 +126,8 @@ class Adapter final : public connectivity::IBluetoothAdapter {
   public:
     connectivity::BluetoothAdapterResult initialize(const connectivity::BluetoothDeviceConfig&,
                                                     std::uint32_t) override {
-        TEST_FAIL_MESSAGE("UI touched hardware");
+        if (!hardwareExpected)
+            TEST_FAIL_MESSAGE("UI touched hardware");
         return {};
     }
     connectivity::BluetoothAdapterResult shutdown() override { return {}; }
@@ -154,7 +156,12 @@ class Adapter final : public connectivity::IBluetoothAdapter {
                      bool, std::optional<std::uint32_t>) override {
         return {};
     }
-    connectivity::BluetoothBondListResult bonds() override { return {}; }
+    connectivity::BluetoothBondListResult bonds() override {
+        return hardwareExpected
+                   ? connectivity::
+                         BluetoothBondListResult{connectivity::BluetoothBondListStatus::Success, {}}
+                   : connectivity::BluetoothBondListResult{};
+    }
     connectivity::BluetoothBondReferenceResult
     bondReference(connectivity::BluetoothPeerHandle) override {
         return {};
@@ -180,6 +187,7 @@ class Adapter final : public connectivity::IBluetoothAdapter {
     releaseHidReports(connectivity::BluetoothPeerHandle) override {
         return {};
     }
+    bool hardwareExpected = false;
 };
 struct Fixture {
     Memory memory;
@@ -248,6 +256,11 @@ void test_host_menu_back_and_incremental_navigation() {
     Fixture f;
     f.ui.update({down, down, enter});
     TEST_ASSERT_TRUE(f.actions.seen.empty());
+    TEST_ASSERT_TRUE(std::find(f.display.texts.begin(), f.display.texts.end(), "Esc Back") ==
+                     f.display.texts.end());
+    TEST_ASSERT_TRUE(
+        std::none_of(f.display.rectangles.begin(), f.display.rectangles.end(),
+                     [](const auto& rectangle) { return rectangle.position.y == 118; }));
     f.display.capture("host-actions");
     f.display.texts.clear();
     f.display.rectangles.clear();
@@ -263,6 +276,26 @@ void test_host_menu_back_and_incremental_navigation() {
     f.ui.update({escape});
     TEST_ASSERT_FALSE(f.ui.modal());
     TEST_ASSERT_TRUE(f.actions.seen.empty());
+}
+
+void test_pairing_and_host_modals_do_not_show_escape_cancel_hint() {
+    Fixture host;
+    host.ui.update({down, down, enter, down, enter});
+    TEST_ASSERT_TRUE(std::find(host.display.texts.begin(), host.display.texts.end(), "HOST NAME") !=
+                     host.display.texts.end());
+    TEST_ASSERT_TRUE(std::find(host.display.texts.begin(), host.display.texts.end(),
+                               "Esc Cancel") == host.display.texts.end());
+
+    Fixture pairing;
+    pairing.adapter.hardwareExpected = true;
+    TEST_ASSERT_TRUE(pairing.hosts.start() == services::HostResult::Success);
+    TEST_ASSERT_TRUE(pairing.bus.registerHandler("host.pair", pairing.hosts) ==
+                     core::RegistrationResult::Registered);
+    pairing.ui.update({down, enter});
+    TEST_ASSERT_TRUE(std::find(pairing.display.texts.begin(), pairing.display.texts.end(),
+                               "ADD DEVICE") != pairing.display.texts.end());
+    TEST_ASSERT_TRUE(std::find(pairing.display.texts.begin(), pairing.display.texts.end(),
+                               "Esc Cancel") == pairing.display.texts.end());
 }
 
 void test_focus_move_only_repaints_changed_rows_without_clearing_screen() {
@@ -668,6 +701,7 @@ int main() {
     RUN_TEST(test_home_wave_is_bounded_and_pauses_in_settings);
     RUN_TEST(test_home_shows_unavailable_telemetry_and_updates_only_battery_region);
     RUN_TEST(test_host_menu_back_and_incremental_navigation);
+    RUN_TEST(test_pairing_and_host_modals_do_not_show_escape_cancel_hint);
     RUN_TEST(test_bluetooth_footer_is_quiet_and_x_has_no_destructive_action);
     RUN_TEST(test_home_and_panel_show_selected_host_and_do_not_navigate_on_state_updates);
     RUN_TEST(test_shell_boots_simple_home_and_opens_settings_before_bluetooth);

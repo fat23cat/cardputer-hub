@@ -241,10 +241,13 @@ for interruption. Views request forward/backward presentation through the
 optional display transition contract, before replacing page content; the shell
 supplies monotonic elapsed time each frame. UI navigation semantics remain in
 the shell/HostSettings, and LCD snapshot memory and presentation remain in the
-adapter. A transient second RGB565 buffer holds outgoing pixels. It is freed
-when the slide finishes; allocation failure falls back to immediate completed
-presentation. New navigation during a slide snapshots the currently visible
-composition, keeping input responsive without jumping to a hidden destination.
+adapter. A transient second RGB565 buffer starts with the outgoing pixels and is
+advanced into one complete composed frame per animation step. It is freed when
+the slide finishes; allocation failure falls back to immediate completed
+presentation. Each step is transferred once as a full frame instead of relying
+on consecutive cropped DMA transfers. New navigation during a slide reuses that
+currently visible composition, keeping input responsive without jumping to a
+hidden destination.
 Multiple navigation Actions in one input poll retain one source snapshot and
 target the final page. Direct drawing remains available for startup,
 validation harnesses, and allocation failure. UI objects retain ownership of
@@ -2172,14 +2175,21 @@ directional value-step cues are generated into constant PCM assets during
 development; startup only initializes the adapter, and the input path only
 selects a prepared buffer and requests playback. The Cardputer adapter
 exclusively owns M5Unified speaker initialization, physical volume mapping, the
-asynchronous mixer channel, and replacement of an in-flight interface cue. The
+asynchronous mixer channel, and observation of in-flight interface playback. The
 `audio.volume.step` Action carries `delta` as either -10 or 10; AudioService
 validates it, clamps the resulting value to 0-100, and persists the change. A
 volume Action loads the authoritative value before applying its delta and
 retries speaker initialization after a transient startup failure. A
-new key press replaces the previous click so fast typing does not accumulate an
-audio queue. Zero volume suppresses playback without stopping input, display,
+new key press is coalesced while the previous click is active, so fast typing
+neither interrupts a nonzero sample nor accumulates an audio queue. Zero volume suppresses playback without stopping input, display,
 Connectivity, or Service updates.
+
+On Cardputer-Adv, platform startup leaves M5Unified's internal-speaker callback
+disabled so the hardware audio adapter can sequence the ES8311 safely. The
+adapter starts silent I2S clocks first, initializes the codec with both DAC mute
+bits set, allows its analog references to settle, and then performs one soft
+unmute ramp. This keeps codec power-up transients out of the speaker while
+preserving asynchronous playback after startup.
 
 The `FileStorage` facade and its adapter interface contain no Arduino, SPI,
 filesystem, or board-library types. Those types and the Cardputer-Adv microSD

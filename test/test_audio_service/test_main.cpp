@@ -47,12 +47,14 @@ class AudioAdapter final : public core::IAudioAdapter {
         return beginResult;
     }
     void setVolume(std::uint8_t volumePercent) override { volumes.push_back(volumePercent); }
+    bool isPlaying() const override { return playing; }
     bool play(const core::AudioClip& clip) override {
         clips.push_back(clip);
         return true;
     }
 
     bool beginResult = true;
+    bool playing = false;
     int beginCalls = 0;
     std::vector<std::uint8_t> volumes;
     std::vector<core::AudioClip> clips;
@@ -102,7 +104,36 @@ void test_every_key_click_variant_releases_to_digital_silence() {
     for (int index = 0; index < 8; ++index) {
         TEST_ASSERT_TRUE(fixture.audio.play(services::AudioCue::KeyPress));
         const auto clip = fixture.adapter.clips.back();
-        TEST_ASSERT_EQUAL_INT16(0, clip.samples[clip.sampleCount - 1]);
+        TEST_ASSERT_TRUE(std::all_of(clip.samples + clip.sampleCount - 128,
+                                     clip.samples + clip.sampleCount,
+                                     [](std::int16_t sample) { return sample == 0; }));
+    }
+}
+
+void test_active_interface_cue_is_not_interrupted_or_queued() {
+    Fixture fixture;
+    TEST_ASSERT_TRUE(fixture.configuration.load() == services::ConfigurationResult::Success);
+    TEST_ASSERT_TRUE(fixture.audio.start() == services::AudioResult::Success);
+    fixture.adapter.playing = true;
+
+    TEST_ASSERT_FALSE(fixture.audio.play(services::AudioCue::KeyPress));
+    TEST_ASSERT_TRUE(fixture.adapter.clips.empty());
+
+    fixture.adapter.playing = false;
+    TEST_ASSERT_TRUE(fixture.audio.play(services::AudioCue::KeyPress));
+    TEST_ASSERT_EQUAL_UINT(1, fixture.adapter.clips.size());
+}
+
+void test_directional_volume_cues_release_to_digital_silence() {
+    Fixture fixture;
+    TEST_ASSERT_TRUE(fixture.configuration.load() == services::ConfigurationResult::Success);
+    TEST_ASSERT_TRUE(fixture.audio.start() == services::AudioResult::Success);
+    TEST_ASSERT_TRUE(fixture.audio.play(services::AudioCue::StepLeft));
+    TEST_ASSERT_TRUE(fixture.audio.play(services::AudioCue::StepRight));
+    for (const auto& clip : fixture.adapter.clips) {
+        TEST_ASSERT_TRUE(std::all_of(clip.samples + clip.sampleCount - 128,
+                                     clip.samples + clip.sampleCount,
+                                     [](std::int16_t sample) { return sample == 0; }));
     }
 }
 
@@ -231,6 +262,8 @@ int main() {
     RUN_TEST(test_defaults_to_sixty_percent_and_uses_a_bounded_precomputed_thock);
     RUN_TEST(test_key_clicks_cycle_through_deterministic_variants_without_allocating_at_play_time);
     RUN_TEST(test_every_key_click_variant_releases_to_digital_silence);
+    RUN_TEST(test_active_interface_cue_is_not_interrupted_or_queued);
+    RUN_TEST(test_directional_volume_cues_release_to_digital_silence);
     RUN_TEST(test_volume_is_persistent_in_ten_percent_steps_and_zero_mutes_playback);
     RUN_TEST(test_invalid_or_unpersisted_volume_does_not_change_live_output);
     RUN_TEST(test_corrupt_configuration_blocks_audio_start_and_volume_writes);

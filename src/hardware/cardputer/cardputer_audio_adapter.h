@@ -8,6 +8,7 @@ class CardputerAudioAdapter final : public core::IAudioAdapter {
   public:
     bool begin(std::uint8_t volumePercent) override;
     void setVolume(std::uint8_t volumePercent) override;
+    bool isPlaying() const override;
     bool play(const core::AudioClip& clip) override;
 
   private:

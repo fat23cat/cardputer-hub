@@ -34,7 +34,7 @@ AudioResult AudioService::setVolume(std::uint8_t volumePercent) {
 }
 
 bool AudioService::play(AudioCue cue) {
-    if (!started_ || volume() == 0)
+    if (!started_ || volume() == 0 || adapter_.isPlaying())
         return false;
     if (cue == AudioCue::KeyPress) {
         const auto index = nextKeyVariant_;

@@ -635,6 +635,7 @@ class SilentAudioAdapter final : public core::IAudioAdapter {
   public:
     bool begin(std::uint8_t) override { return true; }
     void setVolume(std::uint8_t) override {}
+    bool isPlaying() const override { return false; }
     bool play(const core::AudioClip&) override { return true; }
 };
 

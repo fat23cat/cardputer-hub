@@ -19,10 +19,14 @@ installation, and fixed USB Serial/JTAG diagnostics.
 Each recognized key press after startup has a short, soft synthesized click.
 The click cycles through subtle deterministic variants rather than playing a
 recorded sound. The default volume is 60%; 0% mutes it completely, and the
-setting survives Reset and power cycles. Rapid presses replace the previous
-click so typing does not build up an audio queue.
+setting survives Reset and power cycles. Rapid presses are coalesced into one
+uninterrupted cue instead of building up an audio queue.
 
 ## Hosts and Bluetooth
+
+The saved-host action menu has no `Esc Back` footer, and Add device, Rename, and
+Delete have no `Esc Cancel` footer. Escape still goes back or cancels the
+current operation.
 
 The Bluetooth panel lists Bluetooth On/Off, Add device, and saved hosts. SELECTED
 marks the saved choice, even when BLE is Off or activation fails; it does not

@@ -860,8 +860,9 @@ and BLE-bond partitions were preserved. Normal startup, advertising, and
 
 After accepting the updated UI, the operator requested removal of the bottom
 Esc Home bar. Settings and the root Bluetooth list now omit both the separator
-and label. Escape/backtick navigation is unchanged. Contextual Esc Back and
-Esc Cancel hints in host submenus and confirmation/pairing views remain.
+and label. Escape/backtick navigation is unchanged. The saved-host action menu
+also omits its Esc Back separator and label; confirmation and pairing views omit
+the Esc Cancel hint while Escape still cancels.
 The existing footer test was updated and observed failing before removal.
 
 Verification: 44 Python tests and 214 native tests passed with formatting,

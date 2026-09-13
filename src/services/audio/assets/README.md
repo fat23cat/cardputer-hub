@@ -3,7 +3,8 @@
 `interface_clips.h` contains the bounded 16 kHz signed PCM buffers used by
 `AudioService`. They are generated from the adapted Codex Microputer ADV cue
 synthesis during development so firmware startup performs no waveform math and
-the constant samples remain in flash.
+the constant samples remain in flash. Each clip fades out before a final 8 ms
+digital-silence tail, preventing an amplifier transient when playback ends.
 
 Regenerate and verify the asset with:
 

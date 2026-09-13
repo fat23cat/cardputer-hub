@@ -248,8 +248,8 @@ Wake-only input must not play an action or key-confirmation sound.
 The delivered subset uses the reference low, dry `Select` thock for each
 debounced semantic key press after splash handoff. Eight deterministic variants
 follow a restrained pitch contour and release to digital silence to avoid an
-end-of-buffer transient. A newer press replaces the cue already
-on the interface channel instead of queuing clicks. The two directional
+end-of-buffer transient. A press received while the interface cue is still
+active is coalesced instead of interrupting it or building an audio queue. The two directional
 reference gestures are used when Settings changes sound volume. All clips are
 generated as bounded constant PCM assets during development, so startup only
 initializes the audio adapter and M5Unified plays them asynchronously. Settings
@@ -462,11 +462,13 @@ Saved host intent is labelled SELECTED, never ACTIVE; selection remains visible
 while Off or after a failed connection attempt. READY denotes the actual secured
 HID connection. Home labels the corresponding name SELECTED HOST.
 
-Settings and the Bluetooth list have no bottom separator or Esc Home footer.
+Settings, the Bluetooth list, and the saved-host action menu have no bottom
+separator or Escape footer.
 Escape/backtick still returns Home; arrow and Enter controls remain unchanged. Enter on a saved host opens a
-Connect / Rename / Delete menu with Esc Back; opening it does not connect or
-change selection. The current host name appears below the actions. Rename and
-Delete use Esc Cancel; Delete shows the exact host name and needs confirmation.
+Connect / Rename / Delete menu; opening it does not connect or
+change selection. The current host name appears below the actions. Pairing,
+Rename, and Delete omit the Esc Cancel footer; Escape still cancels. Delete
+shows the exact host name and needs confirmation.
 Back from either returns to the host menu, then the Bluetooth list, then Home.
 The global X / Forget all hosts UI and Action are removed. Host action list
 navigation retains incremental painting and the shared palette/font geometry.

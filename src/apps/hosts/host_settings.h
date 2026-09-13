@@ -32,7 +32,6 @@ class HostSettings final : public core::IActionHandler {
         std::string caption;
         std::string status;
         std::string error;
-        std::string footer;
     };
     std::optional<ListFrame> listFrame_;
     void digits(const std::string& value);

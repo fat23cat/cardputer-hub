@@ -53,9 +53,16 @@ existing record.
 
 Each debounced semantic key press after the splash handoff requests one short
 key click. Eight deterministic variants rotate without runtime synthesis. A new
-interface cue replaces the previous one instead of building a queue. Every key
+interface cue is coalesced while the previous one is active instead of
+interrupting it or building a queue. Every key
 clip fades to digital silence before its fixed buffer ends so the speaker does
 not receive an abrupt end-of-buffer transition.
+
+Cardputer-Adv startup bypasses M5Unified's early ES8311 enable callback. The
+hardware adapter starts silent I2S clocks, powers the codec with both DAC mute
+bits set, waits for the analog path to settle, and uses a one-time soft ramp to
+unmute. Normal clip playback remains asynchronous after this bounded startup
+sequence.
 
 Plain Tab is the only Settings shortcut. Fn+Tab is inactive, and normal G0 has
 no application action; G0 plus reset retains its hardware download behavior.

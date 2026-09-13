@@ -12,7 +12,8 @@ from pathlib import Path
 SAMPLE_RATE = 16_000
 KEY_CLIP_LENGTH = 1_280
 STEP_CLIP_LENGTH = 1_760
-KEY_RELEASE_SAMPLES = 160
+RELEASE_SAMPLES = 160
+SILENCE_TAIL_SAMPLES = 128
 KEY_FREQUENCIES = (220.0, 233.0, 247.0, 233.0, 220.0, 247.0, 233.0, 220.0)
 KEY_DECAY_SCALES = (1.00, 0.96, 1.03, 0.98, 1.02, 0.95, 1.01, 0.97)
 TAU = math.tau
@@ -34,6 +35,16 @@ def trim_to_peak(samples: list[int], peak: float, target: float) -> list[int]:
         return samples
     factor = target * 32_700.0 / (peak * RAW_SCALE)
     return [int(max(-32_700.0, min(32_700.0, sample * factor))) for sample in samples]
+
+
+def release_envelope(sample_index: int, clip_length: int) -> float:
+    release_end = clip_length - SILENCE_TAIL_SAMPLES
+    if sample_index >= release_end:
+        return 0.0
+    release_start = release_end - RELEASE_SAMPLES
+    if sample_index < release_start:
+        return 1.0
+    return (release_end - 1 - sample_index) / (RELEASE_SAMPLES - 1)
 
 
 def key_clip(index: int) -> list[int]:
@@ -67,8 +78,7 @@ def key_clip(index: int) -> list[int]:
             value += dull * 0.20 * math.exp(-time / 0.0010)
         if time < 0.0005:
             value *= time / 0.0005
-        release = min(1.0, (KEY_CLIP_LENGTH - 1 - sample_index) / KEY_RELEASE_SAMPLES)
-        value *= release
+        value *= release_envelope(sample_index, KEY_CLIP_LENGTH)
         peak = max(peak, abs(value))
         samples.append(int(max(-RAW_CEILING, min(RAW_CEILING, value)) * RAW_SCALE))
     return trim_to_peak(samples, peak, 0.52)
@@ -92,6 +102,7 @@ def step_clip(notes: tuple[float, float]) -> list[int]:
                 math.sin(TAU * note * local_time) * 0.42 * gain[note_index]
                 + math.sin(TAU * note * 2.0 * local_time) * 0.08 * octave_gain[note_index]
             ) * envelope
+        value *= release_envelope(sample_index, STEP_CLIP_LENGTH)
         peak = max(peak, abs(value))
         samples.append(int(max(-RAW_CEILING, min(RAW_CEILING, value)) * RAW_SCALE))
     return trim_to_peak(samples, peak, 0.62)
