@@ -44,7 +44,7 @@ HostResult HostService::initializeIdle() {
     return HostResult::Success;
 }
 
-HostResult HostService::save(const HostConfiguration& value) {
+HostResult HostService::save(const SystemConfiguration& value) {
     const auto result = configuration_.save(value);
     if (result == ConfigurationResult::InvalidData)
         return lastResult_ = HostResult::InvalidInput;
@@ -53,7 +53,7 @@ HostResult HostService::save(const HostConfiguration& value) {
     return lastResult_ = HostResult::Success;
 }
 
-HostResult HostService::saveMetadata(const HostConfiguration& value) {
+HostResult HostService::saveMetadata(const SystemConfiguration& value) {
     const auto result = configuration_.save(value);
     if (result == ConfigurationResult::InvalidData)
         return lastResult_ = HostResult::InvalidInput;
@@ -62,21 +62,22 @@ HostResult HostService::saveMetadata(const HostConfiguration& value) {
     return lastResult_ = HostResult::Success;
 }
 
-HostResult HostService::reconcile(HostConfiguration& value) {
+HostResult HostService::reconcile(SystemConfiguration& value) {
+    auto& config = value.host;
     const auto registry = bluetooth_.bonds();
     if (registry.status != BluetoothBondListStatus::Success)
         return fail(HostResult::BluetoothError, "bond registry unavailable during import");
     for (const auto& bond : registry.bonds) {
-        if (std::any_of(value.hosts.begin(), value.hosts.end(),
+        if (std::any_of(config.hosts.begin(), config.hosts.end(),
                         [&](const auto& host) { return host.bond == bond; }))
             continue;
-        if (value.hosts.size() >= BluetoothService::maximumBondCount ||
-            value.nextHostId >=
+        if (config.hosts.size() >= BluetoothService::maximumBondCount ||
+            config.nextHostId >=
                 static_cast<std::uint32_t>(std::numeric_limits<std::int32_t>::max())) {
             return fail(HostResult::CapacityReached);
         }
-        const auto id = value.nextHostId++;
-        value.hosts.push_back(
+        const auto id = config.nextHostId++;
+        config.hosts.push_back(
             {id, "Host " + std::to_string(id), bond, std::nullopt, {}, std::nullopt});
     }
     return HostResult::Success;
@@ -93,15 +94,15 @@ HostResult HostService::start() {
 HostResult HostService::ensureReady() {
     if (ready_)
         return HostResult::Success;
-    const auto loaded = configuration_.load();
+    const auto loaded = configuration_.ensureLoaded();
     if (loaded != ConfigurationResult::Success)
         return fail(HostResult::StorageError);
     if (initializeIdle() != HostResult::Success)
         return lastResult_;
-    auto value = settings();
+    auto value = configuration_.value();
     if (reconcile(value) != HostResult::Success)
         return lastResult_;
-    if (value.hosts.size() != settings().hosts.size() && save(value) != HostResult::Success)
+    if (value.host.hosts.size() != settings().hosts.size() && save(value) != HostResult::Success)
         return lastResult_;
     // Recovery prepares profiles only; the requested action decides whether to advertise.
     if (bluetooth_.disable() == BluetoothDisableResult::AdapterError)
@@ -113,7 +114,7 @@ HostResult HostService::ensureReady() {
 HostResult HostService::ensureMetadataReady() {
     if (ready_)
         return HostResult::Success;
-    if (configuration_.load() != ConfigurationResult::Success)
+    if (configuration_.ensureLoaded() != ConfigurationResult::Success)
         return lastResult_ = HostResult::StorageError;
     return HostResult::Success;
 }
@@ -159,9 +160,9 @@ HostResult HostService::selectHost(std::uint32_t id) {
     // Quiesce output before persisting intent or exposing another target.
     if (bluetooth_.disable() == BluetoothDisableResult::AdapterError)
         return fail(HostResult::BluetoothError);
-    auto value = settings();
-    value.activeHost = id;
-    value.bluetoothEnabled = true;
+    auto value = configuration_.value();
+    value.host.activeHost = id;
+    value.host.bluetoothEnabled = true;
     if (save(value) != HostResult::Success)
         return lastResult_;
     return apply();
@@ -174,8 +175,8 @@ HostResult HostService::setEnabled(bool enabled) {
         return lastResult_ = HostResult::HostSelectionRequired;
     if (bluetooth_.disable() == BluetoothDisableResult::AdapterError)
         return fail(HostResult::BluetoothError);
-    auto value = settings();
-    value.bluetoothEnabled = enabled;
+    auto value = configuration_.value();
+    value.host.bluetoothEnabled = enabled;
     if (save(value) != HostResult::Success)
         return lastResult_;
     return apply();
@@ -184,10 +185,10 @@ HostResult HostService::setEnabled(bool enabled) {
 HostResult HostService::renameHost(std::uint32_t id, const std::string& name) {
     if (ensureReady() != HostResult::Success)
         return lastResult_;
-    auto value = settings();
-    const auto host = std::find_if(value.hosts.begin(), value.hosts.end(),
+    auto value = configuration_.value();
+    const auto host = std::find_if(value.host.hosts.begin(), value.host.hosts.end(),
                                    [id](const auto& h) { return h.id == id; });
-    if (host == value.hosts.end())
+    if (host == value.host.hosts.end())
         return lastResult_ = HostResult::InvalidInput;
     host->name = name;
     return save(value);
@@ -198,9 +199,9 @@ HostResult HostService::setHostPlatform(std::uint32_t id, std::optional<HostPlat
         return lastResult_ = HostResult::InvalidInput;
     if (ensureMetadataReady() != HostResult::Success)
         return lastResult_;
-    auto value = settings();
-    const auto host = findHost(value, id);
-    if (host == value.hosts.end())
+    auto value = configuration_.value();
+    const auto host = findHost(value.host, id);
+    if (host == value.host.hosts.end())
         return lastResult_ = HostResult::InvalidInput;
     if (host->platform == platform)
         return lastResult_ = HostResult::Success;
@@ -214,9 +215,9 @@ HostResult HostService::setHostCapability(std::uint32_t id, const HostCapability
         return lastResult_ = HostResult::InvalidInput;
     if (ensureMetadataReady() != HostResult::Success)
         return lastResult_;
-    auto value = settings();
-    const auto host = findHost(value, id);
-    if (host == value.hosts.end())
+    auto value = configuration_.value();
+    const auto host = findHost(value.host, id);
+    if (host == value.host.hosts.end())
         return lastResult_ = HostResult::InvalidInput;
     const auto existing =
         std::find(host->capabilities.begin(), host->capabilities.end(), capability);
@@ -242,9 +243,9 @@ HostService::setHostMappingTemplate(std::uint32_t id,
         return lastResult_ = HostResult::InvalidInput;
     if (ensureMetadataReady() != HostResult::Success)
         return lastResult_;
-    auto value = settings();
-    const auto host = findHost(value, id);
-    if (host == value.hosts.end())
+    auto value = configuration_.value();
+    const auto host = findHost(value.host, id);
+    if (host == value.host.hosts.end())
         return lastResult_ = HostResult::InvalidInput;
     if (host->mappingTemplate == mappingTemplate)
         return lastResult_ = HostResult::Success;
@@ -286,15 +287,15 @@ HostResult HostService::deleteHost(std::uint32_t id) {
         return lastResult_;
     if (pairing_ || findHost(settings(), id) == settings().hosts.end())
         return lastResult_ = HostResult::InvalidInput;
-    auto value = settings();
-    const auto reference = findHost(value, id)->bond;
-    const bool selected = value.activeHost == id;
+    auto value = configuration_.value();
+    const auto reference = findHost(value.host, id)->bond;
+    const bool selected = value.host.activeHost == id;
     const bool needsIdle = selected || bluetooth_.state() == BluetoothState::Disabled ||
                            bluetooth_.state() == BluetoothState::Error;
     if (selected) {
         if (bluetooth_.disable() == BluetoothDisableResult::AdapterError)
             return fail(HostResult::BluetoothError);
-        value.bluetoothEnabled = false;
+        value.host.bluetoothEnabled = false;
     }
     // Verify persistence before deleting keys; selected-host deletion persists Off.
     if (save(value) != HostResult::Success)
@@ -309,11 +310,11 @@ HostResult HostService::deleteHost(std::uint32_t id) {
     if (removed != BluetoothBondRemovalResult::Removed &&
         removed != BluetoothBondRemovalResult::NotFound)
         return fail(HostResult::BluetoothError, "deleting host bond failed");
-    value.hosts.erase(std::remove_if(value.hosts.begin(), value.hosts.end(),
-                                     [id](const auto& host) { return host.id == id; }),
-                      value.hosts.end());
+    value.host.hosts.erase(std::remove_if(value.host.hosts.begin(), value.host.hosts.end(),
+                                          [id](const auto& host) { return host.id == id; }),
+                           value.host.hosts.end());
     if (selected)
-        value.activeHost.reset();
+        value.host.activeHost.reset();
     if (save(value) != HostResult::Success)
         return lastResult_;
     return needsIdle ? apply() : lastResult_ = HostResult::Success;
@@ -351,17 +352,17 @@ void HostService::update(std::chrono::milliseconds elapsed) {
             fail(HostResult::BluetoothError);
             return;
         }
-        auto value = settings();
+        auto value = configuration_.value();
         if (reconcile(value) != HostResult::Success)
             return;
-        const auto host = std::find_if(value.hosts.begin(), value.hosts.end(),
+        const auto host = std::find_if(value.host.hosts.begin(), value.host.hosts.end(),
                                        [&](const auto& h) { return h.bond == *completed; });
-        if (host == value.hosts.end()) {
+        if (host == value.host.hosts.end()) {
             fail(HostResult::BluetoothError);
             return;
         }
-        value.activeHost = host->id;
-        value.bluetoothEnabled = true;
+        value.host.activeHost = host->id;
+        value.host.bluetoothEnabled = true;
         if (save(value) != HostResult::Success)
             return;
         if (bluetooth_.selectBond(*completed) != BluetoothBondSelectionResult::Selected) {

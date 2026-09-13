@@ -11,9 +11,15 @@ setup is implemented. Battery is sampled every five seconds (`--%` if
 unavailable); the voltage-based estimate can be less accurate with USB power
 connected. Long host names are shortened with an ellipsis on Home only; their
 stored names remain unchanged. Press **Tab** on the main keyboard to open
-the general Settings menu (**Fn+Tab** and **G0** still work), then **Enter** on Bluetooth to open the existing
-Bluetooth panel. BLE is the only host-control transport. USB supplies power, firmware
+the general Settings menu (**Fn+Tab** and **G0** still work). Bluetooth opens the existing
+Bluetooth panel; Sound volume sits directly below it. BLE is the only host-control transport. USB supplies power, firmware
 installation, and fixed USB Serial/JTAG diagnostics.
+
+Each recognized key press after startup has a short, soft synthesized click.
+The click cycles through subtle deterministic variants rather than playing a
+recorded sound. The default volume is 60%; 0% mutes it completely, and the
+setting survives Reset and power cycles. Rapid presses replace the previous
+click so typing does not build up an audio queue.
 
 ## Hosts and Bluetooth
 
@@ -40,6 +46,8 @@ ASCII characters and cannot consist only of spaces.
 | --- | --- |
 | Tab on Home (also Fn+Tab or G0) | Open Settings without changing BLE state |
 | Enter on Bluetooth in Settings | Open the Bluetooth panel |
+| `;` / `.` or Up / Down in Settings | Move between Bluetooth and Sound volume |
+| Left / Right on Sound volume | Decrease / increase volume by 10%, from 0% to 100% |
 | Backtick/Escape in Settings | Return Home |
 | Tab in the Bluetooth list (also Fn+Tab or G0) | Return to Settings |
 | `;` / `.` (keys marked Up / Down, without Fn) | Move through the list; Fn+arrow combinations also work |
@@ -169,6 +177,6 @@ Off, report/interruption and USB hotplug acceptance remains tracked in
 [plan 017](../plans/017-hid-transport-arbitration.md#0-current-closeout-status).
 The current firmware does not
 include the full Launcher/Mini App shell, profile-metadata editing or template
-resolution, Action-to-HID mappings, a Mac companion CLI/control protocol, Wi-Fi setup, or
-weather/VPS/Telegram/RGB features. Sound, idle dimming, and wake-input behavior
-from the broader UI requirements remain planned.
+resolution, Action-to-HID mappings, a Mac companion CLI/control protocol,
+Wi-Fi setup, or weather/VPS/Telegram/RGB features. Boot/status sound cues, idle
+dimming, and wake-input behavior from the broader UI requirements remain planned.

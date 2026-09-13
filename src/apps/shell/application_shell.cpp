@@ -8,8 +8,9 @@ using namespace core;
 using namespace connectivity;
 
 ApplicationShell::ApplicationShell(services::HostService& hosts, ActionBus& actions,
-                                   IDisplayAdapter& display, HostSettings& settings)
-    : hosts_(hosts), actions_(actions), display_(display), settings_(settings) {
+                                   IDisplayAdapter& display, HostSettings& settings,
+                                   services::AudioService& audio)
+    : hosts_(hosts), actions_(actions), display_(display), settings_(settings), audio_(audio) {
     (void)navigation_.resetTo("home");
     (void)actions_.registerHandler("ui.settings", *this);
     (void)actions_.registerHandler("ui.bluetooth", *this);
@@ -28,11 +29,11 @@ ActionHandlingResult ApplicationShell::handle(const Action& action) {
         if (atHome()) {
             display_.beginTransition(SlideDirection::Forward);
             (void)navigation_.push("settings");
-            settingsFrame_ = false;
+            settingsFrame_.reset();
         } else if (atBluetooth()) {
             display_.beginTransition(SlideDirection::Backward);
             (void)navigation_.back();
-            settingsFrame_ = false;
+            settingsFrame_.reset();
         }
     } else if (action.id == "ui.bluetooth") {
         if (!atSettings())
@@ -60,6 +61,27 @@ void ApplicationShell::update(const InputEvents& input, std::chrono::millisecond
     display_.advanceTransition(elapsed);
     for (const auto& event : input) {
         const bool plain = !event.modifiers.ctrl && !event.modifiers.alt && !event.modifiers.option;
+        const bool left =
+            event.type == InputEventType::NamedKey && event.namedKey == NamedKey::Left;
+        const bool right =
+            event.type == InputEventType::NamedKey && event.namedKey == NamedKey::Right;
+        const bool volumeStep = atSettings() && plain && settingsSelection_ == 1 && (left || right);
+        if (volumeStep) {
+            const auto previousVolume = audio_.volume();
+            const bool changesVolume = right ? previousVolume < 100 : previousVolume > 0;
+            const auto result =
+                actions_.dispatch({"audio.volume.step",
+                                   "settings",
+                                   {{"delta", static_cast<std::int32_t>(right ? 10 : -10)}}});
+            if (result == DispatchResult::Handled && changesVolume) {
+                (void)audio_.play(right ? services::AudioCue::StepRight
+                                        : services::AudioCue::StepLeft);
+            } else {
+                (void)audio_.play(services::AudioCue::KeyPress);
+            }
+        } else {
+            (void)audio_.play(services::AudioCue::KeyPress);
+        }
         const bool settingsChord =
             plain && !event.modifiers.shift && event.type == InputEventType::NamedKey &&
             event.namedKey == NamedKey::Tab &&
@@ -71,7 +93,21 @@ void ApplicationShell::update(const InputEvents& input, std::chrono::millisecond
         } else if (atBluetooth()) {
             settings_.update({event});
         } else if (atSettings() && plain) {
-            if (event.type == InputEventType::NamedKey && event.namedKey == NamedKey::Enter)
+            const bool up =
+                (event.type == InputEventType::NamedKey && event.namedKey == NamedKey::Up) ||
+                (event.type == InputEventType::PrintableCharacter && event.character == ';' &&
+                 !event.modifiers.shift);
+            const bool down =
+                (event.type == InputEventType::NamedKey && event.namedKey == NamedKey::Down) ||
+                (event.type == InputEventType::PrintableCharacter && event.character == '.' &&
+                 !event.modifiers.shift);
+            if (up || down) {
+                const auto nextSelection = static_cast<std::uint8_t>(down ? 1 : 0);
+                if (nextSelection != settingsSelection_) {
+                    settingsSelection_ = nextSelection;
+                }
+            } else if (event.type == InputEventType::NamedKey &&
+                       event.namedKey == NamedKey::Enter && settingsSelection_ == 0)
                 (void)actions_.dispatch({"ui.bluetooth", "settings", {}});
             else if ((event.type == InputEventType::NamedKey &&
                       event.namedKey == NamedKey::Escape) ||
@@ -91,17 +127,38 @@ void ApplicationShell::update(const InputEvents& input, std::chrono::millisecond
 }
 
 void ApplicationShell::renderSettings() {
-    if (settingsFrame_)
+    const SettingsFrame next{settingsSelection_, audio_.volume()};
+    if (settingsFrame_ && settingsFrame_->selection == next.selection &&
+        settingsFrame_->volume == next.volume)
         return;
-    settingsFrame_ = true;
+    const bool full = !settingsFrame_;
     const TextStyle normal{palette::ink, palette::bone, 1};
     const TextStyle selected{palette::bone, palette::ink, 1};
-    display_.clear(palette::bone);
-    display_.drawText({6, 6}, "SETTINGS", normal);
-    display_.fillRectangle({6, 20}, 228, 1, palette::ink);
-    display_.fillRectangle({6, 24}, 228, 16, palette::ink);
-    display_.drawText({10, 27}, "01", selected);
-    display_.drawText({30, 27}, "Bluetooth", selected);
+    if (full) {
+        display_.clear(palette::bone);
+        display_.drawText({6, 6}, "SETTINGS", normal);
+        display_.fillRectangle({6, 20}, 228, 1, palette::ink);
+    }
+    const auto drawRow = [&](std::uint8_t index, std::int32_t y, const char* ordinal,
+                             const char* label, const std::string& value) {
+        const bool focusChanged =
+            settingsFrame_ && (settingsFrame_->selection == index) != (next.selection == index);
+        const bool valueChanged =
+            index == 1 && settingsFrame_ && settingsFrame_->volume != next.volume;
+        if (!full && !focusChanged && !valueChanged)
+            return;
+        const bool focused = settingsSelection_ == index;
+        const auto style = focused ? selected : normal;
+        display_.fillRectangle({6, y}, 228, 16, focused ? palette::ink : palette::bone);
+        display_.drawText({10, y + 3}, ordinal, style);
+        display_.drawText({30, y + 3}, label, style);
+        if (!value.empty())
+            display_.drawText({230 - static_cast<std::int32_t>(value.size()) * 6, y + 3},
+                              value.c_str(), style);
+    };
+    drawRow(0, 24, "01", "Bluetooth", {});
+    drawRow(1, 42, "02", "Sound volume", std::to_string(audio_.volume()) + "%");
+    settingsFrame_ = next;
 }
 
 void ApplicationShell::renderHome(std::chrono::milliseconds elapsed,

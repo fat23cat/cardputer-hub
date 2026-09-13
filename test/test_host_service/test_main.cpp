@@ -7,11 +7,15 @@
 #include <deque>
 #include <map>
 #include <set>
+#include <type_traits>
 #include <unity.h>
+#include <utility>
 
 using namespace cardputer_hub;
 using namespace cardputer_hub::connectivity;
 namespace {
+static_assert(std::is_same_v<decltype(std::declval<const services::HostService&>().settings()),
+                             const services::HostConfiguration&>);
 BluetoothBondReference bond(unsigned char id) {
     BluetoothBondReference b{};
     b.bytes[0] = id;
@@ -175,8 +179,218 @@ void test_corrupt_configuration_is_not_overwritten_by_startup_retry() {
     TEST_ASSERT_TRUE(f.hosts.start() == services::HostResult::StorageError);
     const auto persisted = f.memory.bytes;
     TEST_ASSERT_TRUE(f.hosts.startPairing() == services::HostResult::StorageError);
+    TEST_ASSERT_TRUE(f.hosts.setHostPlatform(1, "macos") == services::HostResult::StorageError);
     TEST_ASSERT_TRUE(f.memory.bytes == persisted);
+    TEST_ASSERT_EQUAL(0, f.memory.writes);
     TEST_ASSERT_TRUE(f.adapter.trace.empty());
+}
+
+void test_metadata_actions_preserve_sound_without_starting_bluetooth() {
+    Fixture f;
+    services::SystemConfiguration value;
+    value.host.hosts = {{1, "Host 1", bond(1), std::nullopt, {}, std::nullopt}};
+    value.host.nextHostId = 2;
+    value.soundVolume = 80;
+    TEST_ASSERT_TRUE(f.config.load() == services::ConfigurationResult::Success);
+    TEST_ASSERT_TRUE(f.config.save(value) == services::ConfigurationResult::Success);
+    f.adapter.trace.clear();
+
+    core::ActionBus actions;
+    for (const auto* id : {"host.platform", "host.capability", "host.mapping-template"})
+        TEST_ASSERT_TRUE(actions.registerHandler(id, f.hosts) ==
+                         core::RegistrationResult::Registered);
+    TEST_ASSERT_TRUE(
+        actions.dispatch({"host.platform",
+                          "test",
+                          {{"id", std::int32_t{1}}, {"platform", std::string{"macos"}}}}) ==
+        core::DispatchResult::Handled);
+    TEST_ASSERT_TRUE(actions.dispatch({"host.capability",
+                                       "test",
+                                       {{"id", std::int32_t{1}},
+                                        {"capability", std::string{"app.activate"}},
+                                        {"enabled", true}}}) == core::DispatchResult::Handled);
+    TEST_ASSERT_TRUE(
+        actions.dispatch({"host.mapping-template",
+                          "test",
+                          {{"id", std::int32_t{1}}, {"template", std::string{"macos.default"}}}}) ==
+        core::DispatchResult::Handled);
+
+    TEST_ASSERT_EQUAL_UINT8(80, f.config.value().soundVolume);
+    TEST_ASSERT_TRUE(f.hosts.settings().hosts.front().platform ==
+                     std::optional<std::string>{"macos"});
+    TEST_ASSERT_TRUE(f.hosts.settings().hosts.front().capabilities ==
+                     std::vector<std::string>{"app.activate"});
+    TEST_ASSERT_TRUE(f.hosts.settings().hosts.front().mappingTemplate ==
+                     std::optional<std::string>{"macos.default"});
+    TEST_ASSERT_TRUE(f.adapter.trace.empty());
+    TEST_ASSERT_TRUE(f.hosts.bluetoothState() == BluetoothState::Disabled);
+
+    services::ConfigurationService reloaded(f.storage);
+    TEST_ASSERT_TRUE(reloaded.load() == services::ConfigurationResult::Success);
+    TEST_ASSERT_EQUAL_UINT8(80, reloaded.value().soundVolume);
+    TEST_ASSERT_TRUE(reloaded.value().host.hosts.front().capabilities ==
+                     std::vector<std::string>{"app.activate"});
+}
+
+void test_metadata_actions_persist_without_touching_the_ready_selected_host() {
+    Fixture f;
+    TEST_ASSERT_TRUE(f.hosts.start() == services::HostResult::Success);
+    const auto id = f.hosts.settings().hosts.front().id;
+    TEST_ASSERT_TRUE(f.hosts.selectHost(id) == services::HostResult::Success);
+    f.adapter.connect(1);
+    f.hosts.update(std::chrono::milliseconds(1));
+    TEST_ASSERT_TRUE(f.hosts.bluetoothState() == BluetoothState::Connected);
+    f.adapter.trace.clear();
+
+    core::ActionBus actions;
+    for (const auto* action : {"host.platform", "host.capability", "host.mapping-template"})
+        actions.registerHandler(action, f.hosts);
+    const auto writesBefore = f.memory.writes;
+    TEST_ASSERT_TRUE(actions.dispatch({"host.platform",
+                                       "test",
+                                       {{"id", static_cast<std::int32_t>(id)},
+                                        {"platform", std::string{"macos"}}}}) ==
+                     core::DispatchResult::Handled);
+    TEST_ASSERT_TRUE(actions.dispatch({"host.capability",
+                                       "test",
+                                       {{"id", static_cast<std::int32_t>(id)},
+                                        {"capability", std::string{"app.activate"}},
+                                        {"enabled", true}}}) == core::DispatchResult::Handled);
+    const auto writesAfterCapability = f.memory.writes;
+    TEST_ASSERT_TRUE(actions.dispatch({"host.capability",
+                                       "test",
+                                       {{"id", static_cast<std::int32_t>(id)},
+                                        {"capability", std::string{"app.activate"}},
+                                        {"enabled", true}}}) == core::DispatchResult::Handled);
+    TEST_ASSERT_EQUAL(writesAfterCapability, f.memory.writes);
+    TEST_ASSERT_TRUE(actions.dispatch({"host.mapping-template",
+                                       "test",
+                                       {{"id", static_cast<std::int32_t>(id)},
+                                        {"template", std::string{"macos.default"}}}}) ==
+                     core::DispatchResult::Handled);
+
+    const auto& host = f.hosts.settings().hosts.front();
+    TEST_ASSERT_TRUE(host.platform == std::optional<std::string>{"macos"});
+    TEST_ASSERT_TRUE(host.capabilities == std::vector<std::string>{"app.activate"});
+    TEST_ASSERT_TRUE(host.mappingTemplate == std::optional<std::string>{"macos.default"});
+    TEST_ASSERT_TRUE(f.hosts.settings().activeHost == id);
+    TEST_ASSERT_TRUE(f.hosts.settings().bluetoothEnabled);
+    TEST_ASSERT_TRUE(f.hosts.bluetoothState() == BluetoothState::Connected);
+    TEST_ASSERT_TRUE(f.adapter.trace.empty());
+    TEST_ASSERT_EQUAL(writesBefore + 3, f.memory.writes);
+    const auto writesAfterMetadata = f.memory.writes;
+    TEST_ASSERT_TRUE(f.hosts.setHostPlatform(id, "macos") == services::HostResult::Success);
+    TEST_ASSERT_TRUE(f.hosts.setHostMappingTemplate(id, "macos.default") ==
+                     services::HostResult::Success);
+    TEST_ASSERT_EQUAL(writesAfterMetadata, f.memory.writes);
+
+    services::ConfigurationService reloaded(f.storage);
+    TEST_ASSERT_TRUE(reloaded.load() == services::ConfigurationResult::Success);
+    TEST_ASSERT_TRUE(reloaded.value().host.hosts.front().platform ==
+                     std::optional<std::string>{"macos"});
+    TEST_ASSERT_TRUE(reloaded.value().host.hosts.front().capabilities ==
+                     std::vector<std::string>{"app.activate"});
+    TEST_ASSERT_TRUE(reloaded.value().host.hosts.front().mappingTemplate ==
+                     std::optional<std::string>{"macos.default"});
+
+    TEST_ASSERT_TRUE(
+        actions.dispatch({"host.platform",
+                          "test",
+                          {{"id", static_cast<std::int32_t>(id)}, {"platform", std::string{}}}}) ==
+        core::DispatchResult::Handled);
+    TEST_ASSERT_TRUE(actions.dispatch({"host.capability",
+                                       "test",
+                                       {{"id", static_cast<std::int32_t>(id)},
+                                        {"capability", std::string{"app.activate"}},
+                                        {"enabled", false}}}) == core::DispatchResult::Handled);
+    TEST_ASSERT_TRUE(
+        actions.dispatch({"host.mapping-template",
+                          "test",
+                          {{"id", static_cast<std::int32_t>(id)}, {"template", std::string{}}}}) ==
+        core::DispatchResult::Handled);
+    TEST_ASSERT_FALSE(f.hosts.settings().hosts.front().platform.has_value());
+    TEST_ASSERT_TRUE(f.hosts.settings().hosts.front().capabilities.empty());
+    TEST_ASSERT_FALSE(f.hosts.settings().hosts.front().mappingTemplate.has_value());
+    TEST_ASSERT_TRUE(f.adapter.trace.empty());
+}
+
+void test_invalid_or_failed_metadata_actions_preserve_configuration_and_radio_state() {
+    Fixture f;
+    TEST_ASSERT_TRUE(f.hosts.start() == services::HostResult::Success);
+    const auto id = f.hosts.settings().hosts.front().id;
+    TEST_ASSERT_TRUE(f.hosts.selectHost(id) == services::HostResult::Success);
+    f.adapter.connect(1);
+    f.hosts.update(std::chrono::milliseconds(1));
+    f.adapter.trace.clear();
+    const auto stored = f.memory.bytes;
+    const auto writes = f.memory.writes;
+
+    const std::vector<core::Action> invalid{
+        {"host.platform",
+         "test",
+         {{"id", static_cast<std::int32_t>(id)}, {"platform", std::string{"Mac OS"}}}},
+        {"host.platform", "test", {{"id", std::string{"1"}}, {"platform", std::string{"macos"}}}},
+        {"host.capability",
+         "test",
+         {{"id", static_cast<std::int32_t>(id)},
+          {"capability", std::string{}},
+          {"enabled", false}}},
+        {"host.capability",
+         "test",
+         {{"id", static_cast<std::int32_t>(id)},
+          {"capability", std::string{"app.activate"}},
+          {"enabled", std::string{"true"}}}},
+        {"host.mapping-template",
+         "test",
+         {{"id", std::int32_t{999}}, {"template", std::string{"macos.default"}}}},
+    };
+    for (const auto& action : invalid)
+        TEST_ASSERT_TRUE(f.hosts.handle(action) == core::ActionHandlingResult::Rejected);
+    TEST_ASSERT_EQUAL(writes, f.memory.writes);
+    TEST_ASSERT_TRUE(f.memory.bytes == stored);
+    TEST_ASSERT_TRUE(f.adapter.trace.empty());
+
+    f.memory.failWrite = true;
+    TEST_ASSERT_TRUE(f.hosts.handle({"host.platform",
+                                     "test",
+                                     {{"id", static_cast<std::int32_t>(id)},
+                                      {"platform", std::string{"macos"}}}}) ==
+                     core::ActionHandlingResult::Rejected);
+    TEST_ASSERT_TRUE(f.hosts.lastResult() == services::HostResult::StorageError);
+    TEST_ASSERT_FALSE(f.hosts.settings().hosts.front().platform.has_value());
+    TEST_ASSERT_TRUE(f.memory.bytes == stored);
+    TEST_ASSERT_TRUE(f.hosts.settings().activeHost == id);
+    TEST_ASSERT_TRUE(f.hosts.bluetoothState() == BluetoothState::Connected);
+    TEST_ASSERT_TRUE(f.adapter.trace.empty());
+}
+
+void test_metadata_operations_are_bounded_and_do_not_start_bluetooth() {
+    Fixture f;
+    services::SystemConfiguration value;
+    value.host.hosts = {{1, "Host 1", bond(1), std::nullopt, {}, std::nullopt}};
+    value.host.nextHostId = 2;
+    value.soundVolume = 80;
+    TEST_ASSERT_TRUE(f.config.load() == services::ConfigurationResult::Success);
+    TEST_ASSERT_TRUE(f.config.save(value) == services::ConfigurationResult::Success);
+    f.adapter.trace.clear();
+
+    const auto writesBefore = f.memory.writes;
+    TEST_ASSERT_TRUE(f.hosts.setHostPlatform(1, "vendor.future") == services::HostResult::Success);
+    for (std::size_t index = 0; index < services::ConfigurationService::maximumHostCapabilityCount;
+         ++index) {
+        TEST_ASSERT_TRUE(f.hosts.setHostCapability(1, "capability." + std::to_string(index),
+                                                   true) == services::HostResult::Success);
+    }
+    const auto writesAtCapacity = f.memory.writes;
+    TEST_ASSERT_TRUE(f.hosts.setHostCapability(1, "capability.overflow", true) ==
+                     services::HostResult::CapacityReached);
+    TEST_ASSERT_EQUAL(writesAtCapacity, f.memory.writes);
+    TEST_ASSERT_TRUE(f.hosts.setHostPlatform(999, "macos") == services::HostResult::InvalidInput);
+    TEST_ASSERT_EQUAL(writesAtCapacity, f.memory.writes);
+    TEST_ASSERT_EQUAL(writesBefore + 17, f.memory.writes);
+    TEST_ASSERT_EQUAL_UINT8(80, f.config.value().soundVolume);
+    TEST_ASSERT_TRUE(f.adapter.trace.empty());
+    TEST_ASSERT_TRUE(f.hosts.bluetoothState() == BluetoothState::Disabled);
 }
 
 void test_interrupted_pairing_invalidates_cached_challenge_for_all_prompt_types() {
@@ -245,8 +459,8 @@ void test_import_existing_pairs_without_advertising_then_persist_selected_host()
     TEST_ASSERT_TRUE(f.adapter.targets.back() == bond(2));
     services::ConfigurationService reloaded(f.storage);
     TEST_ASSERT_TRUE(reloaded.load() == services::ConfigurationResult::Success);
-    TEST_ASSERT_TRUE(reloaded.value().activeHost == id);
-    TEST_ASSERT_TRUE(reloaded.value().bluetoothEnabled);
+    TEST_ASSERT_TRUE(reloaded.value().host.activeHost == id);
+    TEST_ASSERT_TRUE(reloaded.value().host.bluetoothEnabled);
 }
 void test_switch_releases_old_host_before_shutdown_and_only_advertises_new_target() {
     Fixture f;
@@ -377,164 +591,6 @@ void test_actions_preserve_selected_host_on_restart_and_reject_wrong_parameter_t
     TEST_ASSERT_TRUE(f.hosts.bluetoothState() == BluetoothState::Disabled);
 }
 
-void test_metadata_actions_persist_without_touching_the_ready_selected_host() {
-    Fixture f;
-    TEST_ASSERT_TRUE(f.hosts.start() == services::HostResult::Success);
-    const auto id = f.hosts.settings().hosts.front().id;
-    TEST_ASSERT_TRUE(f.hosts.selectHost(id) == services::HostResult::Success);
-    f.adapter.connect(1);
-    f.hosts.update(std::chrono::milliseconds(1));
-    TEST_ASSERT_TRUE(f.hosts.bluetoothState() == BluetoothState::Connected);
-    f.adapter.trace.clear();
-
-    core::ActionBus bus;
-    for (const auto* action : {"host.platform", "host.capability", "host.mapping-template"})
-        bus.registerHandler(action, f.hosts);
-    const auto writesBefore = f.memory.writes;
-    TEST_ASSERT_TRUE(bus.dispatch({"host.platform",
-                                   "test",
-                                   {{"id", static_cast<std::int32_t>(id)},
-                                    {"platform", std::string{"macos"}}}}) ==
-                     core::DispatchResult::Handled);
-    TEST_ASSERT_TRUE(bus.dispatch({"host.capability",
-                                   "test",
-                                   {{"id", static_cast<std::int32_t>(id)},
-                                    {"capability", std::string{"app.activate"}},
-                                    {"enabled", true}}}) == core::DispatchResult::Handled);
-    const auto writesAfterCapability = f.memory.writes;
-    TEST_ASSERT_TRUE(bus.dispatch({"host.capability",
-                                   "test",
-                                   {{"id", static_cast<std::int32_t>(id)},
-                                    {"capability", std::string{"app.activate"}},
-                                    {"enabled", true}}}) == core::DispatchResult::Handled);
-    TEST_ASSERT_EQUAL(writesAfterCapability, f.memory.writes);
-    TEST_ASSERT_TRUE(bus.dispatch({"host.mapping-template",
-                                   "test",
-                                   {{"id", static_cast<std::int32_t>(id)},
-                                    {"template", std::string{"macos.default"}}}}) ==
-                     core::DispatchResult::Handled);
-
-    const auto& host = f.hosts.settings().hosts.front();
-    TEST_ASSERT_TRUE(host.platform == std::optional<std::string>{"macos"});
-    TEST_ASSERT_TRUE(host.capabilities == std::vector<std::string>{"app.activate"});
-    TEST_ASSERT_TRUE(host.mappingTemplate == std::optional<std::string>{"macos.default"});
-    TEST_ASSERT_TRUE(f.hosts.settings().activeHost == id);
-    TEST_ASSERT_TRUE(f.hosts.settings().bluetoothEnabled);
-    TEST_ASSERT_TRUE(f.hosts.bluetoothState() == BluetoothState::Connected);
-    TEST_ASSERT_TRUE(f.adapter.trace.empty());
-    TEST_ASSERT_EQUAL(writesBefore + 3, f.memory.writes);
-    const auto writesAfterMetadata = f.memory.writes;
-    TEST_ASSERT_TRUE(f.hosts.setHostPlatform(id, "macos") == services::HostResult::Success);
-    TEST_ASSERT_TRUE(f.hosts.setHostMappingTemplate(id, "macos.default") ==
-                     services::HostResult::Success);
-    TEST_ASSERT_EQUAL(writesAfterMetadata, f.memory.writes);
-
-    services::ConfigurationService reloaded(f.storage);
-    TEST_ASSERT_TRUE(reloaded.load() == services::ConfigurationResult::Success);
-    TEST_ASSERT_TRUE(reloaded.value().hosts.front().platform ==
-                     std::optional<std::string>{"macos"});
-    TEST_ASSERT_TRUE(reloaded.value().hosts.front().capabilities ==
-                     std::vector<std::string>{"app.activate"});
-    TEST_ASSERT_TRUE(reloaded.value().hosts.front().mappingTemplate ==
-                     std::optional<std::string>{"macos.default"});
-
-    TEST_ASSERT_TRUE(
-        bus.dispatch({"host.platform",
-                      "test",
-                      {{"id", static_cast<std::int32_t>(id)}, {"platform", std::string{}}}}) ==
-        core::DispatchResult::Handled);
-    TEST_ASSERT_TRUE(bus.dispatch({"host.capability",
-                                   "test",
-                                   {{"id", static_cast<std::int32_t>(id)},
-                                    {"capability", std::string{"app.activate"}},
-                                    {"enabled", false}}}) == core::DispatchResult::Handled);
-    TEST_ASSERT_TRUE(
-        bus.dispatch({"host.mapping-template",
-                      "test",
-                      {{"id", static_cast<std::int32_t>(id)}, {"template", std::string{}}}}) ==
-        core::DispatchResult::Handled);
-    TEST_ASSERT_FALSE(f.hosts.settings().hosts.front().platform.has_value());
-    TEST_ASSERT_TRUE(f.hosts.settings().hosts.front().capabilities.empty());
-    TEST_ASSERT_FALSE(f.hosts.settings().hosts.front().mappingTemplate.has_value());
-    TEST_ASSERT_TRUE(f.adapter.trace.empty());
-}
-
-void test_invalid_or_failed_metadata_actions_preserve_configuration_and_radio_state() {
-    Fixture f;
-    TEST_ASSERT_TRUE(f.hosts.start() == services::HostResult::Success);
-    const auto id = f.hosts.settings().hosts.front().id;
-    TEST_ASSERT_TRUE(f.hosts.selectHost(id) == services::HostResult::Success);
-    f.adapter.connect(1);
-    f.hosts.update(std::chrono::milliseconds(1));
-    f.adapter.trace.clear();
-    const auto stored = f.memory.bytes;
-    const auto writes = f.memory.writes;
-
-    const std::vector<core::Action> invalid{
-        {"host.platform",
-         "test",
-         {{"id", static_cast<std::int32_t>(id)}, {"platform", std::string{"Mac OS"}}}},
-        {"host.platform", "test", {{"id", std::string{"1"}}, {"platform", std::string{"macos"}}}},
-        {"host.capability",
-         "test",
-         {{"id", static_cast<std::int32_t>(id)},
-          {"capability", std::string{}},
-          {"enabled", false}}},
-        {"host.capability",
-         "test",
-         {{"id", static_cast<std::int32_t>(id)},
-          {"capability", std::string{"app.activate"}},
-          {"enabled", std::string{"true"}}}},
-        {"host.mapping-template",
-         "test",
-         {{"id", std::int32_t{999}}, {"template", std::string{"macos.default"}}}},
-    };
-    for (const auto& action : invalid)
-        TEST_ASSERT_TRUE(f.hosts.handle(action) == core::ActionHandlingResult::Rejected);
-    TEST_ASSERT_EQUAL(writes, f.memory.writes);
-    TEST_ASSERT_TRUE(f.memory.bytes == stored);
-    TEST_ASSERT_TRUE(f.adapter.trace.empty());
-
-    f.memory.failWrite = true;
-    TEST_ASSERT_TRUE(f.hosts.handle({"host.platform",
-                                     "test",
-                                     {{"id", static_cast<std::int32_t>(id)},
-                                      {"platform", std::string{"macos"}}}}) ==
-                     core::ActionHandlingResult::Rejected);
-    TEST_ASSERT_TRUE(f.hosts.lastResult() == services::HostResult::StorageError);
-    TEST_ASSERT_FALSE(f.hosts.settings().hosts.front().platform.has_value());
-    TEST_ASSERT_TRUE(f.memory.bytes == stored);
-    TEST_ASSERT_TRUE(f.hosts.settings().activeHost == id);
-    TEST_ASSERT_TRUE(f.hosts.bluetoothState() == BluetoothState::Connected);
-    TEST_ASSERT_TRUE(f.adapter.trace.empty());
-}
-
-void test_metadata_operations_are_bounded_and_do_not_start_bluetooth() {
-    Fixture f;
-    services::HostConfiguration value;
-    value.hosts = {{1, "Host 1", bond(1), std::nullopt, {}, std::nullopt}};
-    value.nextHostId = 2;
-    TEST_ASSERT_TRUE(f.config.save(value) == services::ConfigurationResult::Success);
-    f.adapter.trace.clear();
-
-    const auto writesBefore = f.memory.writes;
-    TEST_ASSERT_TRUE(f.hosts.setHostPlatform(1, "vendor.future") == services::HostResult::Success);
-    for (std::size_t index = 0; index < services::ConfigurationService::maximumHostCapabilityCount;
-         ++index) {
-        TEST_ASSERT_TRUE(f.hosts.setHostCapability(1, "capability." + std::to_string(index),
-                                                   true) == services::HostResult::Success);
-    }
-    const auto writesAtCapacity = f.memory.writes;
-    TEST_ASSERT_TRUE(f.hosts.setHostCapability(1, "capability.overflow", true) ==
-                     services::HostResult::CapacityReached);
-    TEST_ASSERT_EQUAL(writesAtCapacity, f.memory.writes);
-    TEST_ASSERT_TRUE(f.hosts.setHostPlatform(999, "macos") == services::HostResult::InvalidInput);
-    TEST_ASSERT_EQUAL(writesAtCapacity, f.memory.writes);
-    TEST_ASSERT_EQUAL(writesBefore + 17, f.memory.writes);
-    TEST_ASSERT_TRUE(f.adapter.trace.empty());
-    TEST_ASSERT_TRUE(f.hosts.bluetoothState() == BluetoothState::Disabled);
-}
-
 void test_full_profile_list_rejects_pairing_without_interrupting_selected_host() {
     Fixture f;
     f.adapter.known.clear();
@@ -575,8 +631,17 @@ class Display final : public core::IDisplayAdapter {
     std::set<std::pair<int, int>> ink;
 };
 
+class SilentAudioAdapter final : public core::IAudioAdapter {
+  public:
+    bool begin(std::uint8_t) override { return true; }
+    void setVolume(std::uint8_t) override {}
+    bool play(const core::AudioClip&) override { return true; }
+};
+
 struct Screen {
-    explicit Screen(Fixture& f) : ui(f.hosts, bus, display), shell(f.hosts, bus, display, ui) {
+    explicit Screen(Fixture& f)
+        : ui(f.hosts, bus, display), audio(f.config, audioAdapter),
+          shell(f.hosts, bus, display, ui, audio) {
         for (const auto* id : {"host.bluetooth", "host.select", "host.pair", "host.cancel-pairing",
                                "host.delete", "host.rename"})
             bus.registerHandler(id, f.hosts);
@@ -595,6 +660,8 @@ struct Screen {
     core::ActionBus bus;
     Display display;
     apps::HostSettings ui;
+    SilentAudioAdapter audioAdapter;
+    services::AudioService audio;
     apps::ApplicationShell shell;
 };
 
@@ -632,8 +699,8 @@ void test_host_menu_rename_and_confirmed_delete_affect_only_that_host() {
     TEST_ASSERT_TRUE(screen.shows("BLUETOOTH"));
     services::ConfigurationService reloaded(f.storage);
     reloaded.load();
-    TEST_ASSERT_EQUAL(second, reloaded.value().hosts.front().id);
-    TEST_ASSERT_TRUE(reloaded.value().nextHostId > first);
+    TEST_ASSERT_EQUAL(second, reloaded.value().host.hosts.front().id);
+    TEST_ASSERT_TRUE(reloaded.value().host.nextHostId > first);
 }
 
 void test_delete_selected_stays_off_and_nonselected_preserves_live_host() {
@@ -816,9 +883,10 @@ void setUp() {}
 void tearDown() {}
 int main() {
     UNITY_BEGIN();
-    RUN_TEST(test_metadata_operations_are_bounded_and_do_not_start_bluetooth);
-    RUN_TEST(test_invalid_or_failed_metadata_actions_preserve_configuration_and_radio_state);
+    RUN_TEST(test_metadata_actions_preserve_sound_without_starting_bluetooth);
     RUN_TEST(test_metadata_actions_persist_without_touching_the_ready_selected_host);
+    RUN_TEST(test_invalid_or_failed_metadata_actions_preserve_configuration_and_radio_state);
+    RUN_TEST(test_metadata_operations_are_bounded_and_do_not_start_bluetooth);
     RUN_TEST(test_host_actions_retry_failed_startup_without_activating_previous_target);
     RUN_TEST(test_corrupt_configuration_is_not_overwritten_by_startup_retry);
     RUN_TEST(test_interrupted_pairing_invalidates_cached_challenge_for_all_prompt_types);
