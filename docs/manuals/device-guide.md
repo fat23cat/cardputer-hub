@@ -47,7 +47,7 @@ ASCII characters and cannot consist only of spaces.
 | Tab on Home (also Fn+Tab or G0) | Open Settings without changing BLE state |
 | Enter on Bluetooth in Settings | Open the Bluetooth panel |
 | `;` / `.` or Up / Down in Settings | Move between Bluetooth and Sound volume |
-| Left / Right on Sound volume | Decrease / increase volume by 10%, from 0% to 100% |
+| `,` / `/` (keys marked Left / Right, without Fn) on Sound volume | Decrease / increase volume by 10%, from 0% to 100%; Fn+arrow combinations also work |
 | Backtick/Escape in Settings | Return Home |
 | Tab in the Bluetooth list (also Fn+Tab or G0) | Return to Settings |
 | `;` / `.` (keys marked Up / Down, without Fn) | Move through the list; Fn+arrow combinations also work |

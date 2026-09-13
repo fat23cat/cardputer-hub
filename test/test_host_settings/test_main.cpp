@@ -571,6 +571,19 @@ void test_settings_volume_row_steps_with_left_and_right_and_zero_is_mute() {
     TEST_ASSERT_EQUAL_UINT(1760, f.audioAdapter.clips.back().sampleCount);
 }
 
+void test_settings_volume_accepts_the_cardputer_arrow_marked_keys_without_fn() {
+    Fixture f;
+    apps::ApplicationShell shell(f.hosts, f.bus, f.display, f.ui, f.audio);
+    shell.update({settingsChord});
+    shell.update({character('.')});
+
+    shell.update({character('/')});
+    TEST_ASSERT_EQUAL_UINT8(70, f.config.value().soundVolume);
+
+    shell.update({character(',')});
+    TEST_ASSERT_EQUAL_UINT8(60, f.config.value().soundVolume);
+}
+
 void test_settings_focus_and_volume_only_repaint_changed_rows() {
     Fixture f;
     apps::ApplicationShell shell(f.hosts, f.bus, f.display, f.ui, f.audio);
@@ -673,6 +686,7 @@ int main() {
     RUN_TEST(test_settings_dispatch_selection_and_do_not_redraw_an_unchanged_screen);
     RUN_TEST(test_every_semantic_key_press_gets_one_click_and_idle_updates_stay_silent);
     RUN_TEST(test_settings_volume_row_steps_with_left_and_right_and_zero_is_mute);
+    RUN_TEST(test_settings_volume_accepts_the_cardputer_arrow_marked_keys_without_fn);
     RUN_TEST(test_settings_focus_and_volume_only_repaint_changed_rows);
     return UNITY_END();
 }

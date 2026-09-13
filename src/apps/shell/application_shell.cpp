@@ -62,9 +62,13 @@ void ApplicationShell::update(const InputEvents& input, std::chrono::millisecond
     for (const auto& event : input) {
         const bool plain = !event.modifiers.ctrl && !event.modifiers.alt && !event.modifiers.option;
         const bool left =
-            event.type == InputEventType::NamedKey && event.namedKey == NamedKey::Left;
+            (event.type == InputEventType::NamedKey && event.namedKey == NamedKey::Left) ||
+            (event.type == InputEventType::PrintableCharacter && event.character == ',' &&
+             !event.modifiers.shift);
         const bool right =
-            event.type == InputEventType::NamedKey && event.namedKey == NamedKey::Right;
+            (event.type == InputEventType::NamedKey && event.namedKey == NamedKey::Right) ||
+            (event.type == InputEventType::PrintableCharacter && event.character == '/' &&
+             !event.modifiers.shift);
         const bool volumeStep = atSettings() && plain && settingsSelection_ == 1 && (left || right);
         if (volumeStep) {
             const auto previousVolume = audio_.volume();

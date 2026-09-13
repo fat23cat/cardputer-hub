@@ -368,9 +368,10 @@ updates repaint only the host region. Pairing's Micro 5 digits are unchanged.
 Tab on the main keyboard (also G0 or Fn+Tab) opens a general SETTINGS list with
 Bluetooth followed by Sound volume,
 using the existing ordinal and Ink focus plate, without a bottom bar or
-Esc Home label. Up/Down move between the rows. On Sound volume, Left/Right
-change the right-aligned percentage in ten-percent steps without opening a
-separate page. Enter on Bluetooth opens
+Esc Home label. Up/Down move between the rows. On Sound volume, the physical
+`,` / `/` keys marked Left / Right work without Fn; logical Left/Right work as
+well. They change the right-aligned percentage in ten-percent steps without
+opening a separate page. Enter on Bluetooth opens
 the existing Bluetooth panel without modifying its controls or layout. Its Esc
 Home behavior is retained; Tab, G0 or Fn+Tab from the BLE list returns to Settings. The
 menu input is consumed without dismissing host submenus, rename/delete prompts,
