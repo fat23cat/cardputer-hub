@@ -6,6 +6,9 @@ The user superseded both automatic USB-first routing and the proposed saved
 manual-channel setting on 2026-09-11. BLE is the only host-control transport.
 The plan number and filename remain stable for branch/history references.
 Neither a router nor an Active channel setting is part of the current scope.
+On 2026-09-13, a later plan-021 follow-up made plain Tab the only Settings
+shortcut: Fn+Tab is inactive and normal G0 no longer has an application action.
+The chronological implementation log below still records the earlier behavior.
 
 ```text
 branch:   feat/017-hid-transport-arbitration

@@ -205,6 +205,9 @@ ESP-IDF 5.5.5 installation from the documented setup path, or a repository-local
 `build-tools/` installation when present, without inheriting another
 application's ESP-IDF environment. Nonstandard installations may set
 `CARDPUTER_HUB_IDF_PATH` and, when needed, `CARDPUTER_HUB_IDF_TOOLS_PATH`.
+For local manager builds, the splash version includes the local build date and
+time as `VERSION+YYYYMMDD-HHMM`; release builds retain their assigned semantic
+version unchanged.
 
 After safely ejecting the card and exiting `usbsd`, run `sd` so CRUB remounts
 the card and reloads its aliases. Then run `uphub` and require both `app: ok`
@@ -238,7 +241,7 @@ firmware enters through native ESP-IDF, initializes M5Unified directly, writes
 structured informational records for the product name, version, commit, and
 build type to serial, briefly renders the product name/version, then opens a compact Home with the selected host, BT status, an estimated battery
 percentage, and a slow dotted wave. The future clock and Wi-Fi slots currently
-show `--:--` and `OFFLINE`. Tab (also G0 or Fn+Tab) opens Settings; Bluetooth
+show `--:--` and `OFFLINE`. Plain Tab opens Settings; Bluetooth
 opens the existing BLE panel and the following Sound volume row adjusts the
 persistent 0-100% key-click volume with Left/Right in 10% steps.
 Screen navigation uses short horizontal transitions with live input. The update loop polls semantic keyboard events, routes
@@ -271,7 +274,7 @@ peer, and releases active reports before controlled disconnects. HostService
 composes this boundary with ConfigurationService: profiles, selection, and BLE
 On/Off are stored in internal `hub_config` NVS. First use defaults to Off and
 imports existing pairs without advertising. Switching closes the old connection
-before allowing the selected host. Tab (also G0 or Fn+Tab) opens Settings, whose Bluetooth entry exposes these
+before allowing the selected host. Plain Tab opens Settings, whose Bluetooth entry exposes these
 operations through ActionBus. A hardware-separated AudioService supplies
 precomputed, asynchronous key clicks at a persistent default of 60%; see the
 [device guide](docs/manuals/device-guide.md).

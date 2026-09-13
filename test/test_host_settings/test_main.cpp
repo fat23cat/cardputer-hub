@@ -315,7 +315,8 @@ void test_scrolling_repaints_list_content_and_return_from_rename_invalidates_lis
     TEST_ASSERT_TRUE(f.display.texts.empty());
 }
 
-const core::InputEvent settingsChord{
+const core::InputEvent settingsChord{core::InputEventType::NamedKey, 0, core::NamedKey::Tab, {}};
+const core::InputEvent fnTab{
     core::InputEventType::NamedKey, 0, core::NamedKey::Tab, {false, false, false, false, true}};
 void test_shell_boots_simple_home_and_opens_settings_before_bluetooth() {
     Fixture f;
@@ -450,26 +451,17 @@ void test_page_transitions_follow_navigation_and_ignore_focus_or_status_refresh(
     TEST_ASSERT_TRUE(f.actions.seen.empty());
 }
 
-void test_system_button_opens_settings_without_radio_actions_and_preserves_modals() {
+void test_fn_tab_and_system_button_do_not_open_settings() {
     Fixture f;
     apps::ApplicationShell shell(f.hosts, f.bus, f.display, f.ui, f.audio);
     const core::InputEvent menu{core::InputEventType::NamedKey, 0, core::NamedKey::SystemMenu, {}};
-    shell.update({menu});
-    TEST_ASSERT_TRUE(std::find(f.display.texts.begin(), f.display.texts.end(), "SETTINGS") !=
-                     f.display.texts.end());
+    shell.update({});
     const auto presentations = f.display.presentations;
-    shell.update({menu});
+    shell.update({fnTab, menu});
     TEST_ASSERT_EQUAL(presentations, f.display.presentations);
-    shell.update({enter});
-    shell.update({menu});
-    TEST_ASSERT_TRUE(std::find(f.display.texts.begin(), f.display.texts.end(), "SETTINGS") !=
+    TEST_ASSERT_TRUE(std::find(f.display.texts.begin(), f.display.texts.end(), "SELECTED HOST") !=
                      f.display.texts.end());
-    shell.update({enter, down, down, enter});
-    TEST_ASSERT_TRUE(f.ui.modal());
-    const auto modalPresentations = f.display.presentations;
-    shell.update({menu});
-    TEST_ASSERT_TRUE(f.ui.modal());
-    TEST_ASSERT_EQUAL(modalPresentations, f.display.presentations);
+    TEST_ASSERT_TRUE(f.display.transitions.empty());
     TEST_ASSERT_TRUE(f.actions.seen.empty());
 }
 
@@ -671,7 +663,7 @@ int main() {
     UNITY_BEGIN();
     RUN_TEST(test_plain_tab_opens_settings_and_leaves_editing_intact);
     RUN_TEST(test_page_transitions_follow_navigation_and_ignore_focus_or_status_refresh);
-    RUN_TEST(test_system_button_opens_settings_without_radio_actions_and_preserves_modals);
+    RUN_TEST(test_fn_tab_and_system_button_do_not_open_settings);
     RUN_TEST(test_home_name_fits_without_changing_the_saved_label);
     RUN_TEST(test_home_wave_is_bounded_and_pauses_in_settings);
     RUN_TEST(test_home_shows_unavailable_telemetry_and_updates_only_battery_region);

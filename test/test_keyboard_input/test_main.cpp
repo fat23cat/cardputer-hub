@@ -246,15 +246,19 @@ void test_cardputer_adv_fn_layer_maps_functions_arrows_and_inactive_keys() {
                             static_cast<unsigned int>(snapshot.keys[3].namedKey));
 }
 
-void test_cardputer_adv_fn_tab_emits_one_settings_chord() {
+void test_cardputer_adv_fn_tab_is_inactive() {
     CardputerAdvPressedKeys pressed{};
     pressed[28] = true; // Fn
     pressed[14] = true; // Tab
     const auto snapshot = cardputerAdvKeyboardSnapshot(pressed);
-    TEST_ASSERT_EQUAL_UINT(1, snapshot.keys.size());
     TEST_ASSERT_TRUE(snapshot.modifiers.fn);
-    TEST_ASSERT_TRUE(snapshot.keys.front().representation == KeyRepresentation::NamedKey);
-    TEST_ASSERT_TRUE(snapshot.keys.front().namedKey == NamedKey::Tab);
+    TEST_ASSERT_EQUAL_UINT(1, snapshot.keys.size());
+    TEST_ASSERT_TRUE(snapshot.keys.front().representation == KeyRepresentation::Inactive);
+
+    KeyboardEventTranslator translator;
+    InputEvents events;
+    translator.translate(snapshot, events);
+    TEST_ASSERT_TRUE(events.empty());
 }
 
 void test_cardputer_adv_layout_reports_all_modifiers() {
@@ -277,7 +281,7 @@ void test_cardputer_adv_layout_reports_all_modifiers() {
 
 int main() {
     UNITY_BEGIN();
-    RUN_TEST(test_cardputer_adv_fn_tab_emits_one_settings_chord);
+    RUN_TEST(test_cardputer_adv_fn_tab_is_inactive);
     RUN_TEST(test_printable_characters_preserve_vendor_order);
     RUN_TEST(test_all_named_keys_are_emitted_in_enum_order);
     RUN_TEST(test_modifiers_are_attached_to_each_new_event);

@@ -204,7 +204,7 @@ Home must not implement these functions itself.
 The initial Home dashboard is implemented under plan 017. It displays actual
 HostService state, a compact Micro 5 host label, a single Wi-Fi status, and
 battery telemetry. It does not act as the future AppRegistry-driven Launcher.
-`ApplicationShell` owns a NavigationStack rooted at `home`; Tab (also G0 or Fn+Tab) routes
+`ApplicationShell` owns a NavigationStack rooted at `home`; plain Tab routes
 `ui.settings` through ActionBus to a general Settings list. Its Bluetooth entry
 routes `ui.bluetooth` to the existing HostSettings view. The next row exposes
 the persistent system sound volume directly; Left/Right dispatch
@@ -427,17 +427,13 @@ does not interpret route syntax, carry route parameters, render a destination,
 activate application lifecycle, or restore view state.
 
 The initial application shell now integrates this history with Home, a general Settings menu,
-Bluetooth settings, and navigation Actions. Tab (also G0 or Fn+Tab) dispatches `ui.settings` and
+Bluetooth settings, and navigation Actions. Plain Tab dispatches `ui.settings` and
 the Settings Bluetooth entry dispatches `ui.bluetooth`; opening either menu has
-no host-control side effects. The existing BLE list keeps Esc Home; Tab, G0 or Fn+Tab can
+no host-control side effects. The existing BLE list keeps Esc Home; plain Tab can
 return from that list to Settings. Host submenus and editing/pairing modals consume
 the shortcut without abandoning their state. Ordinary Enter/B on Home do
-nothing. The hardware layout exposes Tab on the Fn layer while the shell owns
-its meaning. The Cardputer input adapter additionally emits a local
-`NamedKey::SystemMenu` on the debounced G0/BtnA press edge, independently of
-keyboard-matrix initialization. Shell routes it to the same Settings Action;
-it never becomes host input or repeats while held. The ROM download behavior
-of G0 at boot/reset is unchanged. Plain Tab is scoped to built-in system
+nothing. Fn+Tab is inactive, and a normal G0 press has no application action.
+The ROM download behavior of G0 at boot/reset is unchanged. Plain Tab is scoped to built-in system
 screens; future text-entry Mini Apps must retain their normal Tab behavior. Launcher and broader global-shortcut integration remain Phase 4 work. Phase 5 will define Mini
 App view objects and lifecycle; those view implementations remain outside the
 navigation history primitive.
@@ -2413,7 +2409,7 @@ Transport expansion does not block the BLE-only software scope.
 - [x] Home with selected host, real BLE state, estimated battery and ambient wave.
 - [x] General Settings menu with Bluetooth and persistent 0-100% sound volume.
 - [x] NavigationStack/ActionBus integration and modal-aware Back behavior.
-- [x] Plain Tab for built-in settings; Fn+Tab and G0 alternatives.
+- [x] Plain Tab for built-in settings; Fn+Tab is inactive and normal G0 has no application action.
 - [x] Shared palette, bitmap typography, buffered dirty-region presentation.
 - [x] Non-blocking 220 ms page slides and interruption from the visible frame.
 - [ ] AppRegistry-driven Launcher and navigation into arbitrary Mini Apps.

@@ -19,6 +19,11 @@ python3 -m firmware_manager doctor
 python3 -m firmware_manager local --app hub --sd /Volumes/CARDPUTER
 ```
 
+The startup splash of a locally built image includes the local build date and
+time as `VERSION+YYYYMMDD-HHMM`, making it easy to confirm that CRUB installed
+the newly staged build. Published releases display their assigned semantic
+version without this local suffix.
+
 For a published image, replace `local` with `release`. Safely eject the card,
 exit `usbsd`, run `sd` to remount it and reload aliases, then run `uphub` and
 wait for `app: ok` plus `flash complete`. These manager commands validate the

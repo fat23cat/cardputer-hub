@@ -647,10 +647,7 @@ struct Screen {
             bus.registerHandler(id, f.hosts);
     }
     void openBluetooth() {
-        shell.update({{core::InputEventType::NamedKey,
-                       0,
-                       core::NamedKey::Tab,
-                       {false, false, false, false, true}}});
+        shell.update({{core::InputEventType::NamedKey, 0, core::NamedKey::Tab, {}}});
         press(core::NamedKey::Enter);
     }
     void press(core::NamedKey key) { shell.update({{core::InputEventType::NamedKey, 0, key, {}}}); }

@@ -86,13 +86,11 @@ void ApplicationShell::update(const InputEvents& input, std::chrono::millisecond
         } else {
             (void)audio_.play(services::AudioCue::KeyPress);
         }
-        const bool settingsChord =
-            plain && !event.modifiers.shift && event.type == InputEventType::NamedKey &&
-            event.namedKey == NamedKey::Tab &&
-            (event.modifiers.fn || atHome() || atSettings() || atBluetooth());
-        const bool systemMenu =
-            event.type == InputEventType::NamedKey && event.namedKey == NamedKey::SystemMenu;
-        if (settingsChord || systemMenu) {
+        const bool settingsChord = plain && !event.modifiers.shift && !event.modifiers.fn &&
+                                   event.type == InputEventType::NamedKey &&
+                                   event.namedKey == NamedKey::Tab &&
+                                   (atHome() || atSettings() || atBluetooth());
+        if (settingsChord) {
             (void)actions_.dispatch({"ui.settings", "shell", {}});
         } else if (atBluetooth()) {
             settings_.update({event});

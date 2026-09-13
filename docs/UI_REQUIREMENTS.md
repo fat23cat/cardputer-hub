@@ -247,7 +247,8 @@ Wake-only input must not play an action or key-confirmation sound.
 
 The delivered subset uses the reference low, dry `Select` thock for each
 debounced semantic key press after splash handoff. Eight deterministic variants
-follow a restrained pitch contour, and a newer press replaces the cue already
+follow a restrained pitch contour and release to digital silence to avoid an
+end-of-buffer transient. A newer press replaces the cue already
 on the interface channel instead of queuing clicks. The two directional
 reference gestures are used when Settings changes sound volume. All clips are
 generated as bounded constant PCM assets during development, so startup only
@@ -365,7 +366,7 @@ rule. It must eventually pause while the display is off and must never count as
 user activity. Battery updates repaint only their header region; host/status
 updates repaint only the host region. Pairing's Micro 5 digits are unchanged.
 
-Tab on the main keyboard (also G0 or Fn+Tab) opens a general SETTINGS list with
+Plain Tab on the main keyboard opens a general SETTINGS list with
 Bluetooth followed by Sound volume,
 using the existing ordinal and Ink focus plate, without a bottom bar or
 Esc Home label. Up/Down move between the rows. On Sound volume, the physical
@@ -373,13 +374,13 @@ Esc Home label. Up/Down move between the rows. On Sound volume, the physical
 well. They change the right-aligned percentage in ten-percent steps without
 opening a separate page. Enter on Bluetooth opens
 the existing Bluetooth panel without modifying its controls or layout. Its Esc
-Home behavior is retained; Tab, G0 or Fn+Tab from the BLE list returns to Settings. The
+Home behavior is retained; plain Tab from the BLE list returns to Settings. The
 menu input is consumed without dismissing host submenus, rename/delete prompts,
-or pairing. Enter/B do not open anything on Home. Repeated Tab/G0/Fn+Tab
+or pairing. Enter/B do not open anything on Home. Repeated plain Tab
 in Settings does not add history entries or repaint a settled view. Background
-connection updates never navigate away from the current screen. G0 uses the
-debounced press edge from M5Unified BtnA and emits the local SystemMenu input;
-holding it does not repeat. Its hardware boot/download function is unchanged. Plain Tab is a built-in
+connection updates never navigate away from the current screen. Fn+Tab is
+inactive, and a normal G0 press has no application action. G0's hardware
+boot/download function is unchanged. Plain Tab is a built-in
 system-screen control, not a global shortcut for future text-entry Mini Apps.
 
 The Cardputer adapter composes drawing into a persistent RGB565 canvas and copies

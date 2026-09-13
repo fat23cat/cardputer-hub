@@ -12,6 +12,7 @@ from pathlib import Path
 SAMPLE_RATE = 16_000
 KEY_CLIP_LENGTH = 1_280
 STEP_CLIP_LENGTH = 1_760
+KEY_RELEASE_SAMPLES = 160
 KEY_FREQUENCIES = (220.0, 233.0, 247.0, 233.0, 220.0, 247.0, 233.0, 220.0)
 KEY_DECAY_SCALES = (1.00, 0.96, 1.03, 0.98, 1.02, 0.95, 1.01, 0.97)
 TAU = math.tau
@@ -66,6 +67,8 @@ def key_clip(index: int) -> list[int]:
             value += dull * 0.20 * math.exp(-time / 0.0010)
         if time < 0.0005:
             value *= time / 0.0005
+        release = min(1.0, (KEY_CLIP_LENGTH - 1 - sample_index) / KEY_RELEASE_SAMPLES)
+        value *= release
         peak = max(peak, abs(value))
         samples.append(int(max(-RAW_CEILING, min(RAW_CEILING, value)) * RAW_SCALE))
     return trim_to_peak(samples, peak, 0.52)

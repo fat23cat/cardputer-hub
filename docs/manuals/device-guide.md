@@ -10,8 +10,9 @@ percentage, with no battery icon. Time currently shows `--:--`; Wi-Fi shows `OFF
 setup is implemented. Battery is sampled every five seconds (`--%` if
 unavailable); the voltage-based estimate can be less accurate with USB power
 connected. Long host names are shortened with an ellipsis on Home only; their
-stored names remain unchanged. Press **Tab** on the main keyboard to open
-the general Settings menu (**Fn+Tab** and **G0** still work). Bluetooth opens the existing
+stored names remain unchanged. Press plain **Tab** on the main keyboard to open
+the general Settings menu. Fn+Tab is inactive, and a normal G0 press has no
+application action. Bluetooth opens the existing
 Bluetooth panel; Sound volume sits directly below it. BLE is the only host-control transport. USB supplies power, firmware
 installation, and fixed USB Serial/JTAG diagnostics.
 
@@ -44,12 +45,12 @@ ASCII characters and cannot consist only of spaces.
 
 | Control | Behavior |
 | --- | --- |
-| Tab on Home (also Fn+Tab or G0) | Open Settings without changing BLE state |
+| Plain Tab on Home | Open Settings without changing BLE state |
 | Enter on Bluetooth in Settings | Open the Bluetooth panel |
 | `;` / `.` or Up / Down in Settings | Move between Bluetooth and Sound volume |
 | `,` / `/` (keys marked Left / Right, without Fn) on Sound volume | Decrease / increase volume by 10%, from 0% to 100%; Fn+arrow combinations also work |
 | Backtick/Escape in Settings | Return Home |
-| Tab in the Bluetooth list (also Fn+Tab or G0) | Return to Settings |
+| Plain Tab in the Bluetooth list | Return to Settings |
 | `;` / `.` (keys marked Up / Down, without Fn) | Move through the list; Fn+arrow combinations also work |
 | Enter on Bluetooth | Turn BLE On/Off; without a selected host, highlight a host or Add device for confirmation |
 | Enter on Add device | Open the two-minute pairing window |
@@ -76,13 +77,13 @@ returns to the Bluetooth list. Back from pairing returns to the Bluetooth list.
 Settings and the Bluetooth list have no bottom bar or Esc Home label.
 Escape/backtick still returns Home; arrows and Enter work as before. The X shortcut and global cleanup button are removed. Backtick remains a printable character while renaming (use
 Escape to cancel that edit). Home is always the default screen after reboot. Ordinary Enter and B do
-nothing on Home. Tab/G0/Fn+Tab does not dismiss a host submenu, rename/delete prompt,
+nothing on Home. Plain Tab does not dismiss a host submenu, rename/delete prompt,
 or pairing view; leave that view using Back first. The existing Esc Home action
 in the Bluetooth list continues to return directly Home;
 opening/closing settings does not change saved host selection or BLE On/Off.
 
-A normal G0 press opens Settings once; holding it does not repeat. Holding G0
-while starting or resetting the device still enters the firmware download mode.
+Fn+Tab is inactive, and a normal G0 press does nothing. Holding G0 while
+starting or resetting the device still enters the firmware download mode.
 The wave has a 28-second cycle and pauses while Settings/Bluetooth is open and
 during screen transitions. Screens slide in from the right when opening and
 from the left when returning, taking about 220 ms. You can keep pressing keys

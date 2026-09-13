@@ -95,6 +95,17 @@ void test_key_clicks_cycle_through_deterministic_variants_without_allocating_at_
     TEST_ASSERT_EQUAL_PTR(fixture.adapter.clips[0].samples, fixture.adapter.clips[8].samples);
 }
 
+void test_every_key_click_variant_releases_to_digital_silence() {
+    Fixture fixture;
+    TEST_ASSERT_TRUE(fixture.configuration.load() == services::ConfigurationResult::Success);
+    TEST_ASSERT_TRUE(fixture.audio.start() == services::AudioResult::Success);
+    for (int index = 0; index < 8; ++index) {
+        TEST_ASSERT_TRUE(fixture.audio.play(services::AudioCue::KeyPress));
+        const auto clip = fixture.adapter.clips.back();
+        TEST_ASSERT_EQUAL_INT16(0, clip.samples[clip.sampleCount - 1]);
+    }
+}
+
 void test_volume_is_persistent_in_ten_percent_steps_and_zero_mutes_playback() {
     Fixture fixture;
     TEST_ASSERT_TRUE(fixture.configuration.load() == services::ConfigurationResult::Success);
@@ -219,6 +230,7 @@ int main() {
     UNITY_BEGIN();
     RUN_TEST(test_defaults_to_sixty_percent_and_uses_a_bounded_precomputed_thock);
     RUN_TEST(test_key_clicks_cycle_through_deterministic_variants_without_allocating_at_play_time);
+    RUN_TEST(test_every_key_click_variant_releases_to_digital_silence);
     RUN_TEST(test_volume_is_persistent_in_ten_percent_steps_and_zero_mutes_playback);
     RUN_TEST(test_invalid_or_unpersisted_volume_does_not_change_live_output);
     RUN_TEST(test_corrupt_configuration_blocks_audio_start_and_volume_writes);

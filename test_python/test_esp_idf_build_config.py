@@ -1,4 +1,7 @@
+import os
 import pathlib
+import subprocess
+import tempfile
 import unittest
 
 
@@ -309,6 +312,47 @@ class EspIdfBuildConfigurationTests(unittest.TestCase):
         self.assertIn("build-tools/idf-tools-v5.5.5", wrapper)
         self.assertIn('source "${hub_idf_path}/export.sh"', wrapper)
         self.assertIn('exec make -C "${hub_project}" build', wrapper)
+
+    def test_firmware_manager_local_build_embeds_local_date_and_time(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            temporary = pathlib.Path(temporary_directory)
+            idf = temporary / "idf"
+            commands = temporary / "bin"
+            idf.mkdir()
+            commands.mkdir()
+            (idf / "export.sh").write_text(":\n", encoding="utf-8")
+            fake_make = commands / "make"
+            fake_make.write_text(
+                '#!/usr/bin/env bash\nprintf "%s\\n" "${CARDPUTER_HUB_VERSION:-}"\n',
+                encoding="utf-8",
+            )
+            fake_make.chmod(0o755)
+            environment = os.environ.copy()
+            environment.pop("CARDPUTER_HUB_VERSION", None)
+            environment["CARDPUTER_HUB_IDF_PATH"] = str(idf)
+            environment["PATH"] = f"{commands}:{environment['PATH']}"
+
+            result = subprocess.run(
+                ["bash", str(ROOT / "scripts/build_firmware.sh")],
+                check=True,
+                capture_output=True,
+                text=True,
+                env=environment,
+            )
+            environment["CARDPUTER_HUB_VERSION"] = "9.8.7"
+            release_result = subprocess.run(
+                ["bash", str(ROOT / "scripts/build_firmware.sh")],
+                check=True,
+                capture_output=True,
+                text=True,
+                env=environment,
+            )
+
+        local_version = result.stdout.strip().splitlines()[-1]
+        self.assertRegex(local_version, r"^\d+\.\d+\.\d+\+\d{8}-\d{4}$")
+        self.assertEqual("9.8.7", release_result.stdout.strip().splitlines()[-1])
+        self.assertIn("CARDPUTER_HUB_VERSION_OVERRIDE", self.read("Makefile"))
+        self.assertIn("CARDPUTER_HUB_VERSION_OVERRIDE", self.read("main/CMakeLists.txt"))
 
     def test_ci_parallelizes_host_checks_and_firmware_build(self) -> None:
         workflow = self.read(".github/workflows/ci.yml")
