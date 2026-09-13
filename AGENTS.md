@@ -2,111 +2,74 @@
 
 Cardputer Hub is firmware for the M5Stack Cardputer-Adv.
 
-## Source of Truth
+## Load Context on Demand
 
-Before making architectural or implementation changes, read the relevant
-sections of:
+Start with the request, `git diff`, affected code, and nearby tests. Find
+headings before reading long documents; never read them cover to cover by
+default.
 
-* `docs/ARCHITECTURE.md` — product and software architecture
-* `docs/ENGINEERING.md` — development, testing, CI/CD, versioning, and release requirements
-* `docs/UI_REQUIREMENTS.md` — visual, motion, sound, display-power, and input
-  rules for UI work
-* `docs/manuals/` — current supported features, controls, installation, and
-  user-facing procedures affected by the change
+* Architecture, ownership, contracts, persistence: relevant sections of
+  `docs/ARCHITECTURE.md`.
+* Tests, builds, CI, versions, releases: `docs/ENGINEERING.md`.
+* Visible UI, input, motion, sound, display power: `docs/UI_REQUIREMENTS.md`.
+* Current features, controls, installation, operation: `docs/manuals/`.
 
-These documents are authoritative. If an implementation changes an
-architectural decision, update the relevant documentation in the same pull
-request. Do not silently introduce an alternative architecture.
+Read `docs/plans/` only when the task names or continues a plan, starting with
+its current-status section. Historical notes are not current instructions.
+These sources are authoritative; update the owning document when its contract
+changes and do not create a parallel architecture.
 
-## Essential Architecture Guardrails
+## Architecture Guardrails
 
 The primary dependency direction is:
 
 ```text
-Mini Apps
-    ↓
-Services
-    ↓
-Connectivity
-    ↓
-Hardware Adapters
+Mini Apps -> Services -> Connectivity -> Hardware Adapters
 ```
 
 System Core provides cross-cutting infrastructure. Dependencies must not point
 upward through the application layers.
 
-In particular:
+* Mini Apps own UI/interaction; Services own reusable state and behavior.
+* Connectivity owns Wi-Fi/Bluetooth; adapters hide hardware specifics.
+* Route logical user Actions through shared Action infrastructure.
+* Keep host details and bond references in dynamic `HostProfile` data; never
+  special-case personal devices.
+* Keep core logic host-testable.
 
-* keep Mini Apps focused on UI and interaction;
-* put reusable state, integrations, and behavior in Services;
-* keep Wi-Fi and Bluetooth infrastructure in Connectivity;
-* keep hardware-specific behavior behind adapters;
-* represent user intent as logical Actions routed through the shared Action infrastructure;
-* treat host names, platforms, mappings, and Bluetooth bond references as dynamic `HostProfile` data;
-* never hardcode personal host devices as application-logic special cases;
-* keep core application logic testable without physical Cardputer hardware.
+## Efficient Implementation and Verification
 
-Detailed responsibilities, examples, and planned phases are defined in
-`docs/ARCHITECTURE.md`.
-
-## Testing and Verification
-
-Use test-driven development for behavioral changes:
+For behavioral work, use focused TDD:
 
 ```text
-RED      write the next behavioral test and confirm the expected failure
-GREEN    implement the minimum behavior needed to pass
-REFACTOR improve the design while keeping the tests green
+RED -> one relevant failing test
+GREEN -> minimum implementation and the same focused test
+REFACTOR -> focused tests stay green
 ```
 
-Bug fixes should begin with a failing regression test whenever practical.
-Tests should focus on observable behavior rather than implementation details.
-Document any exceptional case where a behavioral test cannot be written first.
+During implementation, run the narrowest affected test. Preserve `.pio/`,
+`build/`, and compiler caches; do not routinely clean, reconfigure, or run full
+gates after each edit.
 
-Run every repository check applicable to the change as defined in
-`docs/ENGINEERING.md`.
+Before reporting completion, run the applicable final gate once after the last
+material change:
 
-Implementation changes normally require:
+* documentation-only: available documentation checks, no firmware build;
+* firmware-affecting implementation: `make check` (or its two component gates);
+* build/dependency/toolchain work: `make check` plus focused workflow checks.
 
-```text
-formatting
-static analysis
-unit tests
-integration tests
-Cardputer-Adv firmware compilation
-```
+Re-run a passing gate only after relevant later edits, to confirm a failure, or
+to resolve a concrete concern. Never claim an unrun check or finish with a
+required failure. See `docs/ENGINEERING.md` sections 32, 40, and 41.
 
-Documentation-only changes require the available documentation formatting,
-linting, and link checks, but do not require unrelated firmware compilation or
-runtime tests. Never claim a check passed unless it was actually run.
-
-Do not consider a task complete while an applicable required check is failing.
-
-## Documentation
-
-Update documentation when a change affects:
-
-* architecture;
-* responsibilities between layers;
-* public Service contracts;
-* configuration or persistence models;
-* development workflow;
-* build or release processes;
-* supported user-facing features or limitations;
-* controls, shortcuts, or key combinations;
-* installation, update, operation, or troubleshooting procedures.
-
-Keep `docs/manuals/` accurate for the firmware delivered by the same change.
-Do not document planned behavior as currently supported, and do not merge a
-user-visible behavior change without updating the relevant manual or explicitly
-recording why no manual change is needed.
+Keep manuals aligned with delivered firmware. Update documentation for changed
+architecture, contracts, configuration, workflow, features, controls, or user
+procedures; never present planned behavior as supported.
 
 ## CRUB Distribution
 
 The sibling `cardputer-firmware-manager` repository owns the deployable shared
 CRUB partition layout and SD staging contract. Use its `doctor`,
 `local --app hub`, and `release --app hub` commands to validate and prepare
-multiboot firmware. Do not duplicate the shared layout in this repository or
-instruct users to bypass the manager before running CRUB's `uphub` command.
-
-Keep detailed design information in `docs/` and avoid duplicating it here.
+multiboot firmware. Do not duplicate that layout here or tell users to bypass
+the manager before running CRUB's `uphub` command.
