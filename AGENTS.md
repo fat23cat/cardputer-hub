@@ -101,4 +101,12 @@ Do not document planned behavior as currently supported, and do not merge a
 user-visible behavior change without updating the relevant manual or explicitly
 recording why no manual change is needed.
 
+## CRUB Distribution
+
+The sibling `cardputer-firmware-manager` repository owns the deployable shared
+CRUB partition layout and SD staging contract. Use its `doctor`,
+`local --app hub`, and `release --app hub` commands to validate and prepare
+multiboot firmware. Do not duplicate the shared layout in this repository or
+instruct users to bypass the manager before running CRUB's `uphub` command.
+
 Keep detailed design information in `docs/` and avoid duplicating it here.
