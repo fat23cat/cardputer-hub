@@ -1,6 +1,11 @@
 # 022 — UI Update and Render Scheduling
 
-Status: **Software implemented; physical acceptance pending**
+Status: **Complete**
+
+Physical Cardputer-Adv validation completed on 2026-09-14 with commit
+`46b760a` installed through CRUB's dedicated `hub` partition. The smoke test
+confirmed responsive keyboard input, smooth Home wave and page transitions,
+unchanged Bluetooth/Host Settings behavior, and correct battery/status updates.
 
 ## 1. Goal
 
