@@ -8,7 +8,7 @@ IDF_APP_IMAGE := $(IDF_BUILD_DIR)/cardputer_hub.bin
 IDF_PARTITION_IMAGE := $(IDF_BUILD_DIR)/partition_table/partition-table.bin
 CPP_FILES := $(shell find src test -type f \( -name '*.c' -o -name '*.cc' -o -name '*.cpp' -o -name '*.h' -o -name '*.hpp' \) | sort)
 
-.PHONY: setup lock-check validate-idf validate-submodules configure build test format format-check lint host-check firmware-check check upload migrate-storage-layout monitor clean
+.PHONY: setup lock-check architecture-check validate-idf validate-submodules configure build test format format-check lint host-check firmware-check check upload migrate-storage-layout monitor clean
 
 setup: validate-idf
 	$(UV) sync --frozen
@@ -17,6 +17,9 @@ setup: validate-idf
 
 lock-check:
 	$(UV) lock --check
+
+architecture-check:
+	$(RUN) python scripts/check_architecture.py
 
 validate-idf:
 	@command -v $(IDF_PY) >/dev/null || (echo "ESP-IDF 5.5.5 is not active; source its export.sh first." >&2; exit 2)
@@ -47,7 +50,7 @@ format-check:
 lint:
 	$(RUN) pio check -e native
 
-host-check: lock-check format-check lint test
+host-check: lock-check architecture-check format-check lint test
 
 firmware-check: build
 

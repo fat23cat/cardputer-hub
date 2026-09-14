@@ -369,7 +369,10 @@ class EspIdfBuildConfigurationTests(unittest.TestCase):
         self.assertIn("make firmware-check", workflow)
         self.assertIn("needs.firmware-build.result", workflow)
         self.assertIn("needs.host-checks.result", workflow)
-        self.assertIn("host-check: lock-check format-check lint test", makefile)
+        self.assertIn(
+            "host-check: lock-check architecture-check format-check lint test", makefile
+        )
+        self.assertIn("architecture-check:\n\t$(RUN) python scripts/check_architecture.py", makefile)
         self.assertIn("firmware-check: build", makefile)
         self.assertIn("check: host-check firmware-check", makefile)
 

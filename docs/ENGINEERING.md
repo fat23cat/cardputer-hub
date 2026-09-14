@@ -982,6 +982,9 @@ once after the last material change. Examples:
 # One Python test module
 uv run --frozen python -m unittest test_python.test_audio_assets
 
+# Architecture dependency boundary
+make architecture-check
+
 # One native Unity test group
 uv run --frozen pio test -e native -f test_audio_service
 

@@ -109,6 +109,35 @@ System Core
 └── Capability Registry
 ```
 
+### Enforced source dependency boundaries
+
+Project-local quoted includes under `src/` follow this explicit matrix:
+
+| Source | May include project headers from |
+| --- | --- |
+| `core` | `core` |
+| `hardware` | `core`, `connectivity`, `hardware` |
+| `connectivity` | `core`, `connectivity` |
+| `services` | `core`, `connectivity`, `services` |
+| `apps` | `core`, `services`, `apps` |
+| `validation` | any production layer and `validation` |
+| `main.cpp` | every layer |
+
+`src/main.cpp` is the composition root and is intentionally exempt from the
+normal downward dependency restrictions. Hardware implementations may
+implement interfaces declared by Core or Connectivity, which is why hardware
+may include those interface headers. Connectivity, Services, Mini Apps, and
+other business or application code must never include hardware implementation
+headers directly.
+
+`scripts/check_architecture.py` enforces the matrix for `.h`, `.hpp`, and
+`.cpp` production sources. It inspects project-local quoted includes, ignores
+system and platform includes, reports every forbidden edge with its source
+location, and runs in the host CI gate through `make architecture-check`.
+Include paths are normalized before their target layer is classified. A new
+top-level production directory, or an include that resolves to one inside
+`src/`, fails until that layer is added to this documented matrix.
+
 ---
 
 ## 3. System Core
