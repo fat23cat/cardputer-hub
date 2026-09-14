@@ -375,6 +375,26 @@ void test_home_bluetooth_status_change_redraws_only_the_host_section() {
     TEST_ASSERT_EQUAL(presentations + 1, f.display.presentations);
 }
 
+void test_home_and_bluetooth_settings_show_the_same_pairing_status() {
+    Fixture f;
+    f.adapter.hardwareExpected = true;
+    TEST_ASSERT_TRUE(f.hosts.start() == services::HostResult::Success);
+    TEST_ASSERT_TRUE(f.hosts.startPairing() == services::HostResult::Success);
+    apps::ApplicationShell shell(f.hosts, f.bus, f.display, f.ui, f.audio);
+
+    shell.update({});
+    TEST_ASSERT_TRUE(std::find(f.display.texts.begin(), f.display.texts.end(), "PAIRING") !=
+                     f.display.texts.end());
+
+    const core::InputEvent tab{core::InputEventType::NamedKey, 0, core::NamedKey::Tab, {}};
+    shell.update({tab});
+    shell.update({enter});
+    TEST_ASSERT_TRUE(std::find(f.display.texts.begin(), f.display.texts.end(), "ADD DEVICE") !=
+                     f.display.texts.end());
+    TEST_ASSERT_TRUE(std::find(f.display.texts.begin(), f.display.texts.end(), "PAIRING") !=
+                     f.display.texts.end());
+}
+
 void test_pairing_prompt_change_redraws_pairing_content_then_stays_idle() {
     Fixture f;
     f.adapter.hardwareExpected = true;
@@ -816,6 +836,7 @@ int main() {
     RUN_TEST(test_rename_input_redraws_once_and_unchanged_rename_state_stays_idle);
     RUN_TEST(test_host_status_changes_redraw_only_status_and_bluetooth_row);
     RUN_TEST(test_home_bluetooth_status_change_redraws_only_the_host_section);
+    RUN_TEST(test_home_and_bluetooth_settings_show_the_same_pairing_status);
     RUN_TEST(test_pairing_prompt_change_redraws_pairing_content_then_stays_idle);
     RUN_TEST(test_bluetooth_footer_is_quiet_and_x_has_no_destructive_action);
     RUN_TEST(test_home_and_panel_show_selected_host_and_do_not_navigate_on_state_updates);

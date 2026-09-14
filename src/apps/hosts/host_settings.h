@@ -11,23 +11,13 @@
 
 namespace cardputer_hub::apps {
 
-enum class HostUiStatus : std::uint8_t {
-    Error,
-    Off,
-    Ready,
-    Securing,
-    Connecting,
-};
-
 class HostSettings final : public core::IActionHandler {
   public:
     HostSettings(services::HostService& hosts, core::ActionBus& actions,
                  core::IDisplayAdapter& display);
     void update(const core::InputEvents& input);
     void activate();
-    bool modal() const {
-        return renaming_ || deleting_ || detailHost_.has_value() || hosts_.pairing();
-    }
+    bool modal() const;
     core::ActionHandlingResult handle(const core::Action& action) override;
 
   private:
@@ -51,7 +41,7 @@ class HostSettings final : public core::IActionHandler {
         std::size_t focus = 0;
         std::optional<std::uint32_t> detailHost;
         std::size_t detailFocus = 0;
-        HostUiStatus status = HostUiStatus::Off;
+        services::HostConnectionStatus status = services::HostConnectionStatus::Off;
         services::HostResult result = services::HostResult::Success;
         std::optional<std::uint32_t> activeHost;
         std::vector<HostListEntryRenderState> hosts;
@@ -59,16 +49,14 @@ class HostSettings final : public core::IActionHandler {
     enum class ModalKind : std::uint8_t { Rename, Delete, Pairing };
     struct PairingPromptRenderState {
         std::uint32_t generation = 0;
-        connectivity::BluetoothPairingChallengeType type =
-            connectivity::BluetoothPairingChallengeType::DisplayPasskey;
+        services::HostPairingPromptType type = services::HostPairingPromptType::None;
         std::optional<std::uint32_t> value;
     };
     struct ModalRenderState {
         ModalKind kind = ModalKind::Rename;
-        HostUiStatus status = HostUiStatus::Off;
+        services::HostConnectionStatus status = services::HostConnectionStatus::Off;
         services::HostResult result = services::HostResult::Success;
-        connectivity::BluetoothPairingState pairingState =
-            connectivity::BluetoothPairingState::Closed;
+        services::HostPairingPhase pairingPhase = services::HostPairingPhase::Inactive;
         std::optional<PairingPromptRenderState> pairingPrompt;
         std::string entry;
         std::string hostName;

@@ -5,7 +5,6 @@
 
 namespace cardputer_hub::apps {
 using namespace core;
-using namespace connectivity;
 
 ApplicationShell::ApplicationShell(services::HostService& hosts, ActionBus& actions,
                                    IDisplayAdapter& display, HostSettings& settings,
@@ -165,41 +164,43 @@ void ApplicationShell::renderSettings() {
 
 void ApplicationShell::renderHome(std::chrono::milliseconds elapsed,
                                   std::optional<std::uint8_t> batteryPercent) {
-    const auto& config = hosts_.settings();
-    const auto host =
-        std::find_if(config.hosts.begin(), config.hosts.end(),
-                     [&](const auto& value) { return config.activeHost == value.id; });
+    const auto hostStatus = hosts_.status();
     static const std::string noHostSelected = "No host selected";
-    const auto& name = host == config.hosts.end() ? noHostSelected : host->name;
-    auto connectionStatus = HomeConnectionStatus::Connecting;
-    const char* state = "CONNECTING";
-    RgbColor accent = palette::blue;
-    if (hosts_.lastResult() == services::HostResult::StorageError ||
-        hosts_.lastResult() == services::HostResult::BluetoothError ||
-        hosts_.lastResult() == services::HostResult::MissingBond ||
-        hosts_.bluetoothState() == BluetoothState::Error) {
-        connectionStatus = HomeConnectionStatus::Error;
-        state = "ERROR";
-        accent = palette::vermilion;
-    } else if (hosts_.bluetoothState() == BluetoothState::Disabled) {
-        connectionStatus = HomeConnectionStatus::Off;
+    const auto& name =
+        hostStatus.activeHostName.empty() ? noHostSelected : hostStatus.activeHostName;
+    const char* state = "ERROR";
+    RgbColor accent = palette::vermilion;
+    switch (hostStatus.connection) {
+    case services::HostConnectionStatus::Off:
         state = "OFF";
         accent = palette::ordinal;
-    } else if (hosts_.hidState() == HidTransportState::Ready) {
-        connectionStatus = HomeConnectionStatus::Ready;
+        break;
+    case services::HostConnectionStatus::Connecting:
+        state = "CONNECTING";
+        accent = palette::blue;
+        break;
+    case services::HostConnectionStatus::Securing:
+        state = "SECURING";
+        accent = palette::blue;
+        break;
+    case services::HostConnectionStatus::Ready:
         state = "READY";
         accent = palette::leaf;
-    } else if (hosts_.pairing()) {
-        connectionStatus = HomeConnectionStatus::Pairing;
+        break;
+    case services::HostConnectionStatus::Pairing:
         state = "PAIRING";
-    } else if (hosts_.bluetoothState() == BluetoothState::Connected) {
-        connectionStatus = HomeConnectionStatus::Securing;
-        state = "SECURING";
+        accent = palette::blue;
+        break;
+    case services::HostConnectionStatus::Error:
+        state = "ERROR";
+        accent = palette::vermilion;
+        break;
     }
     const bool entering = !homeConnectionFrame_;
-    const bool connectionChanged =
-        entering || homeConnectionFrame_->activeHost != config.activeHost ||
-        homeConnectionFrame_->hostName != name || homeConnectionFrame_->status != connectionStatus;
+    const bool connectionChanged = entering ||
+                                   homeConnectionFrame_->activeHost != hostStatus.activeHostId ||
+                                   homeConnectionFrame_->hostName != name ||
+                                   homeConnectionFrame_->status != hostStatus.connection;
     const TextStyle normal{palette::ink, palette::bone, 1};
     const TextStyle quiet{palette::ordinal, palette::bone, 1};
     if (entering) {
@@ -216,7 +217,8 @@ void ApplicationShell::renderHome(std::chrono::milliseconds elapsed,
         drawHomeHostName(display_, name);
         drawBluetoothIcon(display_, accent);
         display_.drawText({29, 84}, state, normal);
-        homeConnectionFrame_ = HomeConnectionFrame{config.activeHost, name, connectionStatus};
+        homeConnectionFrame_ =
+            HomeConnectionFrame{hostStatus.activeHostId, name, hostStatus.connection};
     }
     const auto percent = batteryPercent && *batteryPercent <= 100 ? batteryPercent : std::nullopt;
     if (entering || percent != homeBatteryPercent_) {

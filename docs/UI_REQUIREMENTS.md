@@ -342,6 +342,10 @@ the same keys retain their text-input semantics. Existing named arrow events
 remain supported. Focus movement redraws only changed rows; status, footer, and
 error updates redraw their own regions. Scrolling must not clear the whole LCD.
 Returning from a modal invalidates the list cache and paints the list again.
+Home and the Bluetooth panel consume the same transport-neutral HostService
+status snapshot. Neither view interprets Bluetooth lifecycle, HID readiness, or
+Bluetooth pairing challenge types; the Service owns those translations and the
+views only map host-domain status and prompts to presentation.
 
 Home is the default root view. The approved dashboard has an eight-pixel gutter,
 a compact top line for time, one Wi-Fi icon and status (no network name), and

@@ -915,10 +915,35 @@ Metadata identifiers are lower-case bounded opaque values. Metadata changes
 load and atomically persist configuration without initializing, disconnecting,
 or otherwise changing Bluetooth; failed reads and writes leave both stored and
 published configuration unchanged.
-The public HostService state view is a host-only `HostConfiguration`; it does
-not expose system sound or other Service-owned settings. The shared
+The public HostService state view separates persisted host settings from runtime
+status. `settings()` returns the host-only `HostConfiguration`; `status()`
+returns a read-only `HostStatusSnapshot` with the selected host identity and
+name, the last operation result, whether host connectivity is currently
+enabled, pairing progress and prompt, and a transport-neutral
+`HostConnectionStatus`. It does not expose system sound, Bluetooth lifecycle
+enums, HID transport state, or other Service-owned settings. The shared
 `ConfigurationService` remains the atomic persistence owner behind that
 boundary.
+
+`HostService` is the single owner of the runtime status mapping, in this
+precedence order:
+
+| Condition | `HostConnectionStatus` |
+| --- | --- |
+| storage, Bluetooth, missing-bond, or Bluetooth runtime failure | `Error` |
+| connectivity disabled | `Off` |
+| pairing active | `Pairing` |
+| HID ready | `Ready` |
+| connected but HID not ready | `Securing` |
+| otherwise enabled, advertising, or reconnecting | `Connecting` |
+
+Pairing prompts are translated to `HostPairingPromptType` and retain their
+generation and optional value so the Apps layer can render and answer them
+without importing Connectivity state-machine types. `HostPairingPhase` exposes
+only the user-facing discoverable, prompting, and securing steps needed to
+preserve pairing guidance. Home and Host Settings translate the same snapshot
+to presentation state and never compute connection status from Bluetooth or HID
+internals.
 Pairing responses must match the current challenge generation. Secrets and
 pairing codes are displayed locally, never logged. HostService retains a
 display passkey after acknowledging it only while the same pairing peer remains

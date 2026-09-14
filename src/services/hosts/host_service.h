@@ -1,5 +1,9 @@
 #pragma once
 
+#include <cstdint>
+#include <optional>
+#include <string>
+
 #include "core/actions/action_bus.h"
 #include "services/configuration/configuration_service.h"
 
@@ -13,6 +17,46 @@ enum class HostResult {
     BluetoothError,
     MissingBond,
     CapacityReached
+};
+
+enum class HostConnectionStatus : std::uint8_t {
+    Off,
+    Connecting,
+    Securing,
+    Ready,
+    Pairing,
+    Error,
+};
+
+enum class HostPairingPhase : std::uint8_t {
+    Inactive,
+    Discoverable,
+    Prompting,
+    Securing,
+};
+
+enum class HostPairingPromptType : std::uint8_t {
+    None,
+    DisplayPasskey,
+    EnterPasskey,
+    ConfirmComparison,
+};
+
+struct HostPairingPrompt {
+    std::uint32_t generation = 0;
+    HostPairingPromptType type = HostPairingPromptType::None;
+    std::optional<std::uint32_t> value;
+};
+
+struct HostStatusSnapshot {
+    HostConnectionStatus connection = HostConnectionStatus::Off;
+    std::optional<std::uint32_t> activeHostId;
+    std::string activeHostName;
+    HostResult lastResult = HostResult::Success;
+    bool connectionEnabled = false;
+    bool pairing = false;
+    HostPairingPhase pairingPhase = HostPairingPhase::Inactive;
+    std::optional<HostPairingPrompt> pairingPrompt;
 };
 
 class HostService final : public core::IActionHandler {
@@ -35,14 +79,7 @@ class HostService final : public core::IActionHandler {
     HostResult deleteHost(std::uint32_t id);
     core::ActionHandlingResult handle(const core::Action& action) override;
     const HostConfiguration& settings() const noexcept { return configuration_.value().host; }
-    HostResult lastResult() const noexcept { return lastResult_; }
-    bool pairing() const noexcept { return pairing_; }
-    connectivity::BluetoothPairingState pairingState() const { return bluetooth_.pairingState(); }
-    std::optional<connectivity::BluetoothPairingChallenge> pairingChallenge() const {
-        return challenge_;
-    }
-    connectivity::BluetoothState bluetoothState() const { return bluetooth_.state(); }
-    connectivity::HidTransportState hidState() const { return bluetooth_.hidTransport().state(); }
+    HostStatusSnapshot status() const;
 
   private:
     HostResult fail(HostResult result, const char* reason = nullptr);

@@ -8,31 +8,21 @@
 
 namespace cardputer_hub::apps {
 using namespace core;
-using namespace connectivity;
 namespace {
-HostUiStatus status(const services::HostService& hosts) {
-    if (hosts.bluetoothState() == BluetoothState::Error)
-        return HostUiStatus::Error;
-    if (hosts.bluetoothState() == BluetoothState::Disabled)
-        return HostUiStatus::Off;
-    if (hosts.hidState() == HidTransportState::Ready)
-        return HostUiStatus::Ready;
-    if (hosts.bluetoothState() == BluetoothState::Connected)
-        return HostUiStatus::Securing;
-    return HostUiStatus::Connecting;
-}
-const char* label(HostUiStatus value) {
+const char* label(services::HostConnectionStatus value) {
     switch (value) {
-    case HostUiStatus::Error:
-        return "ERROR";
-    case HostUiStatus::Off:
+    case services::HostConnectionStatus::Off:
         return "OFF";
-    case HostUiStatus::Ready:
-        return "READY";
-    case HostUiStatus::Securing:
-        return "SECURING";
-    case HostUiStatus::Connecting:
+    case services::HostConnectionStatus::Connecting:
         return "CONNECTING";
+    case services::HostConnectionStatus::Securing:
+        return "SECURING";
+    case services::HostConnectionStatus::Ready:
+        return "READY";
+    case services::HostConnectionStatus::Pairing:
+        return "PAIRING";
+    case services::HostConnectionStatus::Error:
+        return "ERROR";
     }
     return "ERROR";
 }
@@ -81,14 +71,20 @@ void HostSettings::activate() {
     modalRenderState_.reset();
 }
 
+bool HostSettings::modal() const {
+    return renaming_ || deleting_ || detailHost_.has_value() || hosts_.status().pairing;
+}
+
 void HostSettings::update(const InputEvents& input) {
-    const auto challenge = hosts_.pairingChallenge();
+    const auto hostStatus = hosts_.status();
+    const auto challenge = hostStatus.pairingPrompt;
     const auto generation = challenge ? challenge->generation : 0;
     if (generation != generation_) {
         generation_ = generation;
         entry_.clear();
     }
     for (const auto& event : input) {
+        const auto currentStatus = hosts_.status();
         if (event.modifiers.ctrl || event.modifiers.alt || event.modifiers.option)
             continue;
         if (event.type == InputEventType::NamedKey) {
@@ -113,10 +109,10 @@ void HostSettings::update(const InputEvents& input) {
             }
         } else if (!renaming_ && !event.modifiers.shift && event.character == '`') {
             dispatch("hosts.back");
-        } else if (!renaming_ && !hosts_.pairing() && !event.modifiers.shift &&
+        } else if (!renaming_ && !currentStatus.pairing && !event.modifiers.shift &&
                    (event.character == ';' || event.character == '.')) {
             dispatch(event.character == ';' ? "hosts.up" : "hosts.down");
-        } else if (!renaming_ && !hosts_.pairing() &&
+        } else if (!renaming_ && !currentStatus.pairing &&
                    (event.character == 'r' || event.character == 'R')) {
             dispatch("hosts.rename");
         } else
@@ -126,13 +122,14 @@ void HostSettings::update(const InputEvents& input) {
 }
 
 ActionHandlingResult HostSettings::handle(const Action& action) {
+    const auto hostStatus = hosts_.status();
     const auto count = hosts_.settings().hosts.size() + 2;
     if (deleting_) {
         if (action.id == "hosts.back")
             deleting_ = false;
         else if (action.id == "hosts.confirm") {
             dispatch("host.delete", {{"id", static_cast<std::int32_t>(*detailHost_)}});
-            if (hosts_.lastResult() == services::HostResult::Success) {
+            if (hosts_.status().lastResult == services::HostResult::Success) {
                 deleting_ = false;
                 detailHost_.reset();
                 focus_ = std::min(focus_, hosts_.settings().hosts.size() + 1);
@@ -145,7 +142,7 @@ ActionHandlingResult HostSettings::handle(const Action& action) {
         if (renaming_) {
             renaming_ = false;
             entry_.clear();
-        } else if (hosts_.pairing())
+        } else if (hostStatus.pairing)
             dispatch("host.cancel-pairing");
         else if (detailHost_) {
             detailHost_.reset();
@@ -158,11 +155,11 @@ ActionHandlingResult HostSettings::handle(const Action& action) {
         if (!text || text->size() != 1)
             return ActionHandlingResult::Rejected;
         const auto c = text->front();
-        const auto challenge = hosts_.pairingChallenge();
+        const auto challenge = hostStatus.pairingPrompt;
         if (renaming_ && entry_.size() < services::ConfigurationService::maximumNameLength &&
             c >= 32 && c <= 126)
             entry_ += c;
-        else if (challenge && challenge->type == BluetoothPairingChallengeType::EnterPasskey &&
+        else if (challenge && challenge->type == services::HostPairingPromptType::EnterPasskey &&
                  entry_.size() < 6 && c >= '0' && c <= '9')
             entry_ += c;
     } else if (action.id == "hosts.erase") {
@@ -174,27 +171,27 @@ ActionHandlingResult HostSettings::handle(const Action& action) {
                 dispatch("host.rename",
                          {{"id", static_cast<std::int32_t>(hosts_.settings().hosts[focus_ - 2].id)},
                           {"name", entry_}});
-                if (hosts_.lastResult() == services::HostResult::Success) {
+                if (hosts_.status().lastResult == services::HostResult::Success) {
                     renaming_ = false;
                     entry_.clear();
                 }
             }
-        } else if (hosts_.pairing()) {
-            const auto challenge = hosts_.pairingChallenge();
-            if (challenge && challenge->type != BluetoothPairingChallengeType::DisplayPasskey &&
-                (challenge->type != BluetoothPairingChallengeType::EnterPasskey ||
+        } else if (hostStatus.pairing) {
+            const auto challenge = hostStatus.pairingPrompt;
+            if (challenge && challenge->type != services::HostPairingPromptType::DisplayPasskey &&
+                (challenge->type != services::HostPairingPromptType::EnterPasskey ||
                  entry_.size() == 6)) {
                 dispatch("host.pair-response",
                          {{"generation", static_cast<std::int32_t>(challenge->generation)},
                           {"accepted", true},
-                          {"passkey", challenge->type == BluetoothPairingChallengeType::EnterPasskey
-                                          ? entry_
-                                          : ""}});
+                          {"passkey",
+                           challenge->type == services::HostPairingPromptType::EnterPasskey ? entry_
+                                                                                            : ""}});
             }
         } else if (detailHost_) {
             if (detailFocus_ == 0) {
                 dispatch("host.select", {{"id", static_cast<std::int32_t>(*detailHost_)}});
-                if (hosts_.lastResult() == services::HostResult::Success) {
+                if (hosts_.status().lastResult == services::HostResult::Success) {
                     detailHost_.reset();
                     activate();
                 }
@@ -204,10 +201,8 @@ ActionHandlingResult HostSettings::handle(const Action& action) {
                 deleting_ = true;
             }
         } else if (focus_ == 0) {
-            dispatch("host.bluetooth",
-                     {{"enabled", hosts_.bluetoothState() == BluetoothState::Disabled ||
-                                      hosts_.bluetoothState() == BluetoothState::Error}});
-            if (hosts_.lastResult() == services::HostResult::HostSelectionRequired)
+            dispatch("host.bluetooth", {{"enabled", !hostStatus.connectionEnabled}});
+            if (hosts_.status().lastResult == services::HostResult::HostSelectionRequired)
                 focus_ = hosts_.settings().hosts.empty() ? 1 : 2;
         } else if (focus_ == 1)
             dispatch("host.pair");
@@ -216,7 +211,7 @@ ActionHandlingResult HostSettings::handle(const Action& action) {
             detailFocus_ = 0;
             activate();
         }
-    } else if (!renaming_ && !hosts_.pairing()) {
+    } else if (!renaming_ && !hostStatus.pairing) {
         auto& cursor = detailHost_ ? detailFocus_ : focus_;
         const auto limit = detailHost_ ? 3 : count;
         if (action.id == "hosts.up" && cursor > 0)
@@ -252,12 +247,13 @@ void HostSettings::digits(const std::string& value) {
 
 void HostSettings::renderList() {
     const auto& settings = hosts_.settings();
+    const auto hostStatus = hosts_.status();
     const auto start = focus_ >= 4 ? focus_ - 3 : 0;
     ListFrame next;
     next.focusedRow = focus_ - start;
-    next.status = label(status(hosts_));
-    next.error = error(hosts_.lastResult());
-    if (hosts_.lastResult() == services::HostResult::HostSelectionRequired &&
+    next.status = label(hostStatus.connection);
+    next.error = error(hostStatus.lastResult);
+    if (hostStatus.lastResult == services::HostResult::HostSelectionRequired &&
         settings.hosts.empty())
         next.error = "Add device, then Enter";
     for (std::size_t slot = 0; slot < next.labels.size(); ++slot) {
@@ -266,10 +262,8 @@ void HostSettings::renderList() {
             next.ordinals[slot] = (row + 1 < 10 ? "0" : "") + std::to_string(row + 1);
         }
         if (row == 0) {
-            const bool off = hosts_.bluetoothState() == BluetoothState::Disabled ||
-                             hosts_.bluetoothState() == BluetoothState::Error;
             next.labels[slot] = "Bluetooth";
-            next.values[slot] = off ? "OFF" : "ON";
+            next.values[slot] = hostStatus.connectionEnabled ? "ON" : "OFF";
         } else if (row == 1) {
             next.labels[slot] = "Add device";
         } else if (row - 2 < settings.hosts.size()) {
@@ -337,16 +331,16 @@ void HostSettings::renderList() {
 }
 
 void HostSettings::render() {
-    const int depth = renaming_ || deleting_ ? 2 : hosts_.pairing() || detailHost_ ? 1 : 0;
+    const auto hostStatus = hosts_.status();
+    const int depth = renaming_ || deleting_ ? 2 : hostStatus.pairing || detailHost_ ? 1 : 0;
     if (previousViewDepth_ && depth != *previousViewDepth_) {
         display_.beginTransition(depth < *previousViewDepth_ ? SlideDirection::Backward
                                                              : SlideDirection::Forward);
     }
     previousViewDepth_ = depth;
-    const auto challenge = hosts_.pairingChallenge();
+    const auto challenge = hostStatus.pairingPrompt;
     const auto& settings = hosts_.settings();
-    const auto hostStatus = status(hosts_);
-    if (!hosts_.pairing() && !renaming_ && !deleting_) {
+    if (!hostStatus.pairing && !renaming_ && !deleting_) {
         modalRenderState_.reset();
         const auto sameHosts = [&] {
             if (!listRenderState_ || listRenderState_->hosts.size() != settings.hosts.size())
@@ -362,8 +356,8 @@ void HostSettings::render() {
                                listRenderState_->focus == focus_ &&
                                listRenderState_->detailHost == detailHost_ &&
                                listRenderState_->detailFocus == detailFocus_ &&
-                               listRenderState_->status == hostStatus &&
-                               listRenderState_->result == hosts_.lastResult() &&
+                               listRenderState_->status == hostStatus.connection &&
+                               listRenderState_->result == hostStatus.lastResult &&
                                listRenderState_->activeHost == settings.activeHost && sameHosts;
         if (unchanged)
             return;
@@ -371,8 +365,8 @@ void HostSettings::render() {
         next.focus = focus_;
         next.detailHost = detailHost_;
         next.detailFocus = detailFocus_;
-        next.status = hostStatus;
-        next.result = hosts_.lastResult();
+        next.status = hostStatus.connection;
+        next.result = hostStatus.lastResult;
         next.activeHost = settings.activeHost;
         next.hosts.reserve(settings.hosts.size());
         for (const auto& host : settings.hosts)
@@ -382,9 +376,9 @@ void HostSettings::render() {
         return;
     }
     listRenderState_.reset();
-    const auto kind = deleting_          ? ModalKind::Delete
-                      : hosts_.pairing() ? ModalKind::Pairing
-                                         : ModalKind::Rename;
+    const auto kind = deleting_            ? ModalKind::Delete
+                      : hostStatus.pairing ? ModalKind::Pairing
+                                           : ModalKind::Rename;
     std::string_view hostName;
     if (deleting_ && focus_ >= 2 && focus_ - 2 < settings.hosts.size())
         hostName = settings.hosts[focus_ - 2].name;
@@ -399,16 +393,16 @@ void HostSettings::render() {
                 modalRenderState_->pairingPrompt->value == challenge->value);
     }();
     if (modalRenderState_ && modalRenderState_->kind == kind &&
-        modalRenderState_->status == hostStatus &&
-        modalRenderState_->result == hosts_.lastResult() &&
-        modalRenderState_->pairingState == hosts_.pairingState() && samePrompt &&
+        modalRenderState_->status == hostStatus.connection &&
+        modalRenderState_->result == hostStatus.lastResult &&
+        modalRenderState_->pairingPhase == hostStatus.pairingPhase && samePrompt &&
         modalRenderState_->entry == entry_ && modalRenderState_->hostName == hostName)
         return;
     ModalRenderState next;
     next.kind = kind;
-    next.status = hostStatus;
-    next.result = hosts_.lastResult();
-    next.pairingState = hosts_.pairingState();
+    next.status = hostStatus.connection;
+    next.result = hostStatus.lastResult;
+    next.pairingPhase = hostStatus.pairingPhase;
     if (challenge)
         next.pairingPrompt =
             PairingPromptRenderState{challenge->generation, challenge->type, challenge->value};
@@ -419,29 +413,29 @@ void HostSettings::render() {
     display_.clear(palette::bone);
     const TextStyle normal{palette::ink, palette::bone, 1};
     display_.drawText({6, 6},
-                      deleting_          ? "DELETE HOST"
-                      : hosts_.pairing() ? "ADD DEVICE"
-                      : renaming_        ? "HOST NAME"
-                                         : "BLUETOOTH",
+                      deleting_            ? "DELETE HOST"
+                      : hostStatus.pairing ? "ADD DEVICE"
+                      : renaming_          ? "HOST NAME"
+                                           : "BLUETOOTH",
                       normal);
-    display_.drawText({174, 6}, label(hostStatus), normal);
+    display_.drawText({174, 6}, label(hostStatus.connection), normal);
     display_.fillRectangle({6, 20}, 228, 1, palette::ink);
     std::string footer;
     if (deleting_) {
         display_.drawText({6, 35}, "Delete this host and its pairing?", normal);
         display_.drawText({6, 53}, hosts_.settings().hosts[focus_ - 2].name.c_str(), normal);
-    } else if (hosts_.pairing()) {
-        if (!challenge && hosts_.pairingState() == BluetoothPairingState::Completing) {
+    } else if (hostStatus.pairing) {
+        if (!challenge && hostStatus.pairingPhase == services::HostPairingPhase::Securing) {
             display_.drawText({6, 35}, "Securing connection", normal);
             display_.drawText({6, 51}, "Please wait for the code or READY", normal);
         } else if (!challenge) {
             display_.drawText({6, 35}, "Choose Cardputer Hub", normal);
             display_.drawText({6, 51}, "in computer Bluetooth settings", normal);
             display_.drawText({6, 80}, "Pairing window: 2 minutes", normal);
-        } else if (challenge->type == BluetoothPairingChallengeType::DisplayPasskey) {
+        } else if (challenge->type == services::HostPairingPromptType::DisplayPasskey) {
             display_.drawText({6, 32}, "Enter this code on the computer", normal);
             digits(code(challenge->value.value_or(0)));
-        } else if (challenge->type == BluetoothPairingChallengeType::ConfirmComparison) {
+        } else if (challenge->type == services::HostPairingPromptType::ConfirmComparison) {
             display_.drawText({6, 32}, "Does the computer show this code?", normal);
             digits(code(challenge->value.value_or(0)));
             footer = "Enter Yes";
@@ -455,7 +449,8 @@ void HostSettings::render() {
         display_.drawText({6, 35}, "Name (up to 24 characters)", normal);
         display_.drawText({6, 61}, entry_.c_str(), normal);
     }
-    display_.drawText({6, 105}, error(hosts_.lastResult()), {palette::vermilion, palette::bone, 1});
+    display_.drawText({6, 105}, error(hostStatus.lastResult),
+                      {palette::vermilion, palette::bone, 1});
     if (!footer.empty()) {
         display_.fillRectangle({6, 118}, 228, 1, palette::ink);
         display_.drawText({6, 123}, footer.c_str(), normal);

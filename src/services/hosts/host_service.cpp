@@ -22,7 +22,71 @@ template <typename T> const T* parameter(const core::Action& action, const char*
     const auto* value = action.findParameter(name);
     return value ? std::get_if<T>(value) : nullptr;
 }
+
+bool isFailure(HostResult result) {
+    return result == HostResult::StorageError || result == HostResult::BluetoothError ||
+           result == HostResult::MissingBond;
+}
+
+HostPairingPromptType pairingPromptType(BluetoothPairingChallengeType type) {
+    switch (type) {
+    case BluetoothPairingChallengeType::DisplayPasskey:
+        return HostPairingPromptType::DisplayPasskey;
+    case BluetoothPairingChallengeType::EnterPasskey:
+        return HostPairingPromptType::EnterPasskey;
+    case BluetoothPairingChallengeType::ConfirmComparison:
+        return HostPairingPromptType::ConfirmComparison;
+    }
+    return HostPairingPromptType::None;
+}
 } // namespace
+
+HostStatusSnapshot HostService::status() const {
+    HostStatusSnapshot snapshot;
+    snapshot.lastResult = lastResult_;
+    snapshot.pairing = pairing_;
+    snapshot.activeHostId = settings().activeHost;
+    if (snapshot.activeHostId) {
+        const auto host = findHost(settings(), *snapshot.activeHostId);
+        if (host != settings().hosts.end())
+            snapshot.activeHostName = host->name;
+    }
+    if (challenge_) {
+        snapshot.pairingPrompt = HostPairingPrompt{
+            challenge_->generation, pairingPromptType(challenge_->type), challenge_->value};
+    }
+    if (pairing_) {
+        switch (bluetooth_.pairingState()) {
+        case BluetoothPairingState::AwaitingResponse:
+            snapshot.pairingPhase = HostPairingPhase::Prompting;
+            break;
+        case BluetoothPairingState::Completing:
+            snapshot.pairingPhase = HostPairingPhase::Securing;
+            break;
+        default:
+            snapshot.pairingPhase = HostPairingPhase::Discoverable;
+            break;
+        }
+    }
+
+    const auto bluetoothState = bluetooth_.state();
+    snapshot.connectionEnabled =
+        bluetoothState != BluetoothState::Disabled && bluetoothState != BluetoothState::Error;
+    if (isFailure(lastResult_) || bluetoothState == BluetoothState::Error) {
+        snapshot.connection = HostConnectionStatus::Error;
+    } else if (bluetoothState == BluetoothState::Disabled) {
+        snapshot.connection = HostConnectionStatus::Off;
+    } else if (pairing_) {
+        snapshot.connection = HostConnectionStatus::Pairing;
+    } else if (bluetooth_.hidTransport().state() == HidTransportState::Ready) {
+        snapshot.connection = HostConnectionStatus::Ready;
+    } else if (bluetoothState == BluetoothState::Connected) {
+        snapshot.connection = HostConnectionStatus::Securing;
+    } else {
+        snapshot.connection = HostConnectionStatus::Connecting;
+    }
+    return snapshot;
+}
 
 HostResult HostService::fail(HostResult result, const char* reason) {
     if (logger_ && reason)

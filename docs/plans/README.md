@@ -1,6 +1,6 @@
 # Implementation Plans and Status
 
-Reviewed on **2026-09-12**. Plan numbers identify individual changes; they are
+Reviewed on **2026-09-14**. Plan numbers identify individual changes; they are
 not phase numbers. The authoritative delivered/pending step checklist is in
 [Architecture §47](../ARCHITECTURE.md#47-initial-development-order).
 
@@ -26,6 +26,9 @@ not phase numbers. The authoritative delivered/pending step checklist is in
 | [019](019-startup-splash.md) | Startup splash | Implemented; automated checks and firmware build passed |
 | [020](020-sync-uv-workflow-pin.md) | Workflow toolchain consistency | Implemented; host checks and firmware build passed |
 | [021](021-key-feedback-and-volume.md) | Synthesized key feedback and persistent volume | Software implemented; physical audio acceptance pending |
+| [022](022-ui-update-and-render-scheduling.md) | UI scheduling and incremental rendering | Complete; automated and physical validation passed |
+| [023](023-enforce-architecture-boundaries.md) | Enforced source dependency boundaries | Implemented; host checks and firmware build passed |
+| [024](024-host-service-status-model.md) | HostService domain status snapshot | Implemented; automated checks and firmware build passed |
 
 The work referred to historically as 013 is the approved
 [UI requirements](../UI_REQUIREMENTS.md); there is no separate plan-013 file.
