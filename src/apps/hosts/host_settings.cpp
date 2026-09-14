@@ -10,16 +10,31 @@ namespace cardputer_hub::apps {
 using namespace core;
 using namespace connectivity;
 namespace {
-const char* status(const services::HostService& hosts) {
+HostUiStatus status(const services::HostService& hosts) {
     if (hosts.bluetoothState() == BluetoothState::Error)
-        return "ERROR";
+        return HostUiStatus::Error;
     if (hosts.bluetoothState() == BluetoothState::Disabled)
-        return "OFF";
+        return HostUiStatus::Off;
     if (hosts.hidState() == HidTransportState::Ready)
-        return "READY";
+        return HostUiStatus::Ready;
     if (hosts.bluetoothState() == BluetoothState::Connected)
+        return HostUiStatus::Securing;
+    return HostUiStatus::Connecting;
+}
+const char* label(HostUiStatus value) {
+    switch (value) {
+    case HostUiStatus::Error:
+        return "ERROR";
+    case HostUiStatus::Off:
+        return "OFF";
+    case HostUiStatus::Ready:
+        return "READY";
+    case HostUiStatus::Securing:
         return "SECURING";
-    return "CONNECTING";
+    case HostUiStatus::Connecting:
+        return "CONNECTING";
+    }
+    return "ERROR";
 }
 const char* error(services::HostResult result) {
     switch (result) {
@@ -61,8 +76,9 @@ void HostSettings::dispatch(const char* id, std::vector<ActionParameter> paramet
 }
 
 void HostSettings::activate() {
-    previousFrame_.clear();
     listFrame_.reset();
+    listRenderState_.reset();
+    modalRenderState_.reset();
 }
 
 void HostSettings::update(const InputEvents& input) {
@@ -239,7 +255,7 @@ void HostSettings::renderList() {
     const auto start = focus_ >= 4 ? focus_ - 3 : 0;
     ListFrame next;
     next.focusedRow = focus_ - start;
-    next.status = status(hosts_);
+    next.status = label(status(hosts_));
     next.error = error(hosts_.lastResult());
     if (hosts_.lastResult() == services::HostResult::HostSelectionRequired &&
         settings.hosts.empty())
@@ -329,26 +345,76 @@ void HostSettings::render() {
     previousViewDepth_ = depth;
     const auto challenge = hosts_.pairingChallenge();
     const auto& settings = hosts_.settings();
-    std::string frame = std::to_string(focus_) + ":" + std::to_string(renaming_) + ":" + entry_ +
-                        ":" + status(hosts_) + ":" + error(hosts_.lastResult()) + ":" +
-                        std::to_string(hosts_.pairing());
-    frame += ":" + std::to_string(deleting_) + ":" + std::to_string(detailHost_.value_or(0)) + ":" +
-             std::to_string(detailFocus_);
-    frame += ":" + std::to_string(static_cast<int>(hosts_.pairingState()));
-    frame += ":" + std::to_string(settings.activeHost.value_or(0));
-    for (const auto& host : settings.hosts)
-        frame += ":" + std::to_string(host.id) + ":" + host.name;
-    if (challenge)
-        frame += ":" + std::to_string(challenge->generation) + ":" +
-                 std::to_string(static_cast<int>(challenge->type)) + ":" +
-                 std::to_string(challenge->value.value_or(0));
-    if (frame == previousFrame_)
-        return;
-    previousFrame_ = frame;
+    const auto hostStatus = status(hosts_);
     if (!hosts_.pairing() && !renaming_ && !deleting_) {
+        modalRenderState_.reset();
+        const auto sameHosts = [&] {
+            if (!listRenderState_ || listRenderState_->hosts.size() != settings.hosts.size())
+                return false;
+            for (std::size_t index = 0; index < settings.hosts.size(); ++index) {
+                if (listRenderState_->hosts[index].id != settings.hosts[index].id ||
+                    listRenderState_->hosts[index].name != settings.hosts[index].name)
+                    return false;
+            }
+            return true;
+        }();
+        const bool unchanged = listRenderState_ && listFrame_ &&
+                               listRenderState_->focus == focus_ &&
+                               listRenderState_->detailHost == detailHost_ &&
+                               listRenderState_->detailFocus == detailFocus_ &&
+                               listRenderState_->status == hostStatus &&
+                               listRenderState_->result == hosts_.lastResult() &&
+                               listRenderState_->activeHost == settings.activeHost && sameHosts;
+        if (unchanged)
+            return;
+        HostListRenderState next;
+        next.focus = focus_;
+        next.detailHost = detailHost_;
+        next.detailFocus = detailFocus_;
+        next.status = hostStatus;
+        next.result = hosts_.lastResult();
+        next.activeHost = settings.activeHost;
+        next.hosts.reserve(settings.hosts.size());
+        for (const auto& host : settings.hosts)
+            next.hosts.push_back({host.id, host.name});
+        listRenderState_ = std::move(next);
         renderList();
         return;
     }
+    listRenderState_.reset();
+    const auto kind = deleting_          ? ModalKind::Delete
+                      : hosts_.pairing() ? ModalKind::Pairing
+                                         : ModalKind::Rename;
+    std::string_view hostName;
+    if (deleting_ && focus_ >= 2 && focus_ - 2 < settings.hosts.size())
+        hostName = settings.hosts[focus_ - 2].name;
+    const auto samePrompt = [&] {
+        if (!modalRenderState_)
+            return false;
+        if (challenge.has_value() != modalRenderState_->pairingPrompt.has_value())
+            return false;
+        return !challenge ||
+               (modalRenderState_->pairingPrompt->generation == challenge->generation &&
+                modalRenderState_->pairingPrompt->type == challenge->type &&
+                modalRenderState_->pairingPrompt->value == challenge->value);
+    }();
+    if (modalRenderState_ && modalRenderState_->kind == kind &&
+        modalRenderState_->status == hostStatus &&
+        modalRenderState_->result == hosts_.lastResult() &&
+        modalRenderState_->pairingState == hosts_.pairingState() && samePrompt &&
+        modalRenderState_->entry == entry_ && modalRenderState_->hostName == hostName)
+        return;
+    ModalRenderState next;
+    next.kind = kind;
+    next.status = hostStatus;
+    next.result = hosts_.lastResult();
+    next.pairingState = hosts_.pairingState();
+    if (challenge)
+        next.pairingPrompt =
+            PairingPromptRenderState{challenge->generation, challenge->type, challenge->value};
+    next.entry = entry_;
+    next.hostName = hostName;
+    modalRenderState_ = std::move(next);
     listFrame_.reset();
     display_.clear(palette::bone);
     const TextStyle normal{palette::ink, palette::bone, 1};
@@ -358,7 +424,7 @@ void HostSettings::render() {
                       : renaming_        ? "HOST NAME"
                                          : "BLUETOOTH",
                       normal);
-    display_.drawText({174, 6}, status(hosts_), normal);
+    display_.drawText({174, 6}, label(hostStatus), normal);
     display_.fillRectangle({6, 20}, 228, 1, palette::ink);
     std::string footer;
     if (deleting_) {

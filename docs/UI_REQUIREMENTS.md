@@ -442,6 +442,9 @@ This document includes delivered behavior and future requirements. Home,
 Settings/Bluetooth and sound-volume rows, synthesized key feedback, per-host
 menus, partial frame presentation, page slides, the ambient wave, and the
 two-second segmented startup splash are implemented.
+Normal firmware rate-limits idle UI work to 50 Hz, processes semantic input on
+the loop where it is sampled, and uses typed render-state snapshots so unchanged
+Home, host-list, and host-modal content does not redraw.
 The splash uses Bone, Ink, Blue, Pale, and Ordinal tokens, keeps the firmware
 version visible throughout, and advances without blocking background work.
 Launcher integration, spring focus motion, remaining semantic sound cues,

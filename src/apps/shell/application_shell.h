@@ -14,6 +14,21 @@ class ApplicationShell final : public core::IActionHandler {
     core::ActionHandlingResult handle(const core::Action& action) override;
 
   private:
+    enum class HomeConnectionStatus : std::uint8_t {
+        Connecting,
+        Error,
+        Off,
+        Ready,
+        Pairing,
+        Securing,
+    };
+
+    struct HomeConnectionFrame {
+        std::optional<std::uint32_t> activeHost;
+        std::string hostName;
+        HomeConnectionStatus status = HomeConnectionStatus::Off;
+    };
+
     struct SettingsFrame {
         std::uint8_t selection = 0;
         std::uint8_t volume = 0;
@@ -30,8 +45,8 @@ class ApplicationShell final : public core::IActionHandler {
     HostSettings& settings_;
     services::AudioService& audio_;
     core::NavigationStack navigation_;
-    std::string homeFrame_;
-    std::string batteryFrame_;
+    std::optional<HomeConnectionFrame> homeConnectionFrame_;
+    std::optional<std::uint8_t> homeBatteryPercent_;
     unsigned homePhaseMilliseconds_ = 0;
     std::optional<SettingsFrame> settingsFrame_;
     std::uint8_t settingsSelection_ = 0;
