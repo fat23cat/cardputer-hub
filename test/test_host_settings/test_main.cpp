@@ -5,6 +5,7 @@
 #include "services/audio/audio_service.h"
 #include <algorithm>
 #include <cstdlib>
+#include <deque>
 #include <fstream>
 #include <iomanip>
 #include <sstream>
@@ -125,9 +126,10 @@ class AudioAdapter final : public core::IAudioAdapter {
 class Adapter final : public connectivity::IBluetoothAdapter {
   public:
     connectivity::BluetoothAdapterResult initialize(const connectivity::BluetoothDeviceConfig&,
-                                                    std::uint32_t) override {
+                                                    std::uint32_t lifecycle) override {
         if (!hardwareExpected)
             TEST_FAIL_MESSAGE("UI touched hardware");
+        activeLifecycle = lifecycle;
         return {};
     }
     connectivity::BluetoothAdapterResult shutdown() override { return {}; }
@@ -140,9 +142,16 @@ class Adapter final : public connectivity::IBluetoothAdapter {
     disconnectPeer(connectivity::BluetoothPeerHandle) override {
         return {};
     }
-    connectivity::BluetoothPollResult pollEvent() override { return {}; }
+    connectivity::BluetoothPollResult pollEvent() override {
+        if (events.empty())
+            return {};
+        const auto event = events.front();
+        events.pop_front();
+        return connectivity::BluetoothPollResult::withEvent(event);
+    }
     connectivity::BluetoothBondQueryResult bondState(connectivity::BluetoothPeerHandle) override {
-        return {};
+        return hardwareExpected ? connectivity::BluetoothBondQueryResult::Unbonded
+                                : connectivity::BluetoothBondQueryResult{};
     }
     connectivity::BluetoothAdapterResult beginPairing(connectivity::BluetoothPeerHandle) override {
         return {};
@@ -159,7 +168,8 @@ class Adapter final : public connectivity::IBluetoothAdapter {
     connectivity::BluetoothBondListResult bonds() override {
         return hardwareExpected
                    ? connectivity::
-                         BluetoothBondListResult{connectivity::BluetoothBondListStatus::Success, {}}
+                         BluetoothBondListResult{connectivity::BluetoothBondListStatus::Success,
+                                                 bonded}
                    : connectivity::BluetoothBondListResult{};
     }
     connectivity::BluetoothBondReferenceResult
@@ -188,6 +198,9 @@ class Adapter final : public connectivity::IBluetoothAdapter {
         return {};
     }
     bool hardwareExpected = false;
+    std::uint32_t activeLifecycle = 0;
+    std::deque<connectivity::BluetoothEvent> events;
+    std::vector<connectivity::BluetoothBondReference> bonded;
 };
 struct Fixture {
     Memory memory;
@@ -296,6 +309,104 @@ void test_pairing_and_host_modals_do_not_show_escape_cancel_hint() {
                                "ADD DEVICE") != pairing.display.texts.end());
     TEST_ASSERT_TRUE(std::find(pairing.display.texts.begin(), pairing.display.texts.end(),
                                "Esc Cancel") == pairing.display.texts.end());
+}
+
+void test_rename_input_redraws_once_and_unchanged_rename_state_stays_idle() {
+    Fixture f;
+    f.ui.update({down, down, enter, down, enter});
+    const auto frames = f.display.frames;
+
+    f.ui.update({character('X')});
+
+    TEST_ASSERT_EQUAL(frames + 1, f.display.frames);
+    TEST_ASSERT_TRUE(std::find(f.display.texts.begin(), f.display.texts.end(), "Office laptopX") !=
+                     f.display.texts.end());
+    f.ui.update({});
+    TEST_ASSERT_EQUAL(frames + 1, f.display.frames);
+}
+
+void test_host_status_changes_redraw_only_status_and_bluetooth_row() {
+    Fixture f;
+    auto value = f.config.value();
+    value.host.activeHost = 8;
+    TEST_ASSERT_TRUE(f.config.save(value) == services::ConfigurationResult::Success);
+    f.ui.update({});
+    f.display.rectangles.clear();
+    f.display.texts.clear();
+    f.adapter.hardwareExpected = true;
+    f.adapter.bonded.push_back(value.host.hosts.front().bond);
+    TEST_ASSERT_TRUE(f.hosts.start() == services::HostResult::Success);
+    TEST_ASSERT_TRUE(f.hosts.setEnabled(true) == services::HostResult::Success);
+
+    f.ui.update({});
+
+    TEST_ASSERT_TRUE(std::find(f.display.texts.begin(), f.display.texts.end(), "CONNECTING") !=
+                     f.display.texts.end());
+    TEST_ASSERT_EQUAL_UINT(2, f.display.rectangles.size());
+    TEST_ASSERT_EQUAL_INT32(6, f.display.rectangles.front().position.y);
+    TEST_ASSERT_EQUAL_INT32(24, f.display.rectangles.back().position.y);
+}
+
+void test_home_bluetooth_status_change_redraws_only_the_host_section() {
+    Fixture f;
+    auto value = f.config.value();
+    value.host.activeHost = 8;
+    TEST_ASSERT_TRUE(f.config.save(value) == services::ConfigurationResult::Success);
+    f.adapter.hardwareExpected = true;
+    f.adapter.bonded.push_back(value.host.hosts.front().bond);
+    TEST_ASSERT_TRUE(f.hosts.start() == services::HostResult::Success);
+    apps::ApplicationShell shell(f.hosts, f.bus, f.display, f.ui, f.audio);
+    shell.update({});
+    f.display.rectangles.clear();
+    f.display.texts.clear();
+    const auto presentations = f.display.presentations;
+
+    TEST_ASSERT_TRUE(f.hosts.setEnabled(true) == services::HostResult::Success);
+    shell.update({});
+
+    TEST_ASSERT_EQUAL(presentations + 1, f.display.presentations);
+    TEST_ASSERT_TRUE(std::find(f.display.texts.begin(), f.display.texts.end(), "CONNECTING") !=
+                     f.display.texts.end());
+    for (const auto& rectangle : f.display.rectangles) {
+        TEST_ASSERT_TRUE(rectangle.position.y >= 32 &&
+                         rectangle.position.y + rectangle.height <= 97);
+    }
+    shell.update({});
+    TEST_ASSERT_EQUAL(presentations + 1, f.display.presentations);
+}
+
+void test_pairing_prompt_change_redraws_pairing_content_then_stays_idle() {
+    Fixture f;
+    f.adapter.hardwareExpected = true;
+    TEST_ASSERT_TRUE(f.hosts.start() == services::HostResult::Success);
+    TEST_ASSERT_TRUE(f.bus.registerHandler("host.pair", f.hosts) ==
+                     core::RegistrationResult::Registered);
+    f.ui.update({down, enter});
+    const auto waitingFrames = f.display.frames;
+    f.adapter.events.push_back({connectivity::BluetoothEventType::AdvertisingStarted,
+                                {},
+                                connectivity::BluetoothFailureClass::Fatal,
+                                f.adapter.activeLifecycle});
+    f.adapter.events.push_back({connectivity::BluetoothEventType::PeerConnected,
+                                {8},
+                                connectivity::BluetoothFailureClass::Fatal,
+                                f.adapter.activeLifecycle});
+    connectivity::BluetoothEvent challenge{connectivity::BluetoothEventType::PairingChallenge,
+                                           {8},
+                                           connectivity::BluetoothFailureClass::Fatal,
+                                           f.adapter.activeLifecycle};
+    challenge.challengeType = connectivity::BluetoothPairingChallengeType::ConfirmComparison;
+    challenge.challengeValue = 654321;
+    f.adapter.events.push_back(challenge);
+    f.hosts.update(std::chrono::milliseconds(0));
+
+    f.ui.update({});
+
+    TEST_ASSERT_EQUAL(waitingFrames + 1, f.display.frames);
+    TEST_ASSERT_TRUE(std::find(f.display.texts.begin(), f.display.texts.end(),
+                               "Does the computer show this code?") != f.display.texts.end());
+    f.ui.update({});
+    TEST_ASSERT_EQUAL(waitingFrames + 1, f.display.frames);
 }
 
 void test_focus_move_only_repaints_changed_rows_without_clearing_screen() {
@@ -702,6 +813,10 @@ int main() {
     RUN_TEST(test_home_shows_unavailable_telemetry_and_updates_only_battery_region);
     RUN_TEST(test_host_menu_back_and_incremental_navigation);
     RUN_TEST(test_pairing_and_host_modals_do_not_show_escape_cancel_hint);
+    RUN_TEST(test_rename_input_redraws_once_and_unchanged_rename_state_stays_idle);
+    RUN_TEST(test_host_status_changes_redraw_only_status_and_bluetooth_row);
+    RUN_TEST(test_home_bluetooth_status_change_redraws_only_the_host_section);
+    RUN_TEST(test_pairing_prompt_change_redraws_pairing_content_then_stays_idle);
     RUN_TEST(test_bluetooth_footer_is_quiet_and_x_has_no_destructive_action);
     RUN_TEST(test_home_and_panel_show_selected_host_and_do_not_navigate_on_state_updates);
     RUN_TEST(test_shell_boots_simple_home_and_opens_settings_before_bluetooth);

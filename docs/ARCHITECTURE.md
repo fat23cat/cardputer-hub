@@ -155,6 +155,14 @@ sampled on the handoff frame is consumed rather than routed as a UI action.
 
 Application Shell provides the common device UI.
 
+The normal-firmware composition root schedules Application Shell updates at a
+20 ms idle cadence and immediately when semantic input is available. Elapsed
+time is accumulated between UI updates so transitions and the Home ambient wave
+continue to advance from monotonic time; a delayed update produces one frame
+rather than a catch-up burst. Input polling, HostService, BluetoothService, and
+other time-sensitive Services remain outside this UI cadence and continue to
+run on every firmware loop.
+
 Responsibilities include:
 
 ```text

@@ -236,7 +236,9 @@ class EspIdfBuildConfigurationTests(unittest.TestCase):
             "                homeVisible = true;\n"
             "            }\n"
             "        } else {\n"
-            "            applicationShell.update(input, elapsed, battery.percent());\n"
+            "            const auto uiElapsed = uiScheduler.elapsedForUpdate(elapsed, !input.empty());\n"
+            "            if (uiElapsed)\n"
+            "                applicationShell.update(input, *uiElapsed, battery.percent());\n"
             "        }\n"
             "#endif\n"
             "        vTaskDelay(pdMS_TO_TICKS(1));",

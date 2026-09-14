@@ -1,5 +1,6 @@
 #include "apps/hosts/host_settings.h"
 #include "apps/shell/application_shell.h"
+#include "apps/shell/ui_scheduler.h"
 #include "esp_timer.h"
 #include "hardware/cardputer/cardputer_audio_adapter.h"
 #include "hardware/cardputer/cardputer_battery_adapter.h"
@@ -56,6 +57,7 @@ cardputer_hub::core::ActionBus actions;
 cardputer_hub::apps::HostSettings hostSettings(hosts, actions, display);
 cardputer_hub::apps::ApplicationShell applicationShell(hosts, actions, display, hostSettings,
                                                        audio);
+cardputer_hub::apps::UiScheduler uiScheduler;
 std::int64_t previousHostUpdateMilliseconds = 0;
 bool homeVisible = false;
 #endif
@@ -111,7 +113,9 @@ extern "C" void app_main(void) {
                 homeVisible = true;
             }
         } else {
-            applicationShell.update(input, elapsed, battery.percent());
+            const auto uiElapsed = uiScheduler.elapsedForUpdate(elapsed, !input.empty());
+            if (uiElapsed)
+                applicationShell.update(input, *uiElapsed, battery.percent());
         }
 #endif
         vTaskDelay(pdMS_TO_TICKS(1));

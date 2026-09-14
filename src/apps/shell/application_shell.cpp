@@ -48,7 +48,7 @@ ActionHandlingResult ApplicationShell::handle(const Action& action) {
             display_.beginTransition(SlideDirection::Backward);
             // Preserve the existing BLE list's explicit Esc Home behavior.
             (void)navigation_.resetTo("home");
-            homeFrame_.clear();
+            homeConnectionFrame_.reset();
         }
     } else
         return ActionHandlingResult::Rejected;
@@ -169,28 +169,37 @@ void ApplicationShell::renderHome(std::chrono::milliseconds elapsed,
     const auto host =
         std::find_if(config.hosts.begin(), config.hosts.end(),
                      [&](const auto& value) { return config.activeHost == value.id; });
-    const std::string name = host == config.hosts.end() ? "No host selected" : host->name;
-    std::string state = "CONNECTING";
+    static const std::string noHostSelected = "No host selected";
+    const auto& name = host == config.hosts.end() ? noHostSelected : host->name;
+    auto connectionStatus = HomeConnectionStatus::Connecting;
+    const char* state = "CONNECTING";
     RgbColor accent = palette::blue;
     if (hosts_.lastResult() == services::HostResult::StorageError ||
         hosts_.lastResult() == services::HostResult::BluetoothError ||
         hosts_.lastResult() == services::HostResult::MissingBond ||
         hosts_.bluetoothState() == BluetoothState::Error) {
+        connectionStatus = HomeConnectionStatus::Error;
         state = "ERROR";
         accent = palette::vermilion;
     } else if (hosts_.bluetoothState() == BluetoothState::Disabled) {
+        connectionStatus = HomeConnectionStatus::Off;
         state = "OFF";
         accent = palette::ordinal;
     } else if (hosts_.hidState() == HidTransportState::Ready) {
+        connectionStatus = HomeConnectionStatus::Ready;
         state = "READY";
         accent = palette::leaf;
     } else if (hosts_.pairing()) {
+        connectionStatus = HomeConnectionStatus::Pairing;
         state = "PAIRING";
     } else if (hosts_.bluetoothState() == BluetoothState::Connected) {
+        connectionStatus = HomeConnectionStatus::Securing;
         state = "SECURING";
     }
-    const auto frame = state + ":" + std::to_string(config.activeHost.value_or(0)) + ":" + name;
-    const bool entering = homeFrame_.empty();
+    const bool entering = !homeConnectionFrame_;
+    const bool connectionChanged =
+        entering || homeConnectionFrame_->activeHost != config.activeHost ||
+        homeConnectionFrame_->hostName != name || homeConnectionFrame_->status != connectionStatus;
     const TextStyle normal{palette::ink, palette::bone, 1};
     const TextStyle quiet{palette::ordinal, palette::bone, 1};
     if (entering) {
@@ -201,20 +210,20 @@ void ApplicationShell::renderHome(std::chrono::milliseconds elapsed,
         display_.drawText({104, 8}, "OFFLINE", normal);
         display_.fillRectangle({8, 24}, 224, 1, palette::ink);
     }
-    if (entering || frame != homeFrame_) {
+    if (connectionChanged) {
         display_.fillRectangle({8, 32}, 224, 65, palette::bone);
         display_.drawText({8, 38}, "SELECTED HOST", quiet);
         drawHomeHostName(display_, name);
         drawBluetoothIcon(display_, accent);
-        display_.drawText({29, 84}, state.c_str(), normal);
-        homeFrame_ = frame;
+        display_.drawText({29, 84}, state, normal);
+        homeConnectionFrame_ = HomeConnectionFrame{config.activeHost, name, connectionStatus};
     }
-    const int percent = batteryPercent && *batteryPercent <= 100 ? *batteryPercent : -1;
-    const auto battery = percent < 0 ? "--%" : std::to_string(percent) + "%";
-    if (entering || battery != batteryFrame_) {
+    const auto percent = batteryPercent && *batteryPercent <= 100 ? batteryPercent : std::nullopt;
+    if (entering || percent != homeBatteryPercent_) {
+        const auto battery = percent ? std::to_string(*percent) + "%" : std::string("--%");
         display_.fillRectangle({184, 5}, 48, 14, palette::bone);
         display_.drawText({232 - static_cast<int>(battery.size()) * 6, 8}, battery.c_str(), normal);
-        batteryFrame_ = battery;
+        homeBatteryPercent_ = percent;
     }
     const auto oldStep = homePhaseMilliseconds_ / 500;
     const auto advance = static_cast<unsigned>(std::max<std::int64_t>(0, elapsed.count()) % 28000);
