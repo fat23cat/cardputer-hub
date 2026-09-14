@@ -66,6 +66,13 @@ Keep manuals aligned with delivered firmware. Update documentation for changed
 architecture, contracts, configuration, workflow, features, controls, or user
 procedures; never present planned behavior as supported.
 
+## GitHub CLI
+
+Run every `gh` CLI command outside the sandbox on its first attempt, including
+read-only GitHub queries. Use the execution tool's escalated-permission mode
+with a narrowly scoped approval request; do not first run `gh` in the sandbox
+and wait for its network or authentication access to fail.
+
 ## CRUB Distribution
 
 The sibling `cardputer-firmware-manager` repository owns the deployable shared

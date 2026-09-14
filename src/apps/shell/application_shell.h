@@ -14,19 +14,10 @@ class ApplicationShell final : public core::IActionHandler {
     core::ActionHandlingResult handle(const core::Action& action) override;
 
   private:
-    enum class HomeConnectionStatus : std::uint8_t {
-        Connecting,
-        Error,
-        Off,
-        Ready,
-        Pairing,
-        Securing,
-    };
-
     struct HomeConnectionFrame {
         std::optional<std::uint32_t> activeHost;
         std::string hostName;
-        HomeConnectionStatus status = HomeConnectionStatus::Off;
+        services::HostConnectionStatus status = services::HostConnectionStatus::Off;
     };
 
     struct SettingsFrame {
