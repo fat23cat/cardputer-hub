@@ -1,8 +1,11 @@
 .DS_Store
 .cache/
 .ccache/
+.codebase-memory/
+.codex/
 .pio/
 .venv/
+.chatgpt
 __pycache__/
 build/
 build-*/
