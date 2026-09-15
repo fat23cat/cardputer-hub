@@ -6,9 +6,10 @@ IDF_RUN := $(IDF_PY)
 IDF_ARGS := -B $(IDF_BUILD_DIR) -D IDF_TARGET=esp32s3 -D CARDPUTER_HUB_VERSION_OVERRIDE=$(CARDPUTER_HUB_VERSION)
 IDF_APP_IMAGE := $(IDF_BUILD_DIR)/cardputer_hub.bin
 IDF_PARTITION_IMAGE := $(IDF_BUILD_DIR)/partition_table/partition-table.bin
+IDF_CONFIG_HEADER := $(IDF_BUILD_DIR)/config/sdkconfig.h
 CPP_FILES := $(shell find src test -type f \( -name '*.c' -o -name '*.cc' -o -name '*.cpp' -o -name '*.h' -o -name '*.hpp' \) | sort)
 
-.PHONY: setup lock-check architecture-check validate-idf validate-submodules configure build test format format-check lint host-check firmware-check check upload migrate-storage-layout monitor clean
+.PHONY: setup lock-check architecture-check validate-idf validate-submodules configure build firmware-size test format format-check lint host-check firmware-check check upload migrate-storage-layout monitor clean
 
 setup: validate-idf
 	$(UV) sync --frozen
@@ -37,6 +38,11 @@ build: validate-idf validate-submodules
 	@test -f $(IDF_APP_IMAGE)
 	@test -f $(IDF_PARTITION_IMAGE)
 
+firmware-size: validate-idf
+	@test -f $(IDF_APP_IMAGE) || (echo "Run 'make build' before 'make firmware-size'." >&2; exit 2)
+	@bash -o pipefail -c '$(IDF_RUN) $(IDF_ARGS) size | tee "$(IDF_BUILD_DIR)/firmware-size.txt"'
+	@bash -o pipefail -c '$(IDF_RUN) $(IDF_ARGS) size-components | tee "$(IDF_BUILD_DIR)/firmware-size-components.txt"'
+
 test:
 	$(RUN) python -m unittest discover -s test_python
 	$(RUN) pio test -e native
@@ -53,6 +59,7 @@ lint:
 host-check: lock-check architecture-check format-check lint test
 
 firmware-check: build
+	python3 scripts/check_esp_idf_config.py "$(IDF_CONFIG_HEADER)"
 
 check: host-check firmware-check
 

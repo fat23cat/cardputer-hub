@@ -226,6 +226,11 @@ flash, NVS, saved Bluetooth pairs, or `hub_config` to change the console.
 If the old application does not accept an upload reset, use the `G0` download
 sequence above and specify its detected serial port.
 
+If a local generated `sdkconfig` predates Plan 026, move it aside before the
+next build so `sdkconfig.defaults` applies the production size profile and the
+station-only Wi-Fi feature set. This changes only local build configuration;
+it does not erase flash, saved Wi-Fi credentials, or Bluetooth bonds.
+
 ## 6. Verify the Installation
 
 The display should show a two-second `Cardputer Hub` startup screen with the

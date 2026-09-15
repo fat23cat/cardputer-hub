@@ -11,6 +11,10 @@ CONFIG_ESP_DEFAULT_CPU_FREQ_MHZ_240=y
 CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG=y
 CONFIG_ESP_CONSOLE_SECONDARY_NONE=y
 
+# Optimize the production application for flash size. Plan 026 measured this
+# independently before excluding unused Wi-Fi feature families below.
+CONFIG_COMPILER_OPTIMIZATION_SIZE=y
+
 # File Storage owns long logical paths below /cardputer-hub. Allocate the FAT
 # long-filename work buffer on the heap so adapter calls do not consume a large
 # fixed stack buffer.
@@ -43,6 +47,12 @@ CONFIG_BT_NIMBLE_SVC_HID_MAX_RPTS=3
 
 # Wi-Fi station and BLE share the ESP32-S3 radio through software coexistence.
 CONFIG_ESP_COEX_SW_COEXIST_ENABLE=y
+
+# The product is a Wi-Fi station; it does not host an access point.
+CONFIG_ESP_WIFI_SOFTAP_SUPPORT=n
+
+# Enterprise authentication is outside the supported personal-network scope.
+CONFIG_ESP_WIFI_ENTERPRISE_SUPPORT=n
 
 # Project diagnostics remain informational; identity-bearing Bluetooth host
 # diagnostics are disabled separately above.

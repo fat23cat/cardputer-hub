@@ -30,6 +30,7 @@ not phase numbers. The authoritative delivered/pending step checklist is in
 | [023](023-enforce-architecture-boundaries.md) | Enforced source dependency boundaries | Implemented; host checks and firmware build passed |
 | [024](024-host-service-status-model.md) | HostService domain status snapshot | Implemented; automated checks and firmware build passed |
 | [025](025-persisted-wifi-configuration-and-runtime-composition.md) | Persisted Wi-Fi and runtime composition | Implemented; automated checks and firmware build passed |
+| [026](026-firmware-size-observability-and-safe-optimization.md#0-current-closeout-status) | Firmware size observability and safe optimization | Complete; automated checks, firmware build, and physical Wi-Fi/BLE smoke test passed |
 
 The work referred to historically as 013 is the approved
 [UI requirements](../UI_REQUIREMENTS.md); there is no separate plan-013 file.
