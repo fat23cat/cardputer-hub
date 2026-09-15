@@ -9,6 +9,7 @@ set(CARDPUTER_HUB_SOURCES
     "${CMAKE_CURRENT_LIST_DIR}/../src/apps/hosts/host_settings.cpp"
     "${CMAKE_CURRENT_LIST_DIR}/../src/apps/shell/application_shell.cpp"
     "${CMAKE_CURRENT_LIST_DIR}/../src/services/configuration/configuration_service.cpp"
+    "${CMAKE_CURRENT_LIST_DIR}/../src/services/network/network_service.cpp"
     "${CMAKE_CURRENT_LIST_DIR}/../src/services/hosts/host_service.cpp"
     "${CMAKE_CURRENT_LIST_DIR}/../src/connectivity/bluetooth/bluetooth_service.cpp"
     "${CMAKE_CURRENT_LIST_DIR}/../src/connectivity/hid/hid_transport.cpp"

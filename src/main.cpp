@@ -6,9 +6,11 @@
 #include "hardware/cardputer/cardputer_battery_adapter.h"
 #include "hardware/esp32/bluetooth/esp32_bluetooth_adapter.h"
 #include "hardware/esp32/esp32_nvs_storage_adapter.h"
+#include "hardware/esp32/wifi/esp32_wifi_adapter.h"
 #include "services/audio/audio_service.h"
 #include "services/battery/battery_service.h"
 #include "services/hosts/host_service.h"
+#include "services/network/network_service.h"
 
 #include "core/lifecycle/build_info.h"
 #include "core/lifecycle/system_runtime.h"
@@ -48,6 +50,9 @@ cardputer_hub::hardware::Esp32NvsStorageAdapter configurationAdapter;
 cardputer_hub::core::Storage configurationStorage(configurationAdapter);
 cardputer_hub::services::ConfigurationService configuration(configurationStorage);
 cardputer_hub::services::AudioService audio(configuration, audioAdapter);
+cardputer_hub::hardware::Esp32WifiAdapter wifiAdapter;
+cardputer_hub::connectivity::WiFiService wifiConnectivity(wifiAdapter, logger);
+cardputer_hub::services::NetworkService network(wifiConnectivity, configuration, &logger);
 cardputer_hub::hardware::Esp32BluetoothAdapter bluetoothAdapter;
 cardputer_hub::connectivity::BluetoothService bluetooth(bluetoothAdapter, logger);
 cardputer_hub::services::HostService hosts(bluetooth, configuration, &logger);
@@ -58,7 +63,7 @@ cardputer_hub::apps::HostSettings hostSettings(hosts, actions, display);
 cardputer_hub::apps::ApplicationShell applicationShell(hosts, actions, display, hostSettings,
                                                        audio);
 cardputer_hub::apps::UiScheduler uiScheduler;
-std::int64_t previousHostUpdateMilliseconds = 0;
+std::int64_t previousUpdateMilliseconds = 0;
 bool homeVisible = false;
 #endif
 #if CARDPUTER_HUB_PLAN_012_VALIDATION
@@ -89,9 +94,10 @@ extern "C" void app_main(void) {
     }
     (void)actions.registerHandler("audio.volume.step", audio);
     (void)hosts.start();
+    (void)network.start();
     (void)audio.start();
     battery.update(std::chrono::milliseconds(0));
-    previousHostUpdateMilliseconds = esp_timer_get_time() / 1000;
+    previousUpdateMilliseconds = esp_timer_get_time() / 1000;
 #endif
 
     for (;;) {
@@ -101,10 +107,11 @@ extern "C" void app_main(void) {
         validationHarness.update();
 #else
         const auto now = esp_timer_get_time() / 1000;
-        const auto elapsed = std::chrono::milliseconds(now - previousHostUpdateMilliseconds);
-        previousHostUpdateMilliseconds = now;
+        const auto elapsed = std::chrono::milliseconds(now - previousUpdateMilliseconds);
+        previousUpdateMilliseconds = now;
         const auto& input = runtime.update(elapsed);
         hosts.update(elapsed);
+        network.update(elapsed);
         battery.update(elapsed);
         if (!homeVisible) {
             if (runtime.splashFinished()) {

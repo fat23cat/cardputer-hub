@@ -14,7 +14,8 @@ constexpr std::array retryDelays{
 };
 
 bool isValidSsid(std::string_view ssid) {
-    return !ssid.empty() && ssid.size() <= 32 && ssid.find('\0') == std::string_view::npos;
+    return !ssid.empty() && ssid.size() <= maximumWifiSsidLength &&
+           ssid.find('\0') == std::string_view::npos;
 }
 
 bool isHexDigit(char value) {
@@ -29,14 +30,15 @@ bool isValidPassphrase(std::string_view passphrase) {
     if (passphrase.empty() || (passphrase.size() >= 8 && passphrase.size() <= 63)) {
         return true;
     }
-    return passphrase.size() == 64 && std::all_of(passphrase.begin(), passphrase.end(), isHexDigit);
-}
-
-bool isValidConfig(const WifiNetworkConfig& config) {
-    return isValidSsid(config.ssid) && isValidPassphrase(config.passphrase);
+    return passphrase.size() == maximumWifiPassphraseLength &&
+           std::all_of(passphrase.begin(), passphrase.end(), isHexDigit);
 }
 
 } // namespace
+
+bool validWifiNetworkConfig(const WifiNetworkConfig& config) noexcept {
+    return isValidSsid(config.ssid) && isValidPassphrase(config.passphrase);
+}
 
 WiFiService::WiFiService(IWifiAdapter& adapter) noexcept : adapter_(adapter) {}
 
@@ -44,7 +46,7 @@ WiFiService::WiFiService(IWifiAdapter& adapter, core::Logger& logger) noexcept
     : adapter_(adapter), logger_(&logger) {}
 
 WifiConnectResult WiFiService::connect(const WifiNetworkConfig& config) {
-    if (!isValidConfig(config)) {
+    if (!validWifiNetworkConfig(config)) {
         log(core::LogLevel::Warning, "connection request rejected");
         return WifiConnectResult::InvalidConfig;
     }

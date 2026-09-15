@@ -258,11 +258,12 @@ adapter obtains the estimate from the pinned M5Unified power driver. The main
 composition passes the snapshot into the shell; drawing code does not read
 hardware or manage polling. This does not add a BLE battery service.
 
-The clock slot displays `--:--` pending a time source. Normal firmware does not
-yet compose WiFiService, so its status is explicitly OFFLINE without an SSID.
-Future clock and Wi-Fi indicators must consume their owning Services or
-Connectivity state. Battery percentage is a voltage-derived estimate, especially
-while externally powered, rather than a calibrated charge gauge.
+The clock slot displays `--:--` pending a time source. Normal firmware composes
+the ESP32 station adapter, Connectivity `WiFiService`, and `NetworkService`, but
+Home is not yet wired to the Service snapshot and therefore keeps its explicit
+OFFLINE placeholder without an SSID. Future clock and Wi-Fi indicators must
+consume their owning Services. Battery percentage is a voltage-derived estimate,
+especially while externally powered, rather than a calibrated charge gauge.
 
 Home's approved ambient dotted wave is presentation state owned by the shell:
 a 28-second cycle, at most two updates per second, using injected elapsed time
@@ -587,9 +588,11 @@ still clearing future Service retry intent and credentials.
 SSIDs contain 1-32 bytes with no embedded NUL. Passphrases are empty for open
 networks, 8-63 bytes for personal WPA, or exactly 64 hexadecimal digits for a
 raw PSK; embedded NUL is always invalid.
+`validWifiNetworkConfig()` is the shared credential-validation contract used by
+both Connectivity connection requests and persisted configuration validation.
 
-`update(elapsed)` accepts monotonic elapsed duration from its future composition
-owner and performs bounded polling without sleeping. An incomplete attempt
+`update(elapsed)` accepts monotonic elapsed duration from `NetworkService` and
+performs bounded polling without sleeping. An incomplete attempt
 times out after 15 seconds. Ordinary failure or loss waits 1, 2, 4, 8, 16, and
 then 30 seconds between attempts, remaining capped at 30 seconds. Success and
 valid target replacement reset the next delay to one second. Initialization
@@ -605,9 +608,11 @@ not retain caller references. Fixed state and retry logs may be emitted through
 the shared logger, but network identity, credentials, addresses, and traffic
 contents must never be logged.
 
-The initial foundation does not provide scanning, provisioning, captive-portal
-handling, access-point mode, enterprise Wi-Fi, or automatic startup. It may
-later expose shared networking infrastructure such as:
+The Connectivity service does not self-start; normal firmware restores enabled
+intent through `NetworkService`. Scanning, interactive provisioning,
+captive-portal handling, access-point mode, and enterprise Wi-Fi remain outside
+this boundary. Connectivity may later expose shared networking infrastructure
+such as:
 
 ```text
 HTTP client
@@ -772,6 +777,7 @@ Initial/future examples:
 ```text
 Services
 ├── HostService
+├── NetworkService
 ├── HostControlService
 ├── CompanionService
 ├── WeatherService
@@ -799,6 +805,19 @@ HostService
     ↓
 BluetoothService
 ```
+
+`NetworkService` is the application-facing Wi-Fi boundary. It owns the single
+persisted station network, enabled/disabled intent, startup restoration,
+configuration mutations, and mapping of Connectivity state to `Off`,
+`Connecting`, `Connected`, or `Error`. Its status snapshot exposes whether a
+network is configured, enabled intent, SSID, connected-only RSSI, and the last
+domain result; it never exposes a passphrase or Connectivity enums. Mutations
+persist a complete candidate through `ConfigurationService` before requesting
+connect or disconnect. A failed write leaves published intent and radio state
+unchanged, while a later adapter failure does not roll back successfully stored
+intent. Retry, timeout, and station lifecycle remain owned by Connectivity
+`WiFiService`. Normal firmware starts this Service after configuration loading
+and updates it on every main-loop pass outside UI scheduling.
 
 ---
 
@@ -1953,22 +1972,28 @@ defaults, validation, migrations, and application-level configuration
 operations. It uses the configuration interfaces and persistence primitives
 provided by System Core; System Core must not duplicate this domain behavior.
 
-The delivered `SystemConfiguration` version-3 schema composes a host-only
+The delivered `SystemConfiguration` version-4 schema composes a host-only
 `HostConfiguration`—Host Profiles with bounded platform, capability, and
 mapping-template metadata, `activeHost`, monotonic `nextHostId`, and
-`bluetoothEnabled`—with the system `soundVolume`. One versioned binary record at
+`bluetoothEnabled`—with the system `soundVolume` and one bounded Wi-Fi station
+configuration containing enabled intent, SSID, and passphrase. One versioned binary record at
 `StorageAddress{"hosts", "configuration"}` lives in internal `hub_config` NVS.
 The address retains its historical host-only name for in-place upgrade
-compatibility. The maximum version-3 encoding is 10,256 bytes for 16 maximally
-populated profiles, within the 64 KiB partition. The decoder consumes the
+compatibility. Version 4 appends the Wi-Fi enabled byte and length-prefixed SSID
+and passphrase after the version-3-compatible host payload. Its maximum encoding
+is 10,355 bytes for 16 maximally populated profiles and maximum Wi-Fi values,
+within the 64 KiB partition. The decoder consumes the
 complete record and validates its `HUBH` header, version, booleans, bounded
 lengths and counts, identifiers, unique capabilities, unique IDs and bonds,
-names, selected ID, and 0-100 volume in ten-percent steps before acceptance.
+names, selected ID, 0-100 volume in ten-percent steps, and the shared Wi-Fi
+credential contract before acceptance.
 Version-1 records load with absent host metadata and the 60-percent sound default.
 Version-2 records retain their metadata and receive the same sound default.
-Either legacy form is lazily written as version 3 after the next successful
+Version-3 records retain both. Versions 1, 2, and 3 default Wi-Fi to disabled and
+unconfigured, and are lazily written as version 4 after the next successful
 configuration change; migration never rewrites storage at boot.
-Missing records default to an empty list, BLE Off, and 60-percent sound. Invalid,
+Missing records default to an empty list, BLE Off, Wi-Fi Off and unconfigured,
+and 60-percent sound. Invalid,
 truncated, trailing, unreadable, and future-version records are preserved and
 reported as errors, never reset silently. Failed writes retain the previous
 stored and published values.
@@ -1978,14 +2003,13 @@ read failure; `save()` refuses candidates while the Service is not loaded so a
 caller cannot copy defaults before loading and then replace an existing record.
 Writes publish the new in-memory value only after successful storage. Schema
 migration must be added explicitly when a later version is introduced.
-Firmware predating version 3 rejects a record after it has been upgraded by a
+Firmware predating version 4 rejects a record after it has been upgraded by a
 successful mutation, so downgrade requires a compatible migration or an
 intentional configuration reset.
 
 Broader configuration remains planned and includes:
 
 ```text
-Wi-Fi settings
 companion settings and non-secret bindings
 enabled Mini Apps
 Mini App settings
@@ -2061,17 +2085,16 @@ reports initialization failure as `BackendError`. This dedicated NVS
 partition now stores the authoritative SystemConfiguration record.
 `ConfigurationService` owns its schema, serialization, defaults, and domain
 validation. Bluetooth bond keys remain in the separate NimBLE store; profiles
-contain only opaque references. Wi-Fi credentials are not persisted yet.
+contain only opaque references. One bounded Wi-Fi station network and its
+enabled intent are stored in the SystemConfiguration record.
 
-The Phase 2 Wi-Fi foundation does not persist credentials. Connection
-configuration is supplied in memory to `WiFiService`, and the ESP32 adapter
-selects RAM-backed ESP-IDF driver storage before applying station
-configuration. The adapter is the exclusive Wi-Fi station-interface and driver
-owner and fails initialization if another component has already created or
-initialized either resource, which prevents unknown persistence, event, or
-retry policy from being inherited. A future `ConfigurationService` owns the
-persistent Wi-Fi schema, validation beyond the connectivity boundary, defaults,
-migrations, and storage policy.
+`NetworkService` supplies persisted credentials in memory to `WiFiService`, and
+the ESP32 adapter selects RAM-backed ESP-IDF driver storage before applying
+station configuration. The adapter is the exclusive Wi-Fi station-interface and
+driver owner and fails initialization if another component has already created
+or initialized either resource, which prevents unknown persistence, event, or
+retry policy from being inherited. `ConfigurationService` owns the persistent
+Wi-Fi schema, bounded validation, defaults, migrations, and storage policy.
 
 ESP-NimBLE persists its bond keys in its non-destructively initialized store.
 The Bluetooth adapter separately keeps one random 256-bit bond-reference key as
@@ -2451,8 +2474,8 @@ do not imply a file browser, backup/import flow, or running Mini Apps.
 The operator confirmed adding two computers, switching between them, and
 reconnection to the last selected host on power-on on 2026-09-11.
 
-Wi-Fi is compiled but uncomposed in normal firmware; configuration and Wi-Fi UI
-are later work. BLE is composed by HostService. USB serial hotplug is an open
+Wi-Fi is composed in normal firmware through NetworkService; interactive Wi-Fi
+UI remains later work. BLE is composed by HostService. USB serial hotplug is an open
 observation independent of the BLE transport, not a reason to restore routing.
 Transport expansion does not block the BLE-only software scope.
 
@@ -2463,15 +2486,17 @@ Transport expansion does not block the BLE-only software scope.
 - [x] HostService: import existing bonds, pair/add, select, rename and delete hosts.
 - [x] Persisted active-host intent and Cardputer BLE On/Off.
 - [x] Selection isolation, release-before-switch and failure results through Actions.
-- [x] ConfigurationService: bounded version-3 system schema, validation,
+- [x] ConfigurationService: bounded version-4 system schema, validation,
   centralized safe loading, stable IDs and writes that publish state only after
   successful storage.
 - [x] HostProfile platform/capability metadata and mapping-template references.
-- [x] Lazy lossless version-1/version-2 to version-3 migration.
+- [x] Lazy lossless version-1/version-2/version-3 to version-4 migration.
+- [x] Persisted single-network Wi-Fi intent and application-facing NetworkService.
+- [x] Normal Wi-Fi startup restoration and main-loop updates independent of UI scheduling.
 - [x] BatteryService: optional hardware estimate, bounded five-second sampling.
 - [ ] Mapping-template catalog and resolution (Phase 7).
-- [ ] Wi-Fi, Mini App, Service, shortcut, indicator and remote configuration.
-- [ ] Explicit migration when a schema later than version 3 is introduced.
+- [ ] Mini App, Service, shortcut, indicator and remote configuration.
+- [ ] Explicit migration when a schema later than version 4 is introduced.
 - [ ] IndicatorService abstraction.
 
 ### Phase 4 — Application Shell

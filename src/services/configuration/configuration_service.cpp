@@ -10,6 +10,7 @@ constexpr std::uint32_t maximumId = std::numeric_limits<std::int32_t>::max();
 constexpr std::uint8_t versionOne = 1;
 constexpr std::uint8_t versionTwo = 2;
 constexpr std::uint8_t versionThree = 3;
+constexpr std::uint8_t versionFour = 4;
 
 void appendInteger(core::StorageBytes& bytes, std::uint32_t value) {
     for (unsigned shift = 0; shift < 32; shift += 8) {
@@ -82,6 +83,12 @@ bool ConfigurationService::valid(const SystemConfiguration& value) {
         (config.bluetoothEnabled && !config.activeHost) || value.soundVolume > 100 ||
         value.soundVolume % 10 != 0)
         return false;
+    if (value.wifi.ssid.empty()) {
+        if (value.wifi.enabled || !value.wifi.passphrase.empty())
+            return false;
+    } else if (!connectivity::validWifiNetworkConfig({value.wifi.ssid, value.wifi.passphrase})) {
+        return false;
+    }
     bool activeFound = !config.activeHost;
     for (std::size_t i = 0; i < config.hosts.size(); ++i) {
         const auto& host = config.hosts[i];
@@ -133,8 +140,8 @@ ConfigurationResult ConfigurationService::load() {
             return ConfigurationResult::InvalidData;
     }
     std::uint8_t version = 0;
-    if (!reader.byte(version) ||
-        (version != versionOne && version != versionTwo && version != versionThree))
+    if (!reader.byte(version) || (version != versionOne && version != versionTwo &&
+                                  version != versionThree && version != versionFour))
         return ConfigurationResult::InvalidData;
     SystemConfiguration next;
     std::uint8_t enabled = 0, count = 0;
@@ -142,7 +149,7 @@ ConfigurationResult ConfigurationService::load() {
     if (!reader.byte(enabled) || enabled > 1 || !reader.byte(count) ||
         count > connectivity::BluetoothService::maximumBondCount)
         return ConfigurationResult::InvalidData;
-    if (version == versionThree && !reader.byte(next.soundVolume))
+    if (version >= versionThree && !reader.byte(next.soundVolume))
         return ConfigurationResult::InvalidData;
     if (!reader.integer(next.host.nextHostId) || !reader.integer(active))
         return ConfigurationResult::InvalidData;
@@ -179,6 +186,14 @@ ConfigurationResult ConfigurationService::load() {
         }
         next.host.hosts.push_back(std::move(host));
     }
+    if (version == versionFour) {
+        std::uint8_t wifiEnabled = 0;
+        if (!reader.byte(wifiEnabled) || wifiEnabled > 1 ||
+            !reader.string(next.wifi.ssid, connectivity::maximumWifiSsidLength) ||
+            !reader.string(next.wifi.passphrase, connectivity::maximumWifiPassphraseLength))
+            return ConfigurationResult::InvalidData;
+        next.wifi.enabled = wifiEnabled != 0;
+    }
     if (!reader.done() || !valid(next))
         return ConfigurationResult::InvalidData;
     value_ = std::move(next);
@@ -199,7 +214,7 @@ ConfigurationResult ConfigurationService::save(const SystemConfiguration& value)
                              'U',
                              'B',
                              'H',
-                             versionThree,
+                             versionFour,
                              static_cast<std::uint8_t>(value.host.bluetoothEnabled),
                              static_cast<std::uint8_t>(value.host.hosts.size()),
                              value.soundVolume};
@@ -216,6 +231,9 @@ ConfigurationResult ConfigurationService::save(const SystemConfiguration& value)
             appendString(bytes, capability);
         appendString(bytes, host.mappingTemplate.value_or(""));
     }
+    bytes.push_back(static_cast<std::uint8_t>(value.wifi.enabled));
+    appendString(bytes, value.wifi.ssid);
+    appendString(bytes, value.wifi.passphrase);
     if (storage_.write(address, bytes) != core::StorageWriteStatus::Stored)
         return ConfigurationResult::StorageError;
     value_ = value;

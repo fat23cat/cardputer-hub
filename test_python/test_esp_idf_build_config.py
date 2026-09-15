@@ -177,6 +177,32 @@ class EspIdfBuildConfigurationTests(unittest.TestCase):
         self.assertNotIn("<SD.h>", microsd)
         self.assertNotIn("<SPI.h>", microsd)
 
+    def test_normal_runtime_composes_persisted_wifi_outside_ui_scheduling(self) -> None:
+        entrypoint = self.read("src/main.cpp")
+
+        self.assertIn("cardputer_hub::hardware::Esp32WifiAdapter wifiAdapter;", entrypoint)
+        self.assertIn(
+            "cardputer_hub::connectivity::WiFiService wifiConnectivity(wifiAdapter, logger);",
+            entrypoint,
+        )
+        self.assertIn(
+            "cardputer_hub::services::NetworkService network("
+            "wifiConnectivity, configuration, &logger);",
+            entrypoint,
+        )
+        self.assertLess(
+            entrypoint.index("(void)configuration.ensureLoaded();"),
+            entrypoint.index("(void)network.start();"),
+        )
+        self.assertLess(
+            entrypoint.index("network.update(elapsed);"),
+            entrypoint.index("if (!homeVisible)"),
+        )
+        self.assertLess(
+            entrypoint.index("network.update(elapsed);"),
+            entrypoint.index("uiScheduler.elapsedForUpdate"),
+        )
+
     def test_component_sources_are_explicitly_enumerated(self) -> None:
         application_component = self.read("main/CMakeLists.txt")
         cardputer_component = self.read("components/m5cardputer/CMakeLists.txt")
@@ -224,10 +250,11 @@ class EspIdfBuildConfigurationTests(unittest.TestCase):
             "        validationHarness.update();\n"
             "#else\n"
             "        const auto now = esp_timer_get_time() / 1000;\n"
-            "        const auto elapsed = std::chrono::milliseconds(now - previousHostUpdateMilliseconds);\n"
-            "        previousHostUpdateMilliseconds = now;\n"
+            "        const auto elapsed = std::chrono::milliseconds(now - previousUpdateMilliseconds);\n"
+            "        previousUpdateMilliseconds = now;\n"
             "        const auto& input = runtime.update(elapsed);\n"
             "        hosts.update(elapsed);\n"
+            "        network.update(elapsed);\n"
             "        battery.update(elapsed);\n"
             "        if (!homeVisible) {\n"
             "            if (runtime.splashFinished()) {\n"

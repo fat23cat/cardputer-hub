@@ -6,6 +6,7 @@
 #include <vector>
 
 #include "connectivity/bluetooth/bluetooth_service.h"
+#include "connectivity/wifi/wifi_service.h"
 #include "core/storage/storage.h"
 
 namespace cardputer_hub::services {
@@ -30,8 +31,15 @@ struct HostConfiguration {
     bool bluetoothEnabled = false;
 };
 
+struct WifiConfiguration {
+    bool enabled = false;
+    std::string ssid;
+    std::string passphrase;
+};
+
 struct SystemConfiguration {
     HostConfiguration host;
+    WifiConfiguration wifi;
     std::uint8_t soundVolume = 60;
 };
 
@@ -43,11 +51,13 @@ class ConfigurationService {
     static constexpr std::size_t maximumMetadataIdentifierLength = 32;
     static constexpr std::size_t maximumHostCapabilityCount = 16;
     static constexpr std::size_t maximumSerializedSize =
-        16 + connectivity::BluetoothService::maximumBondCount *
-                 (4 + 1 + maximumNameLength + connectivity::BluetoothBondReference{}.bytes.size() +
-                  1 + maximumMetadataIdentifierLength + 1 +
-                  maximumHostCapabilityCount * (1 + maximumMetadataIdentifierLength) + 1 +
-                  maximumMetadataIdentifierLength);
+        16 +
+        connectivity::BluetoothService::maximumBondCount *
+            (4 + 1 + maximumNameLength + connectivity::BluetoothBondReference{}.bytes.size() + 1 +
+             maximumMetadataIdentifierLength + 1 +
+             maximumHostCapabilityCount * (1 + maximumMetadataIdentifierLength) + 1 +
+             maximumMetadataIdentifierLength) +
+        1 + 1 + connectivity::maximumWifiSsidLength + 1 + connectivity::maximumWifiPassphraseLength;
     explicit ConfigurationService(core::Storage& storage) : storage_(storage) {}
     ConfigurationResult load();
     ConfigurationResult ensureLoaded();

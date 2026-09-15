@@ -219,6 +219,9 @@ python3 -m firmware_manager release --app hub --sd /Volumes/CARDPUTER
 ```
 
 Do not copy or flash an unvalidated raw image directly.
+If the USB Serial/JTAG console does not enumerate after a CRUB `hub` launch,
+follow the install guide's
+[`hubfast` diagnostic boot procedure](docs/manuals/installing-firmware.md#usb-serial-diagnostics-after-a-crub-launch).
 
 ---
 
@@ -245,7 +248,8 @@ show `--:--` and `OFFLINE`. Plain Tab opens Settings; Bluetooth
 opens the existing BLE panel and the following Sound volume row adjusts the
 persistent 0-100% key-click volume with Left/Right in 10% steps.
 Screen navigation uses short horizontal transitions with live input. The update loop polls semantic keyboard events, routes
-local settings Actions, and advances HostService/BluetoothService. Host selection,
+local settings Actions, and advances HostService/BluetoothService plus
+NetworkService/WiFiService independently of UI scheduling. Host selection,
 BLE On/Off, pairing, renaming, per-host deletion, and persisted host
 platform/capability/template-reference metadata are available through Services;
 the current UI does not edit that metadata. Keyboard-to-HID mappings and the
@@ -258,10 +262,11 @@ framework but is not constructed or mounted by the firmware runtime. These
 foundations do not provide Launcher, Mini App, file-browser, backup, or
 configuration import/export behavior.
 
-The first Phase 2 foundation adds a hardware-independent Wi-Fi connection state
-machine and a compiled ESP32 station adapter. Neither is constructed by the
-firmware runtime yet: no credentials are compiled or persisted, no connection
-starts automatically, and the supported device behavior remains unchanged.
+The Wi-Fi foundation provides a hardware-independent connection state machine
+and ESP32 station adapter. Normal firmware now composes both through
+NetworkService, which owns one bounded persisted station network, enabled intent,
+startup restoration, and credential-free domain status. No credentials are
+compiled into firmware, and interactive on-device Wi-Fi setup remains pending.
 
 The Bluetooth lifecycle foundation similarly adds a hardware-independent
 single-peer state machine and a compiled direct ESP-NimBLE peripheral
@@ -300,10 +305,11 @@ filtering, keyboard event translation and deduplication, opaque record-storage
 validation and forwarding, owned navigation history and Back traversal,
 dynamic capability registration and enumeration, owned application metadata
 validation and lookup, bounded logical file-storage operations, and System
-Core boot and update orchestration. They also cover Wi-Fi configuration
-validation, connection state, timeout and capped retry timing, connected-only
-and link-loss-safe RSSI access, disconnect-error propagation, and
-credential-free diagnostics.
+Core boot and update orchestration. They also cover version-4 Wi-Fi persistence
+and legacy migration, storage-before-radio failure atomicity, domain status,
+configuration validation, connection state, timeout and capped retry timing,
+connected-only and link-loss-safe RSSI access, disconnect-error propagation,
+and credential-free diagnostics.
 The Bluetooth suite covers side-effect-free construction, explicit lifecycle
 results, callback-event isolation, bonded single-peer policy, unbonded-peer
 rejection, pairing-window timing, all authenticated challenge modes, strict
@@ -442,7 +448,7 @@ links implementation and validation history.
 | --- | --- |
 | 1 — System Core | Complete |
 | 2 — Connectivity | Software complete; physical acceptance partial |
-| 3 — Core Services | HostService, v3 configuration with host metadata, battery and audio delivered; broader Services pending |
+| 3 — Core Services | HostService, v4 configuration with host/Wi-Fi data, NetworkService, battery and audio delivered; broader Services pending |
 | 4 — Application Shell | Home, Settings, key feedback, Tab navigation and page transitions delivered; Launcher/power/remaining cues pending |
 | 5 — Mini App Infrastructure | Pending; registry primitives exist |
 | 6 — Device Manager | Built-in host list/pair/rename/delete/select delivered; full Mini App integration pending |
@@ -453,8 +459,9 @@ Home telemetry, and local Settings. USB is for power, flashing and fixed serial
 diagnostics. USB HID and arbitration are removed; IHidTransport remains the
 future extension boundary. Services can persist bounded per-host
 platform/capability/template-reference metadata, but the UI does not edit it or
-execute mappings. Wi-Fi is not yet composed; clock synchronization,
-Action-to-HID mappings and a Mac companion are not implemented.
+execute mappings. Wi-Fi runtime and persistence are composed, but on-device
+Wi-Fi setup/status UI and clock synchronization, Action-to-HID mappings, and a
+Mac companion are not implemented.
 
 Physical checks confirmed fresh pairing, one local Off/On cycle, adding and
 switching two computers, and reconnection to the last selected host after Reset
