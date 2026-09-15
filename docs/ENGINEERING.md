@@ -190,6 +190,13 @@ invalid configuration
 migration when configuration schema changes
 ```
 
+### NetworkService
+
+Test persisted Wi-Fi intent, startup restoration, storage-before-radio ordering,
+failure atomicity, domain status mapping, connected-only RSSI, and credential-free
+status and diagnostics. Connectivity retry and timeout behavior remains covered
+by the lower-level WiFiService suite.
+
 ### IndicatorService
 
 Test:

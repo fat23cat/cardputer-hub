@@ -155,6 +155,23 @@ void test_volume_is_persistent_in_ten_percent_steps_and_zero_mutes_playback() {
     TEST_ASSERT_EQUAL_UINT(played, fixture.adapter.clips.size());
 }
 
+void test_volume_changes_preserve_wifi_configuration() {
+    Fixture fixture;
+    TEST_ASSERT_TRUE(fixture.configuration.load() == services::ConfigurationResult::Success);
+    auto value = fixture.configuration.value();
+    value.wifi = {true, "Office", "recognizable-secret"};
+    TEST_ASSERT_TRUE(fixture.configuration.save(value) == services::ConfigurationResult::Success);
+    TEST_ASSERT_TRUE(fixture.audio.start() == services::AudioResult::Success);
+
+    TEST_ASSERT_TRUE(fixture.audio.setVolume(80) == services::AudioResult::Success);
+
+    services::ConfigurationService reloaded(fixture.storage);
+    TEST_ASSERT_TRUE(reloaded.load() == services::ConfigurationResult::Success);
+    TEST_ASSERT_TRUE(reloaded.value().wifi.enabled);
+    TEST_ASSERT_EQUAL_STRING("Office", reloaded.value().wifi.ssid.c_str());
+    TEST_ASSERT_EQUAL_STRING("recognizable-secret", reloaded.value().wifi.passphrase.c_str());
+}
+
 void test_invalid_or_unpersisted_volume_does_not_change_live_output() {
     Fixture fixture;
     TEST_ASSERT_TRUE(fixture.configuration.load() == services::ConfigurationResult::Success);
@@ -265,6 +282,7 @@ int main() {
     RUN_TEST(test_active_interface_cue_is_not_interrupted_or_queued);
     RUN_TEST(test_directional_volume_cues_release_to_digital_silence);
     RUN_TEST(test_volume_is_persistent_in_ten_percent_steps_and_zero_mutes_playback);
+    RUN_TEST(test_volume_changes_preserve_wifi_configuration);
     RUN_TEST(test_invalid_or_unpersisted_volume_does_not_change_live_output);
     RUN_TEST(test_corrupt_configuration_blocks_audio_start_and_volume_writes);
     RUN_TEST(test_directional_volume_cues_are_distinct_and_unmute_uses_the_new_level);

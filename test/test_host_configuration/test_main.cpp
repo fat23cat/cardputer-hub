@@ -73,6 +73,9 @@ services::SystemConfiguration maximalConfiguration() {
     value.host.nextHostId = static_cast<std::uint32_t>(value.host.hosts.size()) + 1;
     value.host.activeHost = value.host.hosts.back().id;
     value.host.bluetoothEnabled = true;
+    value.wifi.enabled = true;
+    value.wifi.ssid = std::string(32, 'S');
+    value.wifi.passphrase = std::string(64, 'a');
     value.soundVolume = 100;
     return value;
 }
@@ -120,12 +123,20 @@ core::StorageBytes versionTwoConfiguration() {
     return bytes;
 }
 
+core::StorageBytes versionThreeConfiguration() {
+    auto bytes = versionTwoConfiguration();
+    bytes[4] = 3;
+    bytes.insert(bytes.begin() + 7, 80);
+    return bytes;
+}
+
 void test_selection_names_and_off_survive_reload() {
     MemoryStorage memory;
     core::Storage storage(memory);
     services::ConfigurationService writer(storage), reader(storage);
     auto value = configuration();
     value.host.bluetoothEnabled = false;
+    value.wifi = {false, "Office WiFi", "correct horse battery staple"};
     TEST_ASSERT_TRUE(writer.load() == services::ConfigurationResult::Success);
     TEST_ASSERT_TRUE(writer.save(value) == services::ConfigurationResult::Success);
     TEST_ASSERT_TRUE(reader.load() == services::ConfigurationResult::Success);
@@ -134,12 +145,68 @@ void test_selection_names_and_off_survive_reload() {
     TEST_ASSERT_TRUE(reader.value().host.activeHost == 9);
     TEST_ASSERT_FALSE(reader.value().host.bluetoothEnabled);
     TEST_ASSERT_EQUAL_UINT8(80, reader.value().soundVolume);
+    TEST_ASSERT_FALSE(reader.value().wifi.enabled);
+    TEST_ASSERT_EQUAL_STRING("Office WiFi", reader.value().wifi.ssid.c_str());
+    TEST_ASSERT_EQUAL_STRING("correct horse battery staple",
+                             reader.value().wifi.passphrase.c_str());
     TEST_ASSERT_TRUE(reader.value().host.hosts[0].bond == value.host.hosts[0].bond);
     TEST_ASSERT_TRUE(reader.value().host.hosts[0].platform == std::optional<std::string>{"macos"});
     TEST_ASSERT_TRUE(reader.value().host.hosts[0].capabilities ==
                      std::vector<std::string>({"app.activate", "app.active"}));
     TEST_ASSERT_TRUE(reader.value().host.hosts[0].mappingTemplate ==
                      std::optional<std::string>{"macos.default"});
+}
+
+void test_wifi_configuration_validation_uses_the_station_contract() {
+    // The empty default represents disabled Wi-Fi with no configured network.
+    auto value = services::SystemConfiguration{};
+    TEST_ASSERT_TRUE(services::ConfigurationService::valid(value));
+
+    value.wifi = {false, "OpenNetwork", ""};
+    TEST_ASSERT_TRUE(services::ConfigurationService::valid(value));
+    value.wifi.enabled = true;
+    TEST_ASSERT_TRUE(services::ConfigurationService::valid(value));
+
+    value.wifi = {true, std::string(32, 'S'), std::string(63, 'p')};
+    TEST_ASSERT_TRUE(services::ConfigurationService::valid(value));
+    value.wifi.passphrase = std::string(64, 'a');
+    TEST_ASSERT_TRUE(services::ConfigurationService::valid(value));
+
+    value.wifi = {true, "", ""};
+    TEST_ASSERT_FALSE(services::ConfigurationService::valid(value));
+    value.wifi = {false, "", "orphaned-secret"};
+    TEST_ASSERT_FALSE(services::ConfigurationService::valid(value));
+    value.wifi = {false, std::string(33, 'S'), ""};
+    TEST_ASSERT_FALSE(services::ConfigurationService::valid(value));
+    value.wifi = {false, "Protected", "short"};
+    TEST_ASSERT_FALSE(services::ConfigurationService::valid(value));
+    value.wifi = {false, "Protected", std::string(64, 'g')};
+    TEST_ASSERT_FALSE(services::ConfigurationService::valid(value));
+    value.wifi = {false, std::string("Wi\0Fi", 5), ""};
+    TEST_ASSERT_FALSE(services::ConfigurationService::valid(value));
+    value.wifi = {false, "Protected", std::string("password\0tail", 13)};
+    TEST_ASSERT_FALSE(services::ConfigurationService::valid(value));
+}
+
+void test_version_four_wifi_round_trips_open_protected_enabled_and_disabled_networks() {
+    for (const auto& wifi : std::vector<services::WifiConfiguration>{
+             {false, "OpenNetwork", ""},
+             {true, "Protected", "correct horse battery staple"},
+             {false, "RawPsk", std::string(64, 'a')},
+         }) {
+        MemoryStorage memory;
+        core::Storage storage(memory);
+        services::ConfigurationService writer(storage), reader(storage);
+        auto value = configuration();
+        value.wifi = wifi;
+        TEST_ASSERT_TRUE(writer.load() == services::ConfigurationResult::Success);
+        TEST_ASSERT_TRUE(writer.save(value) == services::ConfigurationResult::Success);
+        TEST_ASSERT_EQUAL_UINT8(4, memory.bytes[4]);
+        TEST_ASSERT_TRUE(reader.load() == services::ConfigurationResult::Success);
+        TEST_ASSERT_EQUAL(wifi.enabled, reader.value().wifi.enabled);
+        TEST_ASSERT_EQUAL_STRING(wifi.ssid.c_str(), reader.value().wifi.ssid.c_str());
+        TEST_ASSERT_EQUAL_STRING(wifi.passphrase.c_str(), reader.value().wifi.passphrase.c_str());
+    }
 }
 
 void test_metadata_validation_is_bounded_and_keeps_capabilities_distinct() {
@@ -164,7 +231,7 @@ void test_metadata_validation_is_bounded_and_keeps_capabilities_distinct() {
     TEST_ASSERT_FALSE(services::ConfigurationService::valid(value));
 }
 
-void test_pr24_version_two_migrates_metadata_and_default_volume_to_version_three() {
+void test_version_two_migrates_metadata_and_defaults_to_version_four_wifi() {
     MemoryStorage memory;
     memory.bytes = versionTwoConfiguration();
     const auto versionTwo = memory.bytes;
@@ -175,6 +242,9 @@ void test_pr24_version_two_migrates_metadata_and_default_volume_to_version_three
     TEST_ASSERT_EQUAL(0, memory.writes);
     TEST_ASSERT_TRUE(memory.bytes == versionTwo);
     TEST_ASSERT_EQUAL_UINT8(60, config.value().soundVolume);
+    TEST_ASSERT_FALSE(config.value().wifi.enabled);
+    TEST_ASSERT_TRUE(config.value().wifi.ssid.empty());
+    TEST_ASSERT_TRUE(config.value().wifi.passphrase.empty());
     TEST_ASSERT_TRUE(config.value().host.hosts.front().platform ==
                      std::optional<std::string>{"macos"});
     TEST_ASSERT_TRUE(config.value().host.hosts.front().capabilities ==
@@ -194,12 +264,34 @@ void test_pr24_version_two_migrates_metadata_and_default_volume_to_version_three
     auto upgraded = config.value();
     upgraded.soundVolume = 80;
     TEST_ASSERT_TRUE(config.save(upgraded) == services::ConfigurationResult::Success);
-    TEST_ASSERT_EQUAL_UINT8(3, memory.bytes[4]);
+    TEST_ASSERT_EQUAL_UINT8(4, memory.bytes[4]);
     services::ConfigurationService reloaded(storage);
     TEST_ASSERT_TRUE(reloaded.load() == services::ConfigurationResult::Success);
     TEST_ASSERT_EQUAL_UINT8(80, reloaded.value().soundVolume);
     TEST_ASSERT_TRUE(reloaded.value().host.hosts.front().capabilities ==
                      std::vector<std::string>({"app.activate", "app.active"}));
+}
+
+void test_version_three_migrates_losslessly_without_an_eager_write() {
+    MemoryStorage memory;
+    memory.bytes = versionThreeConfiguration();
+    const auto versionThree = memory.bytes;
+    core::Storage storage(memory);
+    services::ConfigurationService config(storage);
+
+    TEST_ASSERT_TRUE(config.load() == services::ConfigurationResult::Success);
+    TEST_ASSERT_EQUAL(0, memory.writes);
+    TEST_ASSERT_TRUE(memory.bytes == versionThree);
+    TEST_ASSERT_EQUAL_UINT8(80, config.value().soundVolume);
+    TEST_ASSERT_TRUE(config.value().host.activeHost == 7);
+    TEST_ASSERT_TRUE(config.value().host.hosts.front().capabilities ==
+                     std::vector<std::string>({"app.activate", "app.active"}));
+    TEST_ASSERT_FALSE(config.value().wifi.enabled);
+    TEST_ASSERT_TRUE(config.value().wifi.ssid.empty());
+    TEST_ASSERT_TRUE(config.value().wifi.passphrase.empty());
+
+    TEST_ASSERT_TRUE(config.save(config.value()) == services::ConfigurationResult::Success);
+    TEST_ASSERT_EQUAL_UINT8(4, memory.bytes[4]);
 }
 
 void test_invalid_version_two_lengths_counts_and_duplicates_are_rejected() {
@@ -242,7 +334,7 @@ void test_failed_version_two_upgrade_preserves_storage_and_published_volume() {
     TEST_ASSERT_EQUAL_UINT8(60, config.value().soundVolume);
 }
 
-void test_maximum_version_three_record_is_bounded_and_round_trips() {
+void test_maximum_version_four_record_is_bounded_and_round_trips() {
     MemoryStorage memory;
     core::Storage storage(memory);
     services::ConfigurationService writer(storage), reader(storage);
@@ -253,6 +345,9 @@ void test_maximum_version_three_record_is_bounded_and_round_trips() {
                            memory.bytes.size());
     TEST_ASSERT_TRUE(reader.load() == services::ConfigurationResult::Success);
     TEST_ASSERT_EQUAL_UINT8(100, reader.value().soundVolume);
+    TEST_ASSERT_TRUE(reader.value().wifi.enabled);
+    TEST_ASSERT_EQUAL_STRING(value.wifi.ssid.c_str(), reader.value().wifi.ssid.c_str());
+    TEST_ASSERT_EQUAL_STRING(value.wifi.passphrase.c_str(), reader.value().wifi.passphrase.c_str());
     TEST_ASSERT_TRUE(reader.value().host.hosts.back().capabilities ==
                      value.host.hosts.back().capabilities);
     TEST_ASSERT_TRUE(reader.value().host.hosts.back().platform == value.host.hosts.back().platform);
@@ -267,6 +362,9 @@ void test_missing_is_off_and_corrupt_or_unknown_records_are_not_overwritten() {
     TEST_ASSERT_TRUE(config.load() == services::ConfigurationResult::Success);
     TEST_ASSERT_FALSE(config.value().host.bluetoothEnabled);
     TEST_ASSERT_EQUAL_UINT8(60, config.value().soundVolume);
+    TEST_ASSERT_FALSE(config.value().wifi.enabled);
+    TEST_ASSERT_TRUE(config.value().wifi.ssid.empty());
+    TEST_ASSERT_TRUE(config.value().wifi.passphrase.empty());
     TEST_ASSERT_EQUAL(0, memory.writes);
     memory.bytes = {255, 1, 2, 3};
     TEST_ASSERT_TRUE(config.load() == services::ConfigurationResult::InvalidData);
@@ -346,9 +444,38 @@ void test_truncated_trailing_and_future_schema_records_preserve_last_valid_value
     memory.bytes.push_back(0);
     TEST_ASSERT_TRUE(config.load() == services::ConfigurationResult::InvalidData);
     memory.bytes = valid;
-    memory.bytes[4] = 4;
+    memory.bytes[4] = 5;
     TEST_ASSERT_TRUE(config.load() == services::ConfigurationResult::InvalidData);
     TEST_ASSERT_EQUAL(1, memory.writes);
+}
+
+void test_invalid_version_four_wifi_payloads_preserve_the_last_valid_value() {
+    MemoryStorage memory;
+    core::Storage storage(memory);
+    services::ConfigurationService config(storage);
+    TEST_ASSERT_TRUE(config.load() == services::ConfigurationResult::Success);
+    auto value = configuration();
+    value.wifi = {true, "Protected", "recognizable-secret"};
+    TEST_ASSERT_TRUE(config.save(value) == services::ConfigurationResult::Success);
+    const auto valid = memory.bytes;
+
+    memory.bytes = valid;
+    const auto wifiEnabledOffset =
+        memory.bytes.size() - value.wifi.ssid.size() - value.wifi.passphrase.size() - 3;
+    memory.bytes[wifiEnabledOffset] = 2;
+    TEST_ASSERT_TRUE(config.load() == services::ConfigurationResult::InvalidData);
+    TEST_ASSERT_EQUAL_STRING("Protected", config.value().wifi.ssid.c_str());
+
+    memory.bytes = valid;
+    memory.bytes[wifiEnabledOffset + 1] = 33;
+    TEST_ASSERT_TRUE(config.load() == services::ConfigurationResult::InvalidData);
+    TEST_ASSERT_EQUAL_STRING("recognizable-secret", config.value().wifi.passphrase.c_str());
+
+    memory.bytes = valid;
+    const auto passphraseLengthOffset = wifiEnabledOffset + 2 + value.wifi.ssid.size();
+    memory.bytes[passphraseLengthOffset] = 65;
+    TEST_ASSERT_TRUE(config.load() == services::ConfigurationResult::InvalidData);
+    TEST_ASSERT_EQUAL_STRING("recognizable-secret", config.value().wifi.passphrase.c_str());
 }
 
 void test_version_one_host_records_migrate_with_default_sound_volume() {
@@ -364,6 +491,9 @@ void test_version_one_host_records_migrate_with_default_sound_volume() {
     TEST_ASSERT_FALSE(config.value().host.hosts.front().platform.has_value());
     TEST_ASSERT_TRUE(config.value().host.hosts.front().capabilities.empty());
     TEST_ASSERT_FALSE(config.value().host.hosts.front().mappingTemplate.has_value());
+    TEST_ASSERT_FALSE(config.value().wifi.enabled);
+    TEST_ASSERT_TRUE(config.value().wifi.ssid.empty());
+    TEST_ASSERT_TRUE(config.value().wifi.passphrase.empty());
     for (std::size_t length = 1; length < versionOne.size(); ++length) {
         memory.bytes.assign(versionOne.begin(), versionOne.begin() + length);
         TEST_ASSERT_TRUE(config.load() == services::ConfigurationResult::InvalidData);
@@ -372,7 +502,7 @@ void test_version_one_host_records_migrate_with_default_sound_volume() {
     memory.bytes = versionOne;
     TEST_ASSERT_TRUE(config.load() == services::ConfigurationResult::Success);
     TEST_ASSERT_TRUE(config.save(config.value()) == services::ConfigurationResult::Success);
-    TEST_ASSERT_EQUAL_UINT8(3, memory.bytes[4]);
+    TEST_ASSERT_EQUAL_UINT8(4, memory.bytes[4]);
 }
 
 } // namespace
@@ -381,13 +511,17 @@ void setUp() {}
 void tearDown() {}
 int main() {
     UNITY_BEGIN();
-    RUN_TEST(test_maximum_version_three_record_is_bounded_and_round_trips);
-    RUN_TEST(test_pr24_version_two_migrates_metadata_and_default_volume_to_version_three);
+    RUN_TEST(test_maximum_version_four_record_is_bounded_and_round_trips);
+    RUN_TEST(test_version_four_wifi_round_trips_open_protected_enabled_and_disabled_networks);
+    RUN_TEST(test_wifi_configuration_validation_uses_the_station_contract);
+    RUN_TEST(test_version_two_migrates_metadata_and_defaults_to_version_four_wifi);
+    RUN_TEST(test_version_three_migrates_losslessly_without_an_eager_write);
     RUN_TEST(test_invalid_version_two_lengths_counts_and_duplicates_are_rejected);
     RUN_TEST(test_failed_version_two_upgrade_preserves_storage_and_published_volume);
     RUN_TEST(test_metadata_validation_is_bounded_and_keeps_capabilities_distinct);
     RUN_TEST(test_save_cannot_overwrite_a_configuration_that_never_loaded_successfully);
     RUN_TEST(test_truncated_trailing_and_future_schema_records_preserve_last_valid_value);
+    RUN_TEST(test_invalid_version_four_wifi_payloads_preserve_the_last_valid_value);
     RUN_TEST(test_version_one_host_records_migrate_with_default_sound_volume);
     RUN_TEST(test_selection_names_and_off_survive_reload);
     RUN_TEST(test_missing_is_off_and_corrupt_or_unknown_records_are_not_overwritten);

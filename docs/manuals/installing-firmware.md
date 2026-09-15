@@ -30,6 +30,30 @@ wait for `app: ok` plus `flash complete`. These manager commands validate the
 ESP application descriptor and the `hub` partition size before the image can
 reach CRUB.
 
+### USB Serial Diagnostics After a CRUB Launch
+
+CRUB normally initializes USB mass storage before launching an application. If
+Cardputer Hub starts through the `hub` alias but its USB Serial/JTAG console
+does not appear on the computer, stage the card once with a current Cardputer
+Firmware Manager `local` or `release` command, then run this alias in CRUB:
+
+```text
+hubfast
+```
+
+Reset the Cardputer. `hubfast` changes `/.crub/boot` to launch Hub before CRUB
+initializes USB, and Hub will continue to start automatically on later resets.
+
+To restore the normal CRUB boot screen:
+
+1. Power off the Cardputer and remove the microSD card.
+2. Power it on, reinsert the card, and run `sd`.
+3. Run `crubmenu`, then reset the Cardputer once more.
+
+`crubmenu` restores CRUB's normal delayed boot and command fetch. Both aliases
+are installed by the firmware manager during `local` or `release` staging, and
+neither alias writes the Cardputer's internal flash.
+
 ## What You Need
 
 * an M5Stack Cardputer-Adv;
@@ -131,10 +155,10 @@ make upload
 ```
 
 The current firmware lazily upgrades older `HUBH` configuration records to the
-combined version-3 schema on the next successful settings change. Versions 1
-and 2 remain readable, but firmware predating version 3 cannot read a record
+combined version-4 schema on the next successful settings change. Versions 1,
+2, and 3 remain readable, but firmware predating version 4 cannot read a record
 after that upgrade; it will not erase it. Downgrade safely only with a release
-that documents version-3 compatibility or an explicit migration. Clearing
+that documents version-4 compatibility or an explicit migration. Clearing
 `hub_config` is a destructive last resort that removes saved Cardputer Hub
 configuration and is not part of a normal downgrade or routine upgrade.
 
@@ -235,5 +259,7 @@ Exit the serial monitor with `Ctrl+]`. Continue with the
   sequence above and retry.
 * If the monitor is blank, confirm the device reset and that no other program
   has the serial port open. The configured monitor speed is 115200 baud.
+* If USB serial disappears only after launching Hub through CRUB, use the
+  [`hubfast` diagnostic boot procedure](#usb-serial-diagnostics-after-a-crub-launch).
 * To discard local build output and rebuild from scratch, run `make clean`,
   followed by `make upload`.

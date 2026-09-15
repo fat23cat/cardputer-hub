@@ -10,10 +10,15 @@
 
 namespace cardputer_hub::connectivity {
 
+inline constexpr std::size_t maximumWifiSsidLength = 32;
+inline constexpr std::size_t maximumWifiPassphraseLength = 64;
+
 struct WifiNetworkConfig {
     std::string ssid;
     std::string passphrase;
 };
+
+bool validWifiNetworkConfig(const WifiNetworkConfig& config) noexcept;
 
 enum class WifiState : std::uint8_t {
     Idle,

@@ -372,6 +372,29 @@ void test_metadata_actions_preserve_sound_without_starting_bluetooth() {
                      std::vector<std::string>{"app.activate"});
 }
 
+void test_host_mutations_preserve_wifi_configuration() {
+    Fixture f;
+    TEST_ASSERT_TRUE(f.config.load() == services::ConfigurationResult::Success);
+    auto value = f.config.value();
+    value.wifi = {true, "Office", "recognizable-secret"};
+    TEST_ASSERT_TRUE(f.config.save(value) == services::ConfigurationResult::Success);
+    TEST_ASSERT_TRUE(f.hosts.start() == services::HostResult::Success);
+    TEST_ASSERT_EQUAL_UINT(2, f.hosts.settings().hosts.size());
+    const auto selected = f.hosts.settings().hosts[0].id;
+    const auto deleted = f.hosts.settings().hosts[1].id;
+
+    TEST_ASSERT_TRUE(f.hosts.setHostPlatform(selected, "macos") == services::HostResult::Success);
+    TEST_ASSERT_TRUE(f.hosts.renameHost(selected, "Notebook") == services::HostResult::Success);
+    TEST_ASSERT_TRUE(f.hosts.selectHost(selected) == services::HostResult::Success);
+    TEST_ASSERT_TRUE(f.hosts.deleteHost(deleted) == services::HostResult::Success);
+
+    services::ConfigurationService reloaded(f.storage);
+    TEST_ASSERT_TRUE(reloaded.load() == services::ConfigurationResult::Success);
+    TEST_ASSERT_TRUE(reloaded.value().wifi.enabled);
+    TEST_ASSERT_EQUAL_STRING("Office", reloaded.value().wifi.ssid.c_str());
+    TEST_ASSERT_EQUAL_STRING("recognizable-secret", reloaded.value().wifi.passphrase.c_str());
+}
+
 void test_metadata_actions_persist_without_touching_the_ready_selected_host() {
     Fixture f;
     TEST_ASSERT_TRUE(f.hosts.start() == services::HostResult::Success);
@@ -1027,6 +1050,7 @@ int main() {
     RUN_TEST(test_host_status_snapshot_prioritizes_pairing_and_failures);
     RUN_TEST(test_host_status_snapshot_translates_and_clears_pairing_prompts);
     RUN_TEST(test_metadata_actions_preserve_sound_without_starting_bluetooth);
+    RUN_TEST(test_host_mutations_preserve_wifi_configuration);
     RUN_TEST(test_metadata_actions_persist_without_touching_the_ready_selected_host);
     RUN_TEST(test_invalid_or_failed_metadata_actions_preserve_configuration_and_radio_state);
     RUN_TEST(test_metadata_operations_are_bounded_and_do_not_start_bluetooth);
