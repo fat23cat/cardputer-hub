@@ -119,6 +119,7 @@ jobs:
           source "${HOME}/.espressif/frameworks/esp-idf-v5.5.5/export.sh"
           ccache --max-size=500M
           make firmware-check
+          make firmware-size
           ccache --show-stats
 
       - name: Package firmware and checksum

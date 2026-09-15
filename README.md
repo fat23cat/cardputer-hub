@@ -229,11 +229,17 @@ follow the install guide's
 
 ```bash
 make build
+make firmware-size
 ```
 
 External orchestrators such as Cardputer Firmware Manager use the self-contained
 wrapper `scripts/build_firmware.sh`; interactive development may continue to
 activate ESP-IDF and call `make build` directly.
+
+`make firmware-size` inspects that completed production build without creating
+a second firmware variant. It prints ESP-IDF's application/partition summary
+and per-component flash contributions, and retains the same reports as
+`build/firmware-size.txt` and `build/firmware-size-components.txt`.
 
 The production application and matching partition-table images are written to
 `build/cardputer_hub.bin` and
@@ -393,9 +399,11 @@ Pull requests targeting any branch, pushes to `main`, and manual CI runs execute
 the `make host-check` and `make firmware-check` portions of `make check` in
 parallel on Ubuntu 24.04. This includes stacked pull requests whose base is
 another feature branch. A final required status succeeds only when both paths
-pass. CI also uploads the compiled application and partition-table images as an
-artifact retained for seven days. All third-party Actions use full commit SHA
-pins, and Dependabot proposes reviewed updates.
+pass. CI prints the application and per-component size summaries, then uploads
+those reports with the compiled application and partition-table images as an
+artifact retained for seven days. Size is observable but does not yet have an
+arbitrary pass/fail budget. All third-party Actions use full commit SHA pins,
+and Dependabot proposes reviewed updates.
 
 After CI validates a merged pull request on `main`, the protected
 `Release firmware` workflow uses the source branch prefix to assign the next
@@ -418,13 +426,14 @@ The primary local commands are:
 ```text
 make setup         resolve locked repository and ESP-IDF dependencies
 make build         compile Cardputer-Adv firmware
+make firmware-size report application, partition, and component sizes for build/
 make test          run native tests
 make format        format owned C/C++ sources
 make format-check  verify formatting
 make lint          run static analysis
 make host-check    run lock, format, lint, and native test checks
 make firmware-check
-                   build and verify the production firmware
+                   build firmware and verify its effective ESP-IDF configuration
 make check         run all required validation
 make upload        compile and flash firmware
 make migrate-storage-layout UPLOAD_PORT=<device>
@@ -439,7 +448,7 @@ See [`docs/ENGINEERING.md`](docs/ENGINEERING.md) for the complete workflow.
 
 ## Current Status
 
-Reviewed on **2026-09-11**. The authoritative
+Reviewed on **2026-09-15**. The authoritative
 [phase checklist](docs/ARCHITECTURE.md#47-initial-development-order) records
 completed steps and remaining work; the [plan index](docs/plans/README.md)
 links implementation and validation history.
@@ -469,8 +478,10 @@ and power-on. The operator accepted the Home/navigation appearance.
 [Plan 017](docs/plans/017-hid-transport-arbitration.md#0-current-closeout-status)
 keeps longer Off/reboot-Off checks, report/interruption reruns, long-duration
 and equipment-limited cases, and USB serial hotplug open. Historical harness passes are not represented
-as final-image acceptance. Latest local checks passed: 47 Python tests, 240
-native tests, formatting, static analysis and ESP-IDF production compilation.
+as final-image acceptance. Latest local checks passed: 72 Python tests, 274
+native tests, formatting, static analysis, and a clean ESP-IDF production
+compilation. The final Plan-026 image is 1,146,080 bytes; detailed application
+and component reports are available through `make firmware-size`.
 
 ---
 

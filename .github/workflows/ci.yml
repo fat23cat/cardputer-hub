@@ -90,6 +90,7 @@ jobs:
           ccache --max-size=500M
           ccache --zero-stats
           make firmware-check
+          make firmware-size
           ccache --show-stats
 
       - name: Upload firmware
@@ -99,6 +100,8 @@ jobs:
           path: |
             build/cardputer_hub.bin
             build/partition_table/partition-table.bin
+            build/firmware-size.txt
+            build/firmware-size-components.txt
           if-no-files-found: error
           retention-days: 7
 

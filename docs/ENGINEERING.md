@@ -419,6 +419,20 @@ in version-controlled configuration.
 
 A new developer should not need to manually install undocumented firmware libraries.
 
+The completed production image is the single source for firmware-size
+observability. `make firmware-size` runs ESP-IDF's application and archive size
+reports against `build/cardputer_hub.elf`, prints partition usage and
+component-level contributions, and retains both text reports in `build/` for
+CI artifacts. CI and release builds publish or print these reports without a
+hard size budget; a budget requires later historical evidence and a separate
+decision.
+
+`make firmware-check` also validates the generated
+`build/config/sdkconfig.h` after compilation. This effective-configuration
+guard requires size optimization and rejects production images that resolved
+with SoftAP or Enterprise Wi-Fi support, so a stale local `sdkconfig` cannot
+silently bypass the version-controlled Plan-026 profile.
+
 ---
 
 ## 14. Repository Workflow
@@ -1000,6 +1014,9 @@ make host-check
 
 # Final production-image gate, when applicable
 make firmware-check
+
+# Inspect the completed production image
+make firmware-size
 ```
 
 Do not repeatedly run the full gate after edits that cannot affect its result.

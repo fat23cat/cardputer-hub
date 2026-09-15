@@ -1,6 +1,7 @@
 import os
 import pathlib
 import subprocess
+import sys
 import tempfile
 import unittest
 
@@ -115,6 +116,112 @@ class EspIdfBuildConfigurationTests(unittest.TestCase):
         self.assertIn("idf.py", makefile)
         self.assertIn("cardputer_hub.bin", makefile)
         self.assertIn('CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="partitions.csv"', configuration)
+
+    def test_production_size_profile_excludes_unused_wifi_features(self) -> None:
+        configuration = self.read("sdkconfig.defaults")
+
+        expected_settings = (
+            "CONFIG_COMPILER_OPTIMIZATION_SIZE=y",
+            "CONFIG_ESP_WIFI_SOFTAP_SUPPORT=n",
+            "CONFIG_ESP_WIFI_ENTERPRISE_SUPPORT=n",
+        )
+        for setting in expected_settings:
+            self.assertIn(setting, configuration)
+
+        deferred_settings = (
+            "CONFIG_ESP_WIFI_ENABLE_WPA3_SAE=n",
+            "CONFIG_ESP_WIFI_ENABLE_SAE_H2E=n",
+            "CONFIG_LWIP_IPV6=n",
+            "CONFIG_COMPILER_LTO=y",
+            "CONFIG_COMPILER_OPTIMIZATION_ASSERTIONS_SILENT=y",
+        )
+        for setting in deferred_settings:
+            self.assertNotIn(setting, configuration)
+
+    def test_firmware_size_command_reports_the_completed_production_build(self) -> None:
+        makefile = self.read("Makefile")
+
+        self.assertIn("firmware-size:", makefile)
+        self.assertIn("$(IDF_APP_IMAGE)", makefile)
+        self.assertIn('size | tee "$(IDF_BUILD_DIR)/firmware-size.txt"', makefile)
+        self.assertIn(
+            'size-components | tee "$(IDF_BUILD_DIR)/firmware-size-components.txt"',
+            makefile,
+        )
+        self.assertNotIn("firmware-size: build", makefile)
+
+    def test_firmware_check_validates_the_effective_generated_configuration(self) -> None:
+        makefile = self.read("Makefile")
+
+        self.assertIn(
+            "IDF_CONFIG_HEADER := $(IDF_BUILD_DIR)/config/sdkconfig.h", makefile
+        )
+        self.assertIn(
+            'python3 scripts/check_esp_idf_config.py "$(IDF_CONFIG_HEADER)"', makefile
+        )
+        self.assertLess(
+            makefile.index("firmware-check: build"),
+            makefile.index("python3 scripts/check_esp_idf_config.py"),
+        )
+
+    def test_effective_configuration_check_accepts_only_the_plan_026_profile(
+        self,
+    ) -> None:
+        valid_header = "\n".join(
+            (
+                "#define CONFIG_COMPILER_OPTIMIZATION_SIZE 1",
+                "#define CONFIG_ESP_WIFI_ENABLE_WPA3_SAE 1",
+            )
+        )
+
+        with tempfile.TemporaryDirectory() as directory:
+            header = pathlib.Path(directory) / "sdkconfig.h"
+            header.write_text(valid_header, encoding="utf-8")
+            valid = subprocess.run(
+                [
+                    sys.executable,
+                    str(ROOT / "scripts/check_esp_idf_config.py"),
+                    str(header),
+                ],
+                capture_output=True,
+                text=True,
+            )
+            self.assertEqual(0, valid.returncode, valid.stderr)
+
+            invalid_cases = (
+                ("", "CONFIG_COMPILER_OPTIMIZATION_SIZE must be enabled"),
+                (
+                    valid_header + "\n#define CONFIG_ESP_WIFI_SOFTAP_SUPPORT 1\n",
+                    "CONFIG_ESP_WIFI_SOFTAP_SUPPORT must be disabled",
+                ),
+                (
+                    valid_header + "\n#define CONFIG_ESP_WIFI_ENTERPRISE_SUPPORT 1\n",
+                    "CONFIG_ESP_WIFI_ENTERPRISE_SUPPORT must be disabled",
+                ),
+            )
+            for content, expected_error in invalid_cases:
+                with self.subTest(expected_error=expected_error):
+                    header.write_text(content, encoding="utf-8")
+                    invalid = subprocess.run(
+                        [
+                            sys.executable,
+                            str(ROOT / "scripts/check_esp_idf_config.py"),
+                            str(header),
+                        ],
+                        capture_output=True,
+                        text=True,
+                    )
+                    self.assertNotEqual(0, invalid.returncode)
+                    self.assertIn(expected_error, invalid.stderr)
+
+    def test_ci_retains_firmware_size_reports_without_a_size_budget(self) -> None:
+        workflow = self.read(".github/workflows/ci.yml")
+
+        self.assertIn("make firmware-size", workflow)
+        self.assertIn("build/firmware-size.txt", workflow)
+        self.assertIn("build/firmware-size-components.txt", workflow)
+        self.assertNotIn("MAX_FIRMWARE_SIZE", workflow)
+        self.assertNotIn("FIRMWARE_SIZE_BUDGET", workflow)
 
     def test_fat_supports_the_managed_root_and_logical_path_lengths(self) -> None:
         configuration = self.read("sdkconfig.defaults")
@@ -418,6 +525,7 @@ class EspIdfBuildConfigurationTests(unittest.TestCase):
 
         self.assertIn('${HOME}/.espressif/frameworks/esp-idf-v5.5.5', workflow)
         self.assertIn("make firmware-check", workflow)
+        self.assertIn("make firmware-size", workflow)
         self.assertNotIn("make check", workflow)
 
     def test_reviewed_build_and_disconnect_settings_are_unambiguous(self) -> None:
