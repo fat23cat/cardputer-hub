@@ -204,8 +204,8 @@ type again. Logs exclude keyboard text, pairing codes, and host identity data.
 Attaching/removing USB does not select a host, turn BLE On/Off, or erase pairs.
 No USB HID keyboard is exposed. USB serial hotplug behavior and final BLE
 hardware acceptance are tracked separately in [plan 017](../plans/017-hid-transport-arbitration.md).
-The opt-in [BLE validation harness](../validation/plan-015-device-harness.md)
-provides diagnostic commands; those commands are not available in normal firmware.
+Normal firmware has no opt-in validation-harness build or diagnostic command
+shell.
 
 ## Current Limitations
 

@@ -1,5 +1,8 @@
 # Plan 015 Cardputer-Adv BLE HID Validation Harness
 
+Historical runbook. The opt-in `CARDPUTER_HUB_PLAN_015_VALIDATION` image and
+`src/validation` harness were removed; this is not a supported build path.
+
 This runbook validates the BLE keyboard and consumer-control transport on a
 physical Cardputer-Adv. The opt-in image extends the plan-014 pairing harness;
 it is not production firmware and never routes the Cardputer keyboard to a

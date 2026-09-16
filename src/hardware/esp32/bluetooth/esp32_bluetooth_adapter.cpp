@@ -5,7 +5,6 @@
 #include <array>
 #include <cstddef>
 #include <cstdint>
-#include <cstdio>
 #include <cstring>
 #include <string>
 
@@ -1282,9 +1281,6 @@ connectivity::BluetoothPollResult Esp32BluetoothAdapter::pollEvent() {
                  connectivity::BluetoothFailureClass::Fatal, event.lifecycle});
         }
         case RawEventType::PeerDisconnected: {
-#if CARDPUTER_HUB_PLAN_015_VALIDATION
-            std::printf("[VALIDATION 015] disconnect reason=%d\n", event.status);
-#endif
             auto* peer = findPeer(event.connectionHandle);
             if (peer == nullptr) {
                 break;
@@ -1550,15 +1546,6 @@ Esp32BluetoothAdapter::hidReadiness(connectivity::BluetoothPeerHandle handle) {
     const bool consumerSubscribed = context.consumerSubscribed;
     const bool reportProtocol = context.hidProtocolMode == 1;
     portEXIT_CRITICAL(&context.mutex);
-#if CARDPUTER_HUB_PLAN_015_VALIDATION
-    std::printf("[VALIDATION 015] adapter state encrypted=%u authenticated=%u bonded=%u "
-                "keyboard=%u consumer=%u report_protocol=%u\n",
-                static_cast<unsigned>(descriptor.sec_state.encrypted),
-                static_cast<unsigned>(descriptor.sec_state.authenticated),
-                static_cast<unsigned>(descriptor.sec_state.bonded),
-                static_cast<unsigned>(keyboardSubscribed),
-                static_cast<unsigned>(consumerSubscribed), static_cast<unsigned>(reportProtocol));
-#endif
     return descriptor.sec_state.encrypted != 0 && descriptor.sec_state.authenticated != 0 &&
                    descriptor.sec_state.bonded != 0 && keyboardSubscribed && consumerSubscribed &&
                    reportProtocol

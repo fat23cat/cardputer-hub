@@ -1,7 +1,10 @@
 #include "apps/hosts/assets/micro5_digits.h"
 #include "apps/hosts/host_settings.h"
 #include "apps/network/wifi_settings.h"
+#include "apps/runtime/mini_app_runtime.h"
 #include "apps/shell/application_shell.h"
+#include "core/app_registry/app_registry.h"
+#include "core/capabilities/capability_registry.h"
 #include "core/display/palette.h"
 #include "services/hosts/host_service.h"
 #include "services/network/network_service.h"
@@ -818,7 +821,8 @@ struct Screen {
     explicit Screen(Fixture& f)
         : ui(f.hosts, bus, display), wifi(wifiAdapter), network(wifi, f.config),
           wifiSettings(network, bus, display), audio(f.config, audioAdapter),
-          shell(f.hosts, network, bus, display, ui, wifiSettings, audio) {
+          miniApps(appRegistry, capabilities),
+          shell(f.hosts, network, bus, display, ui, wifiSettings, audio, miniApps) {
         for (const auto* id : {"host.bluetooth", "host.select", "host.pair", "host.cancel-pairing",
                                "host.delete", "host.rename"})
             bus.registerHandler(id, f.hosts);
@@ -842,6 +846,9 @@ struct Screen {
     apps::WiFiSettings wifiSettings;
     SilentAudioAdapter audioAdapter;
     services::AudioService audio;
+    core::AppRegistry appRegistry;
+    core::CapabilityRegistry capabilities;
+    apps::MiniAppRuntime miniApps;
     apps::ApplicationShell shell;
 };
 

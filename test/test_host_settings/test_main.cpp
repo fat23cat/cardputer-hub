@@ -1,8 +1,11 @@
 #include "apps/hosts/host_settings.h"
 #include "apps/network/wifi_settings.h"
+#include "apps/runtime/mini_app_runtime.h"
 #include "apps/shell/application_shell.h"
 #include "apps/shell/home_graphics.h"
+#include "core/app_registry/app_registry.h"
 #include "core/audio/audio_adapter.h"
+#include "core/capabilities/capability_registry.h"
 #include "core/display/text_layout.h"
 #include "services/audio/audio_service.h"
 #include "services/network/network_service.h"
@@ -249,6 +252,9 @@ struct Fixture {
     Display display;
     apps::HostSettings ui{hosts, bus, display};
     apps::WiFiSettings wifiSettings{network, bus, display};
+    core::AppRegistry appRegistry;
+    core::CapabilityRegistry capabilities;
+    apps::MiniAppRuntime miniApps{appRegistry, capabilities};
     Fixture() {
         services::SystemConfiguration value;
         value.host.hosts = {{8, "Office laptop", {}, std::nullopt, {}, std::nullopt},
@@ -425,7 +431,7 @@ void test_home_bluetooth_status_change_redraws_only_the_host_section() {
     f.adapter.bonded.push_back(value.host.hosts.front().bond);
     TEST_ASSERT_TRUE(f.hosts.start() == services::HostResult::Success);
     apps::ApplicationShell shell(f.hosts, f.network, f.bus, f.display, f.ui, f.wifiSettings,
-                                 f.audio);
+                                 f.audio, f.miniApps);
     shell.update({});
     f.display.rectangles.clear();
     f.display.texts.clear();
@@ -451,7 +457,7 @@ void test_home_and_bluetooth_settings_show_the_same_pairing_status() {
     TEST_ASSERT_TRUE(f.hosts.start() == services::HostResult::Success);
     TEST_ASSERT_TRUE(f.hosts.startPairing() == services::HostResult::Success);
     apps::ApplicationShell shell(f.hosts, f.network, f.bus, f.display, f.ui, f.wifiSettings,
-                                 f.audio);
+                                 f.audio, f.miniApps);
 
     shell.update({});
     TEST_ASSERT_TRUE(std::find(f.display.texts.begin(), f.display.texts.end(), "PAIRING") !=
@@ -605,7 +611,7 @@ const core::InputEvent fnTab{
 void test_shell_boots_simple_home_and_opens_settings_before_bluetooth() {
     Fixture f;
     apps::ApplicationShell shell(f.hosts, f.network, f.bus, f.display, f.ui, f.wifiSettings,
-                                 f.audio);
+                                 f.audio, f.miniApps);
     shell.update({});
     TEST_ASSERT_TRUE(std::find(f.display.texts.begin(), f.display.texts.end(), "SELECTED HOST") !=
                      f.display.texts.end());
@@ -659,7 +665,7 @@ void test_shell_boots_simple_home_and_opens_settings_before_bluetooth() {
 void test_shell_back_cancels_rename_before_returning_home_and_preserves_host_intent() {
     Fixture f;
     apps::ApplicationShell shell(f.hosts, f.network, f.bus, f.display, f.ui, f.wifiSettings,
-                                 f.audio);
+                                 f.audio, f.miniApps);
     const core::InputEvent escape{core::InputEventType::NamedKey, 0, core::NamedKey::Escape, {}};
     shell.update({settingsChord, enter, character('.'), character('.'), character('r')});
     TEST_ASSERT_TRUE(std::find(f.display.texts.begin(), f.display.texts.end(), "HOST NAME") !=
@@ -685,7 +691,7 @@ void test_home_and_panel_show_selected_host_and_do_not_navigate_on_state_updates
     value.host.hosts.back().name = "Work laptop for projects";
     TEST_ASSERT_TRUE(f.config.save(value) == services::ConfigurationResult::Success);
     apps::ApplicationShell shell(f.hosts, f.network, f.bus, f.display, f.ui, f.wifiSettings,
-                                 f.audio);
+                                 f.audio, f.miniApps);
     shell.update({});
     TEST_ASSERT_TRUE(std::find(f.display.texts.begin(), f.display.texts.end(), "SELECTED HOST") !=
                      f.display.texts.end());
@@ -708,7 +714,7 @@ void test_home_and_panel_show_selected_host_and_do_not_navigate_on_state_updates
 void test_plain_tab_opens_settings_and_leaves_editing_intact() {
     Fixture f;
     apps::ApplicationShell shell(f.hosts, f.network, f.bus, f.display, f.ui, f.wifiSettings,
-                                 f.audio);
+                                 f.audio, f.miniApps);
     const core::InputEvent tab{core::InputEventType::NamedKey, 0, core::NamedKey::Tab, {}};
     shell.update({tab});
     TEST_ASSERT_TRUE(std::find(f.display.texts.begin(), f.display.texts.end(), "SETTINGS") !=
@@ -724,7 +730,7 @@ void test_plain_tab_opens_settings_and_leaves_editing_intact() {
 void test_page_transitions_follow_navigation_and_ignore_focus_or_status_refresh() {
     Fixture f;
     apps::ApplicationShell shell(f.hosts, f.network, f.bus, f.display, f.ui, f.wifiSettings,
-                                 f.audio);
+                                 f.audio, f.miniApps);
     shell.update({});
     TEST_ASSERT_TRUE(f.display.transitions.empty());
     shell.update({settingsChord});
@@ -755,7 +761,7 @@ void test_page_transitions_follow_navigation_and_ignore_focus_or_status_refresh(
 void test_fn_tab_and_system_button_do_not_open_settings() {
     Fixture f;
     apps::ApplicationShell shell(f.hosts, f.network, f.bus, f.display, f.ui, f.wifiSettings,
-                                 f.audio);
+                                 f.audio, f.miniApps);
     const core::InputEvent menu{core::InputEventType::NamedKey, 0, core::NamedKey::SystemMenu, {}};
     shell.update({});
     const auto presentations = f.display.presentations;
@@ -778,7 +784,7 @@ void test_home_name_fits_without_changing_the_saved_label() {
     TEST_ASSERT_EQUAL_STRING("...", label.substr(label.size() - 3).c_str());
     TEST_ASSERT_EQUAL_STRING("MACBOOK PRO", apps::fitHomeHostName("MacBook Pro").c_str());
     apps::ApplicationShell shell(f.hosts, f.network, f.bus, f.display, f.ui, f.wifiSettings,
-                                 f.audio);
+                                 f.audio, f.miniApps);
     shell.update({});
     f.display.capture("home-long-name");
     const auto oldCommands = f.display.commands;
@@ -793,7 +799,7 @@ void test_home_name_fits_without_changing_the_saved_label() {
 void test_home_wave_is_bounded_and_pauses_in_settings() {
     Fixture f;
     apps::ApplicationShell shell(f.hosts, f.network, f.bus, f.display, f.ui, f.wifiSettings,
-                                 f.audio);
+                                 f.audio, f.miniApps);
     shell.update({});
     const auto frames = f.display.frames;
     const auto presentations = f.display.presentations;
@@ -823,7 +829,7 @@ void test_home_wave_is_bounded_and_pauses_in_settings() {
 void test_every_semantic_key_press_gets_one_click_and_idle_updates_stay_silent() {
     Fixture f;
     apps::ApplicationShell shell(f.hosts, f.network, f.bus, f.display, f.ui, f.wifiSettings,
-                                 f.audio);
+                                 f.audio, f.miniApps);
     shell.update({});
     TEST_ASSERT_TRUE(f.audioAdapter.clips.empty());
     shell.update({character('a'), enter});
@@ -836,7 +842,7 @@ void test_every_semantic_key_press_gets_one_click_and_idle_updates_stay_silent()
 void test_settings_volume_row_steps_with_left_and_right_and_zero_is_mute() {
     Fixture f;
     apps::ApplicationShell shell(f.hosts, f.network, f.bus, f.display, f.ui, f.wifiSettings,
-                                 f.audio);
+                                 f.audio, f.miniApps);
     const core::InputEvent left{core::InputEventType::NamedKey, 0, core::NamedKey::Left, {}};
     const core::InputEvent right{core::InputEventType::NamedKey, 0, core::NamedKey::Right, {}};
     shell.update({settingsChord});
@@ -872,7 +878,7 @@ void test_settings_volume_row_steps_with_left_and_right_and_zero_is_mute() {
 void test_settings_volume_accepts_the_cardputer_arrow_marked_keys_without_fn() {
     Fixture f;
     apps::ApplicationShell shell(f.hosts, f.network, f.bus, f.display, f.ui, f.wifiSettings,
-                                 f.audio);
+                                 f.audio, f.miniApps);
     shell.update({settingsChord});
     shell.update({character('.'), character('.')});
 
@@ -886,7 +892,7 @@ void test_settings_volume_accepts_the_cardputer_arrow_marked_keys_without_fn() {
 void test_settings_focus_and_volume_only_repaint_changed_rows() {
     Fixture f;
     apps::ApplicationShell shell(f.hosts, f.network, f.bus, f.display, f.ui, f.wifiSettings,
-                                 f.audio);
+                                 f.audio, f.miniApps);
     const core::InputEvent right{core::InputEventType::NamedKey, 0, core::NamedKey::Right, {}};
     shell.update({settingsChord});
     const auto fullFrames = f.display.frames;
@@ -924,7 +930,7 @@ void test_settings_focus_and_volume_only_repaint_changed_rows() {
 void test_home_shows_unavailable_telemetry_and_updates_only_battery_region() {
     Fixture f;
     apps::ApplicationShell shell(f.hosts, f.network, f.bus, f.display, f.ui, f.wifiSettings,
-                                 f.audio);
+                                 f.audio, f.miniApps);
     shell.update({});
     for (const auto* label : {"--:--", "--%"})
         TEST_ASSERT_TRUE(std::find(f.display.texts.begin(), f.display.texts.end(), label) !=

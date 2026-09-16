@@ -1,8 +1,11 @@
 #include "apps/hosts/host_settings.h"
 #include "apps/network/wifi_settings.h"
+#include "apps/runtime/mini_app_runtime.h"
 #include "apps/shell/application_shell.h"
 #include "apps/shell/home_graphics.h"
+#include "core/app_registry/app_registry.h"
 #include "core/audio/audio_adapter.h"
+#include "core/capabilities/capability_registry.h"
 #include "core/display/palette.h"
 #include "core/display/text_layout.h"
 #include "services/audio/audio_service.h"
@@ -220,6 +223,9 @@ struct Fixture {
     Display display;
     apps::HostSettings hostSettings{hosts, bus, display};
     apps::WiFiSettings wifiSettings{network, bus, display};
+    core::AppRegistry appRegistry;
+    core::CapabilityRegistry capabilities;
+    apps::MiniAppRuntime miniApps{appRegistry, capabilities};
     Fixture() {
         TEST_ASSERT_TRUE(config.load() == services::ConfigurationResult::Success);
         TEST_ASSERT_TRUE(audio.start() == services::AudioResult::Success);
@@ -279,7 +285,7 @@ void test_home_wifi_indicator_mapping() {
 void test_home_renders_semantic_wifi_dot_without_status_text() {
     Fixture f;
     apps::ApplicationShell shell(f.hosts, f.network, f.bus, f.display, f.hostSettings,
-                                 f.wifiSettings, f.audio);
+                                 f.wifiSettings, f.audio, f.miniApps);
     shell.update({});
     TEST_ASSERT_TRUE(f.display.shows("--:--"));
     TEST_ASSERT_FALSE(f.display.shows("OFFLINE"));
@@ -326,7 +332,7 @@ void test_home_wifi_redraws_only_on_semantic_changes() {
     Fixture f;
     f.reachWifi(connectivity::WifiAdapterState::Connected, -40);
     apps::ApplicationShell shell(f.hosts, f.network, f.bus, f.display, f.hostSettings,
-                                 f.wifiSettings, f.audio);
+                                 f.wifiSettings, f.audio, f.miniApps);
     shell.update({});
     const auto presentations = f.display.presentations;
     f.display.rectangles.clear();
@@ -356,7 +362,7 @@ void test_home_wifi_redraws_only_on_semantic_changes() {
 void test_settings_opens_wifi_forward_and_returns_backward() {
     Fixture f;
     apps::ApplicationShell shell(f.hosts, f.network, f.bus, f.display, f.hostSettings,
-                                 f.wifiSettings, f.audio);
+                                 f.wifiSettings, f.audio, f.miniApps);
     shell.update({tab});
     TEST_ASSERT_TRUE(f.display.shows("Wi-Fi"));
     f.display.transitions.clear();
@@ -663,7 +669,7 @@ void test_storage_failure_leaves_configuration_and_shows_error() {
 void test_editor_tab_does_not_submit_and_shell_returns_to_settings() {
     Fixture f;
     apps::ApplicationShell shell(f.hosts, f.network, f.bus, f.display, f.hostSettings,
-                                 f.wifiSettings, f.audio);
+                                 f.wifiSettings, f.audio, f.miniApps);
     shell.update({tab, down, enter, enter});
     TEST_ASSERT_TRUE(f.display.shows("NETWORK NAME"));
     type(f.wifiSettings, "KeepMe");

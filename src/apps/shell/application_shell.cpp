@@ -1,4 +1,5 @@
 #include "apps/shell/application_shell.h"
+#include "apps/runtime/mini_app_runtime.h"
 #include "apps/shell/home_graphics.h"
 #include "core/display/palette.h"
 #include <algorithm>
@@ -16,14 +17,23 @@ constexpr std::uint8_t volumeRow = 2;
 ApplicationShell::ApplicationShell(services::HostService& hosts, services::NetworkService& network,
                                    ActionBus& actions, IDisplayAdapter& display,
                                    HostSettings& settings, WiFiSettings& wifiSettings,
-                                   services::AudioService& audio)
+                                   services::AudioService& audio, MiniAppRuntime& miniApps)
     : hosts_(hosts), network_(network), actions_(actions), display_(display), settings_(settings),
-      wifiSettings_(wifiSettings), audio_(audio) {
+      wifiSettings_(wifiSettings), audio_(audio), miniApps_(miniApps) {
     (void)navigation_.resetTo("home");
     (void)actions_.registerHandler("ui.settings", *this);
     (void)actions_.registerHandler("ui.bluetooth", *this);
     (void)actions_.registerHandler("ui.wifi", *this);
     (void)actions_.registerHandler("ui.back", *this);
+}
+
+void ApplicationShell::recoverHomePresentation() {
+    (void)navigation_.resetTo("home");
+    homeConnectionFrame_.reset();
+    homeNetworkFrame_.reset();
+    homeBatteryPercent_.reset();
+    homePhaseMilliseconds_ = 0;
+    settingsFrame_.reset();
 }
 
 bool ApplicationShell::atHome() const { return *navigation_.current() == "home"; }
@@ -80,6 +90,25 @@ ActionHandlingResult ApplicationShell::handle(const Action& action) {
 
 void ApplicationShell::update(const InputEvents& input, std::chrono::milliseconds elapsed,
                               std::optional<std::uint8_t> batteryPercent) {
+    if (miniApps_.hasActiveApp()) {
+        showingMiniApp_ = true;
+        const auto result = miniApps_.update(input, elapsed);
+        if (result != MiniAppUpdateResult::DeactivatedMissingCapability)
+            return;
+        showingMiniApp_ = false;
+        recoverHomePresentation();
+        display_.beginFrame();
+        display_.advanceTransition(elapsed);
+        renderHome(display_.transitionActive() ? std::chrono::milliseconds(0) : elapsed,
+                   batteryPercent);
+        display_.endFrame();
+        return;
+    }
+    if (showingMiniApp_) {
+        showingMiniApp_ = false;
+        recoverHomePresentation();
+    }
+
     display_.beginFrame();
     display_.advanceTransition(elapsed);
     for (const auto& event : input) {
