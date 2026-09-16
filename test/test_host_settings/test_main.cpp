@@ -1,13 +1,17 @@
 #include "apps/hosts/host_settings.h"
+#include "apps/network/wifi_settings.h"
 #include "apps/shell/application_shell.h"
 #include "apps/shell/home_graphics.h"
 #include "core/audio/audio_adapter.h"
+#include "core/display/text_layout.h"
 #include "services/audio/audio_service.h"
+#include "services/network/network_service.h"
 #include <algorithm>
 #include <cstdlib>
 #include <deque>
 #include <fstream>
 #include <iomanip>
+#include <optional>
 #include <sstream>
 #include <string>
 #include <unity.h>
@@ -67,6 +71,7 @@ class Display final : public core::IDisplayAdapter {
         ++frames;
         dirty = true;
         texts.clear();
+        drawnTexts.clear();
         commands = {"C " + std::to_string(color.red) + " " + std::to_string(color.green) + " " +
                     std::to_string(color.blue)};
     }
@@ -74,6 +79,7 @@ class Display final : public core::IDisplayAdapter {
         TEST_ASSERT_TRUE(position.x >= 0 && position.x < 240 && position.y >= 0 &&
                          position.y < 135);
         texts.push_back(value);
+        drawnTexts.push_back({position, value});
         TEST_ASSERT_TRUE(position.x + std::string(value).size() * 6 * style.scale <= 240);
         TEST_ASSERT_TRUE(position.y + 8 * style.scale <= 135);
         std::ostringstream line;
@@ -93,10 +99,22 @@ class Display final : public core::IDisplayAdapter {
                 output << command << '\n';
         }
     }
+    std::optional<core::PixelPosition> textAt(const char* value, std::int32_t y) const {
+        for (auto item = drawnTexts.rbegin(); item != drawnTexts.rend(); ++item) {
+            if (item->value == value && item->position.y == y)
+                return item->position;
+        }
+        return std::nullopt;
+    }
     std::vector<std::string> commands;
     std::vector<Rectangle> rectangles;
     int frames = 0;
     std::vector<std::string> texts;
+    struct DrawnText {
+        core::PixelPosition position;
+        std::string value;
+    };
+    std::vector<DrawnText> drawnTexts;
 };
 class Actions final : public core::IActionHandler {
   public:
@@ -105,6 +123,18 @@ class Actions final : public core::IActionHandler {
         return core::ActionHandlingResult::Handled;
     }
     std::vector<core::Action> seen;
+};
+class WifiAdapter final : public connectivity::IWifiAdapter {
+  public:
+    connectivity::WifiAdapterResult initializeStation() override { return {}; }
+    connectivity::WifiAdapterResult connect(const connectivity::WifiNetworkConfig&) override {
+        return {};
+    }
+    connectivity::WifiAdapterResult disconnect() override { return {}; }
+    connectivity::WifiAdapterState state() const override { return adapterState; }
+    std::optional<std::int32_t> signalStrengthDbm() const override { return rssi; }
+    connectivity::WifiAdapterState adapterState = connectivity::WifiAdapterState::Disconnected;
+    std::optional<std::int32_t> rssi;
 };
 class AudioAdapter final : public core::IAudioAdapter {
   public:
@@ -211,10 +241,14 @@ struct Fixture {
     Adapter adapter;
     connectivity::BluetoothService bluetooth{adapter};
     services::HostService hosts{bluetooth, config};
+    WifiAdapter wifiAdapter;
+    connectivity::WiFiService wifi{wifiAdapter};
+    services::NetworkService network{wifi, config};
     core::ActionBus bus;
     Actions actions;
     Display display;
     apps::HostSettings ui{hosts, bus, display};
+    apps::WiFiSettings wifiSettings{network, bus, display};
     Fixture() {
         services::SystemConfiguration value;
         value.host.hosts = {{8, "Office laptop", {}, std::nullopt, {}, std::nullopt},
@@ -228,6 +262,9 @@ struct Fixture {
         audioAdapter.clips.clear();
         TEST_ASSERT_TRUE(bus.registerHandler("audio.volume.step", audio) ==
                          core::RegistrationResult::Registered);
+        for (const auto* id : {"network.set-enabled", "network.configure", "network.forget"})
+            TEST_ASSERT_TRUE(bus.registerHandler(id, network) ==
+                             core::RegistrationResult::Registered);
         for (const auto* id : {"host.select", "host.rename", "host.bluetooth"})
             bus.registerHandler(id, actions);
     }
@@ -254,6 +291,8 @@ void test_bluetooth_footer_is_quiet_and_x_has_no_destructive_action() {
     Fixture f;
     f.ui.update({});
     TEST_ASSERT_TRUE(std::find(f.display.texts.begin(), f.display.texts.end(), "Esc Home") ==
+                     f.display.texts.end());
+    TEST_ASSERT_TRUE(std::find(f.display.texts.begin(), f.display.texts.end(), "ESC CANCEL") ==
                      f.display.texts.end());
     for (const auto& text : f.display.texts) {
         TEST_ASSERT_TRUE(text.find("Move") == std::string::npos);
@@ -282,6 +321,10 @@ void test_host_menu_back_and_incremental_navigation() {
     f.ui.update({down, enter});
     TEST_ASSERT_TRUE(std::find(f.display.texts.begin(), f.display.texts.end(), "DELETE HOST") !=
                      f.display.texts.end());
+    TEST_ASSERT_TRUE(std::find(f.display.texts.begin(), f.display.texts.end(), "ESC CANCEL") !=
+                     f.display.texts.end());
+    TEST_ASSERT_TRUE(std::find(f.display.texts.begin(), f.display.texts.end(), "ENTER DELETE") !=
+                     f.display.texts.end());
     f.display.capture("host-delete");
     const core::InputEvent escape{core::InputEventType::NamedKey, 0, core::NamedKey::Escape, {}};
     f.ui.update({escape});
@@ -291,13 +334,15 @@ void test_host_menu_back_and_incremental_navigation() {
     TEST_ASSERT_TRUE(f.actions.seen.empty());
 }
 
-void test_pairing_and_host_modals_do_not_show_escape_cancel_hint() {
+void test_transactional_modals_show_contextual_footers() {
     Fixture host;
     host.ui.update({down, down, enter, down, enter});
     TEST_ASSERT_TRUE(std::find(host.display.texts.begin(), host.display.texts.end(), "HOST NAME") !=
                      host.display.texts.end());
     TEST_ASSERT_TRUE(std::find(host.display.texts.begin(), host.display.texts.end(),
-                               "Esc Cancel") == host.display.texts.end());
+                               "ESC CANCEL") != host.display.texts.end());
+    TEST_ASSERT_TRUE(std::find(host.display.texts.begin(), host.display.texts.end(),
+                               "ENTER APPLY") != host.display.texts.end());
 
     Fixture pairing;
     pairing.adapter.hardwareExpected = true;
@@ -308,7 +353,11 @@ void test_pairing_and_host_modals_do_not_show_escape_cancel_hint() {
     TEST_ASSERT_TRUE(std::find(pairing.display.texts.begin(), pairing.display.texts.end(),
                                "ADD DEVICE") != pairing.display.texts.end());
     TEST_ASSERT_TRUE(std::find(pairing.display.texts.begin(), pairing.display.texts.end(),
-                               "Esc Cancel") == pairing.display.texts.end());
+                               "ESC CANCEL") != pairing.display.texts.end());
+    TEST_ASSERT_TRUE(std::find(pairing.display.texts.begin(), pairing.display.texts.end(),
+                               "ENTER YES") == pairing.display.texts.end());
+    TEST_ASSERT_TRUE(std::find(pairing.display.texts.begin(), pairing.display.texts.end(),
+                               "ENTER APPLY") == pairing.display.texts.end());
 }
 
 void test_rename_input_redraws_once_and_unchanged_rename_state_stays_idle() {
@@ -347,6 +396,26 @@ void test_host_status_changes_redraw_only_status_and_bluetooth_row() {
     TEST_ASSERT_EQUAL_INT32(24, f.display.rectangles.back().position.y);
 }
 
+void test_bluetooth_header_status_is_right_aligned() {
+    Fixture f;
+    f.ui.update({});
+    const auto off = f.display.textAt("OFF", 6);
+    TEST_ASSERT_TRUE(off.has_value());
+    TEST_ASSERT_EQUAL_INT32(core::rightAlignedTextX("OFF"), off->x);
+
+    auto value = f.config.value();
+    value.host.activeHost = 8;
+    TEST_ASSERT_TRUE(f.config.save(value) == services::ConfigurationResult::Success);
+    f.adapter.hardwareExpected = true;
+    f.adapter.bonded.push_back(value.host.hosts.front().bond);
+    TEST_ASSERT_TRUE(f.hosts.start() == services::HostResult::Success);
+    TEST_ASSERT_TRUE(f.hosts.setEnabled(true) == services::HostResult::Success);
+    f.ui.update({});
+    const auto connecting = f.display.textAt("CONNECTING", 6);
+    TEST_ASSERT_TRUE(connecting.has_value());
+    TEST_ASSERT_EQUAL_INT32(core::rightAlignedTextX("CONNECTING"), connecting->x);
+}
+
 void test_home_bluetooth_status_change_redraws_only_the_host_section() {
     Fixture f;
     auto value = f.config.value();
@@ -355,7 +424,8 @@ void test_home_bluetooth_status_change_redraws_only_the_host_section() {
     f.adapter.hardwareExpected = true;
     f.adapter.bonded.push_back(value.host.hosts.front().bond);
     TEST_ASSERT_TRUE(f.hosts.start() == services::HostResult::Success);
-    apps::ApplicationShell shell(f.hosts, f.bus, f.display, f.ui, f.audio);
+    apps::ApplicationShell shell(f.hosts, f.network, f.bus, f.display, f.ui, f.wifiSettings,
+                                 f.audio);
     shell.update({});
     f.display.rectangles.clear();
     f.display.texts.clear();
@@ -380,7 +450,8 @@ void test_home_and_bluetooth_settings_show_the_same_pairing_status() {
     f.adapter.hardwareExpected = true;
     TEST_ASSERT_TRUE(f.hosts.start() == services::HostResult::Success);
     TEST_ASSERT_TRUE(f.hosts.startPairing() == services::HostResult::Success);
-    apps::ApplicationShell shell(f.hosts, f.bus, f.display, f.ui, f.audio);
+    apps::ApplicationShell shell(f.hosts, f.network, f.bus, f.display, f.ui, f.wifiSettings,
+                                 f.audio);
 
     shell.update({});
     TEST_ASSERT_TRUE(std::find(f.display.texts.begin(), f.display.texts.end(), "PAIRING") !=
@@ -425,8 +496,57 @@ void test_pairing_prompt_change_redraws_pairing_content_then_stays_idle() {
     TEST_ASSERT_EQUAL(waitingFrames + 1, f.display.frames);
     TEST_ASSERT_TRUE(std::find(f.display.texts.begin(), f.display.texts.end(),
                                "Does the computer show this code?") != f.display.texts.end());
+    TEST_ASSERT_TRUE(std::find(f.display.texts.begin(), f.display.texts.end(), "ESC CANCEL") !=
+                     f.display.texts.end());
+    TEST_ASSERT_TRUE(std::find(f.display.texts.begin(), f.display.texts.end(), "ENTER YES") !=
+                     f.display.texts.end());
+    TEST_ASSERT_TRUE(std::find(f.display.texts.begin(), f.display.texts.end(), "ENTER APPLY") ==
+                     f.display.texts.end());
     f.ui.update({});
     TEST_ASSERT_EQUAL(waitingFrames + 1, f.display.frames);
+}
+
+void test_pairing_passkey_entry_shows_enter_apply_when_complete() {
+    Fixture f;
+    f.adapter.hardwareExpected = true;
+    TEST_ASSERT_TRUE(f.hosts.start() == services::HostResult::Success);
+    TEST_ASSERT_TRUE(f.bus.registerHandler("host.pair", f.hosts) ==
+                     core::RegistrationResult::Registered);
+    f.ui.update({down, enter});
+    f.adapter.events.push_back({connectivity::BluetoothEventType::AdvertisingStarted,
+                                {},
+                                connectivity::BluetoothFailureClass::Fatal,
+                                f.adapter.activeLifecycle});
+    f.adapter.events.push_back({connectivity::BluetoothEventType::PeerConnected,
+                                {8},
+                                connectivity::BluetoothFailureClass::Fatal,
+                                f.adapter.activeLifecycle});
+    connectivity::BluetoothEvent challenge{connectivity::BluetoothEventType::PairingChallenge,
+                                           {8},
+                                           connectivity::BluetoothFailureClass::Fatal,
+                                           f.adapter.activeLifecycle};
+    challenge.challengeType = connectivity::BluetoothPairingChallengeType::EnterPasskey;
+    f.adapter.events.push_back(challenge);
+    f.hosts.update(std::chrono::milliseconds(0));
+    f.ui.update({});
+    TEST_ASSERT_TRUE(std::find(f.display.texts.begin(), f.display.texts.end(),
+                               "Type the code from the computer") != f.display.texts.end());
+    TEST_ASSERT_TRUE(std::find(f.display.texts.begin(), f.display.texts.end(), "ESC CANCEL") !=
+                     f.display.texts.end());
+    TEST_ASSERT_TRUE(std::find(f.display.texts.begin(), f.display.texts.end(), "ENTER APPLY") ==
+                     f.display.texts.end());
+    f.ui.update({character('1'), character('2'), character('3'), character('4'), character('5')});
+    TEST_ASSERT_TRUE(std::find(f.display.texts.begin(), f.display.texts.end(), "ENTER APPLY") ==
+                     f.display.texts.end());
+    f.ui.update({character('6')});
+    TEST_ASSERT_TRUE(std::find(f.display.texts.begin(), f.display.texts.end(),
+                               "Type the code from the computer") != f.display.texts.end());
+    TEST_ASSERT_TRUE(std::find(f.display.texts.begin(), f.display.texts.end(), "ESC CANCEL") !=
+                     f.display.texts.end());
+    TEST_ASSERT_TRUE(std::find(f.display.texts.begin(), f.display.texts.end(), "ENTER APPLY") !=
+                     f.display.texts.end());
+    TEST_ASSERT_TRUE(std::find(f.display.texts.begin(), f.display.texts.end(), "ENTER YES") ==
+                     f.display.texts.end());
 }
 
 void test_focus_move_only_repaints_changed_rows_without_clearing_screen() {
@@ -484,7 +604,8 @@ const core::InputEvent fnTab{
     core::InputEventType::NamedKey, 0, core::NamedKey::Tab, {false, false, false, false, true}};
 void test_shell_boots_simple_home_and_opens_settings_before_bluetooth() {
     Fixture f;
-    apps::ApplicationShell shell(f.hosts, f.bus, f.display, f.ui, f.audio);
+    apps::ApplicationShell shell(f.hosts, f.network, f.bus, f.display, f.ui, f.wifiSettings,
+                                 f.audio);
     shell.update({});
     TEST_ASSERT_TRUE(std::find(f.display.texts.begin(), f.display.texts.end(), "SELECTED HOST") !=
                      f.display.texts.end());
@@ -492,6 +613,10 @@ void test_shell_boots_simple_home_and_opens_settings_before_bluetooth() {
                      f.display.texts.end());
     TEST_ASSERT_TRUE(std::find(f.display.texts.begin(), f.display.texts.end(),
                                "BLUETOOTH SETTINGS") == f.display.texts.end());
+    TEST_ASSERT_TRUE(std::find(f.display.texts.begin(), f.display.texts.end(), "ESC CANCEL") ==
+                     f.display.texts.end());
+    TEST_ASSERT_TRUE(std::find(f.display.texts.begin(), f.display.texts.end(), "ENTER SELECT") ==
+                     f.display.texts.end());
     f.display.capture("home");
     const auto frames = f.display.frames;
     shell.update({enter, character('b')});
@@ -502,6 +627,10 @@ void test_shell_boots_simple_home_and_opens_settings_before_bluetooth() {
                      f.display.texts.end());
     TEST_ASSERT_TRUE(std::find(f.display.texts.begin(), f.display.texts.end(), "Bluetooth") !=
                      f.display.texts.end());
+    TEST_ASSERT_TRUE(std::find(f.display.texts.begin(), f.display.texts.end(), "ESC CANCEL") ==
+                     f.display.texts.end());
+    TEST_ASSERT_TRUE(std::find(f.display.texts.begin(), f.display.texts.end(), "ENTER SELECT") ==
+                     f.display.texts.end());
     f.display.capture("settings");
     const auto settingsFrames = f.display.frames;
     shell.update({settingsChord});
@@ -510,6 +639,10 @@ void test_shell_boots_simple_home_and_opens_settings_before_bluetooth() {
     TEST_ASSERT_TRUE(std::find(f.display.texts.begin(), f.display.texts.end(), "BLUETOOTH") !=
                      f.display.texts.end());
     TEST_ASSERT_TRUE(f.actions.seen.empty());
+    TEST_ASSERT_TRUE(std::find(f.display.texts.begin(), f.display.texts.end(), "ESC CANCEL") ==
+                     f.display.texts.end());
+    TEST_ASSERT_TRUE(std::find(f.display.texts.begin(), f.display.texts.end(), "ENTER YES") ==
+                     f.display.texts.end());
     f.display.capture("bluetooth");
     shell.update({settingsChord}); // From the BLE list, return to Settings.
     TEST_ASSERT_TRUE(std::find(f.display.texts.begin(), f.display.texts.end(), "SETTINGS") !=
@@ -525,7 +658,8 @@ void test_shell_boots_simple_home_and_opens_settings_before_bluetooth() {
 
 void test_shell_back_cancels_rename_before_returning_home_and_preserves_host_intent() {
     Fixture f;
-    apps::ApplicationShell shell(f.hosts, f.bus, f.display, f.ui, f.audio);
+    apps::ApplicationShell shell(f.hosts, f.network, f.bus, f.display, f.ui, f.wifiSettings,
+                                 f.audio);
     const core::InputEvent escape{core::InputEventType::NamedKey, 0, core::NamedKey::Escape, {}};
     shell.update({settingsChord, enter, character('.'), character('.'), character('r')});
     TEST_ASSERT_TRUE(std::find(f.display.texts.begin(), f.display.texts.end(), "HOST NAME") !=
@@ -550,7 +684,8 @@ void test_home_and_panel_show_selected_host_and_do_not_navigate_on_state_updates
     value.host.activeHost = 9;
     value.host.hosts.back().name = "Work laptop for projects";
     TEST_ASSERT_TRUE(f.config.save(value) == services::ConfigurationResult::Success);
-    apps::ApplicationShell shell(f.hosts, f.bus, f.display, f.ui, f.audio);
+    apps::ApplicationShell shell(f.hosts, f.network, f.bus, f.display, f.ui, f.wifiSettings,
+                                 f.audio);
     shell.update({});
     TEST_ASSERT_TRUE(std::find(f.display.texts.begin(), f.display.texts.end(), "SELECTED HOST") !=
                      f.display.texts.end());
@@ -572,7 +707,8 @@ void test_home_and_panel_show_selected_host_and_do_not_navigate_on_state_updates
 
 void test_plain_tab_opens_settings_and_leaves_editing_intact() {
     Fixture f;
-    apps::ApplicationShell shell(f.hosts, f.bus, f.display, f.ui, f.audio);
+    apps::ApplicationShell shell(f.hosts, f.network, f.bus, f.display, f.ui, f.wifiSettings,
+                                 f.audio);
     const core::InputEvent tab{core::InputEventType::NamedKey, 0, core::NamedKey::Tab, {}};
     shell.update({tab});
     TEST_ASSERT_TRUE(std::find(f.display.texts.begin(), f.display.texts.end(), "SETTINGS") !=
@@ -587,7 +723,8 @@ void test_plain_tab_opens_settings_and_leaves_editing_intact() {
 
 void test_page_transitions_follow_navigation_and_ignore_focus_or_status_refresh() {
     Fixture f;
-    apps::ApplicationShell shell(f.hosts, f.bus, f.display, f.ui, f.audio);
+    apps::ApplicationShell shell(f.hosts, f.network, f.bus, f.display, f.ui, f.wifiSettings,
+                                 f.audio);
     shell.update({});
     TEST_ASSERT_TRUE(f.display.transitions.empty());
     shell.update({settingsChord});
@@ -617,7 +754,8 @@ void test_page_transitions_follow_navigation_and_ignore_focus_or_status_refresh(
 
 void test_fn_tab_and_system_button_do_not_open_settings() {
     Fixture f;
-    apps::ApplicationShell shell(f.hosts, f.bus, f.display, f.ui, f.audio);
+    apps::ApplicationShell shell(f.hosts, f.network, f.bus, f.display, f.ui, f.wifiSettings,
+                                 f.audio);
     const core::InputEvent menu{core::InputEventType::NamedKey, 0, core::NamedKey::SystemMenu, {}};
     shell.update({});
     const auto presentations = f.display.presentations;
@@ -639,7 +777,8 @@ void test_home_name_fits_without_changing_the_saved_label() {
     TEST_ASSERT_TRUE(label.size() < 24);
     TEST_ASSERT_EQUAL_STRING("...", label.substr(label.size() - 3).c_str());
     TEST_ASSERT_EQUAL_STRING("MACBOOK PRO", apps::fitHomeHostName("MacBook Pro").c_str());
-    apps::ApplicationShell shell(f.hosts, f.bus, f.display, f.ui, f.audio);
+    apps::ApplicationShell shell(f.hosts, f.network, f.bus, f.display, f.ui, f.wifiSettings,
+                                 f.audio);
     shell.update({});
     f.display.capture("home-long-name");
     const auto oldCommands = f.display.commands;
@@ -653,7 +792,8 @@ void test_home_name_fits_without_changing_the_saved_label() {
 
 void test_home_wave_is_bounded_and_pauses_in_settings() {
     Fixture f;
-    apps::ApplicationShell shell(f.hosts, f.bus, f.display, f.ui, f.audio);
+    apps::ApplicationShell shell(f.hosts, f.network, f.bus, f.display, f.ui, f.wifiSettings,
+                                 f.audio);
     shell.update({});
     const auto frames = f.display.frames;
     const auto presentations = f.display.presentations;
@@ -682,7 +822,8 @@ void test_home_wave_is_bounded_and_pauses_in_settings() {
 
 void test_every_semantic_key_press_gets_one_click_and_idle_updates_stay_silent() {
     Fixture f;
-    apps::ApplicationShell shell(f.hosts, f.bus, f.display, f.ui, f.audio);
+    apps::ApplicationShell shell(f.hosts, f.network, f.bus, f.display, f.ui, f.wifiSettings,
+                                 f.audio);
     shell.update({});
     TEST_ASSERT_TRUE(f.audioAdapter.clips.empty());
     shell.update({character('a'), enter});
@@ -694,19 +835,20 @@ void test_every_semantic_key_press_gets_one_click_and_idle_updates_stay_silent()
 
 void test_settings_volume_row_steps_with_left_and_right_and_zero_is_mute() {
     Fixture f;
-    apps::ApplicationShell shell(f.hosts, f.bus, f.display, f.ui, f.audio);
+    apps::ApplicationShell shell(f.hosts, f.network, f.bus, f.display, f.ui, f.wifiSettings,
+                                 f.audio);
     const core::InputEvent left{core::InputEventType::NamedKey, 0, core::NamedKey::Left, {}};
     const core::InputEvent right{core::InputEventType::NamedKey, 0, core::NamedKey::Right, {}};
     shell.update({settingsChord});
-    for (const auto* label : {"02", "Sound volume", "60%"})
+    for (const auto* label : {"01", "Bluetooth", "02", "Wi-Fi", "03", "Sound volume", "60%"})
         TEST_ASSERT_TRUE(std::find(f.display.texts.begin(), f.display.texts.end(), label) !=
                          f.display.texts.end());
 
     f.audioAdapter.clips.clear();
-    shell.update({down, right});
+    shell.update({down, down, right});
     TEST_ASSERT_EQUAL_UINT8(70, f.config.value().soundVolume);
     TEST_ASSERT_EQUAL_UINT8(70, f.audioAdapter.volumes.back());
-    TEST_ASSERT_EQUAL_UINT(2, f.audioAdapter.clips.size());
+    TEST_ASSERT_EQUAL_UINT(3, f.audioAdapter.clips.size());
     TEST_ASSERT_EQUAL_UINT(1760, f.audioAdapter.clips.back().sampleCount);
     TEST_ASSERT_TRUE(std::find(f.display.texts.begin(), f.display.texts.end(), "70%") !=
                      f.display.texts.end());
@@ -729,9 +871,10 @@ void test_settings_volume_row_steps_with_left_and_right_and_zero_is_mute() {
 
 void test_settings_volume_accepts_the_cardputer_arrow_marked_keys_without_fn() {
     Fixture f;
-    apps::ApplicationShell shell(f.hosts, f.bus, f.display, f.ui, f.audio);
+    apps::ApplicationShell shell(f.hosts, f.network, f.bus, f.display, f.ui, f.wifiSettings,
+                                 f.audio);
     shell.update({settingsChord});
-    shell.update({character('.')});
+    shell.update({character('.'), character('.')});
 
     shell.update({character('/')});
     TEST_ASSERT_EQUAL_UINT8(70, f.config.value().soundVolume);
@@ -742,7 +885,8 @@ void test_settings_volume_accepts_the_cardputer_arrow_marked_keys_without_fn() {
 
 void test_settings_focus_and_volume_only_repaint_changed_rows() {
     Fixture f;
-    apps::ApplicationShell shell(f.hosts, f.bus, f.display, f.ui, f.audio);
+    apps::ApplicationShell shell(f.hosts, f.network, f.bus, f.display, f.ui, f.wifiSettings,
+                                 f.audio);
     const core::InputEvent right{core::InputEventType::NamedKey, 0, core::NamedKey::Right, {}};
     shell.update({settingsChord});
     const auto fullFrames = f.display.frames;
@@ -752,10 +896,20 @@ void test_settings_focus_and_volume_only_repaint_changed_rows() {
     shell.update({down});
     TEST_ASSERT_EQUAL(fullFrames, f.display.frames);
     TEST_ASSERT_EQUAL_UINT(2, f.display.rectangles.size());
-    TEST_ASSERT_EQUAL_UINT(5, f.display.texts.size());
+    TEST_ASSERT_EQUAL_UINT(4, f.display.texts.size());
     for (const auto& rectangle : f.display.rectangles) {
         TEST_ASSERT_TRUE(rectangle.position.y >= 24 &&
                          rectangle.position.y + rectangle.height <= 58);
+    }
+
+    f.display.rectangles.clear();
+    f.display.texts.clear();
+    shell.update({down});
+    TEST_ASSERT_EQUAL(fullFrames, f.display.frames);
+    TEST_ASSERT_EQUAL_UINT(2, f.display.rectangles.size());
+    for (const auto& rectangle : f.display.rectangles) {
+        TEST_ASSERT_TRUE(rectangle.position.y >= 42 &&
+                         rectangle.position.y + rectangle.height <= 76);
     }
 
     f.display.rectangles.clear();
@@ -764,15 +918,19 @@ void test_settings_focus_and_volume_only_repaint_changed_rows() {
     TEST_ASSERT_EQUAL(fullFrames, f.display.frames);
     TEST_ASSERT_EQUAL_UINT(1, f.display.rectangles.size());
     TEST_ASSERT_EQUAL_UINT(3, f.display.texts.size());
-    TEST_ASSERT_EQUAL_INT32(42, f.display.rectangles.front().position.y);
+    TEST_ASSERT_EQUAL_INT32(60, f.display.rectangles.front().position.y);
 }
 
 void test_home_shows_unavailable_telemetry_and_updates_only_battery_region() {
     Fixture f;
-    apps::ApplicationShell shell(f.hosts, f.bus, f.display, f.ui, f.audio);
+    apps::ApplicationShell shell(f.hosts, f.network, f.bus, f.display, f.ui, f.wifiSettings,
+                                 f.audio);
     shell.update({});
-    for (const auto* label : {"--:--", "OFFLINE", "--%"})
+    for (const auto* label : {"--:--", "--%"})
         TEST_ASSERT_TRUE(std::find(f.display.texts.begin(), f.display.texts.end(), label) !=
+                         f.display.texts.end());
+    for (const auto* forbidden : {"OFFLINE", "ONLINE", "CONNECTING", "ERROR"})
+        TEST_ASSERT_TRUE(std::find(f.display.texts.begin(), f.display.texts.end(), forbidden) ==
                          f.display.texts.end());
     f.display.rectangles.clear();
     f.display.texts.clear();
@@ -832,12 +990,14 @@ int main() {
     RUN_TEST(test_home_wave_is_bounded_and_pauses_in_settings);
     RUN_TEST(test_home_shows_unavailable_telemetry_and_updates_only_battery_region);
     RUN_TEST(test_host_menu_back_and_incremental_navigation);
-    RUN_TEST(test_pairing_and_host_modals_do_not_show_escape_cancel_hint);
+    RUN_TEST(test_transactional_modals_show_contextual_footers);
     RUN_TEST(test_rename_input_redraws_once_and_unchanged_rename_state_stays_idle);
     RUN_TEST(test_host_status_changes_redraw_only_status_and_bluetooth_row);
+    RUN_TEST(test_bluetooth_header_status_is_right_aligned);
     RUN_TEST(test_home_bluetooth_status_change_redraws_only_the_host_section);
     RUN_TEST(test_home_and_bluetooth_settings_show_the_same_pairing_status);
     RUN_TEST(test_pairing_prompt_change_redraws_pairing_content_then_stays_idle);
+    RUN_TEST(test_pairing_passkey_entry_shows_enter_apply_when_complete);
     RUN_TEST(test_bluetooth_footer_is_quiet_and_x_has_no_destructive_action);
     RUN_TEST(test_home_and_panel_show_selected_host_and_do_not_navigate_on_state_updates);
     RUN_TEST(test_shell_boots_simple_home_and_opens_settings_before_bluetooth);

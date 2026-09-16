@@ -114,14 +114,26 @@ Most functional screens should use three stable horizontal zones:
 1. a compact header with the screen title at the left and one contextual
    status or dismissal hint at the right;
 2. a content area that owns the remaining height;
-3. a compact footer, separated by a one-pixel rule, that labels the physical
-   keys available on the current screen.
+3. a compact footer only on temporary transactional views.
 
-Footer hints must describe actual controls rather than generic software
-affordances. The primary back or close control belongs at the left, navigation
-hints in the middle, and the primary confirm or apply control at the right.
-Unavailable controls must be omitted rather than shown as if active. A screen
-may omit the standard header and footer only for a deliberate full-screen
+Persistent list and status screens (Home, Settings, the Bluetooth list, the
+host action list, and Wi-Fi Settings status) do not show standard Escape or
+Enter key hints. Do not add ESC BACK, ESC HOME, or ENTER SELECT to ordinary
+list navigation.
+
+Editors, confirmations, pairing challenges, and other temporary transactional
+views may show a compact footer when it clarifies how to cancel or complete
+the current operation. Left is cancel or back; right is confirm or apply.
+Hints must name a real action in the current state; omit an unavailable
+confirm action rather than showing it as if active. Use the quiet Ordinal
+token so the footer stays secondary to the content.
+
+The unmarked Escape key (backtick without Fn) and Fn+backtick both go back or
+cancel. Enter still confirms. A text field may treat backtick as a typed
+character only while that field is explicitly editing punctuation, such as a
+host rename; Wi-Fi name, password, and Forget confirmation treat it as Escape.
+
+A screen may omit the standard header as well for a deliberate full-screen
 state such as boot, pairing, recording, direct manipulation, or a critical
 takeover.
 
@@ -253,7 +265,7 @@ active is coalesced instead of interrupting it or building an audio queue. The t
 reference gestures are used when Settings changes sound volume. All clips are
 generated as bounded constant PCM assets during development, so startup only
 initializes the audio adapter and M5Unified plays them asynchronously. Settings
-exposes `Sound volume` immediately below Bluetooth; Left/Right adjust 0-100 in
+exposes `Sound volume` immediately below Wi-Fi; Left/Right adjust 0-100 in
 ten-percent steps, 0 is mute, and the value persists. Boot, menu-open/apply,
 attention, success, error, idle, and broader state-driven cues remain pending.
 
@@ -350,8 +362,10 @@ views only map host-domain status and prompts to presentation.
 Home is the default root view. The approved dashboard has an eight-pixel gutter,
 a compact top line for time, one Wi-Fi icon and status (no network name), and
 battery percentage (without an icon) above a one-pixel rule at y=24. Time is `--:--` until a
-clock source is implemented; Wi-Fi is `OFFLINE` because normal firmware does
-not yet compose Wi-Fi connectivity. BatteryService supplies the hardware's
+clock source is implemented. Wi-Fi uses a neutral Ink glyph plus a separate
+status dot: hollow Ordinal when unconfigured, filled Pale when configured but
+disabled, Blue while connecting, Leaf when connected, and Vermilion on error.
+Home does not show SSID or RSSI. BatteryService supplies the hardware's
 estimated percentage, or `--%` when unavailable. No demo telemetry is rendered.
 
 Below it, SELECTED HOST is a quiet label at y=38. The selected name uses Micro 5
@@ -368,17 +382,33 @@ time, pauses whenever Home is hidden, never moves text or icons, and redraws
 only that lower region. This is an explicit exception to the event-only motion
 rule. It must eventually pause while the display is off and must never count as
 user activity. Battery updates repaint only their header region; host/status
-updates repaint only the host region. Pairing's Micro 5 digits are unchanged.
+updates repaint only the host region; Wi-Fi status-dot changes repaint only
+the reserved Wi-Fi region. Pairing's Micro 5 digits are unchanged.
 
 Plain Tab on the main keyboard opens a general SETTINGS list with
-Bluetooth followed by Sound volume,
+Bluetooth, Wi-Fi, then Sound volume,
 using the existing ordinal and Ink focus plate, without a bottom bar or
 Esc Home label. Up/Down move between the rows. On Sound volume, the physical
 `,` / `/` keys marked Left / Right work without Fn; logical Left/Right work as
 well. They change the right-aligned percentage in ten-percent steps without
 opening a separate page. Enter on Bluetooth opens
 the existing Bluetooth panel without modifying its controls or layout. Its Esc
-Home behavior is retained; plain Tab from the BLE list returns to Settings. The
+Home behavior is retained; plain Tab from the BLE list returns to Settings.
+Bluetooth and Wi-Fi Settings right-align the header status to the same 234 px
+edge as list values. Shared header words are OFF, CONNECTING, and ERROR; BLE
+keeps SECURING, PAIRING, and READY because READY means a secured HID session,
+while Wi-Fi uses CONNECTED and NOT CONFIGURED.
+Enter on Wi-Fi opens the built-in Wi-Fi Settings screen, which shows domain
+status, enable/disable when a network is saved, the configured SSID,
+connected-only RSSI, and manual configure/change/forget flows. With no saved
+network the first actionable row is Configure network; the enable toggle is
+omitted so Enter opens the name editor immediately. The unmarked Escape key
+and Fn+backtick return from the Wi-Fi page to Settings and cancel the name,
+password, and Forget views. Those transactional views show a quiet footer:
+ESC CANCEL with ENTER NEXT, ENTER CONNECT, or ENTER FORGET. The password
+editor shows only the last typed character in clear text for two seconds, then
+replaces it with an asterisk; earlier characters stay masked. Editor and
+confirmation views consume Escape and Tab before any submit or navigation. The
 menu input is consumed without dismissing host submenus, rename/delete prompts,
 or pairing. Enter/B do not open anything on Home. Repeated plain Tab
 in Settings does not add history entries or repaint a settled view. Background
@@ -443,7 +473,7 @@ Physical Cardputer-Adv validation must confirm:
 ## 11. Current-Firmware Boundary
 
 This document includes delivered behavior and future requirements. Home,
-Settings/Bluetooth and sound-volume rows, synthesized key feedback, per-host
+Settings/Bluetooth/Wi-Fi and sound-volume rows, synthesized key feedback, per-host
 menus, partial frame presentation, page slides, the ambient wave, and the
 two-second segmented startup splash are implemented.
 Normal firmware rate-limits idle UI work to 50 Hz, processes semantic input on
@@ -452,7 +482,7 @@ Home, host-list, and host-modal content does not redraw.
 The splash uses Bone, Ink, Blue, Pale, and Ordinal tokens, keeps the firmware
 version visible throughout, and advances without blocking background work.
 Launcher integration, spring focus motion, remaining semantic sound cues,
-dim/off/wake policy, and live clock/Wi-Fi composition remain open in the
+dim/off/wake policy, live clock, and Wi-Fi scanning remain open in the
 [phase checklist](ARCHITECTURE.md#47-initial-development-order). The manuals
 describe current operation; planned behavior must not be presented there as
 already supported.
@@ -473,9 +503,11 @@ Settings, the Bluetooth list, and the saved-host action menu have no bottom
 separator or Escape footer.
 Escape/backtick still returns Home; arrow and Enter controls remain unchanged. Enter on a saved host opens a
 Connect / Rename / Delete menu; opening it does not connect or
-change selection. The current host name appears below the actions. Pairing,
-Rename, and Delete omit the Esc Cancel footer; Escape still cancels. Delete
-shows the exact host name and needs confirmation.
+change selection. The current host name appears below the actions. Pairing, rename, and delete
+are transactional: they show ESC CANCEL, plus ENTER YES when a comparison can
+be accepted, ENTER APPLY when a six-digit passkey or a non-empty rename can be
+submitted, or ENTER DELETE on delete confirmation. Escape still cancels and
+Enter still confirms. Delete shows the exact host name and needs confirmation.
 Back from either returns to the host menu, then the Bluetooth list, then Home.
 The global X / Forget all hosts UI and Action are removed. Host action list
 navigation retains incremental painting and the shared palette/font geometry.

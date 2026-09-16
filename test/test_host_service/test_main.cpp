@@ -1,8 +1,10 @@
 #include "apps/hosts/assets/micro5_digits.h"
 #include "apps/hosts/host_settings.h"
+#include "apps/network/wifi_settings.h"
 #include "apps/shell/application_shell.h"
 #include "core/display/palette.h"
 #include "services/hosts/host_service.h"
+#include "services/network/network_service.h"
 #include <algorithm>
 #include <deque>
 #include <map>
@@ -803,13 +805,25 @@ class SilentAudioAdapter final : public core::IAudioAdapter {
     bool play(const core::AudioClip&) override { return true; }
 };
 
+class SilentWifiAdapter final : public IWifiAdapter {
+  public:
+    WifiAdapterResult initializeStation() override { return {}; }
+    WifiAdapterResult connect(const WifiNetworkConfig&) override { return {}; }
+    WifiAdapterResult disconnect() override { return {}; }
+    WifiAdapterState state() const override { return WifiAdapterState::Disconnected; }
+    std::optional<std::int32_t> signalStrengthDbm() const override { return std::nullopt; }
+};
+
 struct Screen {
     explicit Screen(Fixture& f)
-        : ui(f.hosts, bus, display), audio(f.config, audioAdapter),
-          shell(f.hosts, bus, display, ui, audio) {
+        : ui(f.hosts, bus, display), wifi(wifiAdapter), network(wifi, f.config),
+          wifiSettings(network, bus, display), audio(f.config, audioAdapter),
+          shell(f.hosts, network, bus, display, ui, wifiSettings, audio) {
         for (const auto* id : {"host.bluetooth", "host.select", "host.pair", "host.cancel-pairing",
                                "host.delete", "host.rename"})
             bus.registerHandler(id, f.hosts);
+        for (const auto* id : {"network.set-enabled", "network.configure", "network.forget"})
+            bus.registerHandler(id, network);
     }
     void openBluetooth() {
         shell.update({{core::InputEventType::NamedKey, 0, core::NamedKey::Tab, {}}});
@@ -822,6 +836,10 @@ struct Screen {
     core::ActionBus bus;
     Display display;
     apps::HostSettings ui;
+    SilentWifiAdapter wifiAdapter;
+    connectivity::WiFiService wifi;
+    services::NetworkService network;
+    apps::WiFiSettings wifiSettings;
     SilentAudioAdapter audioAdapter;
     services::AudioService audio;
     apps::ApplicationShell shell;
