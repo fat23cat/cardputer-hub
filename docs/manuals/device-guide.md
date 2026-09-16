@@ -6,14 +6,15 @@ bar fills; it does not pause Bluetooth, other background work, or input polling.
 Input sampled as the startup screen hands off to Home is consumed. Home
 shows the selected host in compact Micro 5 text and live BT status, with a slow
 dotted wave below. The top line has time, Wi-Fi status, and estimated battery
-percentage, with no battery icon. Time currently shows `--:--`; Wi-Fi shows `OFFLINE` until Wi-Fi
-setup is implemented. Battery is sampled every five seconds (`--%` if
+percentage, with no battery icon. Time currently shows `--:--`. Wi-Fi is a compact
+glyph plus a status dot: hollow when no network is saved, pale when Wi-Fi is
+off, blue while connecting, green when connected, and red on error. Home never
+shows the network name or signal strength. Battery is sampled every five seconds (`--%` if
 unavailable); the voltage-based estimate can be less accurate with USB power
 connected. Long host names are shortened with an ellipsis on Home only; their
 stored names remain unchanged. Press plain **Tab** on the main keyboard to open
 the general Settings menu. Fn+Tab is inactive, and a normal G0 press has no
-application action. Bluetooth opens the existing
-Bluetooth panel; Sound volume sits directly below it. BLE is the only host-control transport. USB supplies power, firmware
+application action. Settings lists Bluetooth, Wi-Fi, then Sound volume. BLE is the only host-control transport. USB supplies power, firmware
 installation, and fixed USB Serial/JTAG diagnostics.
 
 Each recognized key press after startup has a short, soft synthesized click.
@@ -24,9 +25,10 @@ uninterrupted cue instead of building up an audio queue.
 
 ## Hosts and Bluetooth
 
-The saved-host action menu has no `Esc Back` footer, and Add device, Rename, and
-Delete have no `Esc Cancel` footer. Escape still goes back or cancels the
-current operation.
+The Bluetooth list and saved-host action menu have no navigation footer.
+Rename, Delete, and pairing show a quiet `ESC CANCEL` hint; confirm actions
+appear only when they are valid (`ENTER APPLY`, `ENTER YES`, or `ENTER DELETE`).
+Escape still goes back or cancels; Enter still confirms.
 
 The Bluetooth panel lists Bluetooth On/Off, Add device, and saved hosts. SELECTED
 marks the saved choice, even when BLE is Off or activation fails; it does not
@@ -45,16 +47,46 @@ Enter”; a second Enter opens pairing. Until you confirm, BLE stays OFF and
 Home does not show an error. Names are 1–24 printable
 ASCII characters and cannot consist only of spaces.
 
+## Wi-Fi
+
+Open **Wi-Fi** from Settings to see the current status, turn the saved network
+on or off, and enter credentials by hand. Scanning nearby networks is not
+included.
+
+If no network is saved, **Configure network** is already focused. Press Enter,
+type the network name, press Enter, then type the password. The last typed
+character is shown for about two seconds, then becomes an asterisk. An
+empty password is allowed for an open network. The unmarked Escape key
+(backtick) or Fn+backtick cancels without saving.
+After a successful save, drafts are cleared. If Wi-Fi was already off, it stays
+off until you turn it on.
+
+When a network is saved, the first row toggles Wi-Fi On/Off. **Change network**
+uses the same name/password editors and replaces the saved network without
+forgetting it first. **Forget network** asks for confirmation; the unmarked
+Escape key (backtick) or Fn+backtick keeps the saved network. Name, password,
+and Forget screens show `ESC CANCEL` with `ENTER NEXT`, `ENTER CONNECT`, or
+`ENTER FORGET`. Signal strength appears only while connected.
+
+Home uses the glyph and status dot only. A red dot means the connection failed;
+open Wi-Fi Settings for a short domain message such as a save or connection
+failure. Passwords are never shown after entry and are not written to logs.
+
+While the name or password editor is open, `;` and `.` type those characters
+instead of moving a list.
+
 ## Controls
 
 | Control | Behavior |
 | --- | --- |
 | Plain Tab on Home | Open Settings without changing BLE state |
 | Enter on Bluetooth in Settings | Open the Bluetooth panel |
-| `;` / `.` or Up / Down in Settings | Move between Bluetooth and Sound volume |
+| Enter on Wi-Fi in Settings | Open Wi-Fi Settings |
+| `;` / `.` or Up / Down in Settings | Move between Bluetooth, Wi-Fi, and Sound volume |
 | `,` / `/` (keys marked Left / Right, without Fn) on Sound volume | Decrease / increase volume by 10%, from 0% to 100%; Fn+arrow combinations also work |
 | Backtick/Escape in Settings | Return Home |
-| Plain Tab in the Bluetooth list | Return to Settings |
+| Plain Tab in the Bluetooth list or Wi-Fi Settings | Return to Settings |
+| Backtick/Escape on the Wi-Fi page, name, password, or Forget confirmation | Return to Wi-Fi Settings or cancel without saving |
 | `;` / `.` (keys marked Up / Down, without Fn) | Move through the list; Fn+arrow combinations also work |
 | Enter on Bluetooth | Turn BLE On/Off; without a selected host, highlight a host or Add device for confirmation |
 | Enter on Add device | Open the two-minute pairing window |
@@ -88,7 +120,8 @@ opening/closing settings does not change saved host selection or BLE On/Off.
 
 Fn+Tab is inactive, and a normal G0 press does nothing. Holding G0 while
 starting or resetting the device still enters the firmware download mode.
-The wave has a 28-second cycle and pauses while Settings/Bluetooth is open and
+The wave has a 28-second cycle and pauses while Settings, Bluetooth, or Wi-Fi
+is open and
 during screen transitions. Screens slide in from the right when opening and
 from the left when returning, taking about 220 ms. You can keep pressing keys
 during a transition; navigation does not wait for the animation to finish.
@@ -183,5 +216,5 @@ Off, report/interruption and USB hotplug acceptance remains tracked in
 The current firmware does not
 include the full Launcher/Mini App shell, profile-metadata editing or template
 resolution, Action-to-HID mappings, a Mac companion CLI/control protocol,
-Wi-Fi setup, or weather/VPS/Telegram/RGB features. Boot/status sound cues, idle
+Wi-Fi network scanning, or weather/VPS/Telegram/RGB features. Boot/status sound cues, idle
 dimming, and wake-input behavior from the broader UI requirements remain planned.

@@ -243,11 +243,16 @@ HostService state, a compact Micro 5 host label, a single Wi-Fi status, and
 battery telemetry. It does not act as the future AppRegistry-driven Launcher.
 `ApplicationShell` owns a NavigationStack rooted at `home`; plain Tab routes
 `ui.settings` through ActionBus to a general Settings list. Its Bluetooth entry
-routes `ui.bluetooth` to the existing HostSettings view. The next row exposes
+routes `ui.bluetooth` to the existing HostSettings view. The Wi-Fi entry routes
+`ui.wifi` to the built-in WiFiSettings view, which consumes only
+`NetworkService` snapshots and dispatches `network.set-enabled`,
+`network.configure`, and `network.forget`. The following row exposes
 the persistent system sound volume directly; Left/Right dispatch
 `audio.volume.step` to change it from 0 to 100 percent in ten-percent steps,
-with zero acting as mute. `ui.back` dismisses a local modal before returning
-Home; navigation never changes radio policy.
+with zero acting as mute. `ui.back` from Wi-Fi Settings returns to Settings;
+from Bluetooth it keeps the existing Esc Home behavior. A local modal or
+editor consumes input before any Settings shortcut. Navigation never changes
+radio policy.
 Full Launcher and Mini App lifecycle remain pending.
 
 `BatteryService` owns a read-only optional estimated percentage and samples
@@ -258,11 +263,12 @@ adapter obtains the estimate from the pinned M5Unified power driver. The main
 composition passes the snapshot into the shell; drawing code does not read
 hardware or manage polling. This does not add a BLE battery service.
 
-The clock slot displays `--:--` pending a time source. Normal firmware composes
-the ESP32 station adapter, Connectivity `WiFiService`, and `NetworkService`, but
-Home is not yet wired to the Service snapshot and therefore keeps its explicit
-OFFLINE placeholder without an SSID. Future clock and Wi-Fi indicators must
-consume their owning Services. Battery percentage is a voltage-derived estimate,
+The clock slot displays `--:--` pending a time source. Home consumes the live
+`NetworkService` snapshot through a neutral Ink Wi-Fi glyph and a separate
+semantic status dot: hollow Ordinal when no network is configured, filled Pale
+when configured but disabled, Blue while connecting, Leaf when connected, and
+Vermilion on error. Home does not show SSID, RSSI, or OFFLINE/ONLINE text;
+Wi-Fi scanning remains pending. Battery percentage is a voltage-derived estimate,
 especially while externally powered, rather than a calibrated charge gauge.
 
 Home's approved ambient dotted wave is presentation state owned by the shell:
@@ -817,7 +823,13 @@ connect or disconnect. A failed write leaves published intent and radio state
 unchanged, while a later adapter failure does not roll back successfully stored
 intent. Retry, timeout, and station lifecycle remain owned by Connectivity
 `WiFiService`. Normal firmware starts this Service after configuration loading
-and updates it on every main-loop pass outside UI scheduling.
+and updates it on every main-loop pass outside UI scheduling. The Service
+implements `IActionHandler` for `network.set-enabled` (`enabled`),
+`network.configure` (`ssid`, `passphrase`), and `network.forget`. A valid
+Action stays Handled even when the domain operation fails; the result remains
+visible on `status().lastResult`. System UI and Home consume this Service
+boundary only. Manual SSID/passphrase configuration is available; discovery
+and scanning remain later work.
 
 ---
 
@@ -2474,8 +2486,9 @@ do not imply a file browser, backup/import flow, or running Mini Apps.
 The operator confirmed adding two computers, switching between them, and
 reconnection to the last selected host on power-on on 2026-09-11.
 
-Wi-Fi is composed in normal firmware through NetworkService; interactive Wi-Fi
-UI remains later work. BLE is composed by HostService. USB serial hotplug is an open
+Wi-Fi is composed in normal firmware through NetworkService and consumed by
+Home plus the built-in Wi-Fi Settings screen. Scanning remains later work.
+BLE is composed by HostService. USB serial hotplug is an open
 observation independent of the BLE transport, not a reason to restore routing.
 Transport expansion does not block the BLE-only software scope.
 
@@ -2504,14 +2517,15 @@ Transport expansion does not block the BLE-only software scope.
 **Partial** — the delivered built-in shell is not the full Launcher.
 
 - [x] Home with selected host, real BLE state, estimated battery and ambient wave.
-- [x] General Settings menu with Bluetooth and persistent 0-100% sound volume.
+- [x] General Settings menu with Bluetooth, Wi-Fi, and persistent 0-100% sound volume.
 - [x] NavigationStack/ActionBus integration and modal-aware Back behavior.
 - [x] Plain Tab for built-in settings; Fn+Tab is inactive and normal G0 has no application action.
 - [x] Shared palette, bitmap typography, buffered dirty-region presentation.
 - [x] Non-blocking 220 ms page slides and interruption from the visible frame.
 - [ ] AppRegistry-driven Launcher and navigation into arbitrary Mini Apps.
 - [ ] Configurable global shortcuts and broader shell controls.
-- [ ] Live clock and Wi-Fi status composition; current placeholders are explicit.
+- [x] Live Home Wi-Fi status from NetworkService; clock placeholder remains `--:--`.
+- [x] Manual on-device Wi-Fi configuration, enable/disable, change, and forget.
 - [x] Synthesized key feedback, directional volume-step cues and persistent mute/volume.
 - [ ] Boot/status semantic sound cues and spring focus motion.
 - [ ] Idle dim/off, brightness policy and wake-input consumption.

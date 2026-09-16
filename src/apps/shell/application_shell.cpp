@@ -6,13 +6,23 @@
 namespace cardputer_hub::apps {
 using namespace core;
 
-ApplicationShell::ApplicationShell(services::HostService& hosts, ActionBus& actions,
-                                   IDisplayAdapter& display, HostSettings& settings,
+namespace {
+constexpr std::uint8_t settingsRowCount = 3;
+constexpr std::uint8_t bluetoothRow = 0;
+constexpr std::uint8_t wifiRow = 1;
+constexpr std::uint8_t volumeRow = 2;
+} // namespace
+
+ApplicationShell::ApplicationShell(services::HostService& hosts, services::NetworkService& network,
+                                   ActionBus& actions, IDisplayAdapter& display,
+                                   HostSettings& settings, WiFiSettings& wifiSettings,
                                    services::AudioService& audio)
-    : hosts_(hosts), actions_(actions), display_(display), settings_(settings), audio_(audio) {
+    : hosts_(hosts), network_(network), actions_(actions), display_(display), settings_(settings),
+      wifiSettings_(wifiSettings), audio_(audio) {
     (void)navigation_.resetTo("home");
     (void)actions_.registerHandler("ui.settings", *this);
     (void)actions_.registerHandler("ui.bluetooth", *this);
+    (void)actions_.registerHandler("ui.wifi", *this);
     (void)actions_.registerHandler("ui.back", *this);
 }
 
@@ -20,16 +30,17 @@ bool ApplicationShell::atHome() const { return *navigation_.current() == "home";
 
 bool ApplicationShell::atSettings() const { return *navigation_.current() == "settings"; }
 bool ApplicationShell::atBluetooth() const { return *navigation_.current() == "bluetooth"; }
+bool ApplicationShell::atWifi() const { return *navigation_.current() == "wifi"; }
 
 ActionHandlingResult ApplicationShell::handle(const Action& action) {
     if (action.id == "ui.settings") {
-        if (atBluetooth() && settings_.modal())
+        if ((atBluetooth() && settings_.modal()) || (atWifi() && wifiSettings_.modal()))
             return ActionHandlingResult::Rejected;
         if (atHome()) {
             display_.beginTransition(SlideDirection::Forward);
             (void)navigation_.push("settings");
             settingsFrame_.reset();
-        } else if (atBluetooth()) {
+        } else if (atBluetooth() || atWifi()) {
             display_.beginTransition(SlideDirection::Backward);
             (void)navigation_.back();
             settingsFrame_.reset();
@@ -40,14 +51,27 @@ ActionHandlingResult ApplicationShell::handle(const Action& action) {
         display_.beginTransition(SlideDirection::Forward);
         (void)navigation_.push("bluetooth");
         settings_.activate();
+    } else if (action.id == "ui.wifi") {
+        if (!atSettings())
+            return ActionHandlingResult::Rejected;
+        display_.beginTransition(SlideDirection::Forward);
+        (void)navigation_.push("wifi");
+        wifiSettings_.activate();
     } else if (action.id == "ui.back") {
         if (atBluetooth() && settings_.modal()) {
             (void)actions_.dispatch({"hosts.back", "shell", {}});
+        } else if (atWifi() && wifiSettings_.modal()) {
+            wifiSettings_.update({{InputEventType::NamedKey, 0, NamedKey::Escape, {}}});
+        } else if (atWifi()) {
+            display_.beginTransition(SlideDirection::Backward);
+            (void)navigation_.back();
+            settingsFrame_.reset();
         } else if (!atHome()) {
             display_.beginTransition(SlideDirection::Backward);
             // Preserve the existing BLE list's explicit Esc Home behavior.
             (void)navigation_.resetTo("home");
             homeConnectionFrame_.reset();
+            homeNetworkFrame_.reset();
         }
     } else
         return ActionHandlingResult::Rejected;
@@ -68,7 +92,8 @@ void ApplicationShell::update(const InputEvents& input, std::chrono::millisecond
             (event.type == InputEventType::NamedKey && event.namedKey == NamedKey::Right) ||
             (event.type == InputEventType::PrintableCharacter && event.character == '/' &&
              !event.modifiers.shift);
-        const bool volumeStep = atSettings() && plain && settingsSelection_ == 1 && (left || right);
+        const bool volumeStep =
+            atSettings() && plain && settingsSelection_ == volumeRow && (left || right);
         if (volumeStep) {
             const auto previousVolume = audio_.volume();
             const bool changesVolume = right ? previousVolume < 100 : previousVolume > 0;
@@ -88,9 +113,13 @@ void ApplicationShell::update(const InputEvents& input, std::chrono::millisecond
         const bool settingsChord = plain && !event.modifiers.shift && !event.modifiers.fn &&
                                    event.type == InputEventType::NamedKey &&
                                    event.namedKey == NamedKey::Tab &&
-                                   (atHome() || atSettings() || atBluetooth());
-        if (settingsChord) {
+                                   (atHome() || atSettings() || atBluetooth() || atWifi());
+        if (atWifi() && wifiSettings_.modal()) {
+            wifiSettings_.update({event});
+        } else if (settingsChord) {
             (void)actions_.dispatch({"ui.settings", "shell", {}});
+        } else if (atWifi()) {
+            wifiSettings_.update({event});
         } else if (atBluetooth()) {
             settings_.update({event});
         } else if (atSettings() && plain) {
@@ -103,17 +132,18 @@ void ApplicationShell::update(const InputEvents& input, std::chrono::millisecond
                 (event.type == InputEventType::PrintableCharacter && event.character == '.' &&
                  !event.modifiers.shift);
             if (up || down) {
-                const auto nextSelection = static_cast<std::uint8_t>(down ? 1 : 0);
-                if (nextSelection != settingsSelection_) {
+                const auto nextSelection = static_cast<std::uint8_t>(
+                    down ? std::min<int>(settingsSelection_ + 1, settingsRowCount - 1)
+                         : std::max<int>(settingsSelection_ - 1, 0));
+                if (nextSelection != settingsSelection_)
                     settingsSelection_ = nextSelection;
-                }
             } else if (event.type == InputEventType::NamedKey &&
-                       event.namedKey == NamedKey::Enter && settingsSelection_ == 0)
-                (void)actions_.dispatch({"ui.bluetooth", "settings", {}});
-            else if ((event.type == InputEventType::NamedKey &&
-                      event.namedKey == NamedKey::Escape) ||
-                     (event.type == InputEventType::PrintableCharacter && event.character == '`' &&
-                      !event.modifiers.shift))
+                       event.namedKey == NamedKey::Enter) {
+                if (settingsSelection_ == bluetoothRow)
+                    (void)actions_.dispatch({"ui.bluetooth", "settings", {}});
+                else if (settingsSelection_ == wifiRow)
+                    (void)actions_.dispatch({"ui.wifi", "settings", {}});
+            } else if (isPlainEscape(event))
                 (void)actions_.dispatch({"ui.back", "settings", {}});
         }
     }
@@ -122,6 +152,8 @@ void ApplicationShell::update(const InputEvents& input, std::chrono::millisecond
                    batteryPercent);
     else if (atSettings())
         renderSettings();
+    else if (atWifi())
+        wifiSettings_.update({}, elapsed);
     else
         settings_.update({});
     display_.endFrame();
@@ -145,7 +177,7 @@ void ApplicationShell::renderSettings() {
         const bool focusChanged =
             settingsFrame_ && (settingsFrame_->selection == index) != (next.selection == index);
         const bool valueChanged =
-            index == 1 && settingsFrame_ && settingsFrame_->volume != next.volume;
+            index == volumeRow && settingsFrame_ && settingsFrame_->volume != next.volume;
         if (!full && !focusChanged && !valueChanged)
             return;
         const bool focused = settingsSelection_ == index;
@@ -158,13 +190,15 @@ void ApplicationShell::renderSettings() {
                               value.c_str(), style);
     };
     drawRow(0, 24, "01", "Bluetooth", {});
-    drawRow(1, 42, "02", "Sound volume", std::to_string(audio_.volume()) + "%");
+    drawRow(1, 42, "02", "Wi-Fi", {});
+    drawRow(2, 60, "03", "Sound volume", std::to_string(audio_.volume()) + "%");
     settingsFrame_ = next;
 }
 
 void ApplicationShell::renderHome(std::chrono::milliseconds elapsed,
                                   std::optional<std::uint8_t> batteryPercent) {
     const auto hostStatus = hosts_.status();
+    const auto networkStatus = network_.status();
     static const std::string noHostSelected = "No host selected";
     const auto& name =
         hostStatus.activeHostName.empty() ? noHostSelected : hostStatus.activeHostName;
@@ -201,15 +235,25 @@ void ApplicationShell::renderHome(std::chrono::milliseconds elapsed,
                                    homeConnectionFrame_->activeHost != hostStatus.activeHostId ||
                                    homeConnectionFrame_->hostName != name ||
                                    homeConnectionFrame_->status != hostStatus.connection;
+    const HomeNetworkFrame nextNetwork{networkStatus.configured, networkStatus.enabled,
+                                       networkStatus.connection};
+    const bool networkChanged = !homeNetworkFrame_ ||
+                                homeNetworkFrame_->configured != nextNetwork.configured ||
+                                homeNetworkFrame_->enabled != nextNetwork.enabled ||
+                                homeNetworkFrame_->connection != nextNetwork.connection;
     const TextStyle normal{palette::ink, palette::bone, 1};
     const TextStyle quiet{palette::ordinal, palette::bone, 1};
     if (entering) {
         display_.clear(palette::bone);
-        // Clock synchronization and Wi-Fi setup are not composed yet.
         display_.drawText({8, 8}, "--:--", normal);
-        drawWifiOfflineIcon(display_);
-        display_.drawText({104, 8}, "OFFLINE", normal);
         display_.fillRectangle({8, 24}, 224, 1, palette::ink);
+    }
+    if (networkChanged) {
+        display_.fillRectangle(homeWifiRegion, homeWifiRegionWidth, homeWifiRegionHeight,
+                               palette::bone);
+        drawWifiIcon(display_, homeWifiIconPosition, palette::ink);
+        drawWifiStatusIndicator(display_, homeWifiDotPosition, homeWifiIndicator(networkStatus));
+        homeNetworkFrame_ = nextNetwork;
     }
     if (connectionChanged) {
         display_.fillRectangle({8, 32}, 224, 65, palette::bone);

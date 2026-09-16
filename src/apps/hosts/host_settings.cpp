@@ -1,7 +1,9 @@
 #include "apps/hosts/host_settings.h"
 
 #include "apps/hosts/assets/micro5_digits.h"
+#include "core/display/contextual_footer.h"
 #include "core/display/palette.h"
+#include "core/display/text_layout.h"
 #include <algorithm>
 #include <cstdio>
 #include <string_view>
@@ -293,7 +295,7 @@ void HostSettings::renderList() {
     if (full || next.status != listFrame_->status) {
         if (!full)
             display_.fillRectangle({174, 6}, 60, 8, palette::bone);
-        display_.drawText({174, 6}, next.status.c_str(), normal);
+        display_.drawText({rightAlignedTextX(next.status.c_str()), 6}, next.status.c_str(), normal);
     }
     for (std::size_t slot = 0; slot < next.labels.size(); ++slot) {
         const bool focused = slot == next.focusedRow;
@@ -418,9 +420,9 @@ void HostSettings::render() {
                       : renaming_          ? "HOST NAME"
                                            : "BLUETOOTH",
                       normal);
-    display_.drawText({174, 6}, label(hostStatus.connection), normal);
+    display_.drawText({rightAlignedTextX(label(hostStatus.connection)), 6},
+                      label(hostStatus.connection), normal);
     display_.fillRectangle({6, 20}, 228, 1, palette::ink);
-    std::string footer;
     if (deleting_) {
         display_.drawText({6, 35}, "Delete this host and its pairing?", normal);
         display_.drawText({6, 53}, hosts_.settings().hosts[focus_ - 2].name.c_str(), normal);
@@ -438,12 +440,9 @@ void HostSettings::render() {
         } else if (challenge->type == services::HostPairingPromptType::ConfirmComparison) {
             display_.drawText({6, 32}, "Does the computer show this code?", normal);
             digits(code(challenge->value.value_or(0)));
-            footer = "Enter Yes";
         } else {
             display_.drawText({6, 32}, "Type the code from the computer", normal);
             digits(entry_);
-            if (entry_.size() == 6)
-                footer = "Enter Apply";
         }
     } else if (renaming_) {
         display_.drawText({6, 35}, "Name (up to 24 characters)", normal);
@@ -451,9 +450,18 @@ void HostSettings::render() {
     }
     display_.drawText({6, 105}, error(hostStatus.lastResult),
                       {palette::vermilion, palette::bone, 1});
-    if (!footer.empty()) {
-        display_.fillRectangle({6, 118}, 228, 1, palette::ink);
-        display_.drawText({6, 123}, footer.c_str(), normal);
+    if (deleting_)
+        drawContextualFooter(display_, "ESC CANCEL", "ENTER DELETE");
+    else if (renaming_)
+        drawContextualFooter(display_, "ESC CANCEL", entry_.empty() ? "" : "ENTER APPLY");
+    else if (hostStatus.pairing) {
+        const char* confirm = "";
+        if (challenge && challenge->type == services::HostPairingPromptType::ConfirmComparison)
+            confirm = "ENTER YES";
+        else if (challenge && challenge->type == services::HostPairingPromptType::EnterPasskey &&
+                 entry_.size() == 6)
+            confirm = "ENTER APPLY";
+        drawContextualFooter(display_, "ESC CANCEL", confirm);
     }
 }
 } // namespace cardputer_hub::apps

@@ -59,12 +59,56 @@ void drawBluetoothIcon(core::IDisplayAdapter& display, core::RgbColor color) {
         " #   #  #   ", "     # #    ", "     ##     ", "     #      "};
     bitmap(display, {8, 80}, rows, 14, color);
 }
-void drawWifiOfflineIcon(core::IDisplayAdapter& display) {
+HomeWifiIndicator homeWifiIndicator(const services::WifiStatusSnapshot& status) {
+    if (!status.configured)
+        return HomeWifiIndicator::HollowQuiet;
+    if (!status.enabled)
+        return HomeWifiIndicator::FilledPale;
+    switch (status.connection) {
+    case services::WifiConnectionStatus::Connecting:
+        return HomeWifiIndicator::FilledBlue;
+    case services::WifiConnectionStatus::Connected:
+        return HomeWifiIndicator::FilledLeaf;
+    case services::WifiConnectionStatus::Error:
+        return HomeWifiIndicator::FilledVermilion;
+    case services::WifiConnectionStatus::Off:
+        return HomeWifiIndicator::FilledPale;
+    }
+    return HomeWifiIndicator::HollowQuiet;
+}
+
+void drawWifiIcon(core::IDisplayAdapter& display, core::PixelPosition position,
+                  core::RgbColor color) {
     static const char* const rows[] = {
-        "              ", "   ########   ", " ##        ## ", "#            #", "              ",
-        "    ######    ", "  ##      ##  ", "              ", "     ####     ", "    #    #    ",
-        "              ", "      ##      ", "      ##      ", "              "};
-    bitmap(display, {84, 5}, rows, 14, core::palette::ordinal);
+        "  #########  ", " #         # ", "             ", "   #######   ", "  #       #  ",
+        "             ", "     ###     ", "      #      ", "             ", "      #      "};
+    bitmap(display, position, rows, 10, color);
+}
+
+void drawWifiStatusIndicator(core::IDisplayAdapter& display, core::PixelPosition position,
+                             HomeWifiIndicator indicator) {
+    const bool filled = indicator != HomeWifiIndicator::HollowQuiet;
+    core::RgbColor color = core::palette::ordinal;
+    switch (indicator) {
+    case HomeWifiIndicator::HollowQuiet:
+        color = core::palette::ordinal;
+        break;
+    case HomeWifiIndicator::FilledPale:
+        color = core::palette::pale;
+        break;
+    case HomeWifiIndicator::FilledBlue:
+        color = core::palette::blue;
+        break;
+    case HomeWifiIndicator::FilledLeaf:
+        color = core::palette::leaf;
+        break;
+    case HomeWifiIndicator::FilledVermilion:
+        color = core::palette::vermilion;
+        break;
+    }
+    static const char* const filledRows[] = {" ### ", "#####", "#####", "#####", " ### "};
+    static const char* const hollowRows[] = {" ### ", "#   #", "#   #", "#   #", " ### "};
+    bitmap(display, position, filled ? filledRows : hollowRows, 5, color);
 }
 void drawHomeWave(core::IDisplayAdapter& display, unsigned phaseMilliseconds) {
     display.fillRectangle({0, 99}, 240, 36, core::palette::bone);

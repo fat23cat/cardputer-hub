@@ -5,6 +5,7 @@
 #include <string>
 #include <vector>
 
+#include "core/actions/action_bus.h"
 #include "services/network/network_service.h"
 
 using namespace cardputer_hub;
@@ -322,6 +323,78 @@ void test_status_centralizes_runtime_mapping_and_connected_only_rssi() {
     TEST_ASSERT_TRUE(status.lastResult == services::NetworkResult::ConnectivityError);
 }
 
+void registerNetworkActions(core::ActionBus& actions, services::NetworkService& network) {
+    for (const auto* id : {"network.set-enabled", "network.configure", "network.forget"})
+        TEST_ASSERT_TRUE(actions.registerHandler(id, network) ==
+                         core::RegistrationResult::Registered);
+}
+
+void test_network_actions_dispatch_valid_requests_and_reject_malformed_ones() {
+    Fixture f;
+    f.storeWifi(false);
+    core::ActionBus actions;
+    registerNetworkActions(actions, f.network);
+
+    TEST_ASSERT_TRUE(actions.dispatch({"network.set-enabled", "test", {{"enabled", true}}}) ==
+                     core::DispatchResult::Handled);
+    TEST_ASSERT_TRUE(f.network.status().enabled);
+    TEST_ASSERT_EQUAL(1, f.adapter.connectCalls);
+
+    const auto connects = f.adapter.connectCalls;
+    TEST_ASSERT_TRUE(actions.dispatch({"network.set-enabled", "test", {}}) ==
+                     core::DispatchResult::Rejected);
+    TEST_ASSERT_TRUE(
+        actions.dispatch({"network.set-enabled", "test", {{"enabled", std::int32_t{1}}}}) ==
+        core::DispatchResult::Rejected);
+    TEST_ASSERT_TRUE(f.network.status().enabled);
+    TEST_ASSERT_EQUAL(connects, f.adapter.connectCalls);
+
+    TEST_ASSERT_TRUE(actions.dispatch({"network.configure",
+                                       "test",
+                                       {{"ssid", std::string{"Office"}},
+                                        {"passphrase", std::string{"recognizable-secret"}}}}) ==
+                     core::DispatchResult::Handled);
+    TEST_ASSERT_EQUAL_STRING("Office", f.network.status().ssid.c_str());
+
+    const auto configuredSsid = f.network.status().ssid;
+    TEST_ASSERT_TRUE(
+        actions.dispatch({"network.configure", "test", {{"ssid", std::string{"Guest"}}}}) ==
+        core::DispatchResult::Rejected);
+    TEST_ASSERT_TRUE(
+        actions.dispatch({"network.configure",
+                          "test",
+                          {{"ssid", std::int32_t{1}}, {"passphrase", std::string{"x"}}}}) ==
+        core::DispatchResult::Rejected);
+    TEST_ASSERT_EQUAL_STRING(configuredSsid.c_str(), f.network.status().ssid.c_str());
+
+    TEST_ASSERT_TRUE(actions.dispatch({"network.forget", "test", {}}) ==
+                     core::DispatchResult::Handled);
+    TEST_ASSERT_FALSE(f.network.status().configured);
+
+    TEST_ASSERT_TRUE(actions.dispatch({"network.unknown", "test", {}}) ==
+                     core::DispatchResult::Unsupported);
+}
+
+void test_valid_network_actions_stay_handled_when_the_domain_operation_fails() {
+    Fixture f;
+    core::ActionBus actions;
+    registerNetworkActions(actions, f.network);
+
+    TEST_ASSERT_TRUE(actions.dispatch({"network.set-enabled", "test", {{"enabled", true}}}) ==
+                     core::DispatchResult::Handled);
+    TEST_ASSERT_TRUE(f.network.status().lastResult == services::NetworkResult::NotConfigured);
+    TEST_ASSERT_FALSE(f.network.status().enabled);
+    TEST_ASSERT_EQUAL(0, f.adapter.connectCalls);
+
+    TEST_ASSERT_TRUE(actions.dispatch({"network.configure",
+                                       "test",
+                                       {{"ssid", std::string{""}},
+                                        {"passphrase", std::string{"recognizable-secret"}}}}) ==
+                     core::DispatchResult::Handled);
+    TEST_ASSERT_TRUE(f.network.status().lastResult == services::NetworkResult::InvalidInput);
+    TEST_ASSERT_FALSE(f.network.status().configured);
+}
+
 void test_status_and_logs_never_publish_the_passphrase() {
     Fixture f;
     const std::string secret = "recognizable-secret";
@@ -351,5 +424,7 @@ int main() {
     RUN_TEST(test_forget_keeps_credentials_deleted_when_disconnect_fails);
     RUN_TEST(test_status_centralizes_runtime_mapping_and_connected_only_rssi);
     RUN_TEST(test_status_and_logs_never_publish_the_passphrase);
+    RUN_TEST(test_network_actions_dispatch_valid_requests_and_reject_malformed_ones);
+    RUN_TEST(test_valid_network_actions_stay_handled_when_the_domain_operation_fails);
     return UNITY_END();
 }
