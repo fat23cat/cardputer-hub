@@ -1,4 +1,5 @@
 #include "apps/hosts/host_settings.h"
+#include "apps/network/wifi_settings.h"
 #include "apps/shell/application_shell.h"
 #include "apps/shell/ui_scheduler.h"
 #include "esp_timer.h"
@@ -60,8 +61,9 @@ cardputer_hub::hardware::CardputerBatteryAdapter batteryAdapter;
 cardputer_hub::services::BatteryService battery(batteryAdapter);
 cardputer_hub::core::ActionBus actions;
 cardputer_hub::apps::HostSettings hostSettings(hosts, actions, display);
-cardputer_hub::apps::ApplicationShell applicationShell(hosts, actions, display, hostSettings,
-                                                       audio);
+cardputer_hub::apps::WiFiSettings wifiSettings(network, actions, display);
+cardputer_hub::apps::ApplicationShell applicationShell(hosts, network, actions, display,
+                                                       hostSettings, wifiSettings, audio);
 cardputer_hub::apps::UiScheduler uiScheduler;
 std::int64_t previousUpdateMilliseconds = 0;
 bool homeVisible = false;
@@ -93,6 +95,8 @@ extern "C" void app_main(void) {
         (void)actions.registerHandler(id, hosts);
     }
     (void)actions.registerHandler("audio.volume.step", audio);
+    for (const auto* id : {"network.set-enabled", "network.configure", "network.forget"})
+        (void)actions.registerHandler(id, network);
     (void)hosts.start();
     (void)network.start();
     (void)audio.start();

@@ -1,10 +1,12 @@
 #pragma once
 
 #include <chrono>
+#include <cstddef>
 #include <cstdint>
 #include <optional>
 #include <string>
 
+#include "core/actions/action_bus.h"
 #include "core/logging/logger.h"
 #include "services/configuration/configuration_service.h"
 
@@ -34,8 +36,11 @@ struct WifiStatusSnapshot {
     NetworkResult lastResult = NetworkResult::Success;
 };
 
-class NetworkService {
+class NetworkService final : public core::IActionHandler {
   public:
+    static constexpr std::size_t maximumSsidLength = 32;
+    static constexpr std::size_t maximumPassphraseLength = 64;
+
     NetworkService(connectivity::WiFiService& wifi, ConfigurationService& configuration,
                    core::Logger* logger = nullptr) noexcept
         : wifi_(wifi), configuration_(configuration), logger_(logger) {}
@@ -46,6 +51,7 @@ class NetworkService {
     NetworkResult setEnabled(bool enabled);
     NetworkResult forget();
     WifiStatusSnapshot status() const;
+    core::ActionHandlingResult handle(const core::Action& action) override;
 
   private:
     NetworkResult ensureConfiguration();

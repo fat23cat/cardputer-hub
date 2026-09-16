@@ -1,13 +1,16 @@
 #pragma once
 #include "apps/hosts/host_settings.h"
+#include "apps/network/wifi_settings.h"
 #include "core/navigation/navigation_stack.h"
 #include "services/audio/audio_service.h"
+#include "services/network/network_service.h"
 
 namespace cardputer_hub::apps {
 class ApplicationShell final : public core::IActionHandler {
   public:
-    ApplicationShell(services::HostService& hosts, core::ActionBus& actions,
-                     core::IDisplayAdapter& display, HostSettings& settings,
+    ApplicationShell(services::HostService& hosts, services::NetworkService& network,
+                     core::ActionBus& actions, core::IDisplayAdapter& display,
+                     HostSettings& settings, WiFiSettings& wifiSettings,
                      services::AudioService& audio);
     void update(const core::InputEvents& input, std::chrono::milliseconds elapsed = {},
                 std::optional<std::uint8_t> batteryPercent = std::nullopt);
@@ -20,6 +23,12 @@ class ApplicationShell final : public core::IActionHandler {
         services::HostConnectionStatus status = services::HostConnectionStatus::Off;
     };
 
+    struct HomeNetworkFrame {
+        bool configured = false;
+        bool enabled = false;
+        services::WifiConnectionStatus connection = services::WifiConnectionStatus::Off;
+    };
+
     struct SettingsFrame {
         std::uint8_t selection = 0;
         std::uint8_t volume = 0;
@@ -29,14 +38,18 @@ class ApplicationShell final : public core::IActionHandler {
     void renderSettings();
     bool atSettings() const;
     bool atBluetooth() const;
+    bool atWifi() const;
     bool atHome() const;
     services::HostService& hosts_;
+    services::NetworkService& network_;
     core::ActionBus& actions_;
     core::IDisplayAdapter& display_;
     HostSettings& settings_;
+    WiFiSettings& wifiSettings_;
     services::AudioService& audio_;
     core::NavigationStack navigation_;
     std::optional<HomeConnectionFrame> homeConnectionFrame_;
+    std::optional<HomeNetworkFrame> homeNetworkFrame_;
     std::optional<std::uint8_t> homeBatteryPercent_;
     unsigned homePhaseMilliseconds_ = 0;
     std::optional<SettingsFrame> settingsFrame_;
