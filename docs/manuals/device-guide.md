@@ -12,9 +12,13 @@ off, blue while connecting, green when connected, and red on error. Home never
 shows the network name or signal strength. Battery is sampled every five seconds (`--%` if
 unavailable); the voltage-based estimate can be less accurate with USB power
 connected. Long host names are shortened with an ellipsis on Home only; their
-stored names remain unchanged. Press plain **Tab** on the main keyboard to open
-the general Settings menu. Fn+Tab is inactive, and a normal G0 press has no
-application action. Settings lists Bluetooth, Wi-Fi, then Sound volume. BLE is the only host-control transport. USB supplies power, firmware
+stored names remain unchanged. Press **Enter** on Home to open **Apps**. The
+list currently contains **SYSTEM**, a read-only status screen for battery,
+Bluetooth, the selected host, Wi-Fi, and firmware version. Escape returns from
+SYSTEM to Apps and from Apps to Home. Press plain **Tab** on the main keyboard
+to open the general Settings menu. Fn+Tab is inactive, and a normal G0 press
+has no application action. Settings lists Bluetooth, Wi-Fi, then Sound volume.
+BLE is the only host-control transport. USB supplies power, firmware
 installation, and fixed USB Serial/JTAG diagnostics.
 
 Each recognized key press after startup has a short, soft synthesized click.
@@ -79,6 +83,10 @@ instead of moving a list.
 
 | Control | Behavior |
 | --- | --- |
+| Enter on Home | Open Apps |
+| Escape in Apps | Return Home |
+| Enter on SYSTEM | Open the read-only system status list |
+| Escape in SYSTEM | Return to Apps |
 | Plain Tab on Home | Open Settings without changing BLE state |
 | Enter on Bluetooth in Settings | Open the Bluetooth panel |
 | Enter on Wi-Fi in Settings | Open Wi-Fi Settings |
@@ -112,16 +120,16 @@ Back from rename/delete returns to the host menu; Back from the host menu
 returns to the Bluetooth list. Back from pairing returns to the Bluetooth list.
 Settings and the Bluetooth list have no bottom bar or Esc Home label.
 Escape/backtick still returns Home; arrows and Enter work as before. The X shortcut and global cleanup button are removed. Backtick remains a printable character while renaming (use
-Escape to cancel that edit). Home is always the default screen after reboot. Ordinary Enter and B do
-nothing on Home. Plain Tab does not dismiss a host submenu, rename/delete prompt,
+Escape to cancel that edit). Home is always the default screen after reboot. Ordinary Enter on Home opens
+Apps. Plain Tab does not dismiss a host submenu, rename/delete prompt,
 or pairing view; leave that view using Back first. The existing Esc Home action
 in the Bluetooth list continues to return directly Home;
 opening/closing settings does not change saved host selection or BLE On/Off.
 
 Fn+Tab is inactive, and a normal G0 press does nothing. Holding G0 while
 starting or resetting the device still enters the firmware download mode.
-The wave has a 28-second cycle and pauses while Settings, Bluetooth, or Wi-Fi
-is open and
+The wave has a 28-second cycle and pauses while Settings, Bluetooth, Wi-Fi, Apps,
+or SYSTEM is open and
 during screen transitions. Screens slide in from the right when opening and
 from the left when returning, taking about 220 ms. You can keep pressing keys
 during a transition; navigation does not wait for the animation to finish.
@@ -213,8 +221,8 @@ Fresh pairing, two-computer addition/switching, and reconnection to the last
 selected host after Reset/power-on were confirmed on Cardputer-Adv. Extended
 Off, report/interruption and USB hotplug acceptance remains tracked in
 [plan 017](../plans/017-hid-transport-arbitration.md#0-current-closeout-status).
-The current firmware does not
-include the full Launcher/Mini App shell, profile-metadata editing or template
+The current firmware includes Apps and the SYSTEM status Mini App. It does not
+include additional Mini Apps, profile-metadata editing or template
 resolution, Action-to-HID mappings, a Mac companion CLI/control protocol,
 Wi-Fi network scanning, or weather/VPS/Telegram/RGB features. Boot/status sound cues, idle
 dimming, and wake-input behavior from the broader UI requirements remain planned.

@@ -33,6 +33,7 @@ not phase numbers. The authoritative delivered/pending step checklist is in
 | [026](026-firmware-size-observability-and-safe-optimization.md#0-current-closeout-status) | Firmware size observability and safe optimization | Complete; automated checks, firmware build, and physical Wi-Fi/BLE smoke test passed |
 | [027](027-wifi-system-ui-and-home-network-status.md) | Wi-Fi System UI and Home network status | Complete |
 | [028](028-mini-app-runtime-foundation.md#0-current-closeout-status) | Mini App runtime foundation | Software complete; physical Home/Settings smoke pending; Launcher and production Mini Apps remain deferred |
+| [029](029-appregistry-driven-launcher-integration.md#0-planning-status) | AppRegistry-driven Launcher and SYSTEM Mini App | Software implemented; physical Home → Launcher → SYSTEM validation pending |
 
 The work referred to historically as 013 is the approved
 [UI requirements](../UI_REQUIREMENTS.md); there is no separate plan-013 file.

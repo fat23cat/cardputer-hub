@@ -625,9 +625,17 @@ void test_shell_boots_simple_home_and_opens_settings_before_bluetooth() {
                      f.display.texts.end());
     f.display.capture("home");
     const auto frames = f.display.frames;
-    shell.update({enter, character('b')});
+    shell.update({character('b')});
     TEST_ASSERT_EQUAL(frames, f.display.frames);
     TEST_ASSERT_TRUE(f.actions.seen.empty());
+    shell.update({enter});
+    TEST_ASSERT_TRUE(std::find(f.display.texts.begin(), f.display.texts.end(), "APPS") !=
+                     f.display.texts.end());
+    TEST_ASSERT_TRUE(std::find(f.display.texts.begin(), f.display.texts.end(), "NO APPS") !=
+                     f.display.texts.end());
+    shell.update({character('`')});
+    TEST_ASSERT_TRUE(std::find(f.display.texts.begin(), f.display.texts.end(), "SELECTED HOST") !=
+                     f.display.texts.end());
     shell.update({settingsChord});
     TEST_ASSERT_TRUE(std::find(f.display.texts.begin(), f.display.texts.end(), "SETTINGS") !=
                      f.display.texts.end());
