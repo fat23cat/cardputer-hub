@@ -97,7 +97,7 @@ downloaded installation scripts first when required by your environment's
 security policy.
 
 ```bash
-curl -LsSf https://astral.sh/uv/0.12.12/install.sh | sh
+curl -LsSf https://astral.sh/uv/0.12.13/install.sh | sh
 ```
 
 Restart the terminal if `uv` is not immediately available. Then install the

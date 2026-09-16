@@ -10,7 +10,8 @@ exact version required by `pyproject.toml`.
 ## 2. Problem
 
 The merge of pull request 23 updated `[tool.uv].required-version` and the CI
-workflow to `0.12.12`, but the protected release workflow still installed
+workflow to the same pinned uv release, but the protected release workflow
+still installed
 `0.12.7`. The resulting release job failed during `uv sync --frozen`, before
 release classification or firmware compilation.
 

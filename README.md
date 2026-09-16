@@ -123,7 +123,7 @@ system UI, connectivity foundations, and host/configuration/battery/audio Servic
 The locked development environment uses:
 
 * Python 3.12.14;
-* uv 0.12.12;
+* uv 0.12.13;
 * ESP-IDF 5.5.5 with its recommended compiler, CMake, and Ninja tools;
 * PlatformIO Core 6.1.19 only for native host tests and static analysis;
 * clang-format 23.1.0;
@@ -152,7 +152,7 @@ scripts before running them when required by your environment's security
 policy.
 
 ```bash
-curl -LsSf https://astral.sh/uv/0.12.12/install.sh | sh
+curl -LsSf https://astral.sh/uv/0.12.13/install.sh | sh
 uv python install 3.12.14
 bash scripts/install_esp_idf.sh \
   "$HOME/.espressif/frameworks/esp-idf-v5.5.5"

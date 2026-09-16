@@ -1,7 +1,6 @@
 # 027 — Wi-Fi System UI and Home Network Status
 
-Status: **Implemented** — automated checks and production firmware build
-passed; physical Cardputer-Adv acceptance remains pending.
+Status: **Complete**
 
 ## 0. Current Closeout Status
 
@@ -40,7 +39,8 @@ for built-in system screens. Persistent lists and status views stay clean;
 editors, Forget, pairing, rename, and delete now use compact contextual
 footers when cancel or confirm is available.
 
-Physical Cardputer-Adv acceptance from section 34 remains operator work.
+Physical Cardputer-Adv acceptance from section 34: **PASS**, operator-confirmed
+on **2026-09-16**.
 
 Suggested branch:
 
@@ -1555,6 +1555,8 @@ Never include real credentials in documentation.
 
 ## 34. Physical Acceptance
 
+Result: **PASS** — operator-confirmed on **2026-09-16**.
+
 After automated checks and production firmware build pass, stage the final image on the physical Cardputer-Adv.
 
 Use the normal firmware image, not a special validation-only UI build.
@@ -1841,7 +1843,7 @@ Plan 027 is complete only when all of the following are true:
 [x] Automated project gates pass.
 [x] Production firmware builds.
 [x] Firmware-size report is recorded.
-[ ] Physical Cardputer-Adv acceptance passes.
+[x] Physical Cardputer-Adv acceptance passes.
 [x] Architecture, UI requirements, plan index and user documentation are aligned.
 ```
 
