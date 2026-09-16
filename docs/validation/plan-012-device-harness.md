@@ -1,5 +1,8 @@
 # Plan 012 Local Device Validation
 
+Historical runbook. The opt-in `CARDPUTER_HUB_PLAN_012_VALIDATION` image and
+`src/validation` harness were removed; this is not a supported build path.
+
 This guide validates the real ESP32 Wi-Fi and ESP-NimBLE adapters on a
 Cardputer-Adv without requiring a firmware UI.
 

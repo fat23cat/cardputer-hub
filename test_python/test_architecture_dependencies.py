@@ -35,6 +35,49 @@ class ArchitectureDependencyTests(unittest.TestCase):
         self.assertEqual(dependency, violations[0].target_layer)
         self.assertEqual(1, violations[0].line_number)
 
+    def test_runtime_may_depend_on_core_and_its_own_headers(self) -> None:
+        self.assertEqual(
+            [],
+            self.check_fixture(
+                {
+                    "apps/runtime/mini_app_runtime.cpp": (
+                        '#include "core/app_registry/app_registry.h"\n'
+                        '#include "apps/runtime/mini_app.h"\n'
+                    )
+                }
+            ),
+        )
+
+    def test_runtime_may_not_depend_on_services_or_other_apps(self) -> None:
+        service_violations = self.check_fixture(
+            {"apps/runtime/mini_app_runtime.cpp": '#include "services/hosts/host_service.h"\n'}
+        )
+        self.assertEqual(1, len(service_violations))
+        self.assertEqual("apps", service_violations[0].source_layer)
+        self.assertEqual("services", service_violations[0].target_layer)
+
+        app_violations = self.check_fixture(
+            {
+                "apps/runtime/mini_app_runtime.cpp": '#include "apps/shell/application_shell.h"\n'
+            }
+        )
+        self.assertEqual(1, len(app_violations))
+        self.assertEqual("apps", app_violations[0].source_layer)
+        self.assertEqual("apps", app_violations[0].target_layer)
+
+    def test_runtime_cannot_hide_a_shell_dependency_behind_parent_segments(self) -> None:
+        violations = self.check_fixture(
+            {
+                "apps/runtime/mini_app_runtime.cpp": (
+                    '#include "apps/runtime/../shell/application_shell.h"\n'
+                )
+            }
+        )
+
+        self.assertEqual(1, len(violations))
+        self.assertEqual("apps", violations[0].source_layer)
+        self.assertEqual("apps", violations[0].target_layer)
+
     def test_apps_may_depend_on_services(self) -> None:
         self.assert_allowed("apps", "services")
 

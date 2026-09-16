@@ -40,18 +40,14 @@ def source_files(source_root: pathlib.Path) -> Iterator[pathlib.Path]:
             yield path
 
 
-def _source_layer(path: pathlib.Path, source_root: pathlib.Path) -> str:
+def _is_runtime_source(path: pathlib.Path, source_root: pathlib.Path) -> bool:
     relative_path = path.relative_to(source_root)
-    if relative_path == pathlib.Path("main.cpp"):
-        return "main"
-    if len(relative_path.parts) > 1:
-        return relative_path.parts[0]
-    return "<source root>"
+    return relative_path.parts[:2] == ("apps", "runtime")
 
 
-def _target_layer(
+def _resolve_include(
     include: str, source_path: pathlib.Path, source_root: pathlib.Path
-) -> str | None:
+) -> tuple[pathlib.Path, pathlib.Path] | None:
     include_path = pathlib.PurePosixPath(include)
     if not include_path.parts or include_path.is_absolute():
         return None
@@ -67,9 +63,34 @@ def _target_layer(
         resolved_path = (source_path.parent / relative_include).resolve()
 
     try:
-        relative_path = resolved_path.relative_to(source_root)
+        return resolved_path, resolved_path.relative_to(source_root)
     except ValueError:
         return None
+
+
+def _is_runtime_include(
+    include: str, source_path: pathlib.Path, source_root: pathlib.Path
+) -> bool:
+    resolved = _resolve_include(include, source_path, source_root)
+    return resolved is not None and resolved[1].parts[:2] == ("apps", "runtime")
+
+
+def _source_layer(path: pathlib.Path, source_root: pathlib.Path) -> str:
+    relative_path = path.relative_to(source_root)
+    if relative_path == pathlib.Path("main.cpp"):
+        return "main"
+    if len(relative_path.parts) > 1:
+        return relative_path.parts[0]
+    return "<source root>"
+
+
+def _target_layer(
+    include: str, source_path: pathlib.Path, source_root: pathlib.Path
+) -> str | None:
+    resolved = _resolve_include(include, source_path, source_root)
+    if resolved is None:
+        return None
+    resolved_path, relative_path = resolved
     if len(relative_path.parts) > 1:
         layer = relative_path.parts[0]
         if layer in ALLOWED or resolved_path.exists():
@@ -156,6 +177,21 @@ def find_violations(source_root: pathlib.Path) -> list[Violation]:
                 violations.append(
                     Violation(
                         kind="unknown_target_layer",
+                        path=display_path,
+                        line_number=line_number,
+                        source_layer=source_layer,
+                        target_layer=target_layer,
+                        directive=raw_line.strip(),
+                    )
+                )
+                continue
+            if _is_runtime_source(path, source_root) and target_layer != "core" and not (
+                target_layer == "apps"
+                and _is_runtime_include(match.group(1), path, source_root)
+            ):
+                violations.append(
+                    Violation(
+                        kind="forbidden_dependency",
                         path=display_path,
                         line_number=line_number,
                         source_layer=source_layer,

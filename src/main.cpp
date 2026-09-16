@@ -1,7 +1,10 @@
 #include "apps/hosts/host_settings.h"
 #include "apps/network/wifi_settings.h"
+#include "apps/runtime/mini_app_runtime.h"
 #include "apps/shell/application_shell.h"
 #include "apps/shell/ui_scheduler.h"
+#include "core/app_registry/app_registry.h"
+#include "core/capabilities/capability_registry.h"
 #include "esp_timer.h"
 #include "hardware/cardputer/cardputer_audio_adapter.h"
 #include "hardware/cardputer/cardputer_battery_adapter.h"
@@ -24,17 +27,6 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 
-#if CARDPUTER_HUB_PLAN_012_VALIDATION
-#include <fcntl.h>
-#include <unistd.h>
-
-#include "validation/plan_012_device_harness.h"
-#elif CARDPUTER_HUB_PLAN_014_VALIDATION
-#include "validation/plan_014_device_harness.h"
-#elif CARDPUTER_HUB_PLAN_015_VALIDATION
-#include "validation/plan_015_device_harness.h"
-#endif
-
 namespace {
 
 cardputer_hub::hardware::CardputerPlatform platform;
@@ -45,8 +37,6 @@ cardputer_hub::hardware::SerialLogSink logSink;
 cardputer_hub::core::Logger logger(logSink, cardputer_hub::core::LogLevel::Info);
 cardputer_hub::core::SystemRuntime runtime(platform, keyboard, display, logger,
                                            cardputer_hub::core::firmwareBuildInfo());
-#if !CARDPUTER_HUB_PLAN_012_VALIDATION && !CARDPUTER_HUB_PLAN_014_VALIDATION &&                    \
-    !CARDPUTER_HUB_PLAN_015_VALIDATION
 cardputer_hub::hardware::Esp32NvsStorageAdapter configurationAdapter;
 cardputer_hub::core::Storage configurationStorage(configurationAdapter);
 cardputer_hub::services::ConfigurationService configuration(configurationStorage);
@@ -60,33 +50,20 @@ cardputer_hub::services::HostService hosts(bluetooth, configuration, &logger);
 cardputer_hub::hardware::CardputerBatteryAdapter batteryAdapter;
 cardputer_hub::services::BatteryService battery(batteryAdapter);
 cardputer_hub::core::ActionBus actions;
+cardputer_hub::core::AppRegistry appRegistry;
+cardputer_hub::core::CapabilityRegistry capabilities;
+cardputer_hub::apps::MiniAppRuntime miniApps(appRegistry, capabilities);
 cardputer_hub::apps::HostSettings hostSettings(hosts, actions, display);
 cardputer_hub::apps::WiFiSettings wifiSettings(network, actions, display);
 cardputer_hub::apps::ApplicationShell applicationShell(hosts, network, actions, display,
-                                                       hostSettings, wifiSettings, audio);
+                                                       hostSettings, wifiSettings, audio, miniApps);
 cardputer_hub::apps::UiScheduler uiScheduler;
 std::int64_t previousUpdateMilliseconds = 0;
 bool homeVisible = false;
-#endif
-#if CARDPUTER_HUB_PLAN_012_VALIDATION
-cardputer_hub::validation::Plan012DeviceHarness validationHarness(logger);
-#elif CARDPUTER_HUB_PLAN_014_VALIDATION
-cardputer_hub::validation::Plan014DeviceHarness validationHarness(platform, keyboard, display,
-                                                                  logger);
-#elif CARDPUTER_HUB_PLAN_015_VALIDATION
-cardputer_hub::validation::Plan015DeviceHarness validationHarness(platform, keyboard, display,
-                                                                  logger);
-#endif
 
 } // namespace
 
 extern "C" void app_main(void) {
-#if CARDPUTER_HUB_PLAN_012_VALIDATION
-    (void)fcntl(STDIN_FILENO, F_SETFL, O_NONBLOCK);
-    validationHarness.start();
-#elif CARDPUTER_HUB_PLAN_014_VALIDATION || CARDPUTER_HUB_PLAN_015_VALIDATION
-    validationHarness.start();
-#else
     runtime.start();
     (void)configuration.ensureLoaded();
     for (const auto* id : {"host.select", "host.bluetooth", "host.rename", "host.platform",
@@ -102,14 +79,8 @@ extern "C" void app_main(void) {
     (void)audio.start();
     battery.update(std::chrono::milliseconds(0));
     previousUpdateMilliseconds = esp_timer_get_time() / 1000;
-#endif
 
     for (;;) {
-#if CARDPUTER_HUB_PLAN_012_VALIDATION
-        validationHarness.update();
-#elif CARDPUTER_HUB_PLAN_014_VALIDATION || CARDPUTER_HUB_PLAN_015_VALIDATION
-        validationHarness.update();
-#else
         const auto now = esp_timer_get_time() / 1000;
         const auto elapsed = std::chrono::milliseconds(now - previousUpdateMilliseconds);
         previousUpdateMilliseconds = now;
@@ -128,7 +99,6 @@ extern "C" void app_main(void) {
             if (uiElapsed)
                 applicationShell.update(input, *uiElapsed, battery.percent());
         }
-#endif
         vTaskDelay(pdMS_TO_TICKS(1));
     }
 }

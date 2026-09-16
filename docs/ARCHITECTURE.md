@@ -253,7 +253,10 @@ with zero acting as mute. `ui.back` from Wi-Fi Settings returns to Settings;
 from Bluetooth it keeps the existing Esc Home behavior. A local modal or
 editor consumes input before any Settings shortcut. Navigation never changes
 radio policy.
-Full Launcher and Mini App lifecycle remain pending.
+When a Mini App is already active, `ApplicationShell` forwards the scheduled
+update to `MiniAppRuntime` instead of Home/Settings. Explicit deactivation or
+capability loss while active invalidates Home caches and returns presentation
+to Home. Full Launcher integration remains pending.
 
 `BatteryService` owns a read-only optional estimated percentage and samples
 `IBatteryAdapter` immediately on its first update, then at most once every five
@@ -293,8 +296,8 @@ on consecutive cropped DMA transfers. New navigation during a slide reuses that
 currently visible composition, keeping input responsive without jumping to a
 hidden destination.
 Multiple navigation Actions in one input poll retain one source snapshot and
-target the final page. Direct drawing remains available for startup,
-validation harnesses, and allocation failure. UI objects retain ownership of
+target the final page. Direct drawing remains available for startup
+and allocation failure. UI objects retain ownership of
 layout and view state; the adapter owns canvas memory and physical LCD I/O.
 
 ---
@@ -316,9 +319,10 @@ registry has no unregister operation.
 The registry does not contain Mini App instances, factories, lifecycle
 callbacks, views, enabled-app configuration, rendering behavior, or Launcher
 policy. It also does not inspect `CapabilityRegistry`. Phase 4 Launcher code
-will enumerate metadata without hardcoded knowledge of individual apps, and
-Phase 5 will integrate descriptors with Mini App instances and capability
-eligibility. Registering metadata alone does not make an app operational.
+will enumerate metadata without hardcoded knowledge of individual apps.
+`AppRegistry` remains metadata-only. `MiniAppRuntime` binds executable
+instances by exact `AppDescriptor` ID. Registering metadata alone does not
+make an app operational.
 
 Future Mini Apps register metadata through the shared `AppRegistry`.
 
@@ -354,9 +358,16 @@ entry view
 ```
 
 Phase 1 represents this declaration with `AppDescriptor` only. Its entry route
-remains opaque until Application Shell and Mini App integration exist, and
-its icon may be absent without requiring an icon asset or rendering contract.
-`IMiniApp`, instances, lifecycle, and view behavior remain Phase 5 work.
+remains opaque until Launcher integration exists, and its icon may be absent
+without requiring an icon asset or rendering contract.
+
+Plan 028 delivers the application-layer `IMiniApp` contract and
+`MiniAppRuntime`. A Mini App receives `onActivate()`, `update(input, elapsed)`,
+and `onDeactivate()`. Instances are static process-lifetime objects; the
+runtime keeps non-owning references and never constructs or destroys apps.
+Mini Apps own application-specific view state. Shared Services remain
+independently composed and are injected through explicit constructors rather
+than a runtime service locator.
 
 Example:
 
@@ -481,9 +492,11 @@ return from that list to Settings. Host submenus and editing/pairing modals cons
 the shortcut without abandoning their state. Ordinary Enter/B on Home do
 nothing. Fn+Tab is inactive, and a normal G0 press has no application action.
 The ROM download behavior of G0 at boot/reset is unchanged. Plain Tab is scoped to built-in system
-screens; future text-entry Mini Apps must retain their normal Tab behavior. Launcher and broader global-shortcut integration remain Phase 4 work. Phase 5 will define Mini
-App view objects and lifecycle; those view implementations remain outside the
-navigation history primitive.
+screens; future text-entry Mini Apps must retain their normal Tab behavior. Launcher and broader global-shortcut integration remain Phase 4 work. Plan 028 adds
+application activation and lifecycle only. Launcher routing and internal Mini
+App view navigation remain pending. Per-app view state stays application-owned;
+Plan 028 does not introduce a universal polymorphic View hierarchy. Those view
+implementations remain outside the navigation history primitive.
 
 All future System UI and Mini App views must follow the shared visual,
 interaction, sound, display-power, and input-routing rules in
@@ -1948,9 +1961,11 @@ The capability registry records declared availability only. It does not
 discover hardware, infer dependency state, identify providers, count multiple
 providers, persist state, publish observers, or decide which applications are
 eligible. Owning Connectivity components and Services may update logical
-capabilities when those layers are implemented. Phase 5 will combine
-AppRegistry metadata with registry queries for application eligibility and
-presentation policy.
+capabilities when those layers are implemented. `MiniAppRuntime` now evaluates
+`AppDescriptor::requiredCapabilities` through `CapabilityRegistry` at
+activation and while an application is active. CapabilityRegistry availability
+is authoritative; the runtime does not infer capabilities from Service state.
+Launcher presentation policy remains pending.
 
 `COMPANION` means that `CompanionService` currently has a compatible,
 authenticated session with the selected host; installation of the macOS binary
@@ -1962,9 +1977,9 @@ never treated as proof of live availability.
 
 `AppDescriptor::requiredCapabilities` records ordered, non-empty, unique
 capability IDs but registration does not verify that those capabilities are
-currently available or even known. The AppRegistry and CapabilityRegistry
-remain independent foundations until Phase 5 performs explicit eligibility
-checks.
+currently available or even known. AppRegistry remains metadata-only.
+`MiniAppRuntime` performs the explicit eligibility checks against
+CapabilityRegistry.
 
 `REMOVABLE_FILE_STORAGE` means that a microSD card is mounted and usable; it
 does not merely mean that the device has a physical card slot. Its availability
@@ -2347,8 +2362,7 @@ registration keeps those responsibilities explicit.
 
 The runtime console uses the ESP32-S3 fixed USB Serial/JTAG peripheral, as
 configured by ESP-IDF. No TinyUSB driver or software USB HID device is installed.
-The validation harness's USB serial input is non-blocking and independent of
-BLE control. Cable removal cannot change HID readiness through routing policy;
+Cable removal cannot change HID readiness through routing policy;
 BLE readiness depends only on the selected peer's connection and security.
 
 NimBLE is configured for bonding, MITM protection, Secure Connections-only
@@ -2442,7 +2456,7 @@ Earlier plan records retain their historical test counts and toolchains.
 | 2 — Connectivity | Software scope complete; physical acceptance partial |
 | 3 — Core Services | Partial: host/configuration, battery and audio Services delivered |
 | 4 — Application Shell | Partial: Home, Settings, navigation, sound feedback and page transitions delivered |
-| 5 — Mini App Infrastructure | Not implemented; Phase 1 registry prerequisites exist |
+| 5 — Mini App Infrastructure | Partial: runtime/lifecycle and capability checks delivered; Launcher pending |
 | 6 — Device Manager | Partial: built-in Bluetooth/host UI delivered |
 | 7 — Host Control | Not implemented; Phase 2 HID transport prerequisite exists |
 | 8 — Host Companion | Not implemented; optional macOS CLI and protocol planned |
@@ -2532,13 +2546,16 @@ Transport expansion does not block the BLE-only software scope.
 
 ### Phase 5 — Mini App Infrastructure
 
-**Not implemented** — AppRegistry and Capability Registry already exist as
-Phase 1 primitives, but their runtime integration remains here.
+**Partial** — `IMiniApp` and `MiniAppRuntime` provide activation, update,
+deactivation, and CapabilityRegistry eligibility. Per-app view state remains
+application-owned; Plan 028 does not introduce a universal polymorphic View
+hierarchy. Launcher integration and Service lifecycle composition remain open.
+No production Mini App is registered.
 
-- [ ] MiniApp interface and Mini App view model.
-- [ ] AppRegistry integration with Launcher.
-- [ ] Mini App lifecycle and Service lifecycle composition.
-- [ ] Runtime capability checks for launching/running Mini Apps.
+- [x] MiniApp runtime interface and lifecycle foundation.
+- [ ] AppRegistry-driven Launcher integration.
+- [ ] Service lifecycle composition where required by concrete Services.
+- [x] Runtime capability checks for launching/running Mini Apps.
 
 ### Phase 6 — Device Manager
 
@@ -2778,6 +2795,8 @@ src/
 │   └── remote_control/
 │
 ├── apps/
+│   ├── runtime/
+│   ├── shell/
 │   ├── device_manager/
 │   ├── weather/
 │   ├── vps_monitor/

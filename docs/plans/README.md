@@ -1,6 +1,6 @@
 # Implementation Plans and Status
 
-Reviewed on **2026-09-15**. Plan numbers identify individual changes; they are
+Reviewed on **2026-09-16**. Plan numbers identify individual changes; they are
 not phase numbers. The authoritative delivered/pending step checklist is in
 [Architecture §47](../ARCHITECTURE.md#47-initial-development-order).
 
@@ -32,10 +32,11 @@ not phase numbers. The authoritative delivered/pending step checklist is in
 | [025](025-persisted-wifi-configuration-and-runtime-composition.md) | Persisted Wi-Fi and runtime composition | Implemented; automated checks and firmware build passed |
 | [026](026-firmware-size-observability-and-safe-optimization.md#0-current-closeout-status) | Firmware size observability and safe optimization | Complete; automated checks, firmware build, and physical Wi-Fi/BLE smoke test passed |
 | [027](027-wifi-system-ui-and-home-network-status.md) | Wi-Fi System UI and Home network status | Complete |
+| [028](028-mini-app-runtime-foundation.md#0-current-closeout-status) | Mini App runtime foundation | Software complete; physical Home/Settings smoke pending; Launcher and production Mini Apps remain deferred |
 
 The work referred to historically as 013 is the approved
 [UI requirements](../UI_REQUIREMENTS.md); there is no separate plan-013 file.
-Phases 3/4/6 contain delivered slices from 017 and remain partial. Phase 5 and
+Phases 3/4/5/6 contain delivered slices from 017 and 028 and remain partial.
 Phases 7–12 are future implementation work, not missing numbered plan files.
 
 Plan 017's current summary consolidates physical evidence, including the

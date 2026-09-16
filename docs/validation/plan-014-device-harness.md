@@ -1,5 +1,8 @@
 # Plan 014 Cardputer-Adv Validation Harness
 
+Historical runbook. The opt-in `CARDPUTER_HUB_PLAN_014_VALIDATION` image and
+`src/validation` harness were removed; this is not a supported build path.
+
 This runbook validates authenticated BLE pairing and bond management on a
 physical Cardputer-Adv. The harness is opt-in and must never be used as a
 production image. Use a dedicated test device: cleanup deliberately removes

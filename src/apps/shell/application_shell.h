@@ -6,12 +6,14 @@
 #include "services/network/network_service.h"
 
 namespace cardputer_hub::apps {
+class MiniAppRuntime;
+
 class ApplicationShell final : public core::IActionHandler {
   public:
     ApplicationShell(services::HostService& hosts, services::NetworkService& network,
                      core::ActionBus& actions, core::IDisplayAdapter& display,
                      HostSettings& settings, WiFiSettings& wifiSettings,
-                     services::AudioService& audio);
+                     services::AudioService& audio, MiniAppRuntime& miniApps);
     void update(const core::InputEvents& input, std::chrono::milliseconds elapsed = {},
                 std::optional<std::uint8_t> batteryPercent = std::nullopt);
     core::ActionHandlingResult handle(const core::Action& action) override;
@@ -34,6 +36,7 @@ class ApplicationShell final : public core::IActionHandler {
         std::uint8_t volume = 0;
     };
 
+    void recoverHomePresentation();
     void renderHome(std::chrono::milliseconds elapsed, std::optional<std::uint8_t> batteryPercent);
     void renderSettings();
     bool atSettings() const;
@@ -47,6 +50,7 @@ class ApplicationShell final : public core::IActionHandler {
     HostSettings& settings_;
     WiFiSettings& wifiSettings_;
     services::AudioService& audio_;
+    MiniAppRuntime& miniApps_;
     core::NavigationStack navigation_;
     std::optional<HomeConnectionFrame> homeConnectionFrame_;
     std::optional<HomeNetworkFrame> homeNetworkFrame_;
@@ -54,5 +58,6 @@ class ApplicationShell final : public core::IActionHandler {
     unsigned homePhaseMilliseconds_ = 0;
     std::optional<SettingsFrame> settingsFrame_;
     std::uint8_t settingsSelection_ = 0;
+    bool showingMiniApp_ = false;
 };
 } // namespace cardputer_hub::apps
