@@ -123,7 +123,7 @@ system UI, connectivity foundations, and host/configuration/battery/audio Servic
 The locked development environment uses:
 
 * Python 3.12.14;
-* uv 0.12.12;
+* uv 0.12.13;
 * ESP-IDF 5.5.5 with its recommended compiler, CMake, and Ninja tools;
 * PlatformIO Core 6.1.19 only for native host tests and static analysis;
 * clang-format 23.1.0;
@@ -152,7 +152,7 @@ scripts before running them when required by your environment's security
 policy.
 
 ```bash
-curl -LsSf https://astral.sh/uv/0.12.12/install.sh | sh
+curl -LsSf https://astral.sh/uv/0.12.13/install.sh | sh
 uv python install 3.12.14
 bash scripts/install_esp_idf.sh \
   "$HOME/.espressif/frameworks/esp-idf-v5.5.5"
@@ -249,9 +249,10 @@ partition reserved for authoritative configuration records. On startup, the
 firmware enters through native ESP-IDF, initializes M5Unified directly, writes
 structured informational records for the product name, version, commit, and
 build type to serial, briefly renders the product name/version, then opens a compact Home with the selected host, BT status, an estimated battery
-percentage, and a slow dotted wave. The future clock and Wi-Fi slots currently
-show `--:--` and `OFFLINE`. Plain Tab opens Settings; Bluetooth
-opens the existing BLE panel and the following Sound volume row adjusts the
+percentage, and a slow dotted wave. Time currently shows `--:--`. Home Wi-Fi
+uses a compact glyph and a separate status dot rather than OFFLINE/ONLINE text.
+Plain Tab opens Settings; Bluetooth opens the existing BLE panel, Wi-Fi opens
+manual network setup, and the following Sound volume row adjusts the
 persistent 0-100% key-click volume with Left/Right in 10% steps.
 Screen navigation uses short horizontal transitions with live input. The update loop polls semantic keyboard events, routes
 local settings Actions, and advances HostService/BluetoothService plus
@@ -271,8 +272,10 @@ configuration import/export behavior.
 The Wi-Fi foundation provides a hardware-independent connection state machine
 and ESP32 station adapter. Normal firmware now composes both through
 NetworkService, which owns one bounded persisted station network, enabled intent,
-startup restoration, and credential-free domain status. No credentials are
-compiled into firmware, and interactive on-device Wi-Fi setup remains pending.
+startup restoration, and credential-free domain status. Home and Wi-Fi Settings
+consume that Service snapshot. No credentials are compiled into firmware.
+Manual SSID/passphrase setup is available on the device; network scanning
+remains pending.
 
 The Bluetooth lifecycle foundation similarly adds a hardware-independent
 single-peer state machine and a compiled direct ESP-NimBLE peripheral
@@ -458,7 +461,7 @@ links implementation and validation history.
 | 1 — System Core | Complete |
 | 2 — Connectivity | Software complete; physical acceptance partial |
 | 3 — Core Services | HostService, v4 configuration with host/Wi-Fi data, NetworkService, battery and audio delivered; broader Services pending |
-| 4 — Application Shell | Home, Settings, key feedback, Tab navigation and page transitions delivered; Launcher/power/remaining cues pending |
+| 4 — Application Shell | Home, Settings, live Wi-Fi status, key feedback, Tab navigation and page transitions delivered; Launcher/power/remaining cues pending |
 | 5 — Mini App Infrastructure | Pending; registry primitives exist |
 | 6 — Device Manager | Built-in host list/pair/rename/delete/select delivered; full Mini App integration pending |
 | 7–12 — Host Control, Companion, Weather, RGB, Remote, Extensions | Pending |
@@ -468,8 +471,8 @@ Home telemetry, and local Settings. USB is for power, flashing and fixed serial
 diagnostics. USB HID and arbitration are removed; IHidTransport remains the
 future extension boundary. Services can persist bounded per-host
 platform/capability/template-reference metadata, but the UI does not edit it or
-execute mappings. Wi-Fi runtime and persistence are composed, but on-device
-Wi-Fi setup/status UI and clock synchronization, Action-to-HID mappings, and a
+execute mappings. On-device Wi-Fi status and manual setup are composed; clock
+synchronization, Wi-Fi scanning, Action-to-HID mappings, and a
 Mac companion are not implemented.
 
 Physical checks confirmed fresh pairing, one local Off/On cycle, adding and

@@ -53,4 +53,13 @@ struct InputEvent {
 
 using InputEvents = std::vector<InputEvent>;
 
+inline bool isPlainEscape(const InputEvent& event) {
+    if (event.modifiers.ctrl || event.modifiers.alt || event.modifiers.option ||
+        event.modifiers.shift)
+        return false;
+    if (event.type == InputEventType::NamedKey && event.namedKey == NamedKey::Escape)
+        return true;
+    return event.type == InputEventType::PrintableCharacter && event.character == '`';
+}
+
 } // namespace cardputer_hub::core

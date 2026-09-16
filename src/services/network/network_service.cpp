@@ -1,8 +1,20 @@
 #include "services/network/network_service.h"
 
 #include <utility>
+#include <variant>
+
+#include "connectivity/wifi/wifi_service.h"
 
 namespace cardputer_hub::services {
+namespace {
+template <typename T> const T* parameter(const core::Action& action, const char* name) {
+    const auto* value = action.findParameter(name);
+    return value ? std::get_if<T>(value) : nullptr;
+}
+} // namespace
+
+static_assert(NetworkService::maximumSsidLength == connectivity::maximumWifiSsidLength);
+static_assert(NetworkService::maximumPassphraseLength == connectivity::maximumWifiPassphraseLength);
 
 NetworkResult NetworkService::finish(NetworkResult result, core::LogLevel level,
                                      const char* message) {
@@ -142,6 +154,29 @@ WifiStatusSnapshot NetworkService::status() const {
         break;
     }
     return snapshot;
+}
+
+core::ActionHandlingResult NetworkService::handle(const core::Action& action) {
+    if (action.id == "network.set-enabled") {
+        const auto* enabled = parameter<bool>(action, "enabled");
+        if (!enabled)
+            return core::ActionHandlingResult::Rejected;
+        (void)setEnabled(*enabled);
+        return core::ActionHandlingResult::Handled;
+    }
+    if (action.id == "network.configure") {
+        const auto* ssid = parameter<std::string>(action, "ssid");
+        const auto* passphrase = parameter<std::string>(action, "passphrase");
+        if (!ssid || !passphrase)
+            return core::ActionHandlingResult::Rejected;
+        (void)configure(*ssid, *passphrase);
+        return core::ActionHandlingResult::Handled;
+    }
+    if (action.id == "network.forget") {
+        (void)forget();
+        return core::ActionHandlingResult::Handled;
+    }
+    return core::ActionHandlingResult::Rejected;
 }
 
 } // namespace cardputer_hub::services
