@@ -1,5 +1,6 @@
 #pragma once
 #include "apps/hosts/host_settings.h"
+#include "apps/launcher/launcher.h"
 #include "apps/network/wifi_settings.h"
 #include "core/navigation/navigation_stack.h"
 #include "services/audio/audio_service.h"
@@ -36,12 +37,21 @@ class ApplicationShell final : public core::IActionHandler {
         std::uint8_t volume = 0;
     };
 
-    void recoverHomePresentation();
+    void ensureLauncher();
+    void restoreLauncherFromMiniApp(bool showUnavailableReason);
+    void finishMiniAppUpdate(bool missingCapability);
+    void applyMiniAppUpdate(const core::InputEvents& input, std::chrono::milliseconds elapsed);
+    void playInputFeedback(const core::InputEvent& event);
+    void routeMiniAppEvent(const core::InputEvent& event);
+    void routeSystemEvent(const core::InputEvent& event);
+    void tickCurrentPresentation(std::chrono::milliseconds elapsed,
+                                 std::optional<std::uint8_t> batteryPercent);
     void renderHome(std::chrono::milliseconds elapsed, std::optional<std::uint8_t> batteryPercent);
     void renderSettings();
     bool atSettings() const;
     bool atBluetooth() const;
     bool atWifi() const;
+    bool atLauncher() const;
     bool atHome() const;
     services::HostService& hosts_;
     services::NetworkService& network_;
@@ -51,6 +61,7 @@ class ApplicationShell final : public core::IActionHandler {
     WiFiSettings& wifiSettings_;
     services::AudioService& audio_;
     MiniAppRuntime& miniApps_;
+    Launcher launcher_;
     core::NavigationStack navigation_;
     std::optional<HomeConnectionFrame> homeConnectionFrame_;
     std::optional<HomeNetworkFrame> homeNetworkFrame_;
@@ -59,5 +70,7 @@ class ApplicationShell final : public core::IActionHandler {
     std::optional<SettingsFrame> settingsFrame_;
     std::uint8_t settingsSelection_ = 0;
     bool showingMiniApp_ = false;
+    bool miniAppUpdateInProgress_ = false;
+    bool miniAppCloseRequested_ = false;
 };
 } // namespace cardputer_hub::apps

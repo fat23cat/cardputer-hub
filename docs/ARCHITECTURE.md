@@ -240,9 +240,10 @@ Home must not implement these functions itself.
 
 The initial Home dashboard is implemented under plan 017. It displays actual
 HostService state, a compact Micro 5 host label, a single Wi-Fi status, and
-battery telemetry. It does not act as the future AppRegistry-driven Launcher.
-`ApplicationShell` owns a NavigationStack rooted at `home`; plain Tab routes
-`ui.settings` through ActionBus to a general Settings list. Its Bluetooth entry
+battery telemetry. Home itself is not the AppRegistry-driven Launcher.
+`ApplicationShell` owns a NavigationStack rooted at `home`; plain Enter
+routes `ui.launcher` through ActionBus to the AppRegistry-driven Launcher.
+Plain Tab routes `ui.settings` to a general Settings list. Its Bluetooth entry
 routes `ui.bluetooth` to the existing HostSettings view. The Wi-Fi entry routes
 `ui.wifi` to the built-in WiFiSettings view, which consumes only
 `NetworkService` snapshots and dispatches `network.set-enabled`,
@@ -250,13 +251,32 @@ routes `ui.bluetooth` to the existing HostSettings view. The Wi-Fi entry routes
 the persistent system sound volume directly; Left/Right dispatch
 `audio.volume.step` to change it from 0 to 100 percent in ten-percent steps,
 with zero acting as mute. `ui.back` from Wi-Fi Settings returns to Settings;
-from Bluetooth it keeps the existing Esc Home behavior. A local modal or
+from Bluetooth it keeps the existing Esc Home behavior; from Launcher it
+returns Home. A local modal or
 editor consumes input before any Settings shortcut. Navigation never changes
 radio policy.
-When a Mini App is already active, `ApplicationShell` forwards the scheduled
-update to `MiniAppRuntime` instead of Home/Settings. Explicit deactivation or
-capability loss while active invalidates Home caches and returns presentation
-to Home. Full Launcher integration remains pending.
+Launcher enumerates `AppRegistry` in registration order, presents 14×14
+bitmap icons and MiniAppRuntime availability, and dispatches `app.open` /
+`app.close`. Mini App presentation lives on top of the Launcher route. Opening
+a Mini App invalidates Launcher's display cache while keeping selection and
+window. `ApplicationShell` routes each `InputEvent` to the presentation that
+is active after the previous event: Home, Settings, Launcher, or the active
+Mini App. Plain Escape is shell-owned and is never forwarded to `IMiniApp`;
+it closes the app and restores Launcher. `app.open` is owned by Launcher: it is accepted only on the Launcher
+route while no Mini App is active. Mini Apps may request `app.close` and must
+not dispatch `app.open`. Generic key-click feedback is owned by
+`ApplicationShell` and is emitted once per routed `InputEvent` before
+presentation routing, including Mini App input and shell-owned Escape. Settings
+volume Left/Right play the directional step cues instead of `KeyPress`. Events
+before that close reach the Mini App; events after `app.close`, including an
+app-initiated close, go to Launcher. An `app.close` dispatched from inside
+`IMiniApp::update()` is applied only after that callback returns. A capability-loss event is consumed by the
+transition and is not replayed. After input routing, an active Mini App
+receives one scheduled update with the frame elapsed time so delivering events
+does not multiply elapsed. `app.close`, capability loss, and external runtime
+deactivation all restore Launcher with a backward page transition and a full
+redraw. Capability loss also shows the unavailable-reason overlay. The first
+production Mini App is `SYSTEM`.
 
 `BatteryService` owns a read-only optional estimated percentage and samples
 `IBatteryAdapter` immediately on its first update, then at most once every five
@@ -307,7 +327,8 @@ layout and view state; the adapter owns canvas memory and physical LCD I/O.
 Phase 1 provides System Core's hardware-independent, metadata-only
 `AppRegistry`. Each `AppDescriptor` owns a non-empty exact ID, display name,
 opaque entry route, an optional opaque icon ID, and an ordered collection of
-required capability IDs. An empty icon ID selects a future text-only fallback.
+required capability IDs. An empty or unknown icon ID selects a generic 14×14
+bitmap fallback.
 Capability requirements must be non-empty and unique within a descriptor.
 
 Registration validates and copies descriptors, rejects exact duplicate app
@@ -357,13 +378,18 @@ required capabilities
 entry view
 ```
 
-Phase 1 represents this declaration with `AppDescriptor` only. Its entry route
-remains opaque until Launcher integration exists, and its icon may be absent
-without requiring an icon asset or rendering contract.
+Phase 1 represents this declaration with `AppDescriptor` only. Launcher uses
+`iconId` as a catalog key for a 14×14 monochrome bitmap and falls back to a
+generic icon when the id is empty or unknown. The entry route remains opaque
+to Launcher.
 
 Plan 028 delivers the application-layer `IMiniApp` contract and
 `MiniAppRuntime`. A Mini App receives `onActivate()`, `update(input, elapsed)`,
-and `onDeactivate()`. Instances are static process-lifetime objects; the
+and `onDeactivate()`. `app.close` dispatched from inside `update()` is deferred
+until that callback returns, so `onDeactivate()` is never reentrant.
+Application activation is owned by Launcher/system navigation: Mini Apps may
+request `app.close` and must not dispatch `app.open`.
+Instances are static process-lifetime objects; the
 runtime keeps non-owning references and never constructs or destroys apps.
 Mini Apps own application-specific view state. Shared Services remain
 independently composed and are injected through explicit constructors rather
@@ -489,14 +515,17 @@ Bluetooth settings, and navigation Actions. Plain Tab dispatches `ui.settings` a
 the Settings Bluetooth entry dispatches `ui.bluetooth`; opening either menu has
 no host-control side effects. The existing BLE list keeps Esc Home; plain Tab can
 return from that list to Settings. Host submenus and editing/pairing modals consume
-the shortcut without abandoning their state. Ordinary Enter/B on Home do
-nothing. Fn+Tab is inactive, and a normal G0 press has no application action.
+the shortcut without abandoning their state. Ordinary Enter on Home opens
+Launcher. Fn+Tab is inactive, and a normal G0 press has no application action.
 The ROM download behavior of G0 at boot/reset is unchanged. Plain Tab is scoped to built-in system
-screens; future text-entry Mini Apps must retain their normal Tab behavior. Launcher and broader global-shortcut integration remain Phase 4 work. Plan 028 adds
-application activation and lifecycle only. Launcher routing and internal Mini
-App view navigation remain pending. Per-app view state stays application-owned;
-Plan 028 does not introduce a universal polymorphic View hierarchy. Those view
-implementations remain outside the navigation history primitive.
+screens; future text-entry Mini Apps must retain their normal Tab behavior.
+Launcher lists registered applications, opens an eligible Mini App with
+`app.open`, and returns from `app.close`, capability loss, or external
+runtime deactivation with a backward page transition. Each `InputEvent` is
+routed to the presentation that is active after the previous event. Per-app view
+state stays application-owned; there is no universal polymorphic View
+hierarchy. Those view implementations remain outside the navigation history
+primitive.
 
 All future System UI and Mini App views must follow the shared visual,
 interaction, sound, display-power, and input-routing rules in
@@ -1965,7 +1994,10 @@ capabilities when those layers are implemented. `MiniAppRuntime` now evaluates
 `AppDescriptor::requiredCapabilities` through `CapabilityRegistry` at
 activation and while an application is active. CapabilityRegistry availability
 is authoritative; the runtime does not infer capabilities from Service state.
-Launcher presentation policy remains pending.
+Launcher presents every registered application and uses MiniAppRuntime
+availability for the filled/hollow indicator and unavailable reason overlay.
+Overlay reason text is truncated with `...` so it stays within the 240 px
+display width.
 
 `COMPANION` means that `CompanionService` currently has a compatible,
 authenticated session with the selected host; installation of the macOS binary
@@ -2455,8 +2487,8 @@ Earlier plan records retain their historical test counts and toolchains.
 | 1 — System Core | Complete |
 | 2 — Connectivity | Software scope complete; physical acceptance partial |
 | 3 — Core Services | Partial: host/configuration, battery and audio Services delivered |
-| 4 — Application Shell | Partial: Home, Settings, navigation, sound feedback and page transitions delivered |
-| 5 — Mini App Infrastructure | Partial: runtime/lifecycle and capability checks delivered; Launcher pending |
+| 4 — Application Shell | Partial: Home, Settings, Launcher, navigation, sound feedback and page transitions delivered |
+| 5 — Mini App Infrastructure | Partial: runtime, Launcher, and SYSTEM Mini App delivered; Service lifecycle composition pending |
 | 6 — Device Manager | Partial: built-in Bluetooth/host UI delivered |
 | 7 — Host Control | Not implemented; Phase 2 HID transport prerequisite exists |
 | 8 — Host Companion | Not implemented; optional macOS CLI and protocol planned |
@@ -2528,7 +2560,7 @@ Transport expansion does not block the BLE-only software scope.
 
 ### Phase 4 — Application Shell
 
-**Partial** — the delivered built-in shell is not the full Launcher.
+**Partial** — Home, Settings, and the AppRegistry-driven Launcher are delivered.
 
 - [x] Home with selected host, real BLE state, estimated battery and ambient wave.
 - [x] General Settings menu with Bluetooth, Wi-Fi, and persistent 0-100% sound volume.
@@ -2536,24 +2568,27 @@ Transport expansion does not block the BLE-only software scope.
 - [x] Plain Tab for built-in settings; Fn+Tab is inactive and normal G0 has no application action.
 - [x] Shared palette, bitmap typography, buffered dirty-region presentation.
 - [x] Non-blocking 220 ms page slides and interruption from the visible frame.
-- [ ] AppRegistry-driven Launcher and navigation into arbitrary Mini Apps.
+- [x] AppRegistry-driven Launcher and navigation into registered Mini Apps.
 - [ ] Configurable global shortcuts and broader shell controls.
 - [x] Live Home Wi-Fi status from NetworkService; clock placeholder remains `--:--`.
 - [x] Manual on-device Wi-Fi configuration, enable/disable, change, and forget.
 - [x] Synthesized key feedback, directional volume-step cues and persistent mute/volume.
-- [ ] Boot/status semantic sound cues and spring focus motion.
+- [x] Launcher spring focus motion; boot/status semantic sound cues remain pending.
+- [ ] Remaining Settings/list spring focus motion.
 - [ ] Idle dim/off, brightness policy and wake-input consumption.
 
 ### Phase 5 — Mini App Infrastructure
 
 **Partial** — `IMiniApp` and `MiniAppRuntime` provide activation, update,
-deactivation, and CapabilityRegistry eligibility. Per-app view state remains
-application-owned; Plan 028 does not introduce a universal polymorphic View
-hierarchy. Launcher integration and Service lifecycle composition remain open.
-No production Mini App is registered.
+deactivation, and CapabilityRegistry eligibility. Launcher enumerates
+`AppRegistry` and opens registered instances. Per-app view state remains
+application-owned; there is no universal polymorphic View hierarchy.
+`SYSTEM` is the first production Mini App. It reports existing Service
+snapshots and does not treat enabled Wi-Fi without a configured network as
+`OFF`. Service lifecycle composition remains open.
 
 - [x] MiniApp runtime interface and lifecycle foundation.
-- [ ] AppRegistry-driven Launcher integration.
+- [x] AppRegistry-driven Launcher integration.
 - [ ] Service lifecycle composition where required by concrete Services.
 - [x] Runtime capability checks for launching/running Mini Apps.
 

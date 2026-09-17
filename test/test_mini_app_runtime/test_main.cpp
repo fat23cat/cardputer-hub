@@ -177,6 +177,43 @@ void test_zero_capability_requirements_are_eligible() {
     assertResult(f.runtime.eligibility("weather"), MiniAppEligibility::Eligible);
 }
 
+void test_availability_reports_the_first_missing_capability() {
+    RuntimeFixture f;
+    f.registerDescriptor("weather", {"WIFI", "WEATHER_SERVICE"});
+    assertResult(f.runtime.registerInstance("weather", f.weather),
+                 MiniAppInstanceRegistrationResult::Registered);
+    f.registerCapability("BLUETOOTH");
+
+    auto detail = f.runtime.availability("weather");
+    assertResult(detail.eligibility, MiniAppEligibility::MissingCapability);
+    TEST_ASSERT_TRUE(detail.missingCapability.has_value());
+    TEST_ASSERT_EQUAL_STRING("WIFI", detail.missingCapability->c_str());
+
+    f.registerCapability("WIFI");
+    detail = f.runtime.availability("weather");
+    assertResult(detail.eligibility, MiniAppEligibility::MissingCapability);
+    TEST_ASSERT_TRUE(detail.missingCapability.has_value());
+    TEST_ASSERT_EQUAL_STRING("WEATHER_SERVICE", detail.missingCapability->c_str());
+
+    f.registerCapability("WEATHER_SERVICE");
+    detail = f.runtime.availability("weather");
+    assertResult(detail.eligibility, MiniAppEligibility::Eligible);
+    TEST_ASSERT_FALSE(detail.missingCapability.has_value());
+}
+
+void test_availability_omits_capability_detail_for_unknown_and_missing_instance() {
+    RuntimeFixture f;
+    f.registerDescriptor("weather", {"WIFI"});
+
+    auto unknown = f.runtime.availability("missing");
+    assertResult(unknown.eligibility, MiniAppEligibility::UnknownApp);
+    TEST_ASSERT_FALSE(unknown.missingCapability.has_value());
+
+    auto missingInstance = f.runtime.availability("weather");
+    assertResult(missingInstance.eligibility, MiniAppEligibility::MissingInstance);
+    TEST_ASSERT_FALSE(missingInstance.missingCapability.has_value());
+}
+
 void test_required_capabilities_must_all_be_available() {
     RuntimeFixture f;
     f.registerDescriptor("weather", {"WIFI", "WEATHER_SERVICE"});
@@ -406,6 +443,8 @@ int main() {
     RUN_TEST(test_duplicate_instance_registration_preserves_the_original);
     RUN_TEST(test_eligibility_unknown_app_and_missing_instance);
     RUN_TEST(test_zero_capability_requirements_are_eligible);
+    RUN_TEST(test_availability_reports_the_first_missing_capability);
+    RUN_TEST(test_availability_omits_capability_detail_for_unknown_and_missing_instance);
     RUN_TEST(test_required_capabilities_must_all_be_available);
     RUN_TEST(test_unrelated_unavailable_capability_does_not_affect_eligibility);
     RUN_TEST(test_eligible_application_activates_once);

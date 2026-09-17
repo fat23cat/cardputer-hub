@@ -251,7 +251,10 @@ structured informational records for the product name, version, commit, and
 build type to serial, briefly renders the product name/version, then opens a compact Home with the selected host, BT status, an estimated battery
 percentage, and a slow dotted wave. Time currently shows `--:--`. Home Wi-Fi
 uses a compact glyph and a separate status dot rather than OFFLINE/ONLINE text.
-Plain Tab opens Settings; Bluetooth opens the existing BLE panel, Wi-Fi opens
+Plain Enter on Home opens the AppRegistry-driven Launcher. The first registered
+Mini App is SYSTEM, a read-only status list of battery, Bluetooth, host, Wi-Fi,
+and firmware version. Escape returns from SYSTEM to Launcher and from Launcher
+to Home. Plain Tab opens Settings; Bluetooth opens the existing BLE panel, Wi-Fi opens
 manual network setup, and the following Sound volume row adjusts the
 persistent 0-100% key-click volume with Left/Right in 10% steps.
 Screen navigation uses short horizontal transitions with live input. The update loop polls semantic keyboard events, routes
@@ -259,15 +262,15 @@ local settings Actions, and advances HostService/BluetoothService plus
 NetworkService/WiFiService independently of UI scheduling. Host selection,
 BLE On/Off, pairing, renaming, per-host deletion, and persisted host
 platform/capability/template-reference metadata are available through Services;
-the current UI does not edit that metadata. Keyboard-to-HID mappings and the
-full Mini App Launcher are not yet implemented.
+the current UI does not edit that metadata. Keyboard-to-HID mappings are not
+yet implemented.
 
 System Core also provides standalone navigation history, capability, and
 application-metadata registries plus record- and file-storage boundaries for
 later phases. The Cardputer microSD adapter compiles against the pinned board
 framework but is not constructed or mounted by the firmware runtime. These
-foundations now include a Mini App runtime/lifecycle path, but they do not
-provide Launcher, production Mini Apps, file-browser, backup, or
+foundations include Mini App runtime/lifecycle, Launcher, and SYSTEM. They do
+not provide additional production Mini Apps, file-browser, backup, or
 configuration import/export behavior.
 
 The Wi-Fi foundation provides a hardware-independent connection state machine
@@ -462,8 +465,8 @@ links implementation and validation history.
 | 1 — System Core | Complete |
 | 2 — Connectivity | Software complete; physical acceptance partial |
 | 3 — Core Services | HostService, v4 configuration with host/Wi-Fi data, NetworkService, battery and audio delivered; broader Services pending |
-| 4 — Application Shell | Home, Settings, live Wi-Fi status, key feedback, Tab navigation and page transitions delivered; Launcher/power/remaining cues pending |
-| 5 — Mini App Infrastructure | Partial; Mini App runtime/lifecycle foundation delivered; Launcher integration pending |
+| 4 — Application Shell | Home, Settings, Launcher, live Wi-Fi status, key feedback, Tab navigation and page transitions delivered; power/remaining cues pending |
+| 5 — Mini App Infrastructure | Partial; runtime, Launcher, and SYSTEM Mini App delivered; Service lifecycle composition pending |
 | 6 — Device Manager | Built-in host list/pair/rename/delete/select delivered; full Mini App integration pending |
 | 7–12 — Host Control, Companion, Weather, RGB, Remote, Extensions | Pending |
 

@@ -3,6 +3,7 @@
 #include "apps/runtime/mini_app_runtime.h"
 #include "apps/shell/application_shell.h"
 #include "apps/shell/ui_scheduler.h"
+#include "apps/system/system_app.h"
 #include "core/app_registry/app_registry.h"
 #include "core/capabilities/capability_registry.h"
 #include "esp_timer.h"
@@ -53,6 +54,7 @@ cardputer_hub::core::ActionBus actions;
 cardputer_hub::core::AppRegistry appRegistry;
 cardputer_hub::core::CapabilityRegistry capabilities;
 cardputer_hub::apps::MiniAppRuntime miniApps(appRegistry, capabilities);
+cardputer_hub::apps::SystemApp systemApp(battery, hosts, network, display);
 cardputer_hub::apps::HostSettings hostSettings(hosts, actions, display);
 cardputer_hub::apps::WiFiSettings wifiSettings(network, actions, display);
 cardputer_hub::apps::ApplicationShell applicationShell(hosts, network, actions, display,
@@ -77,6 +79,8 @@ extern "C" void app_main(void) {
     (void)hosts.start();
     (void)network.start();
     (void)audio.start();
+    (void)appRegistry.registerApp({"system", "SYSTEM", "system", "system/home", {}});
+    (void)miniApps.registerInstance("system", systemApp);
     battery.update(std::chrono::milliseconds(0));
     previousUpdateMilliseconds = esp_timer_get_time() / 1000;
 

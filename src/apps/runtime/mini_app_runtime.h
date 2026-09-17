@@ -44,13 +44,20 @@ enum class MiniAppUpdateResult : std::uint8_t {
     DeactivatedMissingCapability,
 };
 
+struct MiniAppAvailability {
+    MiniAppEligibility eligibility = MiniAppEligibility::UnknownApp;
+    std::optional<std::string> missingCapability;
+};
+
 class MiniAppRuntime {
   public:
     MiniAppRuntime(const core::AppRegistry& apps, const core::CapabilityRegistry& capabilities);
 
     MiniAppInstanceRegistrationResult registerInstance(std::string appId, IMiniApp& app);
 
+    [[nodiscard]] const core::AppRegistry& apps() const noexcept;
     [[nodiscard]] MiniAppEligibility eligibility(const std::string& appId) const;
+    [[nodiscard]] MiniAppAvailability availability(const std::string& appId) const;
 
     MiniAppActivationResult activate(const std::string& appId);
     MiniAppDeactivationResult deactivate();
@@ -69,6 +76,8 @@ class MiniAppRuntime {
     [[nodiscard]] MiniAppEligibility eligibilityFor(const core::AppDescriptor* descriptor,
                                                     const RegisteredInstance* instance) const;
     [[nodiscard]] bool requiredCapabilitiesAvailable(const core::AppDescriptor& descriptor) const;
+    [[nodiscard]] std::optional<std::string>
+    firstMissingCapability(const core::AppDescriptor& descriptor) const;
     void clearActive();
 
     const core::AppRegistry& apps_;

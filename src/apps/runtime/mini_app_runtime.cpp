@@ -22,8 +22,20 @@ MiniAppInstanceRegistrationResult MiniAppRuntime::registerInstance(std::string a
     return MiniAppInstanceRegistrationResult::Registered;
 }
 
+const core::AppRegistry& MiniAppRuntime::apps() const noexcept { return apps_; }
+
 MiniAppEligibility MiniAppRuntime::eligibility(const std::string& appId) const {
-    return eligibilityFor(apps_.find(appId), findInstance(appId));
+    return availability(appId).eligibility;
+}
+
+MiniAppAvailability MiniAppRuntime::availability(const std::string& appId) const {
+    const auto* descriptor = apps_.find(appId);
+    const auto* instance = findInstance(appId);
+    MiniAppAvailability detail;
+    detail.eligibility = eligibilityFor(descriptor, instance);
+    if (detail.eligibility == MiniAppEligibility::MissingCapability && descriptor != nullptr)
+        detail.missingCapability = firstMissingCapability(*descriptor);
+    return detail;
 }
 
 MiniAppActivationResult MiniAppRuntime::activate(const std::string& appId) {
@@ -99,11 +111,19 @@ MiniAppEligibility MiniAppRuntime::eligibilityFor(const core::AppDescriptor* des
 }
 
 bool MiniAppRuntime::requiredCapabilitiesAvailable(const core::AppDescriptor& descriptor) const {
-    return std::all_of(descriptor.requiredCapabilities.begin(),
-                       descriptor.requiredCapabilities.end(),
-                       [this](const std::string& capabilityId) {
-                           return capabilities_.isAvailable(capabilityId);
-                       });
+    return !firstMissingCapability(descriptor).has_value();
+}
+
+std::optional<std::string>
+MiniAppRuntime::firstMissingCapability(const core::AppDescriptor& descriptor) const {
+    const auto missing =
+        std::find_if(descriptor.requiredCapabilities.begin(), descriptor.requiredCapabilities.end(),
+                     [this](const std::string& capabilityId) {
+                         return !capabilities_.isAvailable(capabilityId);
+                     });
+    if (missing == descriptor.requiredCapabilities.end())
+        return std::nullopt;
+    return *missing;
 }
 
 void MiniAppRuntime::clearActive() {

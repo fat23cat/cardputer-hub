@@ -1,13 +1,14 @@
 # UI and Interaction Requirements
 
-Status: **Approved requirements — Home, Bluetooth panel, and key feedback implemented; full UI pending**
+Status: **Approved requirements — Home, Launcher, SYSTEM, Bluetooth panel, and key feedback implemented; remaining UI pending**
 
 This document defines the shared visual, motion, sound, display-power, and
 input-routing rules for Cardputer Hub system UI and Mini Apps. It distinguishes the delivered Home and Bluetooth panel from the full UI still
 planned. The screen implements the palette, flat layout, local controls, and
 Micro5 pairing digits, horizontal page transitions, and synthesized key feedback.
-Full Launcher transitions, remaining semantic audio cues, idle dimming, wake-input
-consumption, and the Home display-power treatment are not implemented yet.
+Launcher page transitions and spring focus motion are implemented. Remaining
+semantic audio cues, idle dimming, wake-input consumption, and the Home
+display-power treatment are not implemented yet.
 
 The visual and acoustic direction is derived from
 [Codex Microputer ADV](https://github.com/fat23cat/codex-microputer-adv), its
@@ -258,7 +259,8 @@ Sound must have a persistent mute control and a persistent 0-100% volume in
 Wake-only input must not play an action or key-confirmation sound.
 
 The delivered subset uses the reference low, dry `Select` thock for each
-debounced semantic key press after splash handoff. Eight deterministic variants
+debounced semantic key press after splash handoff, including Mini App input and
+shell-owned Escape. Eight deterministic variants
 follow a restrained pitch contour and release to digital silence to avoid an
 end-of-buffer transient. A press received while the interface cue is still
 active is coalesced instead of interrupting it or building an audio queue. The two directional
@@ -411,7 +413,7 @@ editor shows only the last typed character in clear text for two seconds, then
 replaces it with an asterisk; earlier characters stay masked. Editor and
 confirmation views consume Escape and Tab before any submit or navigation. The
 menu input is consumed without dismissing host submenus, rename/delete prompts,
-or pairing. Enter/B do not open anything on Home. Repeated plain Tab
+or pairing. Enter on Home opens the AppRegistry-driven Launcher. Repeated plain Tab
 in Settings does not add history entries or repaint a settled view. Background
 connection updates never navigate away from the current screen. Fn+Tab is
 inactive, and a normal G0 press has no application action. G0's hardware
@@ -482,8 +484,9 @@ the loop where it is sampled, and uses typed render-state snapshots so unchanged
 Home, host-list, and host-modal content does not redraw.
 The splash uses Bone, Ink, Blue, Pale, and Ordinal tokens, keeps the firmware
 version visible throughout, and advances without blocking background work.
-Launcher integration, spring focus motion, remaining semantic sound cues,
-dim/off/wake policy, live clock, and Wi-Fi scanning remain open in the
+The AppRegistry-driven Launcher, its spring focus motion, and the SYSTEM Mini
+App are implemented. Remaining semantic sound cues, broader list spring
+motion, dim/off/wake policy, live clock, and Wi-Fi scanning remain open in the
 [phase checklist](ARCHITECTURE.md#47-initial-development-order). The manuals
 describe current operation; planned behavior must not be presented there as
 already supported.
