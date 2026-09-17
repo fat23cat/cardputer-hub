@@ -1698,9 +1698,9 @@ transport selected to deliver it.
 ## 35. Host Companion Boundary
 
 An optional host-side companion provides semantic integration that cannot be
-expressed reliably as keyboard HID. The initial implementation is a small
-headless macOS CLI/agent in this repository, not a required dependency and not
-a polished menu-bar application.
+expressed reliably as keyboard HID. The initial implementation is a headless
+macOS `Cardputer Companion.app` in this repository, not a required dependency
+and not a polished menu-bar application.
 
 ```text
 HostControlService
@@ -1711,7 +1711,7 @@ ICompanionTransport
         ↓
 authenticated BLE GATT session
         ⇅
-macOS companion
+Cardputer Companion.app
         ↓
     macOS APIs
 ```
@@ -1740,7 +1740,7 @@ automation are later features with separate permission and security reviews.
 
 The first concrete transport is a project-owned BLE GATT service registered
 inside the existing ESP-NimBLE peripheral lifecycle. The selected Mac acts as
-the central and the CLI maintains the application-level session. Companion
+the central and the Companion.app maintains the application-level session. Companion
 characteristics require the existing encrypted, authenticated, bonded selected
 peer; an unselected or pairing-only peer cannot issue or receive commands.
 Adding the service must preserve HID readiness, advertising, pairing, bond
@@ -2491,7 +2491,7 @@ Earlier plan records retain their historical test counts and toolchains.
 | 5 — Mini App Infrastructure | Partial: runtime, Launcher, and SYSTEM Mini App delivered; Service lifecycle composition pending |
 | 6 — Device Manager | Partial: built-in Bluetooth/host UI delivered |
 | 7 — Host Control | Not implemented; Phase 2 HID transport prerequisite exists |
-| 8 — Host Companion | Not implemented; optional macOS CLI and protocol planned |
+| 8 — Host Companion | Foundation delivered; MAC CONTROL Mini App pending |
 | 9 — Weather | Not implemented |
 | 10 — RGB Indicator | Not implemented; Unit Puzzle hardware required |
 | 11 — Remote Boundary | Not implemented |
@@ -2617,20 +2617,20 @@ commands; normal firmware does not map Cardputer typing or Actions to host input
 
 ### Phase 8 — Host Companion
 
-**Not implemented.** The companion is part of the initial platform roadmap but
-remains optional at runtime. Phase 7 logical Actions and Phase 3 Host Profiles
-are prerequisites.
+**Partial.** Plan 030 delivered the optional transport, protocol, session,
+liveness, capability, Home indicator, and headless macOS Companion.app
+foundation. MAC CONTROL and host-control Actions remain Plan 031 / Phase 7.
 
-- [ ] Versioned, bounded companion protocol and cross-implementation fixtures.
-- [ ] CompanionService and hardware-neutral ICompanionTransport.
-- [ ] One authenticated BLE GATT transport in the existing selected-host
+- [x] Versioned, bounded companion protocol and cross-implementation fixtures.
+- [x] CompanionService and hardware-neutral ICompanionTransport.
+- [x] One authenticated BLE GATT transport in the existing selected-host
   lifecycle; no transport router or fallback.
-- [ ] Headless macOS CLI/agent in this repository.
-- [ ] `ping`, capability negotiation, application activation, and active-app
+- [x] Headless macOS Companion.app in this repository.
+- [x] `ping`, capability negotiation, application activation, and active-app
   status only.
-- [ ] Dynamic capability publication and failure isolation.
-- [ ] Native protocol/Service tests, macOS tests, Cardputer-Adv compilation,
-  and physical BLE/HID coexistence validation.
+- [x] Dynamic capability publication and failure isolation.
+- [x] Native protocol/Service tests, macOS tests, Cardputer-Adv compilation.
+- [ ] Physical BLE/HID coexistence and GATT-cache upgrade validation.
 
 ### Phase 9 — Weather
 
@@ -2857,7 +2857,7 @@ protocol/
 └── companion/          shared schema, fixtures, and conformance vectors
 
 companion/
-└── macos/              independent headless CLI/agent and tests
+└── macos/              independent headless Cardputer Companion.app
 ```
 
 Exact directories may evolve during implementation.

@@ -4,10 +4,13 @@
 #include <chrono>
 #include <cstddef>
 #include <cstdint>
+#include <deque>
 #include <optional>
 #include <string>
 #include <vector>
 
+#include "connectivity/companion/companion_framer.h"
+#include "connectivity/companion/companion_transport.h"
 #include "connectivity/hid/hid_transport.h"
 #include "core/logging/logger.h"
 
@@ -129,6 +132,7 @@ struct BluetoothEvent {
     BluetoothSecurityProperties security{};
     bool keyboardSubscribed = false;
     bool consumerSubscribed = false;
+    bool companionSubscribed = false;
     bool reportProtocol = false;
 
     constexpr BluetoothEvent() noexcept = default;
@@ -140,6 +144,14 @@ struct BluetoothEvent {
 
 enum class BluetoothAdapterResult : std::uint8_t { Success, AdapterError };
 enum class BluetoothHidAdapterResult : std::uint8_t {
+    Sent,
+    Ready,
+    NotReady,
+    Busy,
+    Disconnected,
+    AdapterError,
+};
+enum class BluetoothCompanionAdapterResult : std::uint8_t {
     Sent,
     Ready,
     NotReady,
@@ -262,6 +274,11 @@ class IBluetoothAdapter {
     virtual BluetoothHidAdapterResult sendHidReport(BluetoothPeerHandle peer,
                                                     const HidReport& report) = 0;
     virtual BluetoothHidAdapterResult releaseHidReports(BluetoothPeerHandle peer) = 0;
+    virtual BluetoothCompanionAdapterResult companionReadiness(BluetoothPeerHandle peer) = 0;
+    virtual BluetoothCompanionAdapterResult
+    sendCompanionChunk(BluetoothPeerHandle peer, const std::uint8_t* data, std::size_t size) = 0;
+    virtual bool receiveCompanionChunk(CompanionChunk& chunk) = 0;
+    virtual bool takeCompanionIncomingOverflow() = 0;
 };
 
 class BluetoothService {
@@ -296,6 +313,8 @@ class BluetoothService {
     BluetoothRemoveAllBondsResult lastRemoveAllResult() const noexcept;
     IHidTransport& hidTransport() noexcept;
     const IHidTransport& hidTransport() const noexcept;
+    ICompanionTransport& companionTransport() noexcept;
+    const ICompanionTransport& companionTransport() const noexcept;
 
   private:
     class HidTransportView final : public IHidTransport {
@@ -305,6 +324,18 @@ class BluetoothService {
         HidTransportState state() const noexcept override;
         HidSendResult send(const HidReport& report) override;
         HidSendResult releaseAll() override;
+
+      private:
+        BluetoothService& service_;
+    };
+
+    class CompanionTransportView final : public ICompanionTransport {
+      public:
+        explicit CompanionTransportView(BluetoothService& service) noexcept : service_(service) {}
+
+        CompanionTransportState state() const noexcept override;
+        CompanionSendResult send(const CompanionPayload& payload) override;
+        std::optional<CompanionPayload> receive() override;
 
       private:
         BluetoothService& service_;
@@ -337,9 +368,15 @@ class BluetoothService {
     HidSendResult releaseAllHidReports();
     void clearHidPeerState() noexcept;
     HidSendResult handleHidAdapterResult(BluetoothHidAdapterResult result);
+    CompanionTransportState companionTransportState() const noexcept;
+    CompanionSendResult sendCompanionPayload(const CompanionPayload& payload);
+    std::optional<CompanionPayload> receiveCompanionPayload();
+    void drainCompanion(std::chrono::milliseconds elapsed);
+    CompanionSendResult handleCompanionAdapterResult(BluetoothCompanionAdapterResult result);
 
     IBluetoothAdapter& adapter_;
     HidTransportView hidTransportView_;
+    CompanionTransportView companionTransportView_;
     core::Logger* logger_ = nullptr;
     std::optional<BluetoothDeviceConfig> config_;
     std::optional<BluetoothPeerHandle> currentConnection_;
@@ -366,8 +403,13 @@ class BluetoothService {
     BluetoothSecurityProperties currentSecurity_{};
     bool keyboardSubscribed_ = false;
     bool consumerSubscribed_ = false;
+    bool companionSubscribed_ = false;
     bool reportProtocol_ = false;
     bool hidBusy_ = false;
+    bool companionBusy_ = false;
+    CompanionFramer companionFramer_{};
+    std::deque<CompanionPayload> companionIncoming_{};
+    static constexpr std::size_t companionIncomingLimit_ = 8;
     std::uint32_t lifecycle_ = 0;
     std::uint32_t nextLifecycle_ = 1;
     std::uint32_t nextChallengeGeneration_ = 1;

@@ -23,6 +23,7 @@ using cardputer_hub::connectivity::BluetoothBondReferenceResult;
 using cardputer_hub::connectivity::BluetoothBondReferenceStatus;
 using cardputer_hub::connectivity::BluetoothBondRemovalResult;
 using cardputer_hub::connectivity::BluetoothBondSelectionResult;
+using cardputer_hub::connectivity::BluetoothCompanionAdapterResult;
 using cardputer_hub::connectivity::BluetoothDeviceConfig;
 using cardputer_hub::connectivity::BluetoothDisableResult;
 using cardputer_hub::connectivity::BluetoothEnableResult;
@@ -41,6 +42,10 @@ using cardputer_hub::connectivity::BluetoothPollResult;
 using cardputer_hub::connectivity::BluetoothRemoveAllBondsResult;
 using cardputer_hub::connectivity::BluetoothService;
 using cardputer_hub::connectivity::BluetoothState;
+using cardputer_hub::connectivity::CompanionChunk;
+using cardputer_hub::connectivity::CompanionPayload;
+using cardputer_hub::connectivity::CompanionSendResult;
+using cardputer_hub::connectivity::CompanionTransportState;
 using cardputer_hub::connectivity::HidConsumerReport;
 using cardputer_hub::connectivity::HidKeyboardReport;
 using cardputer_hub::connectivity::HidReport;
@@ -208,6 +213,38 @@ class FakeBluetoothAdapter final : public IBluetoothAdapter {
         hidReleasePeers.push_back(peer);
         return hidReleaseResult;
     }
+    BluetoothCompanionAdapterResult companionReadiness(BluetoothPeerHandle peer) override {
+        companionReadinessPeers.push_back(peer);
+        return companionReadinessResult;
+    }
+    BluetoothCompanionAdapterResult sendCompanionChunk(BluetoothPeerHandle peer,
+                                                       const std::uint8_t* data,
+                                                       std::size_t size) override {
+        companionSendPeers.push_back(peer);
+        CompanionChunk chunk{};
+        if (data != nullptr && size > 0 && size <= chunk.bytes.size()) {
+            std::memcpy(chunk.bytes.data(), data, size);
+            chunk.size = static_cast<std::uint16_t>(size);
+        }
+        sentCompanionChunks.push_back(chunk);
+        return companionSendResult;
+    }
+    bool receiveCompanionChunk(CompanionChunk& chunk) override {
+        if (incomingCompanionChunks.empty()) {
+            return false;
+        }
+        chunk = incomingCompanionChunks.front();
+        incomingCompanionChunks.pop_front();
+        return true;
+    }
+    bool takeCompanionIncomingOverflow() override {
+        const bool overflow = companionIncomingOverflow;
+        companionIncomingOverflow = false;
+        if (overflow) {
+            incomingCompanionChunks.clear();
+        }
+        return overflow;
+    }
 
     struct PairingResponseCall {
         BluetoothPeerHandle peer;
@@ -240,6 +277,10 @@ class FakeBluetoothAdapter final : public IBluetoothAdapter {
     BluetoothHidAdapterResult hidReadinessResult = BluetoothHidAdapterResult::Ready;
     BluetoothHidAdapterResult hidSendResult = BluetoothHidAdapterResult::Sent;
     BluetoothHidAdapterResult hidReleaseResult = BluetoothHidAdapterResult::Sent;
+    BluetoothCompanionAdapterResult companionReadinessResult =
+        BluetoothCompanionAdapterResult::Ready;
+    BluetoothCompanionAdapterResult companionSendResult = BluetoothCompanionAdapterResult::Sent;
+    bool companionIncomingOverflow = false;
     BluetoothBondListResult bondListResult{BluetoothBondListStatus::Success, {}};
     BluetoothBondReferenceResult defaultReferenceResult{BluetoothBondReferenceStatus::Found, {{1}}};
     bool physicalAdvertising = false;
@@ -263,6 +304,10 @@ class FakeBluetoothAdapter final : public IBluetoothAdapter {
     std::vector<BluetoothPeerHandle> hidSendPeers;
     std::vector<BluetoothPeerHandle> hidReleasePeers;
     std::vector<HidReport> sentHidReports;
+    std::vector<BluetoothPeerHandle> companionReadinessPeers;
+    std::vector<BluetoothPeerHandle> companionSendPeers;
+    std::vector<CompanionChunk> sentCompanionChunks;
+    std::deque<CompanionChunk> incomingCompanionChunks;
     std::map<std::uint32_t, BluetoothBondReference> peerReferences;
 };
 
@@ -346,12 +391,13 @@ BluetoothEvent pairingCompleted(std::uint32_t peer,
 
 BluetoothEvent hidReadinessChanged(std::uint32_t peer, bool keyboardSubscribed,
                                    bool consumerSubscribed, std::uint32_t lifecycle = 1,
-                                   bool reportProtocol = true) {
+                                   bool reportProtocol = true, bool companionSubscribed = false) {
     BluetoothEvent event{
         BluetoothEventType::HidReadinessChanged, {peer}, BluetoothFailureClass::Fatal, lifecycle};
     event.security = {true, true, true, true};
     event.keyboardSubscribed = keyboardSubscribed;
     event.consumerSubscribed = consumerSubscribed;
+    event.companionSubscribed = companionSubscribed;
     event.reportProtocol = reportProtocol;
     return event;
 }
@@ -1518,6 +1564,176 @@ void test_hid_releases_before_target_change_and_disable_and_reenable_starts_clea
                             static_cast<unsigned int>(service.hidTransport().state()));
 }
 
+void test_companion_transport_requires_selected_authenticated_subscribed_peer() {
+    FakeBluetoothAdapter adapter;
+    const auto selected = bond(7);
+    adapter.bondListResult.bonds = {selected};
+    adapter.peerReferences[41] = selected;
+    BluetoothService service(adapter);
+    (void)service.enable({"Cardputer Hub"});
+    (void)service.selectBond(selected);
+    adapter.events.push_back(peerConnected(41));
+    adapter.events.push_back(hidReadinessChanged(41, true, true));
+    service.update(std::chrono::milliseconds::zero());
+    TEST_ASSERT_EQUAL_UINT8(static_cast<unsigned>(HidTransportState::Ready),
+                            static_cast<unsigned>(service.hidTransport().state()));
+    TEST_ASSERT_EQUAL_UINT8(static_cast<unsigned>(CompanionTransportState::Unavailable),
+                            static_cast<unsigned>(service.companionTransport().state()));
+
+    adapter.events.push_back(hidReadinessChanged(41, true, true, 1, true, true));
+    service.update(std::chrono::milliseconds::zero());
+    TEST_ASSERT_EQUAL_UINT8(static_cast<unsigned>(CompanionTransportState::Ready),
+                            static_cast<unsigned>(service.companionTransport().state()));
+}
+
+void test_companion_transport_sends_and_reassembles_chunks_for_selected_peer() {
+    FakeBluetoothAdapter adapter;
+    const auto selected = bond(8);
+    adapter.bondListResult.bonds = {selected};
+    adapter.peerReferences[42] = selected;
+    BluetoothService service(adapter);
+    (void)service.enable({"Cardputer Hub"});
+    (void)service.selectBond(selected);
+    adapter.events.push_back(peerConnected(42));
+    adapter.events.push_back(hidReadinessChanged(42, true, true, 1, true, true));
+    service.update(std::chrono::milliseconds::zero());
+
+    CompanionPayload payload{};
+    payload.size = 40;
+    for (std::uint16_t index = 0; index < payload.size; ++index) {
+        payload.bytes[index] = static_cast<std::uint8_t>(index);
+    }
+    TEST_ASSERT_EQUAL_UINT8(static_cast<unsigned>(CompanionSendResult::Sent),
+                            static_cast<unsigned>(service.companionTransport().send(payload)));
+    TEST_ASSERT_TRUE(adapter.sentCompanionChunks.size() > 1);
+    TEST_ASSERT_EQUAL_UINT32(42, adapter.companionSendPeers.front().value);
+
+    adapter.incomingCompanionChunks = {adapter.sentCompanionChunks.begin(),
+                                       adapter.sentCompanionChunks.end()};
+    service.update(std::chrono::milliseconds::zero());
+    const auto received = service.companionTransport().receive();
+    TEST_ASSERT_TRUE(received.has_value());
+    TEST_ASSERT_EQUAL_UINT16(payload.size, received->size);
+    TEST_ASSERT_EQUAL_UINT8_ARRAY(payload.bytes.data(), received->bytes.data(), payload.size);
+}
+
+void test_companion_transport_drops_on_disconnect_and_host_change() {
+    FakeBluetoothAdapter adapter;
+    const auto first = bond(12);
+    const auto second = bond(13);
+    adapter.bondListResult.bonds = {first, second};
+    adapter.peerReferences[47] = first;
+    BluetoothService service(adapter);
+    (void)service.enable({"Cardputer Hub"});
+    (void)service.selectBond(first);
+    adapter.events.push_back(peerConnected(47));
+    adapter.events.push_back(hidReadinessChanged(47, true, true, 1, true, true));
+    service.update(std::chrono::milliseconds::zero());
+    TEST_ASSERT_EQUAL_UINT8(static_cast<unsigned>(CompanionTransportState::Ready),
+                            static_cast<unsigned>(service.companionTransport().state()));
+
+    adapter.events.push_back(peerDisconnected(47));
+    service.update(std::chrono::milliseconds::zero());
+    TEST_ASSERT_EQUAL_UINT8(static_cast<unsigned>(CompanionTransportState::Unavailable),
+                            static_cast<unsigned>(service.companionTransport().state()));
+
+    adapter.events.push_back(peerConnected(47));
+    adapter.events.push_back(hidReadinessChanged(47, true, true, 1, true, true));
+    service.update(std::chrono::milliseconds::zero());
+    TEST_ASSERT_EQUAL_UINT8(static_cast<unsigned>(CompanionTransportState::Ready),
+                            static_cast<unsigned>(service.companionTransport().state()));
+    (void)service.selectBond(second);
+    TEST_ASSERT_EQUAL_UINT8(static_cast<unsigned>(CompanionTransportState::Unavailable),
+                            static_cast<unsigned>(service.companionTransport().state()));
+}
+
+void test_companion_transport_queues_incoming_messages_and_adapter_error_keeps_hid() {
+    FakeBluetoothAdapter adapter;
+    const auto selected = bond(14);
+    adapter.bondListResult.bonds = {selected};
+    adapter.peerReferences[48] = selected;
+    BluetoothService service(adapter);
+    (void)service.enable({"Cardputer Hub"});
+    (void)service.selectBond(selected);
+    adapter.events.push_back(peerConnected(48));
+    adapter.events.push_back(hidReadinessChanged(48, true, true, 1, true, true));
+    service.update(std::chrono::milliseconds::zero());
+
+    CompanionPayload first{};
+    first.size = 8;
+    for (std::uint16_t index = 0; index < first.size; ++index) {
+        first.bytes[index] = static_cast<std::uint8_t>(index + 1);
+    }
+    CompanionPayload second{};
+    second.size = 8;
+    for (std::uint16_t index = 0; index < second.size; ++index) {
+        second.bytes[index] = static_cast<std::uint8_t>(index + 16);
+    }
+    TEST_ASSERT_EQUAL_UINT8(static_cast<unsigned>(CompanionSendResult::Sent),
+                            static_cast<unsigned>(service.companionTransport().send(first)));
+    auto firstChunks = adapter.sentCompanionChunks;
+    adapter.sentCompanionChunks.clear();
+    TEST_ASSERT_EQUAL_UINT8(static_cast<unsigned>(CompanionSendResult::Sent),
+                            static_cast<unsigned>(service.companionTransport().send(second)));
+    adapter.incomingCompanionChunks.insert(adapter.incomingCompanionChunks.end(),
+                                           firstChunks.begin(), firstChunks.end());
+    adapter.incomingCompanionChunks.insert(adapter.incomingCompanionChunks.end(),
+                                           adapter.sentCompanionChunks.begin(),
+                                           adapter.sentCompanionChunks.end());
+    service.update(std::chrono::milliseconds::zero());
+    const auto receivedFirst = service.companionTransport().receive();
+    const auto receivedSecond = service.companionTransport().receive();
+    TEST_ASSERT_TRUE(receivedFirst.has_value());
+    TEST_ASSERT_TRUE(receivedSecond.has_value());
+    TEST_ASSERT_EQUAL_UINT8_ARRAY(first.bytes.data(), receivedFirst->bytes.data(), first.size);
+    TEST_ASSERT_EQUAL_UINT8_ARRAY(second.bytes.data(), receivedSecond->bytes.data(), second.size);
+
+    adapter.companionSendResult = BluetoothCompanionAdapterResult::AdapterError;
+    TEST_ASSERT_EQUAL_UINT8(static_cast<unsigned>(CompanionSendResult::AdapterError),
+                            static_cast<unsigned>(service.companionTransport().send(first)));
+    TEST_ASSERT_EQUAL_UINT8(static_cast<unsigned>(BluetoothState::Connected),
+                            static_cast<unsigned>(service.state()));
+    TEST_ASSERT_EQUAL_UINT8(static_cast<unsigned>(HidTransportState::Ready),
+                            static_cast<unsigned>(service.hidTransport().state()));
+    TEST_ASSERT_EQUAL_UINT8(static_cast<unsigned>(CompanionTransportState::Unavailable),
+                            static_cast<unsigned>(service.companionTransport().state()));
+}
+
+void test_companion_incoming_overflow_keeps_bluetooth_and_hid_ready() {
+    FakeBluetoothAdapter adapter;
+    const auto selected = bond(15);
+    adapter.bondListResult.bonds = {selected};
+    adapter.peerReferences[49] = selected;
+    BluetoothService service(adapter);
+    (void)service.enable({"Cardputer Hub"});
+    (void)service.selectBond(selected);
+    adapter.events.push_back(peerConnected(49));
+    adapter.events.push_back(hidReadinessChanged(49, true, true, 1, true, true));
+    service.update(std::chrono::milliseconds::zero());
+    TEST_ASSERT_EQUAL_UINT8(static_cast<unsigned>(CompanionTransportState::Ready),
+                            static_cast<unsigned>(service.companionTransport().state()));
+
+    CompanionChunk extra{};
+    extra.size = 4;
+    extra.bytes[0] = 1;
+    extra.bytes[1] = 0;
+    extra.bytes[2] = 1;
+    extra.bytes[3] = 0xA5;
+    for (int index = 0; index < 16; ++index) {
+        adapter.incomingCompanionChunks.push_back(extra);
+    }
+    adapter.companionIncomingOverflow = true;
+    service.update(std::chrono::milliseconds::zero());
+
+    TEST_ASSERT_EQUAL_UINT8(static_cast<unsigned>(BluetoothState::Connected),
+                            static_cast<unsigned>(service.state()));
+    TEST_ASSERT_EQUAL_UINT8(static_cast<unsigned>(HidTransportState::Ready),
+                            static_cast<unsigned>(service.hidTransport().state()));
+    TEST_ASSERT_EQUAL_UINT8(static_cast<unsigned>(CompanionTransportState::Unavailable),
+                            static_cast<unsigned>(service.companionTransport().state()));
+    TEST_ASSERT_FALSE(service.companionTransport().receive().has_value());
+}
+
 void test_bonded_reconnect_requests_security_and_restores_hid_without_pairing_at_capacity() {
     FakeBluetoothAdapter adapter;
     for (std::uint8_t index = 1; index <= BluetoothService::maximumBondCount; ++index) {
@@ -1713,5 +1929,10 @@ int main() {
     RUN_TEST(test_release_all_handles_success_disconnect_busy_and_adapter_failure);
     RUN_TEST(test_hid_ignores_stale_and_wrong_peer_readiness_then_stops_on_current_peer_loss);
     RUN_TEST(test_hid_releases_before_target_change_and_disable_and_reenable_starts_clean);
+    RUN_TEST(test_companion_transport_requires_selected_authenticated_subscribed_peer);
+    RUN_TEST(test_companion_transport_sends_and_reassembles_chunks_for_selected_peer);
+    RUN_TEST(test_companion_transport_drops_on_disconnect_and_host_change);
+    RUN_TEST(test_companion_transport_queues_incoming_messages_and_adapter_error_keeps_hid);
+    RUN_TEST(test_companion_incoming_overflow_keeps_bluetooth_and_hid_ready);
     return UNITY_END();
 }

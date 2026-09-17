@@ -34,9 +34,10 @@ bool isRight(const InputEvent& event) {
 ApplicationShell::ApplicationShell(services::HostService& hosts, services::NetworkService& network,
                                    ActionBus& actions, IDisplayAdapter& display,
                                    HostSettings& settings, WiFiSettings& wifiSettings,
-                                   services::AudioService& audio, MiniAppRuntime& miniApps)
+                                   services::AudioService& audio, MiniAppRuntime& miniApps,
+                                   CapabilityRegistry& capabilities)
     : hosts_(hosts), network_(network), actions_(actions), display_(display), settings_(settings),
-      wifiSettings_(wifiSettings), audio_(audio), miniApps_(miniApps),
+      wifiSettings_(wifiSettings), audio_(audio), miniApps_(miniApps), capabilities_(capabilities),
       launcher_(miniApps.apps(), miniApps, actions, display) {
     (void)navigation_.resetTo("home");
     (void)actions_.registerHandler("ui.settings", *this);
@@ -364,11 +365,14 @@ void ApplicationShell::renderHome(std::chrono::milliseconds elapsed,
         accent = palette::vermilion;
         break;
     }
+    const bool companionReady = capabilities_.isAvailable("COMPANION");
     const bool entering = !homeConnectionFrame_;
     const bool connectionChanged = entering ||
                                    homeConnectionFrame_->activeHost != hostStatus.activeHostId ||
                                    homeConnectionFrame_->hostName != name ||
                                    homeConnectionFrame_->status != hostStatus.connection;
+    const bool companionChanged =
+        entering || homeConnectionFrame_->companionReady != companionReady;
     const HomeNetworkFrame nextNetwork{networkStatus.configured, networkStatus.enabled,
                                        networkStatus.connection};
     const bool networkChanged = !homeNetworkFrame_ ||
@@ -395,8 +399,12 @@ void ApplicationShell::renderHome(std::chrono::milliseconds elapsed,
         drawHomeHostName(display_, name);
         drawBluetoothIcon(display_, accent);
         display_.drawText({29, 84}, state, normal);
-        homeConnectionFrame_ =
-            HomeConnectionFrame{hostStatus.activeHostId, name, hostStatus.connection};
+        homeConnectionFrame_ = HomeConnectionFrame{hostStatus.activeHostId, name,
+                                                   hostStatus.connection, companionReady};
+        drawCompanionIndicator(display_, companionReady);
+    } else if (companionChanged) {
+        drawCompanionIndicator(display_, companionReady);
+        homeConnectionFrame_->companionReady = companionReady;
     }
     const auto percent = batteryPercent && *batteryPercent <= 100 ? batteryPercent : std::nullopt;
     if (entering || percent != homeBatteryPercent_) {

@@ -99,6 +99,8 @@ src/
 ├── hardware/
 └── main.cpp
 
+companion/macos/
+protocol/companion/
 test/
 
 docs/
@@ -114,7 +116,9 @@ scripts/
 ```
 
 The `apps`, `connectivity`, and `services` directories contain the built-in
-system UI, connectivity foundations, and host/configuration/battery/audio Services.
+system UI, connectivity foundations, and host/configuration/battery/audio/companion
+Services. `companion/macos` holds the optional headless Cardputer Companion.app.
+`protocol/companion` holds the shared v1 wire contract and binary fixtures.
 
 ---
 

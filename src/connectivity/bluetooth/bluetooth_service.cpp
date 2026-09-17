@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <array>
 #include <cctype>
+#include <cstring>
 #include <numeric>
 
 namespace cardputer_hub::connectivity {
@@ -30,10 +31,11 @@ std::optional<std::uint32_t> parsePasskey(const std::string& value) {
 } // namespace
 
 BluetoothService::BluetoothService(IBluetoothAdapter& adapter) noexcept
-    : adapter_(adapter), hidTransportView_(*this) {}
+    : adapter_(adapter), hidTransportView_(*this), companionTransportView_(*this) {}
 
 BluetoothService::BluetoothService(IBluetoothAdapter& adapter, core::Logger& logger) noexcept
-    : adapter_(adapter), hidTransportView_(*this), logger_(&logger) {}
+    : adapter_(adapter), hidTransportView_(*this), companionTransportView_(*this),
+      logger_(&logger) {}
 
 BluetoothEnableResult BluetoothService::enable(const BluetoothDeviceConfig& config,
                                                BluetoothStartup startup) {
@@ -214,7 +216,7 @@ void BluetoothService::update(std::chrono::milliseconds elapsed) {
         }
         const auto result = adapter_.pollEvent();
         if (result.status == BluetoothPollStatus::NoEvent) {
-            return;
+            break;
         }
         if (result.status == BluetoothPollStatus::AdapterError) {
             enterError("adapter event polling failed");
@@ -224,6 +226,7 @@ void BluetoothService::update(std::chrono::milliseconds elapsed) {
             handleEvent(result.event);
         }
     }
+    drainCompanion(elapsed);
 }
 
 BluetoothState BluetoothService::state() const noexcept { return state_; }
@@ -231,6 +234,14 @@ BluetoothState BluetoothService::state() const noexcept { return state_; }
 IHidTransport& BluetoothService::hidTransport() noexcept { return hidTransportView_; }
 
 const IHidTransport& BluetoothService::hidTransport() const noexcept { return hidTransportView_; }
+
+ICompanionTransport& BluetoothService::companionTransport() noexcept {
+    return companionTransportView_;
+}
+
+const ICompanionTransport& BluetoothService::companionTransport() const noexcept {
+    return companionTransportView_;
+}
 
 HidTransportState BluetoothService::HidTransportView::state() const noexcept {
     return service_.hidTransportState();
@@ -242,6 +253,19 @@ HidSendResult BluetoothService::HidTransportView::send(const HidReport& report) 
 
 HidSendResult BluetoothService::HidTransportView::releaseAll() {
     return service_.releaseAllHidReports();
+}
+
+CompanionTransportState BluetoothService::CompanionTransportView::state() const noexcept {
+    return service_.companionTransportState();
+}
+
+CompanionSendResult
+BluetoothService::CompanionTransportView::send(const CompanionPayload& payload) {
+    return service_.sendCompanionPayload(payload);
+}
+
+std::optional<CompanionPayload> BluetoothService::CompanionTransportView::receive() {
+    return service_.receiveCompanionPayload();
 }
 
 std::optional<BluetoothPeerHandle> BluetoothService::currentConnection() const noexcept {
@@ -568,8 +592,10 @@ void BluetoothService::handleEvent(const BluetoothEvent& event) {
             currentSecurity_ = event.security;
             keyboardSubscribed_ = event.keyboardSubscribed;
             consumerSubscribed_ = event.consumerSubscribed;
+            companionSubscribed_ = event.companionSubscribed;
             reportProtocol_ = event.reportProtocol;
             hidBusy_ = false;
+            companionBusy_ = false;
         }
         return;
     case BluetoothEventType::AdapterFailed:
@@ -931,8 +957,12 @@ void BluetoothService::clearHidPeerState() noexcept {
     currentSecurity_ = {};
     keyboardSubscribed_ = false;
     consumerSubscribed_ = false;
+    companionSubscribed_ = false;
     reportProtocol_ = false;
     hidBusy_ = false;
+    companionBusy_ = false;
+    companionFramer_.reset();
+    companionIncoming_.clear();
 }
 
 HidSendResult BluetoothService::handleHidAdapterResult(BluetoothHidAdapterResult result) {
@@ -954,6 +984,127 @@ HidSendResult BluetoothService::handleHidAdapterResult(BluetoothHidAdapterResult
     }
     enterError("BLE HID adapter returned an invalid result");
     return HidSendResult::AdapterError;
+}
+
+CompanionTransportState BluetoothService::companionTransportState() const noexcept {
+    if (!enabled_ || state_ != BluetoothState::Connected || pairingWindowActive() ||
+        !currentConnection_.has_value() || !selectedBond_.has_value() ||
+        currentBond_ != selectedBond_) {
+        return CompanionTransportState::Unavailable;
+    }
+    if (!(currentSecurity_.encrypted && currentSecurity_.authenticated && currentSecurity_.bonded &&
+          companionSubscribed_)) {
+        return CompanionTransportState::Unavailable;
+    }
+    return CompanionTransportState::Ready;
+}
+
+CompanionSendResult BluetoothService::sendCompanionPayload(const CompanionPayload& payload) {
+    if (companionTransportState() != CompanionTransportState::Ready ||
+        !currentConnection_.has_value()) {
+        return CompanionSendResult::NotReady;
+    }
+    if (payload.size == 0 || payload.size > companionMaxMessageSize) {
+        return CompanionSendResult::AdapterError;
+    }
+    const auto readiness = adapter_.companionReadiness(*currentConnection_);
+    if (readiness != BluetoothCompanionAdapterResult::Ready) {
+        return handleCompanionAdapterResult(readiness);
+    }
+    CompanionEncodedMessage encoded{};
+    encoded.size = payload.size;
+    std::memcpy(encoded.bytes.data(), payload.bytes.data(), payload.size);
+    std::array<CompanionChunk, companionMaxChunks> chunks{};
+    std::uint8_t count = 0;
+    if (!companionFramer_.encode(encoded, companionDefaultChunkPayload, chunks.data(), count,
+                                 companionMaxChunks)) {
+        return CompanionSendResult::AdapterError;
+    }
+    for (std::uint8_t index = 0; index < count; ++index) {
+        const auto result = adapter_.sendCompanionChunk(
+            *currentConnection_, chunks[index].bytes.data(), chunks[index].size);
+        if (result != BluetoothCompanionAdapterResult::Sent) {
+            return handleCompanionAdapterResult(result);
+        }
+    }
+    companionBusy_ = false;
+    return CompanionSendResult::Sent;
+}
+
+std::optional<CompanionPayload> BluetoothService::receiveCompanionPayload() {
+    if (companionIncoming_.empty()) {
+        return std::nullopt;
+    }
+    auto payload = companionIncoming_.front();
+    companionIncoming_.pop_front();
+    return payload;
+}
+
+void BluetoothService::drainCompanion(std::chrono::milliseconds elapsed) {
+    companionFramer_.update(elapsed);
+    if (adapter_.takeCompanionIncomingOverflow()) {
+        log(core::LogLevel::Error, "companion incoming overflow");
+        CompanionChunk discarded{};
+        while (adapter_.receiveCompanionChunk(discarded)) {
+        }
+        companionFramer_.reset();
+        companionIncoming_.clear();
+        companionSubscribed_ = false;
+        companionBusy_ = false;
+        return;
+    }
+    CompanionChunk chunk{};
+    while (adapter_.receiveCompanionChunk(chunk)) {
+        if (companionTransportState() != CompanionTransportState::Ready) {
+            companionFramer_.reset();
+            companionIncoming_.clear();
+            continue;
+        }
+        if (!companionFramer_.ingest(chunk.bytes.data(), chunk.size)) {
+            companionFramer_.reset();
+            continue;
+        }
+        auto assembled = companionFramer_.take();
+        if (!assembled.has_value()) {
+            continue;
+        }
+        CompanionPayload payload{};
+        payload.size = assembled->size;
+        std::memcpy(payload.bytes.data(), assembled->bytes.data(), assembled->size);
+        if (companionIncoming_.size() >= companionIncomingLimit_) {
+            companionIncoming_.pop_front();
+        }
+        companionIncoming_.push_back(payload);
+    }
+}
+
+CompanionSendResult
+BluetoothService::handleCompanionAdapterResult(BluetoothCompanionAdapterResult result) {
+    switch (result) {
+    case BluetoothCompanionAdapterResult::Sent:
+        companionBusy_ = false;
+        return CompanionSendResult::Sent;
+    case BluetoothCompanionAdapterResult::Busy:
+        companionBusy_ = true;
+        return CompanionSendResult::Busy;
+    case BluetoothCompanionAdapterResult::Ready:
+    case BluetoothCompanionAdapterResult::NotReady:
+    case BluetoothCompanionAdapterResult::Disconnected:
+        companionSubscribed_ = false;
+        companionBusy_ = false;
+        companionFramer_.reset();
+        companionIncoming_.clear();
+        return CompanionSendResult::NotReady;
+    case BluetoothCompanionAdapterResult::AdapterError:
+        log(core::LogLevel::Error, "companion adapter failed");
+        companionSubscribed_ = false;
+        companionBusy_ = false;
+        companionFramer_.reset();
+        companionIncoming_.clear();
+        return CompanionSendResult::AdapterError;
+    }
+    log(core::LogLevel::Error, "companion adapter returned an invalid result");
+    return CompanionSendResult::AdapterError;
 }
 
 } // namespace cardputer_hub::connectivity

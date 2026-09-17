@@ -1,4 +1,6 @@
 #include "hardware/esp32/bluetooth/esp32_bluetooth_adapter.h"
+#include "connectivity/companion/companion_framer.h"
+#include "connectivity/companion/companion_protocol.h"
 #include "hardware/esp32/bluetooth/ble_peer_event_order.h"
 
 #include <algorithm>
@@ -116,6 +118,7 @@ struct RawEvent {
     bool keyboardSubscribed = false;
     bool consumerSubscribed = false;
     bool reportProtocol = false;
+    bool companionSubscribed = false;
 };
 
 struct PeerRecord {
@@ -153,14 +156,22 @@ struct AdapterContext {
     std::array<std::uint8_t, referenceKeySize> referenceKey{};
     bool referenceKeyLoaded = false;
     bool hidServiceRegistered = false;
+    bool companionServiceRegistered = false;
     std::uint16_t keyboardInputHandle = 0;
     std::uint16_t keyboardOutputHandle = 0;
     std::uint16_t consumerInputHandle = 0;
+    std::uint16_t companionNotifyHandle = 0;
     bool keyboardSubscribed = false;
     bool consumerSubscribed = false;
+    bool companionSubscribed = false;
     connectivity::BluetoothSecurityProperties hidSecurity{};
     std::uint8_t hidProtocolMode = 1;
     std::uint8_t hidControlPoint = 1;
+    std::array<connectivity::CompanionChunk, 16> companionIncoming{};
+    std::size_t companionIncomingHead = 0;
+    std::size_t companionIncomingTail = 0;
+    std::size_t companionIncomingCount = 0;
+    bool companionIncomingOverflow = false;
     StaticSemaphore_t hostStoppedStorage{};
     SemaphoreHandle_t hostStopped = nullptr;
 };
@@ -191,6 +202,13 @@ std::array<ble_gatt_dsc_def, 2> keyboardOutputDescriptors{};
 std::array<ble_gatt_dsc_def, 2> consumerInputDescriptors{};
 std::array<ble_gatt_chr_def, 8> hidCharacteristics{};
 std::array<ble_gatt_svc_def, 2> hidServices{};
+std::uint8_t companionHostToDeviceTag = 0;
+std::uint8_t companionDeviceToHostTag = 0;
+ble_uuid128_t companionServiceUuid{};
+ble_uuid128_t companionHostToDeviceUuid{};
+ble_uuid128_t companionDeviceToHostUuid{};
+std::array<ble_gatt_chr_def, 3> companionCharacteristics{};
+std::array<ble_gatt_svc_def, 2> companionServices{};
 
 void enqueue(const RawEvent& event);
 RawEvent hidReadinessEvent(std::uint16_t connectionHandle);
@@ -291,6 +309,47 @@ int hidGattAccess(std::uint16_t connectionHandle, std::uint16_t, ble_gatt_access
     return BLE_ATT_ERR_UNLIKELY;
 }
 
+void clearCompanionIncomingLocked() {
+    context.companionIncomingHead = 0;
+    context.companionIncomingTail = 0;
+    context.companionIncomingCount = 0;
+}
+
+bool enqueueCompanionIncoming(os_mbuf* source) {
+    connectivity::CompanionChunk chunk{};
+    const auto length = OS_MBUF_PKTLEN(source);
+    if (length < connectivity::companionChunkHeaderSize || length > chunk.bytes.size()) {
+        return false;
+    }
+    if (ble_hs_mbuf_to_flat(source, chunk.bytes.data(), chunk.bytes.size(), nullptr) != 0) {
+        return false;
+    }
+    chunk.size = static_cast<std::uint16_t>(length);
+    portENTER_CRITICAL(&context.mutex);
+    if (context.companionIncomingCount == context.companionIncoming.size()) {
+        context.companionIncomingOverflow = true;
+        clearCompanionIncomingLocked();
+        portEXIT_CRITICAL(&context.mutex);
+        return false;
+    }
+    context.companionIncoming[context.companionIncomingTail] = chunk;
+    context.companionIncomingTail =
+        (context.companionIncomingTail + 1) % context.companionIncoming.size();
+    ++context.companionIncomingCount;
+    portEXIT_CRITICAL(&context.mutex);
+    return true;
+}
+
+int companionGattAccess(std::uint16_t, std::uint16_t, ble_gatt_access_ctxt* access, void* tag) {
+    if (access == nullptr) {
+        return BLE_ATT_ERR_UNLIKELY;
+    }
+    if (access->op == BLE_GATT_ACCESS_OP_WRITE_CHR && tag == &companionHostToDeviceTag) {
+        return enqueueCompanionIncoming(access->om) ? 0 : BLE_ATT_ERR_INSUFFICIENT_RES;
+    }
+    return BLE_ATT_ERR_UNLIKELY;
+}
+
 void configureReportDescriptor(std::array<ble_gatt_dsc_def, 2>& descriptors) {
     descriptors = {};
     descriptors[0].uuid = &hidReportReferenceUuid.u;
@@ -359,14 +418,67 @@ bool initializeHidService() {
     return true;
 }
 
+void loadCompanionUuid(ble_uuid128_t& uuid, const std::array<std::uint8_t, 16>& bytes) {
+    uuid = {};
+    uuid.u.type = BLE_UUID_TYPE_128;
+    std::memcpy(uuid.value, bytes.data(), bytes.size());
+}
+
+bool initializeCompanionService() {
+    loadCompanionUuid(companionServiceUuid, connectivity::companionServiceUuidBytes);
+    loadCompanionUuid(companionHostToDeviceUuid, connectivity::companionHostToDeviceUuidBytes);
+    loadCompanionUuid(companionDeviceToHostUuid, connectivity::companionDeviceToHostUuidBytes);
+    context.companionNotifyHandle = 0;
+    context.companionSubscribed = false;
+    context.companionIncoming = {};
+    context.companionIncomingHead = 0;
+    context.companionIncomingTail = 0;
+    context.companionIncomingCount = 0;
+    context.companionIncomingOverflow = false;
+
+    constexpr ble_gatt_chr_flags secureWrite =
+        BLE_GATT_CHR_F_WRITE | BLE_GATT_CHR_F_WRITE_ENC | BLE_GATT_CHR_F_WRITE_AUTHEN;
+    constexpr ble_gatt_chr_flags secureNotify =
+        BLE_GATT_CHR_F_NOTIFY | BLE_GATT_CHR_F_READ | BLE_GATT_CHR_F_READ_ENC |
+        BLE_GATT_CHR_F_READ_AUTHEN | BLE_GATT_CHR_F_NOTIFY_INDICATE_ENC |
+        BLE_GATT_CHR_F_NOTIFY_INDICATE_AUTHEN;
+    companionCharacteristics = {};
+    companionCharacteristics[0].uuid = &companionHostToDeviceUuid.u;
+    companionCharacteristics[0].access_cb = companionGattAccess;
+    companionCharacteristics[0].arg = &companionHostToDeviceTag;
+    companionCharacteristics[0].flags = secureWrite;
+    companionCharacteristics[1].uuid = &companionDeviceToHostUuid.u;
+    companionCharacteristics[1].access_cb = companionGattAccess;
+    companionCharacteristics[1].arg = &companionDeviceToHostTag;
+    companionCharacteristics[1].flags = secureNotify;
+    companionCharacteristics[1].val_handle = &context.companionNotifyHandle;
+    companionServices = {};
+    companionServices[0].type = BLE_GATT_SVC_TYPE_PRIMARY;
+    companionServices[0].uuid = &companionServiceUuid.u;
+    companionServices[0].characteristics = companionCharacteristics.data();
+    if (ble_gatts_count_cfg(companionServices.data()) != 0 ||
+        ble_gatts_add_svcs(companionServices.data()) != 0) {
+        return false;
+    }
+    context.companionServiceRegistered = true;
+    return true;
+}
+
 void deinitializeHidService() {
     context.hidServiceRegistered = false;
+    context.companionServiceRegistered = false;
     context.keyboardSubscribed = false;
     context.consumerSubscribed = false;
+    context.companionSubscribed = false;
     context.hidSecurity = {};
     context.keyboardInputHandle = 0;
     context.keyboardOutputHandle = 0;
     context.consumerInputHandle = 0;
+    context.companionNotifyHandle = 0;
+    context.companionIncomingCount = 0;
+    context.companionIncomingOverflow = false;
+    context.companionIncomingHead = 0;
+    context.companionIncomingTail = 0;
 }
 
 void enqueue(const RawEvent& event) {
@@ -418,9 +530,14 @@ void resetHidPeerState() {
     portENTER_CRITICAL(&context.mutex);
     context.keyboardSubscribed = false;
     context.consumerSubscribed = false;
+    context.companionSubscribed = false;
     context.hidSecurity = {};
     context.hidProtocolMode = 1;
     context.hidControlPoint = 1;
+    context.companionIncomingCount = 0;
+    context.companionIncomingOverflow = false;
+    context.companionIncomingHead = 0;
+    context.companionIncomingTail = 0;
     portEXIT_CRITICAL(&context.mutex);
 }
 
@@ -436,6 +553,8 @@ void updateHidSubscription(std::uint16_t attributeHandle, bool subscribed) {
         context.keyboardSubscribed = subscribed;
     } else if (attributeHandle == context.consumerInputHandle) {
         context.consumerSubscribed = subscribed;
+    } else if (attributeHandle == context.companionNotifyHandle) {
+        context.companionSubscribed = subscribed;
     }
     portEXIT_CRITICAL(&context.mutex);
 }
@@ -449,6 +568,7 @@ RawEvent hidReadinessEvent(std::uint16_t connectionHandle) {
     event.security = context.hidSecurity;
     event.keyboardSubscribed = context.keyboardSubscribed;
     event.consumerSubscribed = context.consumerSubscribed;
+    event.companionSubscribed = context.companionSubscribed;
     event.reportProtocol = context.hidProtocolMode == 1;
     portEXIT_CRITICAL(&context.mutex);
     return event;
@@ -640,6 +760,7 @@ int gapEventCallback(ble_gap_event* event, void*) {
             queued.security.encrypted = descriptor.sec_state.encrypted != 0;
             queued.security.authenticated = descriptor.sec_state.authenticated != 0;
             queued.security.bonded = descriptor.sec_state.bonded != 0;
+            ble_svc_gatt_changed(0x0001, 0xFFFF);
         }
         updateHidSecurity(queued.security);
         enqueue(queued);
@@ -652,7 +773,8 @@ int gapEventCallback(ble_gap_event* event, void*) {
             return 0;
         }
         if (event->subscribe.attr_handle == context.keyboardInputHandle ||
-            event->subscribe.attr_handle == context.consumerInputHandle) {
+            event->subscribe.attr_handle == context.consumerInputHandle ||
+            event->subscribe.attr_handle == context.companionNotifyHandle) {
             updateHidSubscription(event->subscribe.attr_handle, event->subscribe.cur_notify != 0);
             enqueue(hidReadinessEvent(event->subscribe.conn_handle));
         }
@@ -718,6 +840,17 @@ connectivity::BluetoothAdvertisingResult issueAdvertisingStart() {
     fields.name_len = static_cast<std::uint8_t>(advertisedNameLength);
     fields.name_is_complete = advertisedNameLength == context.deviceName.size();
     int result = ble_gap_adv_set_fields(&fields);
+    if (result != 0) {
+        context.advertisingRequested = false;
+        return isRetryableAdvertisingError(result)
+                   ? connectivity::BluetoothAdvertisingResult::RetryableFailure
+                   : connectivity::BluetoothAdvertisingResult::AdapterError;
+    }
+    ble_hs_adv_fields response{};
+    response.uuids128 = &companionServiceUuid;
+    response.num_uuids128 = 1;
+    response.uuids128_is_complete = 1;
+    result = ble_gap_adv_rsp_set_fields(&response);
     if (result != 0) {
         context.advertisingRequested = false;
         return isRetryableAdvertisingError(result)
@@ -1122,7 +1255,7 @@ Esp32BluetoothAdapter::initialize(const connectivity::BluetoothDeviceConfig& con
     ble_svc_gap_init();
     ble_svc_gatt_init();
     ble_store_config_init();
-    if (!initializeHidService()) {
+    if (!initializeHidService() || !initializeCompanionService()) {
         (void)quiesceStack();
         return connectivity::BluetoothAdapterResult::AdapterError;
     }
@@ -1359,6 +1492,7 @@ connectivity::BluetoothPollResult Esp32BluetoothAdapter::pollEvent() {
             }
             readiness.keyboardSubscribed = event.keyboardSubscribed;
             readiness.consumerSubscribed = event.consumerSubscribed;
+            readiness.companionSubscribed = event.companionSubscribed;
             readiness.reportProtocol = event.reportProtocol;
             return connectivity::BluetoothPollResult::withEvent(readiness);
         }
@@ -1623,6 +1757,85 @@ Esp32BluetoothAdapter::releaseHidReports(connectivity::BluetoothPeerHandle handl
         return keyboardResult;
     }
     return sendHidReport(handle, connectivity::HidConsumerReport::neutral());
+}
+
+connectivity::BluetoothCompanionAdapterResult
+Esp32BluetoothAdapter::companionReadiness(connectivity::BluetoothPeerHandle handle) {
+    const auto* peer = findPeer(handle);
+    if (currentOwner() != this || !context.stackOwned || !context.companionServiceRegistered ||
+        peer == nullptr) {
+        return connectivity::BluetoothCompanionAdapterResult::AdapterError;
+    }
+    ble_gap_conn_desc descriptor{};
+    const auto findResult = ble_gap_conn_find(peer->connectionHandle, &descriptor);
+    if (findResult == BLE_HS_ENOTCONN) {
+        return connectivity::BluetoothCompanionAdapterResult::Disconnected;
+    }
+    if (findResult != 0) {
+        return connectivity::BluetoothCompanionAdapterResult::AdapterError;
+    }
+    portENTER_CRITICAL(&context.mutex);
+    const bool subscribed = context.companionSubscribed;
+    portEXIT_CRITICAL(&context.mutex);
+    return descriptor.sec_state.encrypted != 0 && descriptor.sec_state.authenticated != 0 &&
+                   descriptor.sec_state.bonded != 0 && subscribed
+               ? connectivity::BluetoothCompanionAdapterResult::Ready
+               : connectivity::BluetoothCompanionAdapterResult::NotReady;
+}
+
+connectivity::BluetoothCompanionAdapterResult
+Esp32BluetoothAdapter::sendCompanionChunk(connectivity::BluetoothPeerHandle handle,
+                                          const std::uint8_t* data, std::size_t size) {
+    const auto readiness = companionReadiness(handle);
+    if (readiness != connectivity::BluetoothCompanionAdapterResult::Ready) {
+        return readiness;
+    }
+    const auto* peer = findPeer(handle);
+    if (peer == nullptr || data == nullptr || size == 0) {
+        return connectivity::BluetoothCompanionAdapterResult::Disconnected;
+    }
+    const auto hidResult =
+        sendHidPayload(peer->connectionHandle, context.companionNotifyHandle, data, size);
+    switch (hidResult) {
+    case connectivity::BluetoothHidAdapterResult::Sent:
+        return connectivity::BluetoothCompanionAdapterResult::Sent;
+    case connectivity::BluetoothHidAdapterResult::Busy:
+        return connectivity::BluetoothCompanionAdapterResult::Busy;
+    case connectivity::BluetoothHidAdapterResult::Disconnected:
+        return connectivity::BluetoothCompanionAdapterResult::Disconnected;
+    case connectivity::BluetoothHidAdapterResult::NotReady:
+        return connectivity::BluetoothCompanionAdapterResult::NotReady;
+    case connectivity::BluetoothHidAdapterResult::Ready:
+        return connectivity::BluetoothCompanionAdapterResult::Ready;
+    case connectivity::BluetoothHidAdapterResult::AdapterError:
+        return connectivity::BluetoothCompanionAdapterResult::AdapterError;
+    }
+    return connectivity::BluetoothCompanionAdapterResult::AdapterError;
+}
+
+bool Esp32BluetoothAdapter::receiveCompanionChunk(connectivity::CompanionChunk& chunk) {
+    portENTER_CRITICAL(&context.mutex);
+    if (context.companionIncomingCount == 0) {
+        portEXIT_CRITICAL(&context.mutex);
+        return false;
+    }
+    chunk = context.companionIncoming[context.companionIncomingHead];
+    context.companionIncomingHead =
+        (context.companionIncomingHead + 1) % context.companionIncoming.size();
+    --context.companionIncomingCount;
+    portEXIT_CRITICAL(&context.mutex);
+    return true;
+}
+
+bool Esp32BluetoothAdapter::takeCompanionIncomingOverflow() {
+    portENTER_CRITICAL(&context.mutex);
+    const bool overflow = context.companionIncomingOverflow;
+    context.companionIncomingOverflow = false;
+    if (overflow) {
+        clearCompanionIncomingLocked();
+    }
+    portEXIT_CRITICAL(&context.mutex);
+    return overflow;
 }
 
 } // namespace cardputer_hub::hardware

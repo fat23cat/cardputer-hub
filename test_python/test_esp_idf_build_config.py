@@ -357,6 +357,7 @@ class EspIdfBuildConfigurationTests(unittest.TestCase):
             "        previousUpdateMilliseconds = now;\n"
             "        const auto& input = runtime.update(elapsed);\n"
             "        hosts.update(elapsed);\n"
+            "        companion.update(elapsed);\n"
             "        network.update(elapsed);\n"
             "        battery.update(elapsed);\n"
             "        if (!homeVisible) {\n"

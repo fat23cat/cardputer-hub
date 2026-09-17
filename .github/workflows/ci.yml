@@ -105,11 +105,22 @@ jobs:
           if-no-files-found: error
           retention-days: 7
 
+  companion-checks:
+    runs-on: macos-15
+    timeout-minutes: 20
+    steps:
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Build and test Cardputer Companion
+        run: make companion-check
+
   check:
     if: always()
     needs:
       - host-checks
       - firmware-build
+      - companion-checks
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
@@ -117,6 +128,8 @@ jobs:
         env:
           FIRMWARE_RESULT: ${{ needs.firmware-build.result }}
           HOST_RESULT: ${{ needs.host-checks.result }}
+          COMPANION_RESULT: ${{ needs.companion-checks.result }}
         run: |
           test "${HOST_RESULT}" = success
           test "${FIRMWARE_RESULT}" = success
+          test "${COMPANION_RESULT}" = success

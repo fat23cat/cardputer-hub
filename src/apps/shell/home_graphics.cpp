@@ -110,6 +110,16 @@ void drawWifiStatusIndicator(core::IDisplayAdapter& display, core::PixelPosition
     static const char* const hollowRows[] = {" ### ", "#   #", "#   #", "#   #", " ### "};
     bitmap(display, position, filled ? filledRows : hollowRows, 5, color);
 }
+void drawCompanionIndicator(core::IDisplayAdapter& display, bool visible) {
+    display.fillRectangle(homeCompanionIndicatorPosition, homeCompanionIndicatorSize,
+                          homeCompanionIndicatorSize, core::palette::bone);
+    if (!visible)
+        return;
+    static const char* const rows[] = {"     #     ", "    ###    ", "   #####   ", "  #######  ",
+                                       " ######### ", "###########", " ######### ", "  #######  ",
+                                       "   #####   ", "    ###    ", "     #     "};
+    bitmap(display, homeCompanionIndicatorPosition, rows, 11, core::palette::leaf);
+}
 void drawHomeWave(core::IDisplayAdapter& display, unsigned phaseMilliseconds) {
     display.fillRectangle({0, 99}, 240, 36, core::palette::bone);
     const double phase = phaseMilliseconds * (6.283185307179586 / 28000.0);

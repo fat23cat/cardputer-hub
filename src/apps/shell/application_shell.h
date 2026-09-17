@@ -2,6 +2,7 @@
 #include "apps/hosts/host_settings.h"
 #include "apps/launcher/launcher.h"
 #include "apps/network/wifi_settings.h"
+#include "core/capabilities/capability_registry.h"
 #include "core/navigation/navigation_stack.h"
 #include "services/audio/audio_service.h"
 #include "services/network/network_service.h"
@@ -14,7 +15,8 @@ class ApplicationShell final : public core::IActionHandler {
     ApplicationShell(services::HostService& hosts, services::NetworkService& network,
                      core::ActionBus& actions, core::IDisplayAdapter& display,
                      HostSettings& settings, WiFiSettings& wifiSettings,
-                     services::AudioService& audio, MiniAppRuntime& miniApps);
+                     services::AudioService& audio, MiniAppRuntime& miniApps,
+                     core::CapabilityRegistry& capabilities);
     void update(const core::InputEvents& input, std::chrono::milliseconds elapsed = {},
                 std::optional<std::uint8_t> batteryPercent = std::nullopt);
     core::ActionHandlingResult handle(const core::Action& action) override;
@@ -24,6 +26,7 @@ class ApplicationShell final : public core::IActionHandler {
         std::optional<std::uint32_t> activeHost;
         std::string hostName;
         services::HostConnectionStatus status = services::HostConnectionStatus::Off;
+        bool companionReady = false;
     };
 
     struct HomeNetworkFrame {
@@ -61,6 +64,7 @@ class ApplicationShell final : public core::IActionHandler {
     WiFiSettings& wifiSettings_;
     services::AudioService& audio_;
     MiniAppRuntime& miniApps_;
+    core::CapabilityRegistry& capabilities_;
     Launcher launcher_;
     core::NavigationStack navigation_;
     std::optional<HomeConnectionFrame> homeConnectionFrame_;

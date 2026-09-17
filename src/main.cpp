@@ -14,6 +14,7 @@
 #include "hardware/esp32/wifi/esp32_wifi_adapter.h"
 #include "services/audio/audio_service.h"
 #include "services/battery/battery_service.h"
+#include "services/companion/companion_service.h"
 #include "services/hosts/host_service.h"
 #include "services/network/network_service.h"
 
@@ -58,7 +59,10 @@ cardputer_hub::apps::SystemApp systemApp(battery, hosts, network, display);
 cardputer_hub::apps::HostSettings hostSettings(hosts, actions, display);
 cardputer_hub::apps::WiFiSettings wifiSettings(network, actions, display);
 cardputer_hub::apps::ApplicationShell applicationShell(hosts, network, actions, display,
-                                                       hostSettings, wifiSettings, audio, miniApps);
+                                                       hostSettings, wifiSettings, audio, miniApps,
+                                                       capabilities);
+cardputer_hub::services::CompanionService companion(bluetooth.companionTransport(), capabilities,
+                                                    &logger);
 cardputer_hub::apps::UiScheduler uiScheduler;
 std::int64_t previousUpdateMilliseconds = 0;
 bool homeVisible = false;
@@ -90,6 +94,7 @@ extern "C" void app_main(void) {
         previousUpdateMilliseconds = now;
         const auto& input = runtime.update(elapsed);
         hosts.update(elapsed);
+        companion.update(elapsed);
         network.update(elapsed);
         battery.update(elapsed);
         if (!homeVisible) {
