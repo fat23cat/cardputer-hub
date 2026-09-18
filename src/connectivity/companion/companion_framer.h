@@ -25,6 +25,10 @@ class CompanionFramer {
     void reset() noexcept;
     void update(std::chrono::milliseconds elapsed);
     std::uint8_t nextMessageId() noexcept;
+    static std::uint8_t encodedChunkCount(std::uint16_t size,
+                                          std::size_t maxPayloadPerChunk) noexcept;
+    bool encodeChunk(const CompanionEncodedMessage& message, std::size_t maxPayloadPerChunk,
+                     std::uint8_t messageId, std::uint8_t index, CompanionChunk& chunk) noexcept;
     bool encode(const CompanionEncodedMessage& message, std::size_t maxPayloadPerChunk,
                 CompanionChunk* chunks, std::uint8_t& count, std::uint8_t capacity) noexcept;
     bool ingest(const std::uint8_t* data, std::size_t size);

@@ -26,9 +26,11 @@
 #include <host/util/util.h>
 #include <mbedtls/md.h>
 #include <nimble/ble.h>
+#include <nimble/nimble_npl.h>
 #include <nimble/nimble_port.h>
 #include <nvs.h>
 #include <nvs_flash.h>
+#include <os/os_mbuf.h>
 #include <services/gap/ble_svc_gap.h>
 #include <services/gatt/ble_svc_gatt.h>
 #include <store/config/ble_store_config.h>
@@ -40,6 +42,14 @@ namespace {
 
 using bluetooth_detail::PeerEventDisposition;
 using bluetooth_detail::PeerEventKind;
+
+struct HostNotifyRequest {
+    std::uint16_t connectionHandle = 0;
+    std::uint16_t attributeHandle = 0;
+    os_mbuf* payload = nullptr;
+    int result = BLE_HS_EAGAIN;
+    bool inFlight = false;
+};
 
 #if defined(CORE_DEBUG_LEVEL)
 constexpr int configuredFrameworkDebugLevel = CORE_DEBUG_LEVEL;
@@ -174,6 +184,11 @@ struct AdapterContext {
     bool companionIncomingOverflow = false;
     StaticSemaphore_t hostStoppedStorage{};
     SemaphoreHandle_t hostStopped = nullptr;
+    StaticSemaphore_t notifyDoneStorage{};
+    SemaphoreHandle_t notifyDone = nullptr;
+    TaskHandle_t hostTaskHandle = nullptr;
+    HostNotifyRequest notifyRequest{};
+    ble_npl_event notifyEvent{};
 };
 
 AdapterContext context;
@@ -792,7 +807,9 @@ int gapEventCallback(ble_gap_event* event, void*) {
 }
 
 void nimbleHostTask(void*) {
+    context.hostTaskHandle = xTaskGetCurrentTaskHandle();
     nimble_port_run();
+    context.hostTaskHandle = nullptr;
     portENTER_CRITICAL(&context.mutex);
     context.hostRunning = false;
     portEXIT_CRITICAL(&context.mutex);
@@ -1209,7 +1226,18 @@ Esp32BluetoothAdapter::initialize(const connectivity::BluetoothDeviceConfig& con
             return connectivity::BluetoothAdapterResult::AdapterError;
         }
     }
+    if (context.notifyDone == nullptr) {
+        context.notifyDone = xSemaphoreCreateBinaryStatic(&context.notifyDoneStorage);
+        if (context.notifyDone == nullptr) {
+            context.stackOwned = false;
+            clearLifecycleState();
+            setOwner(nullptr);
+            return connectivity::BluetoothAdapterResult::AdapterError;
+        }
+    }
     while (xSemaphoreTake(context.hostStopped, 0) == pdTRUE) {
+    }
+    while (xSemaphoreTake(context.notifyDone, 0) == pdTRUE) {
     }
 
     if (nvs_flash_init() != ESP_OK) {
@@ -1705,6 +1733,28 @@ connectivity::BluetoothHidAdapterResult classifyHidSendResult(int result) {
     }
 }
 
+void runHostNotify(ble_npl_event* ev) {
+    auto* request = static_cast<HostNotifyRequest*>(ble_npl_event_get_arg(ev));
+    if (request == nullptr) {
+        return;
+    }
+    if (request->payload == nullptr) {
+        request->result = BLE_HS_EAGAIN;
+    } else if (!esp_vhci_host_check_send_available()) {
+        os_mbuf_free_chain(request->payload);
+        request->payload = nullptr;
+        request->result = BLE_HS_EAGAIN;
+    } else {
+        request->result = ble_gatts_notify_custom(request->connectionHandle,
+                                                  request->attributeHandle, request->payload);
+        request->payload = nullptr;
+    }
+    request->inFlight = false;
+    if (context.notifyDone != nullptr) {
+        xSemaphoreGive(context.notifyDone);
+    }
+}
+
 connectivity::BluetoothHidAdapterResult sendHidPayload(std::uint16_t connectionHandle,
                                                        std::uint16_t attributeHandle,
                                                        const void* data, std::size_t size) {
@@ -1712,8 +1762,32 @@ connectivity::BluetoothHidAdapterResult sendHidPayload(std::uint16_t connectionH
     if (payload == nullptr) {
         return connectivity::BluetoothHidAdapterResult::Busy;
     }
-    return classifyHidSendResult(
-        ble_gatts_notify_custom(connectionHandle, attributeHandle, payload));
+    if (context.hostTaskHandle != nullptr &&
+        xTaskGetCurrentTaskHandle() == context.hostTaskHandle) {
+        return classifyHidSendResult(
+            ble_gatts_notify_custom(connectionHandle, attributeHandle, payload));
+    }
+    if (context.notifyRequest.inFlight || context.notifyDone == nullptr) {
+        os_mbuf_free_chain(payload);
+        return connectivity::BluetoothHidAdapterResult::Busy;
+    }
+
+    context.notifyRequest =
+        HostNotifyRequest{connectionHandle, attributeHandle, payload, BLE_HS_EAGAIN, true};
+    ble_npl_event_init(&context.notifyEvent, runHostNotify, &context.notifyRequest);
+    auto* eventq = nimble_port_get_dflt_eventq();
+    if (eventq == nullptr) {
+        os_mbuf_free_chain(payload);
+        context.notifyRequest = {};
+        return connectivity::BluetoothHidAdapterResult::AdapterError;
+    }
+    while (xSemaphoreTake(context.notifyDone, 0) == pdTRUE) {
+    }
+    ble_npl_eventq_put(eventq, &context.notifyEvent);
+    if (xSemaphoreTake(context.notifyDone, pdMS_TO_TICKS(2000)) != pdTRUE) {
+        return connectivity::BluetoothHidAdapterResult::Busy;
+    }
+    return classifyHidSendResult(context.notifyRequest.result);
 }
 
 } // namespace

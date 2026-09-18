@@ -57,16 +57,14 @@ class Display final : public core::IDisplayAdapter {
         dirty = true;
     }
     bool drewCompanionDiamond() const {
-        return std::any_of(fills.begin(), fills.end(), [](const Fill& fill) {
+        const auto origin = apps::homeCompanionIndicatorPosition("No host selected");
+        return std::any_of(fills.begin(), fills.end(), [origin](const Fill& fill) {
             return fill.color.red == core::palette::leaf.red &&
                    fill.color.green == core::palette::leaf.green &&
-                   fill.color.blue == core::palette::leaf.blue &&
-                   fill.position.x >= apps::homeCompanionIndicatorPosition.x &&
-                   fill.position.y >= apps::homeCompanionIndicatorPosition.y &&
-                   fill.position.x <
-                       apps::homeCompanionIndicatorPosition.x + apps::homeCompanionIndicatorSize &&
-                   fill.position.y <
-                       apps::homeCompanionIndicatorPosition.y + apps::homeCompanionIndicatorSize;
+                   fill.color.blue == core::palette::leaf.blue && fill.position.x >= origin.x &&
+                   fill.position.y >= origin.y &&
+                   fill.position.x < origin.x + apps::homeCompanionIndicatorSize &&
+                   fill.position.y < origin.y + apps::homeCompanionIndicatorSize;
         });
     }
     struct Fill {
@@ -876,6 +874,9 @@ void test_home_companion_indicator_appears_only_when_companion_capability_is_liv
                             static_cast<unsigned>(f.capabilities.registerCapability("COMPANION")));
     f.display.fills.clear();
     shell.update({});
+    const auto diamond = apps::homeCompanionIndicatorPosition("No host selected");
+    TEST_ASSERT_EQUAL_INT(apps::homeCompanionIndicatorY, diamond.y);
+    TEST_ASSERT_TRUE(diamond.x > apps::homeHostNameOriginX);
     TEST_ASSERT_TRUE(f.display.drewCompanionDiamond());
     TEST_ASSERT_FALSE(f.display.shows("COMPANION"));
     TEST_ASSERT_EQUAL_UINT8(static_cast<unsigned>(core::CapabilityRemovalResult::Removed),

@@ -234,6 +234,7 @@ class EspIdfBuildConfigurationTests(unittest.TestCase):
 
         self.assertIn("CONFIG_FATFS_LFN_HEAP=y", configuration)
         self.assertIn("CONFIG_FATFS_MAX_LFN=255", configuration)
+        self.assertIn("CONFIG_ESP_MAIN_TASK_STACK_SIZE=8192", configuration)
         self.assertNotIn("CONFIG_FATFS_LFN_NONE=y", configuration)
         self.assertIn("constexpr int microSdFrequencyKhz = 10'000;", adapter)
 

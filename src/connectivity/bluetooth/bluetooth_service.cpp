@@ -1014,15 +1014,20 @@ CompanionSendResult BluetoothService::sendCompanionPayload(const CompanionPayloa
     CompanionEncodedMessage encoded{};
     encoded.size = payload.size;
     std::memcpy(encoded.bytes.data(), payload.bytes.data(), payload.size);
-    std::array<CompanionChunk, companionMaxChunks> chunks{};
-    std::uint8_t count = 0;
-    if (!companionFramer_.encode(encoded, companionDefaultChunkPayload, chunks.data(), count,
-                                 companionMaxChunks)) {
+    const auto chunkCount =
+        CompanionFramer::encodedChunkCount(encoded.size, companionDefaultChunkPayload);
+    if (chunkCount == 0) {
         return CompanionSendResult::AdapterError;
     }
-    for (std::uint8_t index = 0; index < count; ++index) {
-        const auto result = adapter_.sendCompanionChunk(
-            *currentConnection_, chunks[index].bytes.data(), chunks[index].size);
+    const auto messageId = companionFramer_.nextMessageId();
+    CompanionChunk chunk{};
+    for (std::uint8_t index = 0; index < chunkCount; ++index) {
+        if (!companionFramer_.encodeChunk(encoded, companionDefaultChunkPayload, messageId, index,
+                                          chunk)) {
+            return CompanionSendResult::AdapterError;
+        }
+        const auto result =
+            adapter_.sendCompanionChunk(*currentConnection_, chunk.bytes.data(), chunk.size);
         if (result != BluetoothCompanionAdapterResult::Sent) {
             return handleCompanionAdapterResult(result);
         }

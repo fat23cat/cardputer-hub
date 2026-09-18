@@ -61,6 +61,32 @@ std::uint8_t CompanionFramer::nextMessageId() noexcept {
     return id;
 }
 
+std::uint8_t CompanionFramer::encodedChunkCount(std::uint16_t size,
+                                                std::size_t maxPayloadPerChunk) noexcept {
+    return chunkCountFor(size, maxPayloadPerChunk);
+}
+
+bool CompanionFramer::encodeChunk(const CompanionEncodedMessage& message,
+                                  std::size_t maxPayloadPerChunk, std::uint8_t messageId,
+                                  std::uint8_t index, CompanionChunk& chunk) noexcept {
+    chunk = {};
+    const auto chunkCount = chunkCountFor(message.size, maxPayloadPerChunk);
+    if (chunkCount == 0 || index >= chunkCount || messageId == 0 ||
+        message.size > companionMaxMessageSize || maxPayloadPerChunk == 0) {
+        return false;
+    }
+    const auto offset = static_cast<std::size_t>(index) * maxPayloadPerChunk;
+    const auto remaining = static_cast<std::size_t>(message.size) - offset;
+    const auto payload = remaining < maxPayloadPerChunk ? remaining : maxPayloadPerChunk;
+    chunk.size = static_cast<std::uint16_t>(companionChunkHeaderSize + payload);
+    chunk.bytes[0] = messageId;
+    chunk.bytes[1] = index;
+    chunk.bytes[2] = chunkCount;
+    std::memcpy(chunk.bytes.data() + companionChunkHeaderSize, message.bytes.data() + offset,
+                payload);
+    return true;
+}
+
 bool CompanionFramer::encode(const CompanionEncodedMessage& message, std::size_t maxPayloadPerChunk,
                              CompanionChunk* chunks, std::uint8_t& count,
                              std::uint8_t capacity) noexcept {
@@ -74,18 +100,11 @@ bool CompanionFramer::encode(const CompanionEncodedMessage& message, std::size_t
         return false;
     }
     const auto messageId = nextMessageId();
-    std::size_t offset = 0;
     for (std::uint8_t index = 0; index < chunkCount; ++index) {
-        const auto remaining = static_cast<std::size_t>(message.size) - offset;
-        const auto payload = remaining < maxPayloadPerChunk ? remaining : maxPayloadPerChunk;
-        auto& chunk = chunks[index];
-        chunk.size = static_cast<std::uint16_t>(companionChunkHeaderSize + payload);
-        chunk.bytes[0] = messageId;
-        chunk.bytes[1] = index;
-        chunk.bytes[2] = chunkCount;
-        std::memcpy(chunk.bytes.data() + companionChunkHeaderSize, message.bytes.data() + offset,
-                    payload);
-        offset += payload;
+        if (!encodeChunk(message, maxPayloadPerChunk, messageId, index, chunks[index])) {
+            count = 0;
+            return false;
+        }
     }
     count = chunkCount;
     return true;

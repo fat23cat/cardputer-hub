@@ -401,9 +401,9 @@ void ApplicationShell::renderHome(std::chrono::milliseconds elapsed,
         display_.drawText({29, 84}, state, normal);
         homeConnectionFrame_ = HomeConnectionFrame{hostStatus.activeHostId, name,
                                                    hostStatus.connection, companionReady};
-        drawCompanionIndicator(display_, companionReady);
+        drawCompanionIndicator(display_, companionReady, name);
     } else if (companionChanged) {
-        drawCompanionIndicator(display_, companionReady);
+        drawCompanionIndicator(display_, companionReady, name);
         homeConnectionFrame_->companionReady = companionReady;
     }
     const auto percent = batteryPercent && *batteryPercent <= 100 ? batteryPercent : std::nullopt;

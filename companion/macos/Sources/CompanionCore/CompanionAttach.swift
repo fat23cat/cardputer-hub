@@ -14,6 +14,8 @@ public enum CompanionAttachAction: Equatable {
     case resumeConnect
     case resetCentral
     case ambiguous
+    case radioUnavailable
+    case lookupNow
 }
 
 public enum CompanionConnectStart: Equatable {
@@ -86,12 +88,28 @@ public struct CompanionAttachEngine: Equatable {
 
     public mutating func disconnected() -> CompanionAttachAction { failAndRetry() }
 
+    public mutating func handleRadioUnavailable() -> CompanionAttachAction {
+        clearHold()
+        return .radioUnavailable
+    }
+
+    public mutating func handleSleepWake() -> CompanionAttachAction {
+        if holdingPeripheral {
+            return failAndRetry()
+        }
+        return .lookupNow
+    }
+
     public mutating func failAndRetry() -> CompanionAttachAction {
+        clearHold()
+        return .cancelCurrentAndRetry
+    }
+
+    private mutating func clearHold() {
         holdingPeripheral = false
         probingHid = false
         hidIndex = 0
         hidCount = 0
-        return .cancelCurrentAndRetry
     }
 
     private mutating func advanceHid() -> CompanionAttachAction {
@@ -223,6 +241,26 @@ public struct CompanionAttachCoordinator: Equatable {
 
     public mutating func failAndRetry() -> CompanionAttachAction {
         finish(engine.failAndRetry())
+    }
+
+    public mutating func handleRadioUnavailable() -> CompanionAttachAction {
+        _ = engine.handleRadioUnavailable()
+        generation &+= 1
+        if generation == 0 { generation = 1 }
+        currentId = nil
+        pendingConnectId = nil
+        cancellingId = nil
+        cancelledIds.removeAll()
+        cancellationElapsed = 0
+        phase = .idle
+        return .radioUnavailable
+    }
+
+    public mutating func handleSleepWake() -> CompanionAttachAction {
+        if engine.holdingPeripheral || (phase != .idle && phase != .cancelling) {
+            return finish(engine.failAndRetry())
+        }
+        return engine.handleSleepWake()
     }
 
     private mutating func startConnecting(_ id: UUID) {

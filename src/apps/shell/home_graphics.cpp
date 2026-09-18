@@ -24,14 +24,18 @@ std::string fitHomeHostName(const std::string& name) {
     for (auto& c : label)
         if (c >= 'a' && c <= 'z')
             c -= 'a' - 'A';
-    if (textWidth(label) <= 224)
+    if (textWidth(label) <= homeHostNameMaxWidth)
         return label;
-    while (!label.empty() && textWidth(label + "...") > 224)
+    while (!label.empty() && textWidth(label + "...") > homeHostNameMaxWidth)
         label.pop_back();
     return label + "...";
 }
+core::PixelPosition homeCompanionIndicatorPosition(const std::string& name) {
+    return {homeHostNameOriginX + textWidth(fitHomeHostName(name)) + homeCompanionIndicatorGap,
+            homeCompanionIndicatorY};
+}
 void drawHomeHostName(core::IDisplayAdapter& display, const std::string& name) {
-    int x = 8;
+    int x = homeHostNameOriginX;
     for (const auto c : fitHomeHostName(name)) {
         const auto index = glyphIndex(c);
         const auto* mask = assets::homeGlyphs[index];
@@ -110,15 +114,18 @@ void drawWifiStatusIndicator(core::IDisplayAdapter& display, core::PixelPosition
     static const char* const hollowRows[] = {" ### ", "#   #", "#   #", "#   #", " ### "};
     bitmap(display, position, filled ? filledRows : hollowRows, 5, color);
 }
-void drawCompanionIndicator(core::IDisplayAdapter& display, bool visible) {
-    display.fillRectangle(homeCompanionIndicatorPosition, homeCompanionIndicatorSize,
-                          homeCompanionIndicatorSize, core::palette::bone);
+void drawCompanionIndicator(core::IDisplayAdapter& display, bool visible, const std::string& name) {
+    const auto position = homeCompanionIndicatorPosition(name);
+    display.fillRectangle(position, homeCompanionIndicatorSize, homeCompanionIndicatorSize,
+                          core::palette::bone);
     if (!visible)
         return;
-    static const char* const rows[] = {"     #     ", "    ###    ", "   #####   ", "  #######  ",
-                                       " ######### ", "###########", " ######### ", "  #######  ",
-                                       "   #####   ", "    ###    ", "     #     "};
-    bitmap(display, homeCompanionIndicatorPosition, rows, 11, core::palette::leaf);
+    static const char* const rows[] = {"       #       ", "      ###      ", "     #####     ",
+                                       "    #######    ", "   #########   ", "  ###########  ",
+                                       " ############# ", "###############", " ############# ",
+                                       "  ###########  ", "   #########   ", "    #######    ",
+                                       "     #####     ", "      ###      ", "       #       "};
+    bitmap(display, position, rows, homeCompanionIndicatorSize, core::palette::leaf);
 }
 void drawHomeWave(core::IDisplayAdapter& display, unsigned phaseMilliseconds) {
     display.fillRectangle({0, 99}, 240, 36, core::palette::bone);

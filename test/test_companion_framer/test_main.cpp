@@ -26,6 +26,23 @@ CompanionEncodedMessage messageOf(std::uint16_t size, std::uint8_t fill = 0xA5) 
     return message;
 }
 
+void test_encode_chunk_matches_bulk_encode() {
+    CompanionFramer framer;
+    const auto original = messageOf(40);
+    std::array<CompanionChunk, companionMaxChunks> bulk{};
+    std::uint8_t count = 0;
+    TEST_ASSERT_TRUE(framer.encode(original, 10, bulk.data(), count, companionMaxChunks));
+    TEST_ASSERT_EQUAL_UINT8(count, CompanionFramer::encodedChunkCount(original.size, 10));
+
+    CompanionChunk one{};
+    TEST_ASSERT_FALSE(framer.encodeChunk(original, 10, bulk[0].bytes[0], count, one));
+    for (std::uint8_t index = 0; index < count; ++index) {
+        TEST_ASSERT_TRUE(framer.encodeChunk(original, 10, bulk[0].bytes[0], index, one));
+        TEST_ASSERT_EQUAL_UINT16(bulk[index].size, one.size);
+        TEST_ASSERT_EQUAL_UINT8_ARRAY(bulk[index].bytes.data(), one.bytes.data(), one.size);
+    }
+}
+
 void test_single_chunk_round_trip() {
     CompanionFramer framer;
     const auto original = messageOf(8);
@@ -136,6 +153,7 @@ void test_missing_chunk_does_not_complete() {
 
 int main() {
     UNITY_BEGIN();
+    RUN_TEST(test_encode_chunk_matches_bulk_encode);
     RUN_TEST(test_single_chunk_round_trip);
     RUN_TEST(test_multiple_chunks_and_maximum_message);
     RUN_TEST(test_duplicate_chunk_and_invalid_index_are_rejected);

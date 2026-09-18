@@ -134,6 +134,39 @@ enum CompanionCoreCheck {
         expect(timed.handleDidDisconnect(cardputer) == .cancelCurrentAndRetry,
                "real attempt-2 disconnect retries")
 
+        var radio = CompanionAttachEngine()
+        expect(radio.lookup(companionCount: 1, hidCount: 0) == .connectCompanion(0), "radio hold")
+        expect(radio.lookup(companionCount: 1, hidCount: 0) == .idle, "held blocks lookup")
+        expect(radio.handleRadioUnavailable() == .radioUnavailable, "radio down clears hold")
+        expect(radio.lookup(companionCount: 1, hidCount: 0) == .connectCompanion(0), "lookup after radio down")
+        expect(radio.handleSleepWake() == .cancelCurrentAndRetry, "wake while held retries")
+        expect(radio.handleSleepWake() == .lookupNow, "wake idle lookups now")
+
+        var radioCoord = CompanionAttachCoordinator()
+        expect(radioCoord.lookup(companionCount: 1, hidCount: 0) == .connectCompanion(0), "coord radio setup")
+        expect(radioCoord.beginConnect(cardputer) == .proceed, "coord radio connect")
+        expect(radioCoord.handleDidConnect(cardputer) == .discoverServices, "coord radio connected")
+        expect(radioCoord.handleRadioUnavailable() == .radioUnavailable, "coord radio down")
+        expect(radioCoord.phase == .idle, "coord idle after radio down")
+        expect(radioCoord.currentId == nil, "coord cleared after radio down")
+        expect(radioCoord.lookup(companionCount: 1, hidCount: 0) == .connectCompanion(0), "coord lookup after radio")
+        expect(radioCoord.handleDidDisconnect(cardputer) == .idle, "stale disconnect after radio down")
+
+        var wake = CompanionAttachCoordinator()
+        expect(wake.handleSleepWake() == .lookupNow, "wake idle lookups")
+        expect(wake.lookup(companionCount: 1, hidCount: 0) == .connectCompanion(0), "wake setup")
+        expect(wake.beginConnect(cardputer) == .proceed, "wake connect")
+        expect(wake.handleDidConnect(cardputer) == .discoverServices, "wake connected")
+        expect(wake.handleSleepWake() == .cancelCurrentAndRetry, "wake while attached retries")
+        expect(wake.phase == .cancelling, "wake cancels current")
+        expect(wake.lookup(companionCount: 1, hidCount: 0) == .connectCompanion(0), "wake lookup allowed")
+        expect(wake.beginConnect(cardputer) == .waitForCancellation, "wake same-id waits")
+        expect(wake.handleRadioUnavailable() == .radioUnavailable, "will-sleep drops attach")
+        expect(wake.phase == .idle, "will-sleep idle")
+        expect(wake.currentId == nil, "will-sleep clears current")
+        expect(wake.lookup(companionCount: 1, hidCount: 0) == .connectCompanion(0),
+               "lookup after will-sleep")
+
         var helloActivate = CompanionCodec.hello()
         helloActivate.operation = .appActivate
         expect(CompanionCodec.encode(helloActivate) == nil, "hello+activate encode rejected")

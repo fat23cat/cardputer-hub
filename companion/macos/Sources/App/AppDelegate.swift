@@ -23,6 +23,7 @@ final class CompanionCentral: NSObject, CBCentralManagerDelegate, CBPeripheralDe
     private var hidMatches: [CBPeripheral] = []
     private var pendingTarget: CBPeripheral?
     private var cancellationTick: Timer?
+    private var workspaceObservers: [NSObjectProtocol] = []
 
     init(applications: ApplicationControlling) {
         session = CompanionSession(applications: applications)
@@ -32,13 +33,45 @@ final class CompanionCentral: NSObject, CBCentralManagerDelegate, CBPeripheralDe
 
     func start() {
         manager = CBCentralManager(delegate: self, queue: .main)
+        if workspaceObservers.isEmpty {
+            let workspace = NSWorkspace.shared.notificationCenter
+            workspaceObservers = [
+                workspace.addObserver(
+                    forName: NSWorkspace.willSleepNotification, object: nil, queue: .main
+                ) { [weak self] _ in
+                    self?.handleWillSleep()
+                },
+                workspace.addObserver(
+                    forName: NSWorkspace.didWakeNotification, object: nil, queue: .main
+                ) { [weak self] _ in
+                    self?.handleDidWake()
+                },
+            ]
+        }
     }
 
     func centralManagerDidUpdateState(_ central: CBCentralManager) {
         guard central === manager else { return }
-        if central.state == .poweredOn {
-            lookup()
+        if central.state != .poweredOn {
+            log.info("bluetooth unavailable; dropping companion attach")
+            apply(coordinator.handleRadioUnavailable())
+            return
         }
+        lookup()
+    }
+
+    private func handleWillSleep() {
+        log.info("mac sleeping; dropping companion attach")
+        if let peripheral, let deviceToHost, deviceToHost.isNotifying {
+            peripheral.setNotifyValue(false, for: deviceToHost)
+        }
+        apply(coordinator.handleRadioUnavailable())
+    }
+
+    private func handleDidWake() {
+        guard manager?.state == .poweredOn else { return }
+        log.info("mac woke; recovering companion attach")
+        apply(coordinator.handleSleepWake())
     }
 
     private func lookup() {
@@ -80,6 +113,12 @@ final class CompanionCentral: NSObject, CBCentralManagerDelegate, CBPeripheralDe
             }
         case .resetCentral:
             restartCentral()
+        case .radioUnavailable:
+            retry?.invalidate()
+            retry = nil
+            resetLocalConnection()
+        case .lookupNow:
+            lookup()
         case .discoverServices:
             peripheral?.discoverServices([CBUUID(string: CompanionConstants.serviceUUID)])
         case .discoverCharacteristics:
@@ -136,6 +175,10 @@ final class CompanionCentral: NSObject, CBCentralManagerDelegate, CBPeripheralDe
         }
         peripheral = target
         target.delegate = self
+        if target.state == .connected {
+            apply(coordinator.handleDidConnect(target.identifier))
+            return
+        }
         manager.connect(target)
     }
 

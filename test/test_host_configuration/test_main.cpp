@@ -444,9 +444,42 @@ void test_truncated_trailing_and_future_schema_records_preserve_last_valid_value
     memory.bytes.push_back(0);
     TEST_ASSERT_TRUE(config.load() == services::ConfigurationResult::InvalidData);
     memory.bytes = valid;
-    memory.bytes[4] = 5;
+    memory.bytes[4] = 6;
     TEST_ASSERT_TRUE(config.load() == services::ConfigurationResult::InvalidData);
     TEST_ASSERT_EQUAL(1, memory.writes);
+}
+
+void test_version_five_companion_byte_loads_and_resaves_as_version_four() {
+    MemoryStorage memory;
+    core::Storage storage(memory);
+    services::ConfigurationService writer(storage), reader(storage);
+    auto value = configuration();
+    value.wifi = {true, "Protected", "recognizable-secret"};
+    TEST_ASSERT_TRUE(writer.load() == services::ConfigurationResult::Success);
+    TEST_ASSERT_TRUE(writer.save(value) == services::ConfigurationResult::Success);
+    auto versionFive = memory.bytes;
+    versionFive.push_back(0);
+    versionFive[4] = 5;
+    memory.bytes = versionFive;
+    TEST_ASSERT_TRUE(reader.load() == services::ConfigurationResult::Success);
+    TEST_ASSERT_TRUE(reader.value().host.bluetoothEnabled);
+    TEST_ASSERT_TRUE(reader.value().host.activeHost == 9);
+    TEST_ASSERT_EQUAL_UINT(2, reader.value().host.hosts.size());
+    TEST_ASSERT_EQUAL_STRING("Protected", reader.value().wifi.ssid.c_str());
+    TEST_ASSERT_EQUAL_STRING("recognizable-secret", reader.value().wifi.passphrase.c_str());
+    TEST_ASSERT_EQUAL(1, memory.writes);
+    TEST_ASSERT_TRUE(reader.save(reader.value()) == services::ConfigurationResult::Success);
+    TEST_ASSERT_EQUAL_UINT8(4, memory.bytes[4]);
+    TEST_ASSERT_EQUAL(2, memory.writes);
+
+    versionFive.back() = 1;
+    memory.bytes = versionFive;
+    TEST_ASSERT_TRUE(reader.load() == services::ConfigurationResult::Success);
+    TEST_ASSERT_EQUAL_STRING("Office laptop", reader.value().host.hosts.front().name.c_str());
+    versionFive.back() = 2;
+    memory.bytes = versionFive;
+    TEST_ASSERT_TRUE(reader.load() == services::ConfigurationResult::InvalidData);
+    TEST_ASSERT_TRUE(reader.value().host.activeHost == 9);
 }
 
 void test_invalid_version_four_wifi_payloads_preserve_the_last_valid_value() {
@@ -521,6 +554,7 @@ int main() {
     RUN_TEST(test_metadata_validation_is_bounded_and_keeps_capabilities_distinct);
     RUN_TEST(test_save_cannot_overwrite_a_configuration_that_never_loaded_successfully);
     RUN_TEST(test_truncated_trailing_and_future_schema_records_preserve_last_valid_value);
+    RUN_TEST(test_version_five_companion_byte_loads_and_resaves_as_version_four);
     RUN_TEST(test_invalid_version_four_wifi_payloads_preserve_the_last_valid_value);
     RUN_TEST(test_version_one_host_records_migrate_with_default_sound_volume);
     RUN_TEST(test_selection_names_and_off_survive_reload);

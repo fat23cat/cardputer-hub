@@ -11,6 +11,7 @@ constexpr std::uint8_t versionOne = 1;
 constexpr std::uint8_t versionTwo = 2;
 constexpr std::uint8_t versionThree = 3;
 constexpr std::uint8_t versionFour = 4;
+constexpr std::uint8_t versionFive = 5;
 
 void appendInteger(core::StorageBytes& bytes, std::uint32_t value) {
     for (unsigned shift = 0; shift < 32; shift += 8) {
@@ -140,8 +141,7 @@ ConfigurationResult ConfigurationService::load() {
             return ConfigurationResult::InvalidData;
     }
     std::uint8_t version = 0;
-    if (!reader.byte(version) || (version != versionOne && version != versionTwo &&
-                                  version != versionThree && version != versionFour))
+    if (!reader.byte(version) || version < versionOne || version > versionFive)
         return ConfigurationResult::InvalidData;
     SystemConfiguration next;
     std::uint8_t enabled = 0, count = 0;
@@ -186,13 +186,18 @@ ConfigurationResult ConfigurationService::load() {
         }
         next.host.hosts.push_back(std::move(host));
     }
-    if (version == versionFour) {
+    if (version >= versionFour) {
         std::uint8_t wifiEnabled = 0;
         if (!reader.byte(wifiEnabled) || wifiEnabled > 1 ||
             !reader.string(next.wifi.ssid, connectivity::maximumWifiSsidLength) ||
             !reader.string(next.wifi.passphrase, connectivity::maximumWifiPassphraseLength))
             return ConfigurationResult::InvalidData;
         next.wifi.enabled = wifiEnabled != 0;
+    }
+    if (version >= versionFive) {
+        std::uint8_t companionEnabled = 0;
+        if (!reader.byte(companionEnabled) || companionEnabled > 1)
+            return ConfigurationResult::InvalidData;
     }
     if (!reader.done() || !valid(next))
         return ConfigurationResult::InvalidData;

@@ -2051,6 +2051,9 @@ Version-2 records retain their metadata and receive the same sound default.
 Version-3 records retain both. Versions 1, 2, and 3 default Wi-Fi to disabled and
 unconfigured, and are lazily written as version 4 after the next successful
 configuration change; migration never rewrites storage at boot.
+A version-5 record, written by a short-lived Companion enable flag, remains
+readable: the extra trailing byte is consumed and discarded. The next successful
+save writes version 4 again. Version 6 and later stay rejected.
 Missing records default to an empty list, BLE Off, Wi-Fi Off and unconfigured,
 and 60-percent sound. Invalid,
 truncated, trailing, unreadable, and future-version records are preserved and
@@ -2550,6 +2553,7 @@ Transport expansion does not block the BLE-only software scope.
   successful storage.
 - [x] HostProfile platform/capability metadata and mapping-template references.
 - [x] Lazy lossless version-1/version-2/version-3 to version-4 migration.
+- [x] Version-5 leftover Companion byte is readable and rewritten as version 4.
 - [x] Persisted single-network Wi-Fi intent and application-facing NetworkService.
 - [x] Normal Wi-Fi startup restoration and main-loop updates independent of UI scheduling.
 - [x] BatteryService: optional hardware estimate, bounded five-second sampling.
