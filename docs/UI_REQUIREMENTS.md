@@ -1,6 +1,6 @@
 # UI and Interaction Requirements
 
-Status: **Approved requirements — Home, Launcher, SYSTEM, Bluetooth panel, and key feedback implemented; remaining UI pending**
+Status: **Approved requirements — Home, Launcher, SYSTEM, MAC CONTROL, Bluetooth panel, and key feedback implemented; remaining UI pending**
 
 This document defines the shared visual, motion, sound, display-power, and
 input-routing rules for Cardputer Hub system UI and Mini Apps. It distinguishes the delivered Home and Bluetooth panel from the full UI still
@@ -489,9 +489,16 @@ the loop where it is sampled, and uses typed render-state snapshots so unchanged
 Home, host-list, and host-modal content does not redraw.
 The splash uses Bone, Ink, Blue, Pale, and Ordinal tokens, keeps the firmware
 version visible throughout, and advances without blocking background work.
-The AppRegistry-driven Launcher, its spring focus motion, and the SYSTEM Mini
-App are implemented. Remaining semantic sound cues, broader list spring
-motion, dim/off/wake policy, live clock, and Wi-Fi scanning remain open in the
+The AppRegistry-driven Launcher, its spring focus motion, the SYSTEM Mini App,
+and the MAC CONTROL 3×2 numeric grid are implemented. MAC CONTROL has no
+internal chrome: bound tiles show a number and label; unbound tiles keep only
+the number. Digit keys 1–6 activate the current page slot, Left/Right slide
+between pages. A bound press waits on the resting grid; success lights that
+tile Leaf for 1.5 s, failure Vermilion for 2 s. Status is colour only. The tile
+then returns to the resting grid. Companion loss closes MAC CONTROL
+through the existing Mini App runtime and returns Launcher. Remaining semantic
+sound cues, broader list spring motion, dim/off/wake policy, live clock, and
+Wi-Fi scanning remain open in the
 [phase checklist](ARCHITECTURE.md#47-initial-development-order). The manuals
 describe current operation; planned behavior must not be presented there as
 already supported.

@@ -1179,34 +1179,175 @@ docs/decisions/
 
 ## 38. Implementation Plans
 
-Large implementation phases may use short-lived or historical plans under:
+Numbered implementation plans live under `docs/plans/`. Their index and current
+disposition are in `docs/plans/README.md`.
+
+Architecture documents describe long-lived rules. A plan describes one
+implementation effort.
+
+Plans 001–031 keep the structure they were written in. Do not rewrite them.
+Starting with plan 032, every new plan uses the template in this section.
+
+### Why this shape
+
+Combine three things in one plan:
 
 ```text
-docs/plans/
+architecture constraints
+BDD scenarios
+explicit ownership and invariants
 ```
 
-Examples:
+BDD catches missing behavior. It does not by itself keep ownership clean.
+User-visible behavior can pass while the wrong component owns a lifecycle.
+
+The MAC CONTROL case is the example. Telegram activation could look correct
+while `HostControlService::update()` ran from both `app_main` and the Mini
+App. A scenario for pressing `1` would stay green. The invariant "Mini Apps
+never call `HostControlService::update()`" makes that defect obvious before
+the code is written.
+
+Do not turn the whole plan into Given/When/Then. Keep architecture as prose
+and diagrams. Use scenarios only where there is a state transition, a
+lifecycle, failure or recovery, or user-visible behavior.
+
+### Required sections
 
 ```text
-001-project-bootstrap.md
-002-connectivity.md
-003-host-service.md
-004-mini-app-framework.md
+1. Goal
+2. Scope
+3. Architecture
+4. Ownership & Boundaries
+5. State Model
+6. BDD Scenarios
+7. Architecture Invariants
+8. Tests mapped to scenarios
+9. Physical Acceptance
+10. Out of Scope
 ```
 
-Plans should describe:
+### Ownership & Boundaries
+
+For each important component, state what it owns, what it may call, and what
+it must not call:
+
+| Component | Owns | May call | Must not call |
+| --- | --- | --- | --- |
+| `app_main` | service lifecycle | `hostControl.update()` | UI rendering |
+| `HostControlService` | command lifecycle | `CompanionService` | Mini App methods |
+| `MacControlApp` | UI state | ActionBus, `status()` | `CompanionService`, `hostControl.update()` |
+
+The rows above show the shape, taken from the lifecycle mistake. They are not
+a second copy of the architecture contract. Each new plan writes the matrix
+for the components it introduces or changes.
+
+### BDD Scenarios
+
+When the change has the corresponding behavior, include:
 
 ```text
-scope
-non-goals
-implementation steps
-acceptance criteria
-testing requirements
+happy path
+unavailable dependency
+in-flight failure
+reconnect
+repeated input
+stale completion
 ```
 
-Architecture documents describe long-lived rules.
+Skip a class only by saying why it does not apply. Write one behavior per
+scenario, as Given / When / Then.
 
-Plans describe a specific implementation effort.
+```text
+### Scenario: Activate Telegram
+
+Given:
+- selected host exists
+- Companion is Ready
+- MAC CONTROL is active
+- slot 1 is bound to Telegram
+
+When:
+- user presses `1`
+
+Then:
+- MAC CONTROL dispatches exactly one `host.app.activate`
+- Action contains `bundleId = com.tdesktop.Telegram`
+- HostControlService accepts the Action
+- CompanionService receives exactly one APP_ACTIVATE request
+- MAC CONTROL dispatches host.app.activate and waits on the resting grid
+```
+
+```text
+### Scenario: Companion disappears while command is pending
+
+Given:
+- MAC CONTROL is active
+- APP_ACTIVATE is Pending
+
+When:
+- COMPANION capability disappears
+
+Then:
+- pending host-control command becomes unavailable
+- MAC CONTROL is deactivated
+- Launcher becomes visible
+- command is not replayed after reconnect
+```
+
+These two scenarios are format examples. They are not instructions to reopen
+plan 031.
+
+### Architecture Invariants
+
+List short statements a reviewer can check. Example:
+
+```text
+- app_main owns HostControlService lifecycle.
+- HostControlService::update() is called exactly once per main loop.
+- Mini Apps never call HostControlService::update().
+- Mini Apps may only dispatch Actions and observe HostControlStatus.
+- HostControlService is the only consumer of APP_ACTIVATE completions.
+- MAC CONTROL never calls CompanionService directly.
+```
+
+An invariant may be enforced by an architecture or static check instead of a
+behavioral test. Still write it in the plan, so ownership is explicit before
+implementation starts.
+
+### Tests mapped to scenarios
+
+Each scenario becomes the RED test from section 4:
+
+```text
+Scenario
+    ↓
+test name
+    ↓
+fixture
+    ↓
+Given / When / Then assertions
+```
+
+Record the mapping in the plan:
+
+| Scenario | Test |
+| --- | --- |
+| Press 1 opens Telegram | `test_slot_one_activates_telegram` |
+| Companion lost while active | `test_companion_loss_returns_launcher` |
+| Disconnect while pending | `test_pending_command_lost_without_replay` |
+| Reconnect | `test_reconnect_does_not_reopen_or_replay` |
+| Service lifecycle ownership | architecture or static check |
+
+The names above illustrate the mapping. A new plan uses its own scenarios and
+the tests that will actually be written.
+
+Review walks this table, not only the diff:
+
+```text
+Plan scenario 1 → test exists → production path verified
+Plan scenario 2 → test exists → production path verified
+Architecture invariant 4 → held or violated
+```
 
 ---
 
@@ -1258,7 +1399,8 @@ final evidence:
    affected contract. Do not load every plan or manual by default.
 3. For a multi-step change, keep a short working plan tied to observable
    outcomes. Create or update a repository plan only when the work is large
-   enough to need a durable design record.
+   enough to need a durable design record. A new numbered plan follows
+   section 38.
 4. During RED/GREEN/REFACTOR, run one affected test or the smallest useful
    suite. Expand only when a failure crosses a boundary or the changed behavior
    has no narrower meaningful test.
