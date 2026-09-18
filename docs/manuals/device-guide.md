@@ -17,8 +17,16 @@ unavailable); the voltage-based estimate can be less accurate with USB power
 connected. Long host names are shortened with an ellipsis on Home only; their
 stored names remain unchanged. Press **Enter** on Home to open **Apps**. The
 list currently contains **SYSTEM**, a read-only status screen for battery,
-Bluetooth, the selected host, Wi-Fi, and firmware version. Escape returns from
-SYSTEM to Apps and from Apps to Home. Press plain **Tab** on the main keyboard
+Bluetooth, the selected host, Wi-Fi, and firmware version, and **MAC CONTROL**
+when a live Cardputer Companion session is ready. MAC CONTROL is a full-screen
+3×2 grid. Press the matching number to launch or focus that Mac app; production
+firmware binds **1** to Telegram. Empty numbered tiles do nothing. Left and
+Right move between pages when more than one page exists. A bound press expands
+that tile in blue while the Mac opens the app, then flashes green on success or
+red if the app is not found, and returns to the grid. Escape returns from
+SYSTEM or MAC CONTROL to Apps and from Apps to Home. If Companion disappears
+while MAC CONTROL is open, the app closes and Apps returns; reconnect does not
+reopen it or repeat the last launch. Press plain **Tab** on the main keyboard
 to open the general Settings menu. Fn+Tab is inactive, and a normal G0 press
 has no application action. Settings lists Bluetooth, Wi-Fi, then Sound volume.
 BLE is the only host-control transport. USB supplies power, firmware
@@ -64,8 +72,10 @@ a second pairing. After that, it can start at login. Closing the Mac lid, sleep,
 or a BLE drop invalidates the session and hides the diamond; after wake and HID
 reconnect it attaches again without relaunching Companion or re-pairing. When a
 compatible session is alive, Home shows a green diamond to the right of the
-host name. Keyboard and consumer HID keep working if the Companion is missing,
-crashed, or disconnected.
+host name. MAC CONTROL becomes available in Apps only while that session is
+live. Press **1** to focus Telegram if it is already running, or to launch it
+if it is closed. Keyboard and consumer HID keep working if the Companion is
+missing, crashed, or disconnected.
 
 ## Wi-Fi
 

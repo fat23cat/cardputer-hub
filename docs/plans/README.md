@@ -1,8 +1,13 @@
 # Implementation Plans and Status
 
-Reviewed on **2026-09-16**. Plan numbers identify individual changes; they are
+Reviewed on **2026-09-18**. Plan numbers identify individual changes; they are
 not phase numbers. The authoritative delivered/pending step checklist is in
 [Architecture §47](../ARCHITECTURE.md#47-initial-development-order).
+
+Plans 001–031 keep their original structure. Starting with plan 032, new plans
+follow the template in [Engineering §38](../ENGINEERING.md#38-implementation-plans):
+architecture in prose, BDD scenarios for behavior and failure, and an explicit
+ownership matrix with invariants. Do not rewrite older plans into that format.
 
 | Plan | Area | Current disposition |
 | --- | --- | --- |
@@ -35,6 +40,7 @@ not phase numbers. The authoritative delivered/pending step checklist is in
 | [028](028-mini-app-runtime-foundation.md#0-current-closeout-status) | Mini App runtime foundation | Software complete; physical Home/Settings smoke pending; Launcher and production Mini Apps remain deferred |
 | [029](029-appregistry-driven-launcher-integration.md#0-planning-status) | AppRegistry-driven Launcher and SYSTEM Mini App | Software implemented; physical Home → Launcher → SYSTEM validation pending |
 | [030](030-macos-companion-foundation.md) | macOS Companion foundation | Software implemented; physical BLE/GATT lifecycle validation pending |
+| [031](031-mac-control-app-grid.md) | MAC CONTROL app grid and Telegram activation | Software implemented; physical Telegram focus/launch/disconnect validation pending |
 
 The work referred to historically as 013 is the approved
 [UI requirements](../UI_REQUIREMENTS.md); there is no separate plan-013 file.

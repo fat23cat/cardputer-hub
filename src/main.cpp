@@ -1,4 +1,5 @@
 #include "apps/hosts/host_settings.h"
+#include "apps/mac_control/mac_control_app.h"
 #include "apps/network/wifi_settings.h"
 #include "apps/runtime/mini_app_runtime.h"
 #include "apps/shell/application_shell.h"
@@ -15,6 +16,7 @@
 #include "services/audio/audio_service.h"
 #include "services/battery/battery_service.h"
 #include "services/companion/companion_service.h"
+#include "services/host_control/host_control_service.h"
 #include "services/hosts/host_service.h"
 #include "services/network/network_service.h"
 
@@ -63,6 +65,8 @@ cardputer_hub::apps::ApplicationShell applicationShell(hosts, network, actions, 
                                                        capabilities);
 cardputer_hub::services::CompanionService companion(bluetooth.companionTransport(), capabilities,
                                                     &logger);
+cardputer_hub::services::HostControlService hostControl(hosts, companion, capabilities);
+cardputer_hub::apps::MacControlApp macControl(actions, hostControl, display);
 cardputer_hub::apps::UiScheduler uiScheduler;
 std::int64_t previousUpdateMilliseconds = 0;
 bool homeVisible = false;
@@ -80,11 +84,18 @@ extern "C" void app_main(void) {
     (void)actions.registerHandler("audio.volume.step", audio);
     for (const auto* id : {"network.set-enabled", "network.configure", "network.forget"})
         (void)actions.registerHandler(id, network);
+    (void)actions.registerHandler(cardputer_hub::services::hostAppActivateActionId, hostControl);
     (void)hosts.start();
     (void)network.start();
     (void)audio.start();
     (void)appRegistry.registerApp({"system", "SYSTEM", "system", "system/home", {}});
     (void)miniApps.registerInstance("system", systemApp);
+    (void)appRegistry.registerApp({"mac-control",
+                                   "MAC CONTROL",
+                                   "mac-control",
+                                   "mac-control",
+                                   {cardputer_hub::connectivity::companionCapabilityId}});
+    (void)miniApps.registerInstance("mac-control", macControl);
     battery.update(std::chrono::milliseconds(0));
     previousUpdateMilliseconds = esp_timer_get_time() / 1000;
 
@@ -95,6 +106,7 @@ extern "C" void app_main(void) {
         const auto& input = runtime.update(elapsed);
         hosts.update(elapsed);
         companion.update(elapsed);
+        hostControl.update();
         network.update(elapsed);
         battery.update(elapsed);
         if (!homeVisible) {

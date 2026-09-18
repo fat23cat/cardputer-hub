@@ -16,6 +16,8 @@ default.
 
 Read `docs/plans/` only when the task names or continues a plan, starting with
 its current-status section. Historical notes are not current instructions.
+New plans, from 032 onward, follow `docs/ENGINEERING.md` section 38. Do not
+rewrite plans 001–031 into that format.
 These sources are authoritative; update the owning document when its contract
 changes and do not create a parallel architecture.
 

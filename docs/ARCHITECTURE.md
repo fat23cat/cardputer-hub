@@ -41,6 +41,7 @@ Core principle:
 │              MINI APPS               │
 │                                      │
 │ Device Manager                       │
+│ MAC CONTROL                          │
 │ Weather                              │
 │ VPS Monitor                          │
 │ Media                                │
@@ -1642,12 +1643,13 @@ VS Code
 
 Not all actions need to be implemented initially.
 
-`HostControlService` will own resolution of logical host-control Actions. It
-uses `HostService` to identify the selected `HostProfile`, the BLE
-`IHidTransport` for configured keyboard/consumer mappings, and
-`CompanionService` for semantic operations supported by an authenticated host
-agent. Mini Apps and System UI must not choose a BLE characteristic, encode a
-companion frame, call a macOS API, or infer a host platform themselves.
+`HostControlService` owns resolution of logical host-control Actions. It uses
+`HostService` to identify the selected `HostProfile` and `CompanionService` for
+semantic operations supported by an authenticated host agent. HID mapping
+through `IHidTransport` remains later work. Mini Apps and System UI must not
+choose a BLE characteristic, encode a companion frame, call a macOS API, or
+infer a host platform themselves. The first production Action is
+`host.app.activate` with a `bundleId` parameter.
 
 Conceptually:
 
@@ -2491,10 +2493,10 @@ Earlier plan records retain their historical test counts and toolchains.
 | 2 — Connectivity | Software scope complete; physical acceptance partial |
 | 3 — Core Services | Partial: host/configuration, battery and audio Services delivered |
 | 4 — Application Shell | Partial: Home, Settings, Launcher, navigation, sound feedback and page transitions delivered |
-| 5 — Mini App Infrastructure | Partial: runtime, Launcher, and SYSTEM Mini App delivered; Service lifecycle composition pending |
+| 5 — Mini App Infrastructure | Partial: runtime, Launcher, SYSTEM, and MAC CONTROL delivered; Service lifecycle composition pending |
 | 6 — Device Manager | Partial: built-in Bluetooth/host UI delivered |
-| 7 — Host Control | Not implemented; Phase 2 HID transport prerequisite exists |
-| 8 — Host Companion | Foundation delivered; MAC CONTROL Mini App pending |
+| 7 — Host Control | Partial: HostControlService and `host.app.activate` delivered; HID Actions remain |
+| 8 — Host Companion | Foundation and MAC CONTROL Mini App delivered; physical Telegram acceptance pending |
 | 9 — Weather | Not implemented |
 | 10 — RGB Indicator | Not implemented; Unit Puzzle hardware required |
 | 11 — Remote Boundary | Not implemented |
@@ -2587,9 +2589,11 @@ Transport expansion does not block the BLE-only software scope.
 deactivation, and CapabilityRegistry eligibility. Launcher enumerates
 `AppRegistry` and opens registered instances. Per-app view state remains
 application-owned; there is no universal polymorphic View hierarchy.
-`SYSTEM` is the first production Mini App. It reports existing Service
-snapshots and does not treat enabled Wi-Fi without a configured network as
-`OFF`. Service lifecycle composition remains open.
+`SYSTEM` and `MAC CONTROL` are the production Mini Apps. SYSTEM reports
+existing Service snapshots and does not treat enabled Wi-Fi without a
+configured network as `OFF`. MAC CONTROL requires a live `COMPANION`
+capability and launches or focuses Telegram through `host.app.activate`.
+Service lifecycle composition remains open.
 
 - [x] MiniApp runtime interface and lifecycle foundation.
 - [x] AppRegistry-driven Launcher integration.
@@ -2611,19 +2615,19 @@ with the Phase 5 Mini App contract remains open.
 
 ### Phase 7 — Host Control
 
-**Not implemented** — Phase 2 provides the HID transport and diagnostic report
-commands; normal firmware does not map Cardputer typing or Actions to host input.
+**Partial** — `HostControlService` routes `host.app.activate` through
+`CompanionService`. HID Actions and mapping templates remain later work.
 
-- [ ] HostControlService and logical host-control Actions.
+- [x] HostControlService and logical host-control Actions.
 - [ ] Basic host HID Actions through IHidTransport.
-- [ ] Application focus Actions.
+- [x] Application focus Actions.
 - [ ] Host-specific mappings and templates.
 
 ### Phase 8 — Host Companion
 
 **Partial.** Plan 030 delivered the optional transport, protocol, session,
 liveness, capability, Home indicator, and headless macOS Companion.app
-foundation. MAC CONTROL and host-control Actions remain Plan 031 / Phase 7.
+foundation. Plan 031 added the MAC CONTROL Mini App and `host.app.activate`.
 
 - [x] Versioned, bounded companion protocol and cross-implementation fixtures.
 - [x] CompanionService and hardware-neutral ICompanionTransport.
