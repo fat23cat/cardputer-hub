@@ -372,11 +372,16 @@ estimated percentage, or `--%` when unavailable. No demo telemetry is rendered.
 
 Below it, SELECTED HOST is a quiet label at y=38. The selected name uses Micro 5
 at optical size 36, with uppercase ink at y=55..70; long labels are truncated
-with an ellipsis within 224 pixels. This display conversion does not rename the
-stored profile. No selection is labelled NO HOST SELECTED. One Bluetooth icon
-and an explicit OFF/CONNECTING/SECURING/PAIRING/READY/ERROR label sit below the
-name. The icon uses Ordinal for Off, Blue for connection/pairing, Leaf for Ready,
-and Vermilion for Error; the label stays Ink. There is no title or footer on Home.
+with an ellipsis within 205 pixels, leaving a 4-pixel gap and a 15-pixel
+Companion diamond slot to the right of the name. This display conversion does
+not rename the stored profile. No selection is labelled NO HOST SELECTED. One
+Bluetooth icon and an explicit OFF/CONNECTING/SECURING/PAIRING/READY/ERROR label
+sit below the name. The icon uses Ordinal for Off, Blue for connection/pairing,
+Leaf for Ready, and Vermilion for Error; the label stays Ink. When a live
+authenticated Companion session for the selected host is ready, a Leaf diamond
+appears to the right of the host name. The diamond is absent in every other
+Companion state; Home never shows Companion error, waiting, or off copy. There
+is no title or footer on Home.
 
 A low-contrast Home wave dotted texture moves only in y=99..134, with a 28-second cycle
 and at most two frames per second. It advances from injected monotonic elapsed

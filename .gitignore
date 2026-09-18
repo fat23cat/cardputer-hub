@@ -14,3 +14,6 @@ sdkconfig
 sdkconfig.old
 compile_commands.json
 backups
+companion/macos/.build/
+companion/macos/.swiftpm/
+companion/macos/*.app/

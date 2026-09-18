@@ -9,7 +9,7 @@ IDF_PARTITION_IMAGE := $(IDF_BUILD_DIR)/partition_table/partition-table.bin
 IDF_CONFIG_HEADER := $(IDF_BUILD_DIR)/config/sdkconfig.h
 CPP_FILES := $(shell find src test -type f \( -name '*.c' -o -name '*.cc' -o -name '*.cpp' -o -name '*.h' -o -name '*.hpp' \) | sort)
 
-.PHONY: setup lock-check architecture-check validate-idf validate-submodules configure build firmware-size test format format-check lint host-check firmware-check check upload migrate-storage-layout monitor clean
+.PHONY: setup lock-check architecture-check validate-idf validate-submodules configure build firmware-size test format format-check lint host-check firmware-check companion-check check upload migrate-storage-layout monitor clean
 
 setup: validate-idf
 	$(UV) sync --frozen
@@ -57,6 +57,11 @@ lint:
 	$(RUN) pio check -e native
 
 host-check: lock-check architecture-check format-check lint test
+
+companion-check:
+	@test "$$(uname)" = Darwin || (echo "companion-check requires macOS." >&2; exit 2)
+	cd companion/macos && swift run CompanionCoreCheck
+	bash scripts/package_macos_companion.sh
 
 firmware-check: build
 	python3 scripts/check_esp_idf_config.py "$(IDF_CONFIG_HEADER)"

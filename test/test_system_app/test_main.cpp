@@ -134,6 +134,17 @@ class BluetoothAdapter final : public connectivity::IBluetoothAdapter {
     releaseHidReports(connectivity::BluetoothPeerHandle) override {
         return {};
     }
+    connectivity::BluetoothCompanionAdapterResult
+    companionReadiness(connectivity::BluetoothPeerHandle) override {
+        return connectivity::BluetoothCompanionAdapterResult::NotReady;
+    }
+    connectivity::BluetoothCompanionAdapterResult
+    sendCompanionChunk(connectivity::BluetoothPeerHandle, const std::uint8_t*,
+                       std::size_t) override {
+        return connectivity::BluetoothCompanionAdapterResult::NotReady;
+    }
+    bool receiveCompanionChunk(connectivity::CompanionChunk&) override { return false; }
+    bool takeCompanionIncomingOverflow() override { return false; }
 };
 
 class WifiAdapter final : public connectivity::IWifiAdapter {

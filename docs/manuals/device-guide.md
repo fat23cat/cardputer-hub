@@ -9,7 +9,10 @@ dotted wave below. The top line has time, Wi-Fi status, and estimated battery
 percentage, with no battery icon. Time currently shows `--:--`. Wi-Fi is a compact
 glyph plus a status dot: hollow when no network is saved, pale when Wi-Fi is
 off, blue while connecting, green when connected, and red on error. Home never
-shows the network name or signal strength. Battery is sampled every five seconds (`--%` if
+shows the network name or signal strength. When a live Cardputer Companion
+session is ready for the selected host, a green diamond appears to the right of
+the host name; it is absent otherwise. Companion is optional and does
+not replace HID. Battery is sampled every five seconds (`--%` if
 unavailable); the voltage-based estimate can be less accurate with USB power
 connected. Long host names are shortened with an ellipsis on Home only; their
 stored names remain unchanged. Press **Enter** on Home to open **Apps**. The
@@ -50,6 +53,19 @@ If there are no saved hosts, it highlights Add device with “Add device, then
 Enter”; a second Enter opens pairing. Until you confirm, BLE stays OFF and
 Home does not show an error. Names are 1–24 printable
 ASCII characters and cannot consist only of spaces.
+
+## Cardputer Companion
+
+The macOS **Cardputer Companion.app** is optional. Build and launch it from
+`companion/macos` as described in that directory's README. Grant Bluetooth
+permission on first launch and allow login-item startup if macOS asks. The
+Companion attaches to the already-paired Cardputer; it does not scan or create
+a second pairing. After that, it can start at login. Closing the Mac lid, sleep,
+or a BLE drop invalidates the session and hides the diamond; after wake and HID
+reconnect it attaches again without relaunching Companion or re-pairing. When a
+compatible session is alive, Home shows a green diamond to the right of the
+host name. Keyboard and consumer HID keep working if the Companion is missing,
+crashed, or disconnected.
 
 ## Wi-Fi
 

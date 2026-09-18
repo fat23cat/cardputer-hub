@@ -2,6 +2,7 @@
 #include "apps/network/wifi_settings.h"
 #include "apps/runtime/mini_app_runtime.h"
 #include "apps/shell/application_shell.h"
+#include "apps/shell/home_graphics.h"
 #include "core/app_registry/app_registry.h"
 #include "core/audio/audio_adapter.h"
 #include "core/capabilities/capability_registry.h"
@@ -49,11 +50,30 @@ class Display final : public core::IDisplayAdapter {
         dirty = true;
     }
     void fillRectangle(core::PixelPosition position, std::int32_t width, std::int32_t height,
-                       core::RgbColor) override {
+                       core::RgbColor color) override {
         TEST_ASSERT_TRUE(position.x >= 0 && position.y >= 0 && width > 0 && height > 0);
         TEST_ASSERT_TRUE(position.x + width <= 240 && position.y + height <= 135);
+        fills.push_back({position, width, height, color});
         dirty = true;
     }
+    bool drewCompanionDiamond() const {
+        const auto origin = apps::homeCompanionIndicatorPosition("No host selected");
+        return std::any_of(fills.begin(), fills.end(), [origin](const Fill& fill) {
+            return fill.color.red == core::palette::leaf.red &&
+                   fill.color.green == core::palette::leaf.green &&
+                   fill.color.blue == core::palette::leaf.blue && fill.position.x >= origin.x &&
+                   fill.position.y >= origin.y &&
+                   fill.position.x < origin.x + apps::homeCompanionIndicatorSize &&
+                   fill.position.y < origin.y + apps::homeCompanionIndicatorSize;
+        });
+    }
+    struct Fill {
+        core::PixelPosition position{};
+        std::int32_t width = 0;
+        std::int32_t height = 0;
+        core::RgbColor color{};
+    };
+    std::vector<Fill> fills;
     void drawText(core::PixelPosition position, const char* value, core::TextStyle style) override {
         TEST_ASSERT_TRUE(position.x >= 0 && position.x < 240 && position.y >= 0 &&
                          position.y < 135);
@@ -141,6 +161,17 @@ class BluetoothAdapter final : public connectivity::IBluetoothAdapter {
     releaseHidReports(connectivity::BluetoothPeerHandle) override {
         return {};
     }
+    connectivity::BluetoothCompanionAdapterResult
+    companionReadiness(connectivity::BluetoothPeerHandle) override {
+        return connectivity::BluetoothCompanionAdapterResult::NotReady;
+    }
+    connectivity::BluetoothCompanionAdapterResult
+    sendCompanionChunk(connectivity::BluetoothPeerHandle, const std::uint8_t*,
+                       std::size_t) override {
+        return connectivity::BluetoothCompanionAdapterResult::NotReady;
+    }
+    bool receiveCompanionChunk(connectivity::CompanionChunk&) override { return false; }
+    bool takeCompanionIncomingOverflow() override { return false; }
 };
 
 class WifiAdapter final : public connectivity::IWifiAdapter {
@@ -255,7 +286,7 @@ struct Fixture {
     }
     apps::ApplicationShell makeShell() {
         return apps::ApplicationShell(hosts, network, bus, display, hostSettings, wifiSettings,
-                                      audio, miniApps);
+                                      audio, miniApps, capabilities);
     }
     void registerApp(const char* id, apps::IMiniApp& instance,
                      std::vector<std::string> required = {}) {
@@ -833,6 +864,28 @@ void test_app_open_is_rejected_while_mini_app_is_active() {
     TEST_ASSERT_FALSE(f.display.shows("APPS"));
 }
 
+void test_home_companion_indicator_appears_only_when_companion_capability_is_live() {
+    Fixture f;
+    auto shell = f.makeShell();
+    shell.update({});
+    TEST_ASSERT_FALSE(f.display.drewCompanionDiamond());
+    TEST_ASSERT_FALSE(f.display.shows("COMPANION"));
+    TEST_ASSERT_EQUAL_UINT8(static_cast<unsigned>(core::CapabilityRegistrationResult::Registered),
+                            static_cast<unsigned>(f.capabilities.registerCapability("COMPANION")));
+    f.display.fills.clear();
+    shell.update({});
+    const auto diamond = apps::homeCompanionIndicatorPosition("No host selected");
+    TEST_ASSERT_EQUAL_INT(apps::homeCompanionIndicatorY, diamond.y);
+    TEST_ASSERT_TRUE(diamond.x > apps::homeHostNameOriginX);
+    TEST_ASSERT_TRUE(f.display.drewCompanionDiamond());
+    TEST_ASSERT_FALSE(f.display.shows("COMPANION"));
+    TEST_ASSERT_EQUAL_UINT8(static_cast<unsigned>(core::CapabilityRemovalResult::Removed),
+                            static_cast<unsigned>(f.capabilities.removeCapability("COMPANION")));
+    f.display.fills.clear();
+    shell.update({});
+    TEST_ASSERT_FALSE(f.display.drewCompanionDiamond());
+}
+
 } // namespace
 
 void setUp() {}
@@ -842,6 +895,7 @@ void tearDown() {}
 int main() {
     UNITY_BEGIN();
     RUN_TEST(test_idle_runtime_preserves_home_and_settings);
+    RUN_TEST(test_home_companion_indicator_appears_only_when_companion_capability_is_live);
     RUN_TEST(test_home_enter_opens_launcher_and_tab_still_opens_settings);
     RUN_TEST(test_active_mini_app_receives_scheduled_update_instead_of_shell_input);
     RUN_TEST(test_explicit_runtime_deactivation_returns_shell_to_launcher);

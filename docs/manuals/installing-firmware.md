@@ -156,9 +156,11 @@ make upload
 
 The current firmware lazily upgrades older `HUBH` configuration records to the
 combined version-4 schema on the next successful settings change. Versions 1,
-2, and 3 remain readable, but firmware predating version 4 cannot read a record
-after that upgrade; it will not erase it. Downgrade safely only with a release
-that documents version-4 compatibility or an explicit migration. Clearing
+2, 3, and a leftover version-5 Companion-flag record remain readable. Firmware
+that cannot read the record currently stored in `hub_config` will not erase it;
+Bluetooth hosts then look empty until a compatible image loads that record.
+Downgrade safely only with a release that documents compatibility or an explicit
+migration. Clearing
 `hub_config` is a destructive last resort that removes saved Cardputer Hub
 configuration and is not part of a normal downgrade or routine upgrade.
 

@@ -128,6 +128,15 @@ class Adapter final : public IBluetoothAdapter {
         trace.push_back("release");
         return BluetoothHidAdapterResult::Sent;
     }
+    BluetoothCompanionAdapterResult companionReadiness(BluetoothPeerHandle) override {
+        return BluetoothCompanionAdapterResult::NotReady;
+    }
+    BluetoothCompanionAdapterResult sendCompanionChunk(BluetoothPeerHandle, const std::uint8_t*,
+                                                       std::size_t) override {
+        return BluetoothCompanionAdapterResult::NotReady;
+    }
+    bool receiveCompanionChunk(CompanionChunk&) override { return false; }
+    bool takeCompanionIncomingOverflow() override { return false; }
     void connect(unsigned char id) {
         events.emplace_back(BluetoothEventType::PeerConnected, BluetoothPeerHandle{id},
                             BluetoothFailureClass::Fatal, lifecycle);
@@ -822,7 +831,7 @@ struct Screen {
         : ui(f.hosts, bus, display), wifi(wifiAdapter), network(wifi, f.config),
           wifiSettings(network, bus, display), audio(f.config, audioAdapter),
           miniApps(appRegistry, capabilities),
-          shell(f.hosts, network, bus, display, ui, wifiSettings, audio, miniApps) {
+          shell(f.hosts, network, bus, display, ui, wifiSettings, audio, miniApps, capabilities) {
         for (const auto* id : {"host.bluetooth", "host.select", "host.pair", "host.cancel-pairing",
                                "host.delete", "host.rename"})
             bus.registerHandler(id, f.hosts);

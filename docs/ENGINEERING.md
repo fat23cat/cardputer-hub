@@ -516,12 +516,14 @@ unit and integration tests Cardputer-Adv build
            required check result
 ```
 
-Host validation and firmware compilation run as independent parallel jobs so
-fast behavioral feedback does not wait for the embedded toolchain. CI caches
-PlatformIO separately from the exact ESP-IDF installation, locked managed
-components, and bounded compiler cache; ordinary source changes must not force
-the toolchain to be downloaded again. The final `check` job preserves a single
-required status and succeeds only when both validation paths pass.
+Host validation, firmware compilation, and macOS Companion checks run as
+independent parallel jobs so fast behavioral feedback does not wait for the
+embedded toolchain, and Linux jobs do not require AppKit or CoreBluetooth.
+CI caches PlatformIO separately from the exact ESP-IDF installation, locked
+managed components, and bounded compiler cache; ordinary source changes must
+not force the toolchain to be downloaded again. The final `check` job
+preserves a single required status and succeeds only when host, firmware, and
+companion validation paths pass.
 
 A pull request should not be mergeable while required checks are failing.
 
@@ -1011,6 +1013,12 @@ uv run --frozen pio test -e native -f test_audio_service
 
 # Final host-side gate
 make host-check
+
+# macOS Companion.app tests and bundle (Darwin only)
+make companion-check
+
+# Linux `make check` stays host-check plus firmware-check; companion-check runs
+# on macOS and in the companion-checks CI job.
 
 # Final production-image gate, when applicable
 make firmware-check

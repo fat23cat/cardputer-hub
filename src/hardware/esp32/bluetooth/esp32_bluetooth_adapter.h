@@ -46,6 +46,13 @@ class Esp32BluetoothAdapter final : public connectivity::IBluetoothAdapter {
                   const connectivity::HidReport& report) override;
     connectivity::BluetoothHidAdapterResult
     releaseHidReports(connectivity::BluetoothPeerHandle peer) override;
+    connectivity::BluetoothCompanionAdapterResult
+    companionReadiness(connectivity::BluetoothPeerHandle peer) override;
+    connectivity::BluetoothCompanionAdapterResult
+    sendCompanionChunk(connectivity::BluetoothPeerHandle peer, const std::uint8_t* data,
+                       std::size_t size) override;
+    bool receiveCompanionChunk(connectivity::CompanionChunk& chunk) override;
+    bool takeCompanionIncomingOverflow() override;
 };
 
 } // namespace cardputer_hub::hardware

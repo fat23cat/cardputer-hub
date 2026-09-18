@@ -1,0 +1,47 @@
+#pragma once
+#include <cstddef>
+#include <cstdint>
+namespace cardputer_hub::companion_fixtures {
+struct Fixture { const char* name; const std::uint8_t* bytes; std::size_t size; };
+inline constexpr std::uint8_t hello_v1[] = { 0x01, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02, 0x01, 0x01 };
+inline constexpr std::uint8_t hello_ack_v1[] = { 0x01, 0x02, 0x2A, 0x00, 0x00, 0x00, 0x00, 0x01, 0x01 };
+inline constexpr std::uint8_t ping_request_v1[] = { 0x01, 0x03, 0x2A, 0x00, 0x01, 0x01, 0x00, 0x04, 0x01, 0x02, 0x03, 0x04 };
+inline constexpr std::uint8_t ping_response_v1[] = { 0x01, 0x04, 0x2A, 0x00, 0x01, 0x01, 0x00, 0x04, 0x01, 0x02, 0x03, 0x04 };
+inline constexpr std::uint8_t capabilities_request_v1[] = { 0x01, 0x03, 0x2A, 0x00, 0x02, 0x02, 0x00, 0x00 };
+inline constexpr std::uint8_t capabilities_response_v1[] = { 0x01, 0x04, 0x2A, 0x00, 0x02, 0x02, 0x00, 0x04, 0x03, 0x01, 0x02, 0x03 };
+inline constexpr std::uint8_t app_active_request_v1[] = { 0x01, 0x03, 0x2A, 0x00, 0x03, 0x03, 0x00, 0x00 };
+inline constexpr std::uint8_t app_active_response_v1[] = { 0x01, 0x04, 0x2A, 0x00, 0x03, 0x03, 0x00, 0x0C, 0x0B, 0x64, 0x65, 0x76, 0x2E, 0x7A, 0x65, 0x64, 0x2E, 0x5A, 0x65, 0x64 };
+inline constexpr std::uint8_t app_activate_request_v1[] = { 0x01, 0x03, 0x2A, 0x00, 0x04, 0x04, 0x00, 0x15, 0x14, 0x6F, 0x72, 0x67, 0x2E, 0x74, 0x65, 0x6C, 0x65, 0x67, 0x72, 0x61, 0x6D, 0x2E, 0x64, 0x65, 0x73, 0x6B, 0x74, 0x6F, 0x70 };
+inline constexpr std::uint8_t app_activate_response_v1[] = { 0x01, 0x04, 0x2A, 0x00, 0x04, 0x04, 0x00, 0x00 };
+inline constexpr std::uint8_t app_active_changed_event_v1[] = { 0x01, 0x05, 0x2A, 0x00, 0x00, 0x05, 0x00, 0x0C, 0x0B, 0x64, 0x65, 0x76, 0x2E, 0x7A, 0x65, 0x64, 0x2E, 0x5A, 0x65, 0x64 };
+inline constexpr std::uint8_t malformed_length[] = { 0x01, 0x03, 0x2A, 0x00, 0x01, 0x01, 0x00, 0x0A, 0x01, 0x02 };
+inline constexpr std::uint8_t unsupported_version[] = { 0x63, 0x03, 0x2A, 0x00, 0x01, 0x01, 0x00, 0x04, 0x01, 0x02, 0x03, 0x04 };
+inline constexpr std::uint8_t wrong_session[] = { 0x01, 0x04, 0x63, 0x00, 0x01, 0x01, 0x00, 0x04, 0x01, 0x02, 0x03, 0x04 };
+inline constexpr std::uint8_t unknown_operation[] = { 0x01, 0x03, 0x2A, 0x00, 0x01, 0x7F, 0x00, 0x00 };
+inline constexpr Fixture all[] = {
+    {"hello-v1.bin", hello_v1, sizeof(hello_v1)},
+    {"hello-ack-v1.bin", hello_ack_v1, sizeof(hello_ack_v1)},
+    {"ping-request-v1.bin", ping_request_v1, sizeof(ping_request_v1)},
+    {"ping-response-v1.bin", ping_response_v1, sizeof(ping_response_v1)},
+    {"capabilities-request-v1.bin", capabilities_request_v1, sizeof(capabilities_request_v1)},
+    {"capabilities-response-v1.bin", capabilities_response_v1, sizeof(capabilities_response_v1)},
+    {"app-active-request-v1.bin", app_active_request_v1, sizeof(app_active_request_v1)},
+    {"app-active-response-v1.bin", app_active_response_v1, sizeof(app_active_response_v1)},
+    {"app-activate-request-v1.bin", app_activate_request_v1, sizeof(app_activate_request_v1)},
+    {"app-activate-response-v1.bin", app_activate_response_v1, sizeof(app_activate_response_v1)},
+    {"app-active-changed-event-v1.bin", app_active_changed_event_v1, sizeof(app_active_changed_event_v1)},
+    {"malformed-length.bin", malformed_length, sizeof(malformed_length)},
+    {"unsupported-version.bin", unsupported_version, sizeof(unsupported_version)},
+    {"wrong-session.bin", wrong_session, sizeof(wrong_session)},
+    {"unknown-operation.bin", unknown_operation, sizeof(unknown_operation)},
+};
+inline const Fixture* find(const char* name) {
+    for (const auto& fixture : all) {
+        const char* left = fixture.name;
+        const char* right = name;
+        while (*left != '\0' && *left == *right) { ++left; ++right; }
+        if (*left == '\0' && *right == '\0') return &fixture;
+    }
+    return nullptr;
+}
+} // namespace cardputer_hub::companion_fixtures
