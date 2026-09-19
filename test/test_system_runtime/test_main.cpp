@@ -1,7 +1,9 @@
 #include <unity.h>
 
 #include <chrono>
+#include <cstdint>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include "core/lifecycle/system_runtime.h"
@@ -9,12 +11,16 @@
 namespace {
 
 using cardputer_hub::core::BuildInfo;
+using cardputer_hub::core::DisplayPowerController;
+using cardputer_hub::core::DisplayPowerState;
+using cardputer_hub::core::IBacklightAdapter;
 using cardputer_hub::core::IDisplayAdapter;
 using cardputer_hub::core::IKeyboardAdapter;
 using cardputer_hub::core::ILogSink;
 using cardputer_hub::core::InputEvents;
 using cardputer_hub::core::InputEventType;
 using cardputer_hub::core::IPlatformAdapter;
+using cardputer_hub::core::KeyboardPollResult;
 using cardputer_hub::core::Logger;
 using cardputer_hub::core::LogLevel;
 using cardputer_hub::core::LogRecord;
@@ -39,15 +45,39 @@ class FakeKeyboard final : public IKeyboardAdapter {
   public:
     explicit FakeKeyboard(std::vector<std::string>& trace) : trace_(trace) {}
 
-    void poll(InputEvents& events) override {
+    KeyboardPollResult poll(InputEvents& events) override {
         trace_.push_back("keyboard.poll");
         events = nextEvents;
+        const KeyboardPollResult result{nextPhysicalPress};
+        nextEvents.clear();
+        nextPhysicalPress = false;
+        return result;
+    }
+
+    void press(InputEvents events = {}) {
+        nextEvents = std::move(events);
+        nextPhysicalPress = true;
     }
 
     InputEvents nextEvents;
+    bool nextPhysicalPress = false;
 
   private:
     std::vector<std::string>& trace_;
+};
+
+class FakeBacklight final : public IBacklightAdapter {
+  public:
+    std::uint8_t level() const override { return level_; }
+    void setLevel(std::uint8_t level) override {
+        level_ = level;
+        writes.push_back(level);
+    }
+
+    std::vector<std::uint8_t> writes;
+
+  private:
+    std::uint8_t level_ = 128;
 };
 
 struct TextCommand {
@@ -108,7 +138,32 @@ class FakeLogSink final : public ILogSink {
 struct RuntimeFixture {
     RuntimeFixture()
         : platform(trace), keyboard(trace), display(trace), logSink(trace),
-          logger(logSink, LogLevel::Info), runtime(platform, keyboard, display, logger, buildInfo) {
+          logger(logSink, LogLevel::Info),
+          runtime(platform, keyboard, display, displayPower, logger, buildInfo) {}
+
+    void startAndFinishSplash() {
+        runtime.start();
+        (void)runtime.update(std::chrono::milliseconds(2000));
+        TEST_ASSERT_TRUE(runtime.splashFinished());
+        trace.clear();
+        backlight.writes.clear();
+    }
+
+    void idleUntil(DisplayPowerState state) {
+        const std::pair<DisplayPowerState, std::chrono::milliseconds> boundaries[] = {
+            {DisplayPowerState::Dimming, DisplayPowerController::idleThreshold},
+            {DisplayPowerState::Dimmed, DisplayPowerController::dimRampDuration},
+            {DisplayPowerState::TurningOff, DisplayPowerController::dimHoldDuration},
+            {DisplayPowerState::Off, DisplayPowerController::offRampDuration},
+        };
+        for (const auto& [boundary, duration] : boundaries) {
+            (void)runtime.update(duration);
+            TEST_ASSERT_EQUAL_UINT8(static_cast<unsigned>(boundary),
+                                    static_cast<unsigned>(displayPower.state()));
+            if (boundary == state)
+                return;
+        }
+        TEST_FAIL_MESSAGE("unreachable idle state requested");
     }
 
     std::vector<std::string> trace;
@@ -116,9 +171,15 @@ struct RuntimeFixture {
     FakeKeyboard keyboard;
     FakeDisplay display;
     FakeLogSink logSink;
+    FakeBacklight backlight;
+    DisplayPowerController displayPower{backlight};
     Logger logger;
     const BuildInfo buildInfo{"Test Hub", "9.8.7", "abc123", "test"};
     SystemRuntime runtime;
+};
+
+const InputEvents enterEvent{
+    {InputEventType::NamedKey, '\0', NamedKey::Enter, {}},
 };
 
 void assertColor(RgbColor expected, RgbColor actual) {
@@ -232,6 +293,134 @@ void test_running_update_refreshes_platform_before_polling_and_returns_events() 
                             static_cast<unsigned int>(events[0].namedKey));
 }
 
+void test_display_power_policy_starts_only_after_splash_handoff() {
+    RuntimeFixture fixture;
+    fixture.runtime.start();
+
+    (void)fixture.runtime.update(std::chrono::milliseconds(1999));
+
+    TEST_ASSERT_EQUAL_UINT8(static_cast<unsigned>(DisplayPowerState::Awake),
+                            static_cast<unsigned>(fixture.displayPower.state()));
+    (void)fixture.runtime.update(std::chrono::milliseconds(20000));
+    TEST_ASSERT_TRUE(fixture.runtime.splashFinished());
+    TEST_ASSERT_EQUAL_UINT8(static_cast<unsigned>(DisplayPowerState::Awake),
+                            static_cast<unsigned>(fixture.displayPower.state()));
+
+    (void)fixture.runtime.update(DisplayPowerController::idleThreshold);
+
+    TEST_ASSERT_EQUAL_UINT8(static_cast<unsigned>(DisplayPowerState::Dimming),
+                            static_cast<unsigned>(fixture.displayPower.state()));
+}
+
+void test_awake_physical_press_resets_idle_without_consumption() {
+    RuntimeFixture fixture;
+    fixture.startAndFinishSplash();
+    (void)fixture.runtime.update(std::chrono::milliseconds(14999));
+
+    fixture.keyboard.press(enterEvent);
+    const auto& events = fixture.runtime.update(std::chrono::milliseconds(1));
+
+    TEST_ASSERT_EQUAL_UINT(1, events.size());
+    TEST_ASSERT_EQUAL_UINT8(static_cast<unsigned>(NamedKey::Enter),
+                            static_cast<unsigned>(events[0].namedKey));
+    TEST_ASSERT_EQUAL_UINT8(static_cast<unsigned>(DisplayPowerState::Awake),
+                            static_cast<unsigned>(fixture.displayPower.state()));
+    TEST_ASSERT_EQUAL_UINT(0, fixture.backlight.writes.size());
+}
+
+void test_background_updates_do_not_reset_display_idle() {
+    RuntimeFixture fixture;
+    fixture.startAndFinishSplash();
+
+    for (int frame = 0; frame < 750; ++frame)
+        TEST_ASSERT_EQUAL_UINT(0, fixture.runtime.update(std::chrono::milliseconds(20)).size());
+
+    TEST_ASSERT_EQUAL_UINT8(static_cast<unsigned>(DisplayPowerState::Dimming),
+                            static_cast<unsigned>(fixture.displayPower.state()));
+}
+
+void test_dimmed_input_wakes_and_is_consumed() {
+    RuntimeFixture fixture;
+    fixture.startAndFinishSplash();
+    fixture.idleUntil(DisplayPowerState::Dimmed);
+    fixture.backlight.writes.clear();
+
+    fixture.keyboard.press(enterEvent);
+    const auto& events = fixture.runtime.update(std::chrono::milliseconds(20));
+
+    TEST_ASSERT_EQUAL_UINT(0, events.size());
+    TEST_ASSERT_EQUAL_UINT8(static_cast<unsigned>(DisplayPowerState::Waking),
+                            static_cast<unsigned>(fixture.displayPower.state()));
+
+    // Brightness only rises once time passes after the press.
+    (void)fixture.runtime.update(std::chrono::milliseconds(100));
+    TEST_ASSERT_TRUE(fixture.backlight.writes.size() > 0);
+
+    (void)fixture.runtime.update(std::chrono::milliseconds(100));
+    TEST_ASSERT_EQUAL_UINT8(static_cast<unsigned>(DisplayPowerState::Awake),
+                            static_cast<unsigned>(fixture.displayPower.state()));
+
+    fixture.keyboard.press(enterEvent);
+    const auto& second = fixture.runtime.update(std::chrono::milliseconds(20));
+
+    TEST_ASSERT_EQUAL_UINT(1, second.size());
+}
+
+void test_off_input_wakes_and_is_consumed() {
+    RuntimeFixture fixture;
+    fixture.startAndFinishSplash();
+    fixture.idleUntil(DisplayPowerState::Off);
+    TEST_ASSERT_TRUE(fixture.runtime.displayOff());
+
+    fixture.keyboard.press(enterEvent);
+    const auto& events = fixture.runtime.update(std::chrono::milliseconds(20));
+
+    TEST_ASSERT_EQUAL_UINT(0, events.size());
+    TEST_ASSERT_EQUAL_UINT8(static_cast<unsigned>(DisplayPowerState::Waking),
+                            static_cast<unsigned>(fixture.displayPower.state()));
+    TEST_ASSERT_FALSE(fixture.runtime.displayOff());
+}
+
+void test_modifier_only_physical_press_wakes_display() {
+    RuntimeFixture fixture;
+    fixture.startAndFinishSplash();
+    fixture.idleUntil(DisplayPowerState::Off);
+
+    // Fn alone: physical activity with no semantic event.
+    fixture.keyboard.press();
+    const auto& events = fixture.runtime.update(std::chrono::milliseconds(20));
+
+    TEST_ASSERT_EQUAL_UINT(0, events.size());
+    TEST_ASSERT_EQUAL_UINT8(static_cast<unsigned>(DisplayPowerState::Waking),
+                            static_cast<unsigned>(fixture.displayPower.state()));
+}
+
+void test_input_during_waking_is_consumed_without_restarting_ramp() {
+    RuntimeFixture fixture;
+    fixture.startAndFinishSplash();
+    fixture.idleUntil(DisplayPowerState::Off);
+    fixture.keyboard.press();
+    (void)fixture.runtime.update(std::chrono::milliseconds(20));
+
+    fixture.keyboard.press(enterEvent);
+    const auto& events = fixture.runtime.update(std::chrono::milliseconds(100));
+
+    TEST_ASSERT_EQUAL_UINT(0, events.size());
+    TEST_ASSERT_EQUAL_UINT8(static_cast<unsigned>(DisplayPowerState::Waking),
+                            static_cast<unsigned>(fixture.displayPower.state()));
+
+    // The repeated press did not extend the ramp: 200 ms after it started is
+    // still exactly enough.
+    (void)fixture.runtime.update(std::chrono::milliseconds(100));
+    TEST_ASSERT_EQUAL_UINT8(static_cast<unsigned>(DisplayPowerState::Awake),
+                            static_cast<unsigned>(fixture.displayPower.state()));
+
+    fixture.keyboard.press(enterEvent);
+    const auto& routed = fixture.runtime.update(std::chrono::milliseconds(20));
+
+    TEST_ASSERT_EQUAL_UINT(1, routed.size());
+}
+
 int main() {
     UNITY_BEGIN();
     RUN_TEST(test_startup_draws_branded_splash_with_visible_version);
@@ -239,5 +428,12 @@ int main() {
     RUN_TEST(test_repeated_startup_is_idempotent);
     RUN_TEST(test_update_before_start_is_safe_and_returns_no_events);
     RUN_TEST(test_running_update_refreshes_platform_before_polling_and_returns_events);
+    RUN_TEST(test_display_power_policy_starts_only_after_splash_handoff);
+    RUN_TEST(test_awake_physical_press_resets_idle_without_consumption);
+    RUN_TEST(test_background_updates_do_not_reset_display_idle);
+    RUN_TEST(test_dimmed_input_wakes_and_is_consumed);
+    RUN_TEST(test_off_input_wakes_and_is_consumed);
+    RUN_TEST(test_modifier_only_physical_press_wakes_display);
+    RUN_TEST(test_input_during_waking_is_consumed_without_restarting_ramp);
     return UNITY_END();
 }

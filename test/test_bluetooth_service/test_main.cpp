@@ -335,12 +335,22 @@ class IsolationPlatform final : public IPlatformAdapter {
 
 class IsolationKeyboard final : public IKeyboardAdapter {
   public:
-    void poll(InputEvents& events) override {
+    cardputer_hub::core::KeyboardPollResult poll(InputEvents& events) override {
         ++pollCount;
         events.clear();
+        return {};
     }
 
     int pollCount = 0;
+};
+
+class IsolationBacklight final : public cardputer_hub::core::IBacklightAdapter {
+  public:
+    std::uint8_t level() const override { return level_; }
+    void setLevel(std::uint8_t level) override { level_ = level; }
+
+  private:
+    std::uint8_t level_ = 128;
 };
 
 class IsolationDisplay final : public IDisplayAdapter {
@@ -1289,7 +1299,9 @@ void test_bluetooth_failure_leaves_wifi_and_system_core_operational() {
     CapturingLogSink logSink;
     Logger logger(logSink, LogLevel::Info);
     const BuildInfo buildInfo{"Test Hub", "1.0.0", "test", "test"};
-    SystemRuntime runtime(platform, keyboard, display, logger, buildInfo);
+    IsolationBacklight backlight;
+    cardputer_hub::core::DisplayPowerController displayPower(backlight);
+    SystemRuntime runtime(platform, keyboard, display, displayPower, logger, buildInfo);
 
     runtime.start();
     const auto wifiResult = wifiService.connect({"test-network", ""});

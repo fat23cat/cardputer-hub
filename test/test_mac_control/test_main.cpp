@@ -17,6 +17,7 @@
 #include "core/audio/audio_adapter.h"
 #include "core/capabilities/capability_registry.h"
 #include "core/display/palette.h"
+#include "core/lifecycle/system_runtime.h"
 #include "services/audio/audio_service.h"
 #include "services/host_control/host_control_service.h"
 #include "services/network/network_service.h"
@@ -461,6 +462,29 @@ void test_registry_requires_companion_and_renders_grid() {
     TEST_ASSERT_TRUE(f.display.hasRect({0, 67}, 240, 1, palette::ink));
 }
 
+void test_wake_consumed_input_does_not_activate_a_slot() {
+    ControlFixture f;
+    f.useHostControl();
+    f.completeHandshake();
+    f.app.onActivate();
+    const auto sentBeforeWake = f.transport.sent.size();
+
+    // SystemRuntime already consumed the wake press, so this frame has no `1`.
+    f.app.update({}, {});
+
+    TEST_ASSERT_EQUAL_UINT8(static_cast<unsigned>(MacControlView::Grid),
+                            static_cast<unsigned>(f.app.view()));
+    TEST_ASSERT_EQUAL_UINT8(static_cast<unsigned>(HostControlCommandState::Idle),
+                            static_cast<unsigned>(f.hostControl.status().state));
+    TEST_ASSERT_EQUAL_UINT(sentBeforeWake, f.transport.sent.size());
+
+    f.app.update({key1}, {});
+
+    TEST_ASSERT_EQUAL_UINT8(static_cast<unsigned>(HostControlCommandState::Pending),
+                            static_cast<unsigned>(f.hostControl.status().state));
+    TEST_ASSERT_EQUAL_UINT(sentBeforeWake + 1, f.transport.sent.size());
+}
+
 void test_direct_keys_and_paging() {
     ControlFixture f;
     f.app.onActivate();
@@ -754,6 +778,122 @@ struct ShellFixture {
     }
 };
 
+class RuntimePlatform final : public IPlatformAdapter {
+  public:
+    void begin() override {}
+    void update() override {}
+};
+
+class RuntimeKeyboard final : public IKeyboardAdapter {
+  public:
+    KeyboardPollResult poll(InputEvents& events) override {
+        events = next_;
+        const KeyboardPollResult result{press_};
+        next_.clear();
+        press_ = false;
+        return result;
+    }
+
+    void press(InputEvents events) {
+        next_ = std::move(events);
+        press_ = true;
+    }
+
+  private:
+    InputEvents next_;
+    bool press_ = false;
+};
+
+class RuntimeBacklight final : public IBacklightAdapter {
+  public:
+    std::uint8_t level() const override { return level_; }
+    void setLevel(std::uint8_t level) override { level_ = level; }
+
+  private:
+    std::uint8_t level_ = 128;
+};
+
+class RuntimeLogSink final : public ILogSink {
+  public:
+    void write(const LogRecord&) override {}
+};
+
+// Drives the whole production path: keyboard -> SystemRuntime ->
+// DisplayPowerController -> ApplicationShell -> Mini App -> ActionBus.
+struct WakePathFixture {
+    ShellFixture shell;
+    RecordingHandler recorder;
+    RuntimePlatform platform;
+    RuntimeKeyboard keyboard;
+    RuntimeBacklight backlight;
+    RuntimeLogSink logSink;
+    Logger logger{logSink, LogLevel::Info};
+    const BuildInfo buildInfo{"Test Hub", "1.0.0", "test", "test"};
+    DisplayPowerController displayPower{backlight};
+    SystemRuntime runtime;
+    ApplicationShell applicationShell;
+
+    WakePathFixture()
+        : runtime(platform, keyboard, shell.display, displayPower, logger, buildInfo),
+          applicationShell(shell.makeShell()) {
+        TEST_ASSERT_EQUAL_UINT8(
+            static_cast<unsigned>(CapabilityRegistrationResult::Registered),
+            static_cast<unsigned>(shell.capabilities.registerCapability(companionCapabilityId)));
+        TEST_ASSERT_EQUAL_UINT8(
+            static_cast<unsigned>(RegistrationResult::Registered),
+            static_cast<unsigned>(shell.bus.registerHandler(hostAppActivateActionId, recorder)));
+        runtime.start();
+        step(std::chrono::milliseconds(2000));
+    }
+
+    void step(std::chrono::milliseconds elapsed) {
+        const auto& input = runtime.update(elapsed);
+        applicationShell.update(input, std::chrono::milliseconds(0), std::nullopt,
+                                runtime.displayOff());
+    }
+
+    void pressAndStep(InputEvents events) {
+        keyboard.press(std::move(events));
+        step(std::chrono::milliseconds(20));
+    }
+
+    void idleUntilOff() {
+        for (const auto duration :
+             {DisplayPowerController::idleThreshold, DisplayPowerController::dimRampDuration,
+              DisplayPowerController::dimHoldDuration, DisplayPowerController::offRampDuration})
+            step(duration);
+        TEST_ASSERT_TRUE(runtime.displayOff());
+    }
+};
+
+void test_off_mac_control_key_wakes_without_dispatching_host_action() {
+    WakePathFixture f;
+    f.pressAndStep({enter});
+    f.pressAndStep({enter});
+    TEST_ASSERT_TRUE(f.shell.miniApps.hasActiveApp());
+    TEST_ASSERT_TRUE(f.shell.miniApps.activeAppId() == macControlAppId);
+    f.idleUntilOff();
+
+    f.pressAndStep({key1});
+
+    TEST_ASSERT_EQUAL_INT(0, f.recorder.callCount);
+    TEST_ASSERT_EQUAL_UINT8(static_cast<unsigned>(DisplayPowerState::Waking),
+                            static_cast<unsigned>(f.displayPower.state()));
+    TEST_ASSERT_EQUAL_UINT8(static_cast<unsigned>(MacControlView::Grid),
+                            static_cast<unsigned>(f.shell.macControl.view()));
+    TEST_ASSERT_TRUE(f.shell.miniApps.hasActiveApp());
+
+    f.step(DisplayPowerController::wakeRampDuration);
+    TEST_ASSERT_EQUAL_UINT8(static_cast<unsigned>(DisplayPowerState::Awake),
+                            static_cast<unsigned>(f.displayPower.state()));
+
+    f.pressAndStep({key1});
+
+    TEST_ASSERT_EQUAL_INT(1, f.recorder.callCount);
+    TEST_ASSERT_EQUAL_STRING(hostAppActivateActionId, f.recorder.last.id.c_str());
+    TEST_ASSERT_EQUAL_STRING(macControlAppId, f.recorder.last.source.c_str());
+}
+
 void test_shell_restores_launcher_when_companion_is_lost() {
     ShellFixture f;
     TEST_ASSERT_EQUAL_UINT8(
@@ -784,11 +924,13 @@ int main() {
     RUN_TEST(test_production_page_binds_telegram_to_slot_one);
     RUN_TEST(test_registry_requires_companion_and_renders_grid);
     RUN_TEST(test_direct_keys_and_paging);
+    RUN_TEST(test_wake_consumed_input_does_not_activate_a_slot);
     RUN_TEST(test_pressed_tile_lights_in_place_without_motion);
     RUN_TEST(test_takeover_animation_success_and_failure);
     RUN_TEST(test_mac_control_observes_host_control_without_driving_lifecycle);
     RUN_TEST(test_pending_takeover_capability_loss_closes_and_does_not_replay);
     RUN_TEST(test_runtime_capability_loss_closes_mac_control);
     RUN_TEST(test_shell_restores_launcher_when_companion_is_lost);
+    RUN_TEST(test_off_mac_control_key_wakes_without_dispatching_host_action);
     return UNITY_END();
 }

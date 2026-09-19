@@ -283,12 +283,19 @@ Display power is a three-state policy independent of application navigation:
 | --- | --- |
 | Awake | Use the configured normal brightness while activity is recent |
 | Dimmed | After 15 seconds without activity, smoothly reach 10% of configured normal brightness |
-| Off | After remaining at the readable 10% level for a full 3 minutes, smoothly reduce the backlight to zero |
+| Off | After remaining at the readable 10% level for a full 2 minutes, smoothly reduce the backlight to zero |
 
-The three-minute dim hold begins after the display reaches its 10% target; it
+The two-minute dim hold begins after the display reaches its 10% target; it
 must not be shortened by the fade time. Brightness changes must use a short,
 monotonic, non-blocking ramp rather than an abrupt step. Waking uses the same
-ramp in reverse.
+ramp mechanism toward the configured normal brightness; its duration is
+independent of the dim and off ramps.
+
+Delivered timing is a 15-second idle threshold, a 300 ms dim ramp, a 120-second
+dim hold, a 400 ms off ramp and a 200 ms wake ramp. A press during an active
+fade reverses it from the brightness actually on screen; brightness never jumps
+to the cancelled fade's target first. Normal brightness is whatever the firmware
+already uses at startup: this policy neither persists nor changes it.
 
 The local fallback applies whenever no connected external system owns a
 supported brightness and auto-dim policy. If a future host policy is active,
@@ -310,6 +317,13 @@ activity. A deliberate foreground notification may wake the screen only when
 its product requirement says that it is important enough to interrupt idle.
 Turning off the backlight must not disable Connectivity, Services, or input
 polling.
+
+Any physical press edge counts as activity, including a modifier such as `Fn`
+that produces no semantic event. A key release and a continuously held key do
+not. Every press received while waking stays consumed and neither restarts nor
+extends the wake ramp. The Home ambient wave is the one motion that pauses
+while the display is Off, resuming from its previous phase; other timers and
+Service state keep advancing.
 
 ### Splash-only low-brightness treatment
 
@@ -452,7 +466,7 @@ Host-side tests must cover at least:
 * palette-token and layout-state selection;
 * deterministic transition endpoints and interrupted transitions;
 * stationary screens ceasing to request frames;
-* 15-second dim timing, the full three-minute dim hold, and final off timing;
+* 15-second dim timing, the full two-minute dim hold, and final off timing;
 * wake-only consumption from both Dimmed and Off;
 * splash-only color collapse preserving light pixels and darkening non-light
   pixels;
@@ -496,8 +510,11 @@ the number. Digit keys 1–6 activate the current page slot, Left/Right slide
 between pages. A bound press waits on the resting grid; success lights that
 tile Leaf for 1.5 s, failure Vermilion for 2 s. Status is colour only. The tile
 then returns to the resting grid. Companion loss closes MAC CONTROL
-through the existing Mini App runtime and returns Launcher. Remaining semantic
-sound cues, broader list spring motion, dim/off/wake policy, live clock, and
+through the existing Mini App runtime and returns Launcher.
+Idle dimming, the final off fade and wake-input consumption are implemented for
+every screen and Mini App from the shared runtime input path; physical
+acceptance on Cardputer-Adv is pending. Remaining semantic
+sound cues, broader list spring motion, live clock, and
 Wi-Fi scanning remain open in the
 [phase checklist](ARCHITECTURE.md#47-initial-development-order). The manuals
 describe current operation; planned behavior must not be presented there as

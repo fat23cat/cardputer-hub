@@ -18,7 +18,7 @@ class ApplicationShell final : public core::IActionHandler {
                      services::AudioService& audio, MiniAppRuntime& miniApps,
                      core::CapabilityRegistry& capabilities);
     void update(const core::InputEvents& input, std::chrono::milliseconds elapsed = {},
-                std::optional<std::uint8_t> batteryPercent = std::nullopt);
+                std::optional<std::uint8_t> batteryPercent = std::nullopt, bool displayOff = false);
     core::ActionHandlingResult handle(const core::Action& action) override;
 
   private:
@@ -48,7 +48,7 @@ class ApplicationShell final : public core::IActionHandler {
     void routeMiniAppEvent(const core::InputEvent& event);
     void routeSystemEvent(const core::InputEvent& event);
     void tickCurrentPresentation(std::chrono::milliseconds elapsed,
-                                 std::optional<std::uint8_t> batteryPercent);
+                                 std::optional<std::uint8_t> batteryPercent, bool displayOff);
     void renderHome(std::chrono::milliseconds elapsed, std::optional<std::uint8_t> batteryPercent);
     void renderSettings();
     bool atSettings() const;

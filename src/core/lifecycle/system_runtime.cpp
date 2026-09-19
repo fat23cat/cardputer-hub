@@ -25,10 +25,10 @@ PixelPosition progressSegmentPosition(std::size_t index) {
 } // namespace
 
 SystemRuntime::SystemRuntime(IPlatformAdapter& platform, IKeyboardAdapter& keyboard,
-                             IDisplayAdapter& display, Logger& logger,
-                             const BuildInfo& buildInfo) noexcept
-    : platform_(platform), keyboard_(keyboard), display_(display), logger_(logger),
-      buildInfo_(buildInfo) {}
+                             IDisplayAdapter& display, DisplayPowerController& displayPower,
+                             Logger& logger, const BuildInfo& buildInfo) noexcept
+    : platform_(platform), keyboard_(keyboard), display_(display), displayPower_(displayPower),
+      logger_(logger), buildInfo_(buildInfo) {}
 
 void SystemRuntime::start() {
     if (started_) {
@@ -36,6 +36,7 @@ void SystemRuntime::start() {
     }
 
     platform_.begin();
+    displayPower_.captureNormalLevel();
     logger_.info("firmware.name", buildInfo_.name);
     logger_.info("firmware.version", buildInfo_.version);
     logger_.info("firmware.commit", buildInfo_.commit);
@@ -100,8 +101,15 @@ const InputEvents& SystemRuntime::update(std::chrono::milliseconds elapsed) {
     }
 
     platform_.update();
-    keyboard_.poll(inputEvents_);
+    const auto poll = keyboard_.poll(inputEvents_);
+    // The idle timer starts from the normal application UI, so the frame that
+    // hands the splash off does not count as idle time.
+    const bool displayPolicyActive = splashFinished();
     advanceSplash(elapsed);
+    // Consuming here keeps wake-only input out of every screen and Mini App.
+    if (displayPolicyActive && displayPower_.update(elapsed, poll.physicalPress)) {
+        inputEvents_.clear();
+    }
     return inputEvents_;
 }
 

@@ -33,22 +33,25 @@ bool CardputerKeyboardAdapter::initialize() {
     return true;
 }
 
-void CardputerKeyboardAdapter::poll(core::InputEvents& events) { pollKeyboard(events); }
+core::KeyboardPollResult CardputerKeyboardAdapter::poll(core::InputEvents& events) {
+    return pollKeyboard(events);
+}
 
-void CardputerKeyboardAdapter::pollKeyboard(core::InputEvents& events) {
+core::KeyboardPollResult CardputerKeyboardAdapter::pollKeyboard(core::InputEvents& events) {
     if (!initialized_) {
         const auto now = millisecondsSinceBoot();
         if (now < retryAfterMilliseconds_) {
             events.clear();
-            return;
+            return {};
         }
         if (!initialize()) {
             retryAfterMilliseconds_ = now + retryIntervalMilliseconds;
             events.clear();
-            return;
+            return {};
         }
     }
 
+    core::KeyboardPollResult result;
     while (controller_->available() > 0) {
         const auto edge = decodeCardputerAdvKeyEvent(controller_->getEvent());
         if (!edge.has_value()) {
@@ -56,10 +59,14 @@ void CardputerKeyboardAdapter::pollKeyboard(core::InputEvents& events) {
         }
         const auto index = static_cast<std::size_t>(edge->row) * cardputerAdvKeyboardColumns +
                            static_cast<std::size_t>(edge->column);
+        if (edge->pressed && !pressedKeys_[index]) {
+            result.physicalPress = true;
+        }
         pressedKeys_[index] = edge->pressed;
     }
 
     translator_.translate(cardputerAdvKeyboardSnapshot(pressedKeys_), events);
+    return result;
 }
 
 } // namespace cardputer_hub::hardware

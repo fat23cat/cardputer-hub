@@ -41,6 +41,7 @@ ownership matrix with invariants. Do not rewrite older plans into that format.
 | [029](029-appregistry-driven-launcher-integration.md#0-planning-status) | AppRegistry-driven Launcher and SYSTEM Mini App | Software implemented; physical Home → Launcher → SYSTEM validation pending |
 | [030](030-macos-companion-foundation.md) | macOS Companion foundation | Software implemented; physical BLE/GATT lifecycle validation pending |
 | [031](031-mac-control-app-grid.md) | MAC CONTROL app grid and Telegram activation | Software implemented; physical Telegram focus/launch/disconnect validation pending |
+| [032](032-display-power-and-wake.md) | Display idle dimming, off and wake consumption | Software implemented; physical Cardputer-Adv dim/off/wake acceptance pending |
 
 The work referred to historically as 013 is the approved
 [UI requirements](../UI_REQUIREMENTS.md); there is no separate plan-013 file.

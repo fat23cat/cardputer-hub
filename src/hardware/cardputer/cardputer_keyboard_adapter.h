@@ -15,11 +15,11 @@ class CardputerKeyboardAdapter final : public core::IKeyboardAdapter {
     CardputerKeyboardAdapter();
     ~CardputerKeyboardAdapter() override;
 
-    void poll(core::InputEvents& events) override;
+    core::KeyboardPollResult poll(core::InputEvents& events) override;
 
   private:
     bool initialize();
-    void pollKeyboard(core::InputEvents& events);
+    core::KeyboardPollResult pollKeyboard(core::InputEvents& events);
 
     std::unique_ptr<Adafruit_TCA8418> controller_;
     CardputerAdvPressedKeys pressedKeys_{};

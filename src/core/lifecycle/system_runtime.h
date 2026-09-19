@@ -7,17 +7,20 @@
 #include "core/lifecycle/build_info.h"
 #include "core/logging/logger.h"
 #include "core/platform/platform_adapter.h"
+#include "core/power/display_power_controller.h"
 
 namespace cardputer_hub::core {
 
 class SystemRuntime {
   public:
     SystemRuntime(IPlatformAdapter& platform, IKeyboardAdapter& keyboard, IDisplayAdapter& display,
-                  Logger& logger, const BuildInfo& buildInfo) noexcept;
+                  DisplayPowerController& displayPower, Logger& logger,
+                  const BuildInfo& buildInfo) noexcept;
 
     void start();
     const InputEvents& update(std::chrono::milliseconds elapsed = {});
     bool splashFinished() const noexcept { return splashElapsed_ >= splashDuration; }
+    bool displayOff() const noexcept { return displayPower_.displayOff(); }
 
   private:
     void drawSplash();
@@ -30,6 +33,7 @@ class SystemRuntime {
     IPlatformAdapter& platform_;
     IKeyboardAdapter& keyboard_;
     IDisplayAdapter& display_;
+    DisplayPowerController& displayPower_;
     Logger& logger_;
     const BuildInfo& buildInfo_;
     InputEvents inputEvents_;

@@ -176,7 +176,8 @@ void ApplicationShell::routeSystemEvent(const InputEvent& event) {
 }
 
 void ApplicationShell::tickCurrentPresentation(std::chrono::milliseconds elapsed,
-                                               std::optional<std::uint8_t> batteryPercent) {
+                                               std::optional<std::uint8_t> batteryPercent,
+                                               bool displayOff) {
     if (showingMiniApp_ && !miniApps_.hasActiveApp())
         restoreLauncherFromMiniApp(false);
     if (miniApps_.hasActiveApp()) {
@@ -185,7 +186,9 @@ void ApplicationShell::tickCurrentPresentation(std::chrono::milliseconds elapsed
             return;
     }
     if (atHome())
-        renderHome(display_.transitionActive() ? std::chrono::milliseconds(0) : elapsed,
+        // A dark backlight holds the ambient wave's phase instead of advancing it.
+        renderHome(display_.transitionActive() || displayOff ? std::chrono::milliseconds(0)
+                                                             : elapsed,
                    batteryPercent);
     else if (atSettings())
         renderSettings();
@@ -278,7 +281,7 @@ ActionHandlingResult ApplicationShell::handle(const Action& action) {
 }
 
 void ApplicationShell::update(const InputEvents& input, std::chrono::milliseconds elapsed,
-                              std::optional<std::uint8_t> batteryPercent) {
+                              std::optional<std::uint8_t> batteryPercent, bool displayOff) {
     display_.beginFrame();
     display_.advanceTransition(elapsed);
     if (showingMiniApp_ && !miniApps_.hasActiveApp())
@@ -290,7 +293,7 @@ void ApplicationShell::update(const InputEvents& input, std::chrono::millisecond
         else
             routeSystemEvent(event);
     }
-    tickCurrentPresentation(elapsed, batteryPercent);
+    tickCurrentPresentation(elapsed, batteryPercent, displayOff);
     display_.endFrame();
 }
 
