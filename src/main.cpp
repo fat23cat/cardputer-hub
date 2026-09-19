@@ -23,6 +23,8 @@
 #include "core/lifecycle/build_info.h"
 #include "core/lifecycle/system_runtime.h"
 #include "core/logging/logger.h"
+#include "core/power/display_power_controller.h"
+#include "hardware/cardputer/cardputer_backlight_adapter.h"
 #include "hardware/cardputer/cardputer_display_adapter.h"
 #include "hardware/cardputer/cardputer_keyboard_adapter.h"
 #include "hardware/cardputer/cardputer_platform.h"
@@ -39,7 +41,9 @@ cardputer_hub::hardware::CardputerDisplayAdapter display;
 cardputer_hub::hardware::CardputerAudioAdapter audioAdapter;
 cardputer_hub::hardware::SerialLogSink logSink;
 cardputer_hub::core::Logger logger(logSink, cardputer_hub::core::LogLevel::Info);
-cardputer_hub::core::SystemRuntime runtime(platform, keyboard, display, logger,
+cardputer_hub::hardware::CardputerBacklightAdapter backlight;
+cardputer_hub::core::DisplayPowerController displayPower(backlight);
+cardputer_hub::core::SystemRuntime runtime(platform, keyboard, display, displayPower, logger,
                                            cardputer_hub::core::firmwareBuildInfo());
 cardputer_hub::hardware::Esp32NvsStorageAdapter configurationAdapter;
 cardputer_hub::core::Storage configurationStorage(configurationAdapter);
@@ -118,7 +122,7 @@ extern "C" void app_main(void) {
         } else {
             const auto uiElapsed = uiScheduler.elapsedForUpdate(elapsed, !input.empty());
             if (uiElapsed)
-                applicationShell.update(input, *uiElapsed, battery.percent());
+                applicationShell.update(input, *uiElapsed, battery.percent(), runtime.displayOff());
         }
         vTaskDelay(pdMS_TO_TICKS(1));
     }

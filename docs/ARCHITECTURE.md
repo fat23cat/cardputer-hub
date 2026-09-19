@@ -153,6 +153,7 @@ Application lifecycle
 Launcher
 Navigation
 Input routing
+Display power policy
 Global controls
 Action Bus
 App Registry
@@ -178,6 +179,33 @@ twelve-segment progress treatment from injected monotonic elapsed time for two
 seconds. This presentation does not block platform, input, Connectivity, or
 Service updates. Home is composed only after the splash completes, and input
 sampled on the handoff frame is consumed rather than routed as a UI action.
+
+`SystemRuntime` is also the shared pre-application input boundary for display
+power. Each poll reports physical press activity separately from the translated
+semantic events, because a modifier such as `Fn` is real user activity that
+produces no `InputEvent`. After polling, `SystemRuntime` advances
+`DisplayPowerController` and clears the frame's events whenever the display is
+not fully awake, so a wake-only press reaches neither ApplicationShell,
+NavigationStack, ActionBus, host control, nor key-feedback audio. Individual
+screens and Mini Apps never decide whether a key is wake-only. The policy
+begins after the splash hands off, so the idle timer starts from the normal
+application UI rather than from boot.
+
+`DisplayPowerController` is the only owner of idle, dim, off and wake timing. It
+holds normal brightness at the level the firmware already uses, dims to 10% of
+it after 15 seconds of no physical press, holds that readable level for a full
+120 seconds once the 300 ms dim ramp has actually completed, fades to zero over
+400 ms, and wakes over 200 ms from the brightness currently on screen. Every
+ramp is linear, monotonic and driven only by injected monotonic elapsed time;
+nothing blocks the main loop and no `delay()` is used. A single large elapsed
+value crosses state boundaries explicitly instead of discarding the excess.
+Display Off means backlight zero only: there is no ESP32 light or deep sleep,
+and Connectivity, Services, Companion traffic, timers and keyboard polling all
+continue. The framebuffer keeps receiving state-driven updates behind the dark
+backlight so wake cannot reveal stale host, network or battery state. Home's
+ambient wave is the one exception and pauses while Off, resuming from its
+previous phase; ApplicationShell receives only that read-only display-off
+state and never commands the controller.
 
 ---
 
@@ -2301,6 +2329,14 @@ CardputerAudioAdapter
 ```
 
 ```text
+DisplayPowerController
+      ↓
+IBacklightAdapter
+      ↓
+CardputerBacklightAdapter
+```
+
+```text
 ConfigurationService
       ↓
 Record Storage
@@ -2339,6 +2375,15 @@ adapter starts silent I2S clocks first, initializes the codec with both DAC mute
 bits set, allows its analog references to settle, and then performs one soft
 unmute ramp. This keeps codec power-up transients out of the speaker while
 preserving asynchronous playback after startup.
+
+`IBacklightAdapter` is a hardware-neutral 8-bit level boundary where 0 is off
+and 255 is the adapter's maximum. `CardputerBacklightAdapter` is the only code
+that calls the M5Unified backlight API, and it carries no policy: idle, dim,
+off and wake timing stay in `DisplayPowerController`. UI screens and Mini Apps
+never set physical brightness. The controller reads the existing level once,
+after platform initialization, so the delivered firmware brightness is
+preserved rather than reset to maximum; a future Settings brightness control
+can change that normal level without redesigning the idle policy.
 
 The `FileStorage` facade and its adapter interface contain no Arduino, SPI,
 filesystem, or board-library types. Those types and the Cardputer-Adv microSD
@@ -2581,7 +2626,8 @@ Transport expansion does not block the BLE-only software scope.
 - [x] Synthesized key feedback, directional volume-step cues and persistent mute/volume.
 - [x] Launcher spring focus motion; boot/status semantic sound cues remain pending.
 - [ ] Remaining Settings/list spring focus motion.
-- [ ] Idle dim/off, brightness policy and wake-input consumption.
+- [ ] Idle dim/off, brightness policy and wake-input consumption — software
+      delivered by plan 032; physical Cardputer-Adv acceptance pending.
 
 ### Phase 5 — Mini App Infrastructure
 
@@ -2815,6 +2861,7 @@ src/
 │   ├── input/
 │   ├── lifecycle/
 │   ├── logging/
+│   ├── power/
 │   └── storage/
 │       ├── storage.h / storage.cpp
 │       └── files/

@@ -371,7 +371,7 @@ class EspIdfBuildConfigurationTests(unittest.TestCase):
             "        } else {\n"
             "            const auto uiElapsed = uiScheduler.elapsedForUpdate(elapsed, !input.empty());\n"
             "            if (uiElapsed)\n"
-            "                applicationShell.update(input, *uiElapsed, battery.percent());\n"
+            "                applicationShell.update(input, *uiElapsed, battery.percent(), runtime.displayOff());\n"
             "        }\n"
             "        vTaskDelay(pdMS_TO_TICKS(1));",
             entrypoint,

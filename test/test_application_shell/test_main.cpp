@@ -864,6 +864,52 @@ void test_app_open_is_rejected_while_mini_app_is_active() {
     TEST_ASSERT_FALSE(f.display.shows("APPS"));
 }
 
+int countWaveFills(const Display& display) {
+    return static_cast<int>(
+        std::count_if(display.fills.begin(), display.fills.end(), [](const Display::Fill& fill) {
+            return fill.color.red == core::palette::homeWave.red &&
+                   fill.color.green == core::palette::homeWave.green &&
+                   fill.color.blue == core::palette::homeWave.blue;
+        }));
+}
+
+void test_home_wave_does_not_advance_while_display_off() {
+    Fixture f;
+    auto shell = f.makeShell();
+    shell.update({});
+    TEST_ASSERT_TRUE(countWaveFills(f.display) > 0);
+    f.display.fills.clear();
+
+    shell.update({}, std::chrono::milliseconds(600), std::nullopt, true);
+    TEST_ASSERT_EQUAL_INT(0, countWaveFills(f.display));
+    shell.update({}, std::chrono::milliseconds(600), std::nullopt, true);
+    TEST_ASSERT_EQUAL_INT(0, countWaveFills(f.display));
+
+    shell.update({}, std::chrono::milliseconds(600), std::nullopt, false);
+    TEST_ASSERT_TRUE(countWaveFills(f.display) > 0);
+}
+
+void test_wake_consumed_frame_plays_no_cue_and_dispatches_no_action() {
+    Fixture f;
+    auto shell = f.makeShell();
+    shell.update({});
+    TEST_ASSERT_TRUE(f.display.shows("--:--"));
+    f.audioAdapter.clips.clear();
+    f.display.transitions.clear();
+
+    // SystemRuntime already consumed the wake press, so this frame has no event.
+    shell.update({}, std::chrono::milliseconds(16), std::nullopt, true);
+
+    TEST_ASSERT_EQUAL_UINT(0, f.audioAdapter.clips.size());
+    TEST_ASSERT_EQUAL_UINT(0, f.display.transitions.size());
+    TEST_ASSERT_TRUE(f.display.shows("--:--"));
+    TEST_ASSERT_FALSE(f.display.shows("APPS"));
+
+    shell.update({enter});
+
+    TEST_ASSERT_TRUE(f.display.shows("APPS"));
+}
+
 void test_home_companion_indicator_appears_only_when_companion_capability_is_live() {
     Fixture f;
     auto shell = f.makeShell();
@@ -896,6 +942,8 @@ int main() {
     UNITY_BEGIN();
     RUN_TEST(test_idle_runtime_preserves_home_and_settings);
     RUN_TEST(test_home_companion_indicator_appears_only_when_companion_capability_is_live);
+    RUN_TEST(test_home_wave_does_not_advance_while_display_off);
+    RUN_TEST(test_wake_consumed_frame_plays_no_cue_and_dispatches_no_action);
     RUN_TEST(test_home_enter_opens_launcher_and_tab_still_opens_settings);
     RUN_TEST(test_active_mini_app_receives_scheduled_update_instead_of_shell_input);
     RUN_TEST(test_explicit_runtime_deactivation_returns_shell_to_launcher);
