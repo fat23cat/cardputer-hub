@@ -15,6 +15,10 @@ namespace cardputer_hub::services {
 class AudioService;
 
 inline constexpr std::chrono::milliseconds pomodoroTransitionFeedback{400};
+// Muted steel / sage. Chosen so 3% quantization still leaves opposite hues:
+// Work ≈ (2,2,4), Break ≈ (2,4,1). Near-gray pairs collapse on WS2812.
+inline constexpr core::RgbColor pomodoroWorkLed{0x38, 0x4C, 0x7A};
+inline constexpr core::RgbColor pomodoroBreakLed{0x4C, 0x7A, 0x30};
 
 [[nodiscard]] std::uint8_t pomodoroLitPixels(const PomodoroSnapshot& snapshot) noexcept;
 [[nodiscard]] core::RgbColor pomodoroPhaseColor(PomodoroPhase phase) noexcept;

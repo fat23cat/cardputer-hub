@@ -2313,7 +2313,7 @@ physical acceptance passes on Cardputer-Adv + Unit Puzzle
                               ▼
                 ┌─────────────────────────┐
                 │ PomodoroLedController   │
-                │ Blue / Leaf + progress  │
+                │ muted steel / sage + progress  │
                 └────────────┬────────────┘
                              │
                              │ BACKGROUND_APPLICATION

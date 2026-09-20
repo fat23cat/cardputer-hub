@@ -157,6 +157,23 @@ void test_deactivate_does_not_stop_service_and_reopen_renders_snapshot() {
     TEST_ASSERT_TRUE(display.shows("SPACE  PAUSE"));
 }
 
+void test_remaining_formats_as_mm_ss_and_clamps_overflow() {
+    PomodoroSnapshot snapshot{};
+    char text[6] = {};
+    snapshot.remaining = 25min;
+    formatPomodoroRemaining(snapshot, text);
+    TEST_ASSERT_EQUAL_STRING("25:00", text);
+    snapshot.remaining = std::chrono::milliseconds(5 * 60 * 1000 + 7 * 1000);
+    formatPomodoroRemaining(snapshot, text);
+    TEST_ASSERT_EQUAL_STRING("05:07", text);
+    snapshot.remaining = std::chrono::milliseconds(-1);
+    formatPomodoroRemaining(snapshot, text);
+    TEST_ASSERT_EQUAL_STRING("00:00", text);
+    snapshot.remaining = std::chrono::hours(3);
+    formatPomodoroRemaining(snapshot, text);
+    TEST_ASSERT_EQUAL_STRING("99:59", text);
+}
+
 void test_activates_without_led_and_idle_lcd_progress() {
     Display display;
     PomodoroService pomodoro;
@@ -176,6 +193,7 @@ int main() {
     RUN_TEST(test_registry_requires_no_capabilities);
     RUN_TEST(test_initial_view_and_space_pause_resume_reset_skip);
     RUN_TEST(test_deactivate_does_not_stop_service_and_reopen_renders_snapshot);
+    RUN_TEST(test_remaining_formats_as_mm_ss_and_clamps_overflow);
     RUN_TEST(test_activates_without_led_and_idle_lcd_progress);
     return UNITY_END();
 }

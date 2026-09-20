@@ -81,10 +81,18 @@ void formatPomodoroRemaining(const PomodoroSnapshot& snapshot, char (&text)[6]) 
     auto total = snapshot.remaining;
     if (total.count() < 0)
         total = std::chrono::milliseconds(0);
-    const auto roundedUp = (total.count() + 999) / 1000;
-    const auto minutes = static_cast<int>(roundedUp / 60);
-    const auto seconds = static_cast<int>(roundedUp % 60);
-    std::snprintf(text, 6, "%02d:%02d", minutes, seconds);
+    auto roundedUp = (total.count() + 999) / 1000;
+    constexpr auto maxDisplayedSeconds = 99 * 60 + 59;
+    if (roundedUp > maxDisplayedSeconds)
+        roundedUp = maxDisplayedSeconds;
+    const auto minutes = static_cast<unsigned>(roundedUp / 60);
+    const auto seconds = static_cast<unsigned>(roundedUp % 60);
+    text[0] = static_cast<char>('0' + minutes / 10);
+    text[1] = static_cast<char>('0' + minutes % 10);
+    text[2] = ':';
+    text[3] = static_cast<char>('0' + seconds / 10);
+    text[4] = static_cast<char>('0' + seconds % 10);
+    text[5] = '\0';
 }
 
 void drawPomodoroScreen(IDisplayAdapter& display, const PomodoroSnapshot& snapshot) {

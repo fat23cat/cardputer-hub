@@ -51,8 +51,8 @@ active app; the normal idle dim/off cycle then starts again.
 `R` resets. Right, `S`, or `/` skip to the next phase. The timer continues
 after you leave the app: 25-minute focus, 5-minute short breaks, and a
 15-minute long break after every fourth focus. Phase changes play a sound.
-If a Unit Puzzle LED matrix is attached, it shows phase color and remaining
-progress at a low brightness. When a phase finishes, the display wakes so
+If a Unit Puzzle LED matrix is attached, it shows a soft steel-blue glow
+for focus and a muted sage for breaks, at a low brightness. When a phase finishes, the display wakes so
 the current screen is visible again; Pomodoro does not steal focus from
 another open app.
 

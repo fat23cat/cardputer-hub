@@ -125,7 +125,7 @@ void test_progress_pixels_and_phase_colors() {
     pomodoro.start();
     controller.update(0ms);
     indicator.update();
-    TEST_ASSERT_EQUAL(64, countColor(indicator.resolved().frame, palette::blue));
+    TEST_ASSERT_EQUAL(64, countColor(indicator.resolved().frame, pomodoroWorkLed));
     TEST_ASSERT_EQUAL_UINT8(pomodoroBrightnessPercent, indicator.resolved().brightnessPercent);
     TEST_ASSERT_EQUAL_UINT8(static_cast<unsigned>(IndicatorPriority::BackgroundApplication),
                             static_cast<unsigned>(indicator.resolved().priority));
@@ -133,7 +133,7 @@ void test_progress_pixels_and_phase_colors() {
     pomodoro.update(32s);
     controller.update(0ms);
     indicator.update();
-    TEST_ASSERT_EQUAL(32, countColor(indicator.resolved().frame, palette::blue));
+    TEST_ASSERT_EQUAL(32, countColor(indicator.resolved().frame, pomodoroWorkLed));
 
     pomodoro.pause();
     controller.update(0ms);
@@ -141,21 +141,21 @@ void test_progress_pixels_and_phase_colors() {
     pomodoro.update(8s);
     controller.update(8s);
     indicator.update();
-    TEST_ASSERT_EQUAL(32, countColor(indicator.resolved().frame, palette::blue));
+    TEST_ASSERT_EQUAL(32, countColor(indicator.resolved().frame, pomodoroWorkLed));
     TEST_ASSERT_EQUAL(pausedWrites, led.writes);
 
     pomodoro.resume();
     pomodoro.update(32s);
     controller.update(0ms);
     indicator.update();
-    TEST_ASSERT_EQUAL(64, countColor(indicator.resolved().frame, palette::leaf));
+    TEST_ASSERT_EQUAL(64, countColor(indicator.resolved().frame, pomodoroBreakLed));
     TEST_ASSERT_EQUAL_UINT8(pomodoroBrightnessPercent, indicator.resolved().brightnessPercent);
 
     controller.update(pomodoroTransitionFeedback);
     pomodoro.update(8s);
     controller.update(0ms);
     indicator.update();
-    TEST_ASSERT_EQUAL(32, countColor(indicator.resolved().frame, palette::leaf));
+    TEST_ASSERT_EQUAL(32, countColor(indicator.resolved().frame, pomodoroBreakLed));
 }
 
 void test_long_break_uses_leaf_and_reset_releases_claim() {
@@ -170,7 +170,7 @@ void test_long_break_uses_leaf_and_reset_releases_claim() {
     indicator.update();
     TEST_ASSERT_EQUAL_UINT8(static_cast<unsigned>(PomodoroPhase::LongBreak),
                             static_cast<unsigned>(pomodoro.snapshot().phase));
-    TEST_ASSERT_EQUAL(64, countColor(indicator.resolved().frame, palette::leaf));
+    TEST_ASSERT_EQUAL(64, countColor(indicator.resolved().frame, pomodoroBreakLed));
     TEST_ASSERT_EQUAL_UINT8(pomodoroBrightnessPercent, indicator.resolved().brightnessPercent);
     pomodoro.reset();
     controller.update(0ms);
@@ -188,7 +188,7 @@ void test_transition_stays_at_policy_brightness_and_is_not_brighter() {
     controller.update(0ms);
     indicator.update();
     TEST_ASSERT_EQUAL_UINT8(pomodoroBrightnessPercent, indicator.resolved().brightnessPercent);
-    TEST_ASSERT_EQUAL(64, countColor(indicator.resolved().frame, palette::leaf));
+    TEST_ASSERT_EQUAL(64, countColor(indicator.resolved().frame, pomodoroBreakLed));
 }
 
 void test_pixel_count_is_monotonic_within_a_phase() {
@@ -223,7 +223,7 @@ void test_hidden_claim_keeps_updating_and_restore_stays_policy_brightness() {
     indicator.update();
     TEST_ASSERT_EQUAL_STRING("pomodoro", indicator.resolved().owner.c_str());
     TEST_ASSERT_EQUAL_UINT8(pomodoroBrightnessPercent, indicator.resolved().brightnessPercent);
-    TEST_ASSERT_EQUAL(32, countColor(indicator.resolved().frame, palette::blue));
+    TEST_ASSERT_EQUAL(32, countColor(indicator.resolved().frame, pomodoroWorkLed));
 }
 
 void test_same_visible_frame_is_not_rewritten() {
@@ -257,6 +257,27 @@ void test_phase_change_plays_audio_cue_without_led_hardware() {
     pomodoro.skip();
     controller.update(0ms);
     TEST_ASSERT_EQUAL_UINT(1, audioAdapter.clips.size());
+}
+
+void test_led_phase_colors_are_muted_not_lcd_palette() {
+    TEST_ASSERT_FALSE(pixelEquals(pomodoroWorkLed, palette::blue));
+    TEST_ASSERT_FALSE(pixelEquals(pomodoroBreakLed, palette::leaf));
+    TEST_ASSERT_FALSE(pixelEquals(pomodoroWorkLed, pomodoroBreakLed));
+    TEST_ASSERT_TRUE(pixelEquals(pomodoroPhaseColor(PomodoroPhase::Work), pomodoroWorkLed));
+    TEST_ASSERT_TRUE(pixelEquals(pomodoroPhaseColor(PomodoroPhase::ShortBreak), pomodoroBreakLed));
+    TEST_ASSERT_TRUE(pixelEquals(pomodoroPhaseColor(PomodoroPhase::LongBreak), pomodoroBreakLed));
+
+    const auto scale = [](std::uint8_t channel) {
+        return static_cast<std::uint8_t>(
+            (static_cast<unsigned>(channel) * pomodoroBrightnessPercent + 50U) / 100U);
+    };
+    const RgbColor workHw{scale(pomodoroWorkLed.red), scale(pomodoroWorkLed.green),
+                          scale(pomodoroWorkLed.blue)};
+    const RgbColor breakHw{scale(pomodoroBreakLed.red), scale(pomodoroBreakLed.green),
+                           scale(pomodoroBreakLed.blue)};
+    TEST_ASSERT_FALSE(pixelEquals(workHw, breakHw));
+    TEST_ASSERT_TRUE(workHw.blue > workHw.green);
+    TEST_ASSERT_TRUE(breakHw.green > breakHw.blue);
 }
 
 void test_lit_pixel_helpers() {
@@ -296,16 +317,16 @@ void test_controller_keeps_transition_after_stalled_boundary() {
     indicator.update();
     TEST_ASSERT_EQUAL_UINT8(static_cast<unsigned>(PomodoroPhase::Work),
                             static_cast<unsigned>(pomodoro.snapshot().phase));
-    TEST_ASSERT_EQUAL(1, countColor(indicator.resolved().frame, palette::blue));
-    TEST_ASSERT_TRUE(extinctionPrefixOff(indicator.resolved().frame, 1, palette::blue));
+    TEST_ASSERT_EQUAL(1, countColor(indicator.resolved().frame, pomodoroWorkLed));
+    TEST_ASSERT_TRUE(extinctionPrefixOff(indicator.resolved().frame, 1, pomodoroWorkLed));
 
     pomodoro.update(500ms);
     controller.update(500ms);
     indicator.update();
     TEST_ASSERT_EQUAL_UINT8(static_cast<unsigned>(PomodoroPhase::ShortBreak),
                             static_cast<unsigned>(pomodoro.snapshot().phase));
-    TEST_ASSERT_EQUAL(64, countColor(indicator.resolved().frame, palette::leaf));
-    TEST_ASSERT_TRUE(extinctionPrefixOff(indicator.resolved().frame, 64, palette::leaf));
+    TEST_ASSERT_EQUAL(64, countColor(indicator.resolved().frame, pomodoroBreakLed));
+    TEST_ASSERT_TRUE(extinctionPrefixOff(indicator.resolved().frame, 64, pomodoroBreakLed));
 }
 
 void test_controller_reports_same_phase_after_multiple_boundaries() {
@@ -327,7 +348,7 @@ void test_controller_reports_same_phase_after_multiple_boundaries() {
     indicator.update();
     TEST_ASSERT_EQUAL_UINT8(static_cast<unsigned>(PomodoroPhase::Work),
                             static_cast<unsigned>(pomodoro.snapshot().phase));
-    TEST_ASSERT_EQUAL(64, countColor(indicator.resolved().frame, palette::blue));
+    TEST_ASSERT_EQUAL(64, countColor(indicator.resolved().frame, pomodoroWorkLed));
     TEST_ASSERT_EQUAL_UINT(2, audioAdapter.clips.size());
 }
 
@@ -540,6 +561,7 @@ int main() {
     RUN_TEST(test_hidden_claim_keeps_updating_and_restore_stays_policy_brightness);
     RUN_TEST(test_same_visible_frame_is_not_rewritten);
     RUN_TEST(test_phase_change_plays_audio_cue_without_led_hardware);
+    RUN_TEST(test_led_phase_colors_are_muted_not_lcd_palette);
     RUN_TEST(test_lit_pixel_helpers);
     RUN_TEST(test_progress_frame_extinguishes_from_logical_origin);
     RUN_TEST(test_controller_keeps_transition_after_stalled_boundary);

@@ -1,6 +1,5 @@
 #include "services/pomodoro/pomodoro_led_controller.h"
 
-#include "core/display/palette.h"
 #include "core/power/display_power_controller.h"
 #include "services/audio/audio_service.h"
 
@@ -50,7 +49,7 @@ std::uint8_t pomodoroLitPixels(const PomodoroSnapshot& snapshot) noexcept {
 }
 
 core::RgbColor pomodoroPhaseColor(PomodoroPhase phase) noexcept {
-    return phase == PomodoroPhase::Work ? core::palette::blue : core::palette::leaf;
+    return phase == PomodoroPhase::Work ? pomodoroWorkLed : pomodoroBreakLed;
 }
 
 IndicatorFrame pomodoroProgressFrame(core::RgbColor color, std::uint8_t litPixels) noexcept {

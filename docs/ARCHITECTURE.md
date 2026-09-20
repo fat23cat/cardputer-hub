@@ -1494,9 +1494,11 @@ priority published frame. `update()` resolves the visible owner and writes
 through `ILEDAdapter`. Identical resolved hardware frames are not rewritten.
 
 Brightness policy is owned by `IndicatorService`, not by claim publishers.
-Pomodoro (`owner` `"pomodoro"`) is always rendered at 3%. Other current owners
-use 100%. A newly selected owner does not inherit the previous owner's
-brightness.
+Pomodoro (`owner` `"pomodoro"`) is always rendered at 3%. Work and break LED
+pixels use muted steel blue and sage rather than LCD `palette::blue` and
+`palette::leaf`, because the Unit Puzzle diodes are harsh even at that
+brightness. Other current owners use 100%. A newly selected owner does not
+inherit the previous owner's brightness.
 
 `ILEDAdapter` lives in System Core so Services can depend on it without
 depending on hardware. `PuzzleWs2812Adapter` is the Cardputer Unit Puzzle
