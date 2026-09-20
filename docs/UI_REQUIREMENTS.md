@@ -313,8 +313,11 @@ The next input after wake is handled normally. Wake consumption belongs in the
 shared input-routing path so every screen and Mini App behaves identically.
 
 Background polling, idle animation, and unchanged Service state are not user
-activity. A deliberate foreground notification may wake the screen only when
-its product requirement says that it is important enough to interrupt idle.
+activity. A background feature may request programmatic display wake for a
+meaningful user-visible event; that restores the backlight without synthesizing
+input, consuming a key, or changing the active application. A deliberate
+foreground notification may wake the screen only when its product requirement
+says that it is important enough to interrupt idle.
 Turning off the backlight must not disable Connectivity, Services, or input
 polling.
 

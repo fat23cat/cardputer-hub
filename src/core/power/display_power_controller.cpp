@@ -146,6 +146,18 @@ bool DisplayPowerController::update(std::chrono::milliseconds elapsed, bool phys
     return wakeOnly;
 }
 
+void DisplayPowerController::requestWake() {
+    if (state_ == DisplayPowerState::Awake) {
+        stateElapsed_ = {};
+        writeLevel();
+        return;
+    }
+    if (state_ == DisplayPowerState::Waking)
+        return;
+    startWake();
+    writeLevel();
+}
+
 void DisplayPowerController::writeLevel() {
     const auto level = currentLevel();
     if (level == writtenLevel_)

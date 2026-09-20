@@ -15,10 +15,15 @@ set(CARDPUTER_HUB_SOURCES
     "${CMAKE_CURRENT_LIST_DIR}/../src/apps/mac_control/mac_control_app.cpp"
     "${CMAKE_CURRENT_LIST_DIR}/../src/apps/mac_control/mac_control_bindings.cpp"
     "${CMAKE_CURRENT_LIST_DIR}/../src/apps/mac_control/mac_control_graphics.cpp"
+    "${CMAKE_CURRENT_LIST_DIR}/../src/apps/pomodoro/pomodoro_app.cpp"
+    "${CMAKE_CURRENT_LIST_DIR}/../src/apps/pomodoro/pomodoro_graphics.cpp"
     "${CMAKE_CURRENT_LIST_DIR}/../src/apps/shell/application_shell.cpp"
     "${CMAKE_CURRENT_LIST_DIR}/../src/services/configuration/configuration_service.cpp"
     "${CMAKE_CURRENT_LIST_DIR}/../src/services/network/network_service.cpp"
     "${CMAKE_CURRENT_LIST_DIR}/../src/services/hosts/host_service.cpp"
+    "${CMAKE_CURRENT_LIST_DIR}/../src/services/pomodoro/pomodoro_service.cpp"
+    "${CMAKE_CURRENT_LIST_DIR}/../src/services/pomodoro/pomodoro_led_controller.cpp"
+    "${CMAKE_CURRENT_LIST_DIR}/../src/services/indicator/indicator_service.cpp"
     "${CMAKE_CURRENT_LIST_DIR}/../src/connectivity/companion/companion_protocol.cpp"
     "${CMAKE_CURRENT_LIST_DIR}/../src/connectivity/companion/companion_framer.cpp"
     "${CMAKE_CURRENT_LIST_DIR}/../src/connectivity/bluetooth/bluetooth_service.cpp"
@@ -43,6 +48,7 @@ set(CARDPUTER_HUB_SOURCES
     "${CMAKE_CURRENT_LIST_DIR}/../src/hardware/cardputer/cardputer_adv_keyboard_layout.cpp"
     "${CMAKE_CURRENT_LIST_DIR}/../src/hardware/cardputer/cardputer_keyboard_adapter.cpp"
     "${CMAKE_CURRENT_LIST_DIR}/../src/hardware/cardputer/cardputer_platform.cpp"
+    "${CMAKE_CURRENT_LIST_DIR}/../src/hardware/cardputer/cardputer_puzzle_ws2812_adapter.cpp"
     "${CMAKE_CURRENT_LIST_DIR}/../src/hardware/cardputer/serial_log_sink.cpp"
     "${CMAKE_CURRENT_LIST_DIR}/../src/hardware/esp32/bluetooth/esp32_bluetooth_adapter.cpp"
     "${CMAKE_CURRENT_LIST_DIR}/../src/hardware/esp32/esp32_nvs_storage_adapter.cpp"
@@ -65,6 +71,7 @@ idf_component_register(
         esp_netif
         esp_wifi
         fatfs
+        led_strip
         mbedtls
         m5stack__m5gfx
         m5stack__m5unified

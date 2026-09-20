@@ -18,6 +18,12 @@ inline constexpr const char* const macControlAppIcon[] = {
     "##############", "#  ##  ##  ## ", "#  ##  ##  ## ", "##############",
 };
 
+inline constexpr const char* const pomodoroAppIcon[] = {
+    "      ##      ", "     #  #     ", "   ########   ", "  ##########  ", " ############ ",
+    "##############", "##############", "##############", "##############", "##############",
+    " ############ ", "  ##########  ", "   ########   ", "    ######    ",
+};
+
 inline constexpr const char* const fallbackAppIcon[] = {
     " ############ ", " #          # ", " # ######## # ", " # #      # # ", " # #      # # ",
     " # #      # # ", " # #      # # ", " # #      # # ", " # ######## # ", " #          # ",
@@ -29,6 +35,8 @@ inline const char* const* appIconRows(const char* iconId) {
         return systemAppIcon;
     if (iconId != nullptr && std::strcmp(iconId, "mac-control") == 0)
         return macControlAppIcon;
+    if (iconId != nullptr && std::strcmp(iconId, "pomodoro") == 0)
+        return pomodoroAppIcon;
     return fallbackAppIcon;
 }
 

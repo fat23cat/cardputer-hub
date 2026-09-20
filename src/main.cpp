@@ -1,6 +1,7 @@
 #include "apps/hosts/host_settings.h"
 #include "apps/mac_control/mac_control_app.h"
 #include "apps/network/wifi_settings.h"
+#include "apps/pomodoro/pomodoro_app.h"
 #include "apps/runtime/mini_app_runtime.h"
 #include "apps/shell/application_shell.h"
 #include "apps/shell/ui_scheduler.h"
@@ -10,6 +11,7 @@
 #include "esp_timer.h"
 #include "hardware/cardputer/cardputer_audio_adapter.h"
 #include "hardware/cardputer/cardputer_battery_adapter.h"
+#include "hardware/cardputer/cardputer_puzzle_ws2812_adapter.h"
 #include "hardware/esp32/bluetooth/esp32_bluetooth_adapter.h"
 #include "hardware/esp32/esp32_nvs_storage_adapter.h"
 #include "hardware/esp32/wifi/esp32_wifi_adapter.h"
@@ -18,7 +20,10 @@
 #include "services/companion/companion_service.h"
 #include "services/host_control/host_control_service.h"
 #include "services/hosts/host_service.h"
+#include "services/indicator/indicator_service.h"
 #include "services/network/network_service.h"
+#include "services/pomodoro/pomodoro_led_controller.h"
+#include "services/pomodoro/pomodoro_service.h"
 
 #include "core/lifecycle/build_info.h"
 #include "core/lifecycle/system_runtime.h"
@@ -71,6 +76,13 @@ cardputer_hub::services::CompanionService companion(bluetooth.companionTransport
                                                     &logger);
 cardputer_hub::services::HostControlService hostControl(hosts, companion, capabilities);
 cardputer_hub::apps::MacControlApp macControl(actions, hostControl, display);
+cardputer_hub::hardware::EspPuzzleLedBackend puzzleLedBackend;
+cardputer_hub::hardware::PuzzleWs2812Adapter puzzleLeds(puzzleLedBackend);
+cardputer_hub::services::IndicatorService indicator(puzzleLeds);
+cardputer_hub::services::PomodoroService pomodoro;
+cardputer_hub::services::PomodoroLedController pomodoroLed(pomodoro, indicator, &audio,
+                                                           &displayPower);
+cardputer_hub::apps::PomodoroApp pomodoroApp(pomodoro, display);
 cardputer_hub::apps::UiScheduler uiScheduler;
 std::int64_t previousUpdateMilliseconds = 0;
 bool homeVisible = false;
@@ -80,6 +92,7 @@ bool homeVisible = false;
 extern "C" void app_main(void) {
     runtime.start();
     (void)configuration.ensureLoaded();
+    (void)puzzleLeds.begin();
     for (const auto* id : {"host.select", "host.bluetooth", "host.rename", "host.platform",
                            "host.capability", "host.mapping-template", "host.pair",
                            "host.cancel-pairing", "host.pair-response", "host.delete"}) {
@@ -100,6 +113,8 @@ extern "C" void app_main(void) {
                                    "mac-control",
                                    {cardputer_hub::connectivity::companionCapabilityId}});
     (void)miniApps.registerInstance("mac-control", macControl);
+    (void)appRegistry.registerApp({"pomodoro", "POMODORO", "pomodoro", "pomodoro", {}});
+    (void)miniApps.registerInstance("pomodoro", pomodoroApp);
     battery.update(std::chrono::milliseconds(0));
     previousUpdateMilliseconds = esp_timer_get_time() / 1000;
 
@@ -113,6 +128,9 @@ extern "C" void app_main(void) {
         hostControl.update();
         network.update(elapsed);
         battery.update(elapsed);
+        pomodoro.update(elapsed);
+        pomodoroLed.update(elapsed);
+        indicator.update();
         if (!homeVisible) {
             if (runtime.splashFinished()) {
                 // Consume any key sampled on the frame that dismisses the splash.

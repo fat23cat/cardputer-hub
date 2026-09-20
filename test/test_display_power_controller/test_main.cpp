@@ -348,6 +348,124 @@ void test_large_elapsed_update_preserves_all_state_durations() {
     TEST_ASSERT_EQUAL_UINT8(0, f.backlight.level());
 }
 
+void test_awake_request_wake_resets_idle_without_changing_brightness() {
+    Fixture f;
+    TEST_ASSERT_FALSE(f.controller.update(ms(10000), false));
+    f.backlight.writes.clear();
+
+    f.controller.requestWake();
+
+    f.assertState(DisplayPowerState::Awake);
+    TEST_ASSERT_EQUAL_UINT8(existingBrightness, f.backlight.level());
+    TEST_ASSERT_EQUAL_UINT(0, f.backlight.writes.size());
+    TEST_ASSERT_FALSE(f.controller.update(ms(14999), false));
+    f.assertState(DisplayPowerState::Awake);
+    TEST_ASSERT_FALSE(f.controller.update(ms(1), false));
+    f.assertState(DisplayPowerState::Dimming);
+}
+
+void test_dimming_request_wake_reverses_from_current_brightness() {
+    Fixture f;
+    f.idleUntil(DisplayPowerState::Dimming);
+    (void)f.controller.update(ms(150), false);
+    const auto midFade = f.backlight.level();
+    TEST_ASSERT_TRUE(midFade < existingBrightness);
+    TEST_ASSERT_TRUE(midFade > expectedDimLevel);
+    f.backlight.writes.clear();
+
+    f.controller.requestWake();
+    f.assertState(DisplayPowerState::Waking);
+    TEST_ASSERT_EQUAL_UINT8(midFade, f.backlight.level());
+
+    for (int step = 0; step < 10; ++step)
+        TEST_ASSERT_TRUE(f.controller.update(ms(20), false));
+
+    f.assertState(DisplayPowerState::Awake);
+    TEST_ASSERT_EQUAL_UINT8(existingBrightness, f.backlight.level());
+    TEST_ASSERT_TRUE(f.backlight.writes.size() > 0);
+    for (const auto write : f.backlight.writes)
+        TEST_ASSERT_TRUE(write >= midFade);
+    TEST_ASSERT_TRUE(f.writesAreMonotonic());
+}
+
+void test_dimmed_request_wake_enters_waking() {
+    Fixture f;
+    f.idleUntil(DisplayPowerState::Dimmed);
+
+    f.controller.requestWake();
+
+    f.assertState(DisplayPowerState::Waking);
+    TEST_ASSERT_EQUAL_UINT8(expectedDimLevel, f.backlight.level());
+    TEST_ASSERT_TRUE(f.controller.update(DisplayPowerController::wakeRampDuration, false));
+    f.assertState(DisplayPowerState::Awake);
+    TEST_ASSERT_EQUAL_UINT8(existingBrightness, f.backlight.level());
+}
+
+void test_turning_off_request_wake_reverses_from_current_brightness() {
+    Fixture f;
+    f.idleUntil(DisplayPowerState::TurningOff);
+    (void)f.controller.update(ms(200), false);
+    const auto midFade = f.backlight.level();
+    TEST_ASSERT_TRUE(midFade > 0);
+    TEST_ASSERT_TRUE(midFade < expectedDimLevel);
+    f.backlight.writes.clear();
+
+    f.controller.requestWake();
+    f.assertState(DisplayPowerState::Waking);
+    TEST_ASSERT_EQUAL_UINT8(midFade, f.backlight.level());
+
+    for (int step = 0; step < 10; ++step)
+        TEST_ASSERT_TRUE(f.controller.update(ms(20), false));
+
+    f.assertState(DisplayPowerState::Awake);
+    TEST_ASSERT_EQUAL_UINT8(existingBrightness, f.backlight.level());
+    TEST_ASSERT_TRUE(f.backlight.writes.size() > 0);
+    for (const auto write : f.backlight.writes)
+        TEST_ASSERT_TRUE(write >= midFade);
+    TEST_ASSERT_TRUE(f.writesAreMonotonic());
+}
+
+void test_off_request_wake_enters_waking() {
+    Fixture f;
+    f.idleUntil(DisplayPowerState::Off);
+
+    f.controller.requestWake();
+
+    f.assertState(DisplayPowerState::Waking);
+    TEST_ASSERT_EQUAL_UINT8(0, f.backlight.level());
+}
+
+void test_waking_request_wake_does_not_restart_ramp() {
+    Fixture f;
+    f.idleUntil(DisplayPowerState::Off);
+    f.controller.requestWake();
+    TEST_ASSERT_TRUE(f.controller.update(ms(100), false));
+    f.assertState(DisplayPowerState::Waking);
+    const auto halfway = f.backlight.level();
+
+    f.controller.requestWake();
+    TEST_ASSERT_TRUE(f.controller.update(ms(100), false));
+
+    f.assertState(DisplayPowerState::Awake);
+    TEST_ASSERT_EQUAL_UINT8(existingBrightness, f.backlight.level());
+    TEST_ASSERT_TRUE(halfway > 0);
+    TEST_ASSERT_TRUE(halfway < existingBrightness);
+}
+
+void test_programmatic_wake_completes_at_normal_level_and_idle_policy_resumes() {
+    Fixture f;
+    f.idleUntil(DisplayPowerState::Off);
+    f.controller.requestWake();
+    TEST_ASSERT_TRUE(f.controller.update(DisplayPowerController::wakeRampDuration, false));
+
+    f.assertState(DisplayPowerState::Awake);
+    TEST_ASSERT_EQUAL_UINT8(existingBrightness, f.backlight.level());
+    TEST_ASSERT_FALSE(f.controller.update(ms(14999), false));
+    f.assertState(DisplayPowerState::Awake);
+    TEST_ASSERT_FALSE(f.controller.update(ms(1), false));
+    f.assertState(DisplayPowerState::Dimming);
+}
+
 int main() {
     UNITY_BEGIN();
     RUN_TEST(test_normal_level_is_captured_from_existing_firmware_brightness);
@@ -365,5 +483,12 @@ int main() {
     RUN_TEST(test_input_during_waking_is_consumed_without_restarting_ramp);
     RUN_TEST(test_background_updates_do_not_reset_display_idle);
     RUN_TEST(test_large_elapsed_update_preserves_all_state_durations);
+    RUN_TEST(test_awake_request_wake_resets_idle_without_changing_brightness);
+    RUN_TEST(test_dimming_request_wake_reverses_from_current_brightness);
+    RUN_TEST(test_dimmed_request_wake_enters_waking);
+    RUN_TEST(test_turning_off_request_wake_reverses_from_current_brightness);
+    RUN_TEST(test_off_request_wake_enters_waking);
+    RUN_TEST(test_waking_request_wake_does_not_restart_ramp);
+    RUN_TEST(test_programmatic_wake_completes_at_normal_level_and_idle_policy_resumes);
     return UNITY_END();
 }
