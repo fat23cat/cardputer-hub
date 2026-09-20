@@ -42,6 +42,7 @@ Core principle:
 │                                      │
 │ Device Manager                       │
 │ MAC CONTROL                          │
+│ POMODORO                             │
 │ Weather                              │
 │ VPS Monitor                          │
 │ Media                                │
@@ -63,6 +64,7 @@ Core principle:
 │ TelegramService                      │
 │ MediaService                         │
 │ IndicatorService                     │
+│ PomodoroService                      │
 │ ConfigurationService                 │
 │ RemoteControlService                 │
 │ ...                                  │
@@ -195,10 +197,15 @@ application UI rather than from boot.
 holds normal brightness at the level the firmware already uses, dims to 10% of
 it after 15 seconds of no physical press, holds that readable level for a full
 120 seconds once the 300 ms dim ramp has actually completed, fades to zero over
-400 ms, and wakes over 200 ms from the brightness currently on screen. Every
-ramp is linear, monotonic and driven only by injected monotonic elapsed time;
-nothing blocks the main loop and no `delay()` is used. A single large elapsed
-value crosses state boundaries explicitly instead of discarding the excess.
+400 ms, and wakes over 200 ms from the brightness currently on screen. Background
+features may request display attention through `requestWake()` for a meaningful
+user-visible event; that restores visibility from the current brightness without
+synthesizing input or changing the active application. An already-awake display
+only resets its idle timer. Repeated requests while already waking do not restart
+or extend the wake ramp. Every ramp is linear, monotonic and driven only by
+injected monotonic elapsed time; nothing blocks the main loop and no `delay()` is
+used. A single large elapsed value crosses state boundaries explicitly instead of
+discarding the excess.
 Display Off means backlight zero only: there is no ESP32 light or deep sleep,
 and Connectivity, Services, Companion traffic, timers and keyboard polling all
 continue. The framebuffer keeps receiving state-driven updates behind the dark
@@ -385,6 +392,7 @@ AppRegistry
 ├── VpsMonitorApp
 ├── MediaApp
 ├── TelegramApp
+├── PomodoroApp
 ├── LedControlApp
 └── SettingsApp
 ```
@@ -862,6 +870,7 @@ Services
 ├── TelegramService
 ├── MediaService
 ├── IndicatorService
+├── PomodoroService
 ├── ConfigurationService
 └── RemoteControlService
 ```
@@ -882,6 +891,15 @@ HostService
     ↓
 BluetoothService
 ```
+
+`PomodoroService` owns the background timer cycle and does not know about
+display power or LED hardware. `PomodoroLedController` is the single consumer
+of its transition events: it updates the optional Unit Puzzle claim, plays the
+phase-change audio cue, and calls `DisplayPowerController::requestWake()` once
+per update that received one or more transitions. That wake restores backlight
+visibility without synthesizing input or changing the active Mini App. LED
+claim visibility, adapter presence, and audio playback success do not gate the
+wake request. Running Pomodoro does not disable the global idle dim/off policy.
 
 `NetworkService` is the application-facing Wi-Fi boundary. It owns the single
 persisted station network, enabled/disabled intent, startup restoration,
@@ -935,7 +953,10 @@ TelegramService
     polling / event handling
 
 IndicatorService
-    LED animation updates
+    claim arbitration and hardware writes
+
+PomodoroService
+    background timer cycle
 ```
 
 ---
@@ -1462,31 +1483,29 @@ BluetoothService
 
 ## 28. RGB Indicator
 
-The external M5Stack Unit Puzzle 8×8 WS2812E RGB LED matrix is part of the
-planned system.
+The external M5Stack Unit Puzzle 8×8 WS2812E RGB LED matrix is driven through
+shared indicator infrastructure. Only `IndicatorService` writes LED hardware.
 
-`IndicatorService` owns LED behavior.
+Consumers acquire an RAII `IndicatorClaim` with an owner id and
+`IndicatorPriority`, publish logical `IndicatorFrame`s, and release the claim
+when they no longer need the matrix. Hidden claims remain in the arbitration
+set and may keep updating; they are not shown until they become the highest
+priority published frame. `update()` resolves the visible owner and writes
+through `ILEDAdapter`. Identical resolved hardware frames are not rewritten.
 
-Responsibilities:
+Brightness policy is owned by `IndicatorService`, not by claim publishers.
+Pomodoro (`owner` `"pomodoro"`) is always rendered at 3%. Work and break LED
+pixels use muted steel blue and sage rather than LCD `palette::blue` and
+`palette::leaf`, because the Unit Puzzle diodes are harsh even at that
+brightness. Other current owners use 100%. A newly selected owner does not
+inherit the previous owner's brightness.
 
-```text
-state
-patterns
-brightness
-static colors
-blink
-pulse
-breathing
-simple animations
-priority
-```
-
-Mini Apps and other Services must not manipulate WS2812 hardware directly.
-
-Dependency:
+`ILEDAdapter` lives in System Core so Services can depend on it without
+depending on hardware. `PuzzleWs2812Adapter` is the Cardputer Unit Puzzle
+implementation and maps logical 8×8 frames onto the WS2812 wire order.
 
 ```text
-System / Service / Mini App
+Mini App / presentation helper
            ↓
     IndicatorService
            ↓
@@ -1495,29 +1514,37 @@ System / Service / Mini App
  PuzzleWs2812Adapter
 ```
 
+Animations, connection patterns, and additional owner-specific brightness
+policies remain later work. Physical Unit Puzzle acceptance is still required.
+
 ---
 
 ## 29. Indicator Priority
 
-Multiple states may compete for the indicator.
-
-The architecture should support priorities such as:
+`IndicatorService` selects the highest-priority claim that currently has a
+frame. Equal priorities prefer the later-acquired claim.
 
 ```text
-CRITICAL
+Critical
    ↓
-WARNING
+Warning
    ↓
-NOTIFICATION
+Notification
    ↓
-APPLICATION
+ForegroundApplication
    ↓
-CONNECTION
+BackgroundApplication
    ↓
-IDLE
+Connection
+   ↓
+Idle
 ```
 
-Exact visual policy is an implementation/configuration decision.
+Foreground application and notification claims overlay a background application
+claim such as Pomodoro. Releasing the overlay restores the current background
+frame at that owner's brightness policy. Pomodoro publishes
+`BackgroundApplication` progress so a later LED-control Mini App can take the
+matrix without stopping the timer.
 
 ---
 
@@ -2380,7 +2407,9 @@ preserving asynchronous playback after startup.
 and 255 is the adapter's maximum. `CardputerBacklightAdapter` is the only code
 that calls the M5Unified backlight API, and it carries no policy: idle, dim,
 off and wake timing stay in `DisplayPowerController`. UI screens and Mini Apps
-never set physical brightness. The controller reads the existing level once,
+never set physical brightness. Programmatic attention goes through
+`DisplayPowerController::requestWake()`, not through a second backlight path.
+The controller reads the existing level once,
 after platform initialization, so the delivered firmware brightness is
 preserved rather than reset to maximum; a future Settings brightness control
 can change that normal level without redesigning the idle policy.
@@ -2536,14 +2565,14 @@ Earlier plan records retain their historical test counts and toolchains.
 | --- | --- |
 | 1 — System Core | Complete |
 | 2 — Connectivity | Software scope complete; physical acceptance partial |
-| 3 — Core Services | Partial: host/configuration, battery and audio Services delivered |
+| 3 — Core Services | Partial: host/configuration, battery, audio, PomodoroService, and IndicatorService claims delivered |
 | 4 — Application Shell | Partial: Home, Settings, Launcher, navigation, sound feedback and page transitions delivered |
-| 5 — Mini App Infrastructure | Partial: runtime, Launcher, SYSTEM, and MAC CONTROL delivered; Service lifecycle composition pending |
+| 5 — Mini App Infrastructure | Partial: runtime, Launcher, SYSTEM, MAC CONTROL, and POMODORO delivered; Service lifecycle composition pending |
 | 6 — Device Manager | Partial: built-in Bluetooth/host UI delivered |
 | 7 — Host Control | Partial: HostControlService and `host.app.activate` delivered; HID Actions remain |
 | 8 — Host Companion | Foundation and MAC CONTROL Mini App delivered; physical Telegram acceptance pending |
 | 9 — Weather | Not implemented |
-| 10 — RGB Indicator | Not implemented; Unit Puzzle hardware required |
+| 10 — RGB Indicator | Partial: IndicatorService claims/brightness and Puzzle adapter delivered; animations and physical acceptance pending |
 | 11 — Remote Boundary | Not implemented |
 | 12 — Extensions | Future scope |
 
@@ -2607,7 +2636,7 @@ Transport expansion does not block the BLE-only software scope.
 - [ ] Mapping-template catalog and resolution (Phase 7).
 - [ ] Mini App, Service, shortcut, indicator and remote configuration.
 - [ ] Explicit migration when a schema later than version 4 is introduced.
-- [ ] IndicatorService abstraction.
+- [x] IndicatorService claim arbitration and owner brightness policy.
 
 ### Phase 4 — Application Shell
 
@@ -2635,11 +2664,12 @@ Transport expansion does not block the BLE-only software scope.
 deactivation, and CapabilityRegistry eligibility. Launcher enumerates
 `AppRegistry` and opens registered instances. Per-app view state remains
 application-owned; there is no universal polymorphic View hierarchy.
-`SYSTEM` and `MAC CONTROL` are the production Mini Apps. SYSTEM reports
-existing Service snapshots and does not treat enabled Wi-Fi without a
+`SYSTEM`, `MAC CONTROL`, and `POMODORO` are the production Mini Apps. SYSTEM
+reports existing Service snapshots and does not treat enabled Wi-Fi without a
 configured network as `OFF`. MAC CONTROL requires a live `COMPANION`
 capability and launches or focuses Telegram through `host.app.activate`.
-Service lifecycle composition remains open.
+`POMODORO` has no required capabilities; `PomodoroService` continues while the
+Mini App is closed. Service lifecycle composition remains open.
 
 - [x] MiniApp runtime interface and lifecycle foundation.
 - [x] AppRegistry-driven Launcher integration.
@@ -2696,11 +2726,14 @@ foundation. Plan 031 added the MAC CONTROL Mini App and `host.app.activate`.
 
 ### Phase 10 — RGB Indicator
 
-**Not implemented; requires Unit Puzzle hardware.**
+**Partial** — `IndicatorService` arbitrates claims and writes through
+`ILEDAdapter`. `PuzzleWs2812Adapter` drives Unit Puzzle. Animations and
+physical acceptance remain.
 
-- [ ] Puzzle hardware adapter.
-- [ ] IndicatorService states.
-- [ ] Animations and priority arbitration.
+- [x] Puzzle hardware adapter.
+- [x] IndicatorService claim/priority arbitration and Pomodoro 3% brightness.
+- [ ] Animations and additional indicator patterns.
+- [ ] Physical Unit Puzzle acceptance.
 
 ### Phase 11 — Remote Boundary
 

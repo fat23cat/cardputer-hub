@@ -202,11 +202,13 @@ by the lower-level WiFiService suite.
 Test:
 
 ```text
-priority resolution
-animation state
-notification overrides idle state
-critical state overrides notification
-restore previous state
+highest-priority claim with a frame wins
+ForegroundApplication overlays BackgroundApplication
+Notification overlays application claims
+hidden lower-priority claims keep updating
+releasing the overlay restores the current lower-priority frame
+owner brightness policy, including Pomodoro at 3%
+identical resolved hardware frames are not rewritten
 ```
 
 ---

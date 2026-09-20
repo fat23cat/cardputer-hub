@@ -17,14 +17,15 @@ unavailable); the voltage-based estimate can be less accurate with USB power
 connected. Long host names are shortened with an ellipsis on Home only; their
 stored names remain unchanged. Press **Enter** on Home to open **Apps**. The
 list currently contains **SYSTEM**, a read-only status screen for battery,
-Bluetooth, the selected host, Wi-Fi, and firmware version, and **MAC CONTROL**
-when a live Cardputer Companion session is ready. MAC CONTROL is a full-screen
+Bluetooth, the selected host, Wi-Fi, and firmware version; **POMODORO**, a
+background focus timer; and **MAC CONTROL** when a live Cardputer Companion
+session is ready. MAC CONTROL is a full-screen
 3×2 grid. Press the matching number to launch or focus that Mac app; production
 firmware binds **1** to Telegram. Empty numbered tiles do nothing. Left and
 Right move between pages when more than one page exists. A bound press expands
 that tile in blue while the Mac opens the app, then flashes green on success or
 red if the app is not found, and returns to the grid. Escape returns from
-SYSTEM or MAC CONTROL to Apps and from Apps to Home. If Companion disappears
+SYSTEM, POMODORO, or MAC CONTROL to Apps and from Apps to Home. If Companion disappears
 while MAC CONTROL is open, the app closes and Apps returns; reconnect does not
 reopen it or repeat the last launch. Press plain **Tab** on the main keyboard
 to open the general Settings menu. Fn+Tab is inactive, and a normal G0 press
@@ -37,6 +38,23 @@ The click cycles through subtle deterministic variants rather than playing a
 recorded sound. The default volume is 60%; 0% mutes it completely, and the
 setting survives Reset and power cycles. Rapid presses are coalesced into one
 uninterrupted cue instead of building up an audio queue.
+
+After about 15 seconds without a key press the backlight dims, then later
+turns off. A key press while dimmed or off wakes the display and is not
+delivered as a command. Background work keeps running while the screen is
+dark. A Pomodoro phase change also wakes the display without switching the
+active app; the normal idle dim/off cycle then starts again.
+
+## Pomodoro
+
+**POMODORO** is always available in Apps. Space starts, pauses, and resumes.
+`R` resets. Right, `S`, or `/` skip to the next phase. The timer continues
+after you leave the app: 25-minute focus, 5-minute short breaks, and a
+15-minute long break after every fourth focus. Phase changes play a sound.
+If a Unit Puzzle LED matrix is attached, it shows a soft steel-blue glow
+for focus and a muted sage for breaks, at a low brightness. When a phase finishes, the display wakes so
+the current screen is visible again; Pomodoro does not steal focus from
+another open app.
 
 ## Hosts and Bluetooth
 
@@ -113,6 +131,10 @@ instead of moving a list.
 | Escape in Apps | Return Home |
 | Enter on SYSTEM | Open the read-only system status list |
 | Escape in SYSTEM | Return to Apps |
+| Escape in POMODORO | Return to Apps; the timer keeps running |
+| Space in POMODORO | Start, pause, or resume |
+| R in POMODORO | Reset the timer |
+| Right, S, or / in POMODORO | Skip to the next phase |
 | Plain Tab on Home | Open Settings without changing BLE state |
 | Enter on Bluetooth in Settings | Open the Bluetooth panel |
 | Enter on Wi-Fi in Settings | Open Wi-Fi Settings |
@@ -247,8 +269,9 @@ Fresh pairing, two-computer addition/switching, and reconnection to the last
 selected host after Reset/power-on were confirmed on Cardputer-Adv. Extended
 Off, report/interruption and USB hotplug acceptance remains tracked in
 [plan 017](../plans/017-hid-transport-arbitration.md#0-current-closeout-status).
-The current firmware includes Apps and the SYSTEM status Mini App. It does not
-include additional Mini Apps, profile-metadata editing or template
+The current firmware includes Apps, SYSTEM, POMODORO, and MAC CONTROL when
+Companion is ready. It does not include profile-metadata editing or template
 resolution, Action-to-HID mappings, a Mac companion CLI/control protocol,
-Wi-Fi network scanning, or weather/VPS/Telegram/RGB features. Boot/status sound cues, idle
-dimming, and wake-input behavior from the broader UI requirements remain planned.
+Wi-Fi network scanning, or weather/VPS/Telegram features. Boot/status sound
+cues from the broader UI requirements remain planned. Unit Puzzle LED
+animations beyond Pomodoro progress remain later work.

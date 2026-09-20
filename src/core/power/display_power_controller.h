@@ -37,6 +37,10 @@ class DisplayPowerController {
     // Returns true when this frame's input is wake-only and must be consumed.
     bool update(std::chrono::milliseconds elapsed, bool physicalPress);
 
+    // Programmatic attention: restores visibility without synthesizing input.
+    // Background features may call this for a meaningful user-visible event.
+    void requestWake();
+
     DisplayPowerState state() const noexcept { return state_; }
     bool displayOff() const noexcept { return state_ == DisplayPowerState::Off; }
     std::uint8_t normalLevel() const noexcept { return normalLevel_; }
