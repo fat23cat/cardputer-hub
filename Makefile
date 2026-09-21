@@ -9,7 +9,11 @@ IDF_PARTITION_IMAGE := $(IDF_BUILD_DIR)/partition_table/partition-table.bin
 IDF_CONFIG_HEADER := $(IDF_BUILD_DIR)/config/sdkconfig.h
 CPP_FILES := $(shell find src test -type f \( -name '*.c' -o -name '*.cc' -o -name '*.cpp' -o -name '*.h' -o -name '*.hpp' \) | sort)
 
-.PHONY: setup lock-check architecture-check validate-idf validate-submodules configure build firmware-size test format format-check lint host-check firmware-check companion-check check upload migrate-storage-layout monitor clean
+# CRUB hub partition from cardputer-firmware-manager layouts/cardputer-adv-8mb.csv.
+# make upload must not write Hub's standalone table; that hides hub_config at 0x560000.
+CRUB_HUB_OFFSET := 0xd0000
+
+.PHONY: setup lock-check architecture-check validate-idf validate-submodules configure build firmware-size test format format-check lint host-check firmware-check companion-check check upload upload-standalone migrate-storage-layout monitor clean
 
 setup: validate-idf
 	$(UV) sync --frozen
@@ -69,11 +73,17 @@ firmware-check: build
 check: host-check firmware-check
 
 upload: validate-idf validate-submodules
+	@test -n "$(UPLOAD_PORT)" || (echo "UPLOAD_PORT is required. make upload writes only the CRUB hub partition at $(CRUB_HUB_OFFSET) and does not replace the shared partition table." >&2; exit 2)
+	$(MAKE) build
+	esptool.py --chip esp32s3 --port "$(UPLOAD_PORT)" -b 1500000 --before default_reset --after hard_reset write_flash $(CRUB_HUB_OFFSET) $(IDF_APP_IMAGE)
+
+upload-standalone: validate-idf validate-submodules
+	@echo "warning: upload-standalone writes Hub's partition table and remaps hub_config to 0x7e0000; do not use it on a CRUB device." >&2
 	$(IDF_RUN) $(IDF_ARGS) -b 1500000 $(if $(UPLOAD_PORT),-p $(UPLOAD_PORT),) flash
 
 migrate-storage-layout:
 	@test -n "$(UPLOAD_PORT)" || (echo "UPLOAD_PORT is required for storage-layout migration." >&2; exit 2)
-	$(MAKE) upload UPLOAD_PORT="$(UPLOAD_PORT)"
+	$(MAKE) upload-standalone UPLOAD_PORT="$(UPLOAD_PORT)"
 	esptool.py --chip esp32s3 --port "$(UPLOAD_PORT)" erase_region 0x7e0000 0x10000
 
 monitor: validate-idf

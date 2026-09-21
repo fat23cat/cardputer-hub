@@ -82,3 +82,8 @@ CRUB partition layout and SD staging contract. Use its `doctor`,
 `local --app hub`, and `release --app hub` commands to validate and prepare
 multiboot firmware. Do not duplicate that layout here or tell users to bypass
 the manager before running CRUB's `uphub` command.
+
+`make upload` writes only the CRUB `hub` application at `0xd0000`. Never use
+`idf.py flash` or `make upload-standalone` on a CRUB device: that replaces the
+shared partition table and makes Hub read `hub_config` at `0x7e0000` instead of
+`0x560000`.

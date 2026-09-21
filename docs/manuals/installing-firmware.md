@@ -8,7 +8,12 @@ PlatformIO is retained only for native host checks.
 For a microSD-based multiboot installation alongside Codex Microputer ADV, use
 the separate [Cardputer Firmware Manager](https://github.com/fat23cat/cardputer-firmware-manager).
 Its shared `crub` partition table replaces the standalone installation layout
-described below.
+described later in this guide. A device that already boots CRUB must keep that
+table: `make upload` writes only the Hub application into the `hub` partition
+at `0xd0000`. Never run `make upload-standalone`, `idf.py flash`, or a
+release-asset flash of `*-partitions.bin` onto that device. Those commands
+install Hub's standalone table, which looks for `hub_config` at `0x7e0000` and
+hides the CRUB settings that remain at `0x560000`.
 
 With the manager cloned beside this repository, build Hub, enter `usbsd` in
 CRUB, and run:
@@ -129,30 +134,41 @@ python -m serial.tools.list_ports
 
 ## 5. Build and Install the Firmware
 
-For the first Cardputer Hub installation on a device, or when upgrading a
+On a CRUB multiboot Cardputer, build Hub and write only the application image
+into the existing `hub` partition:
+
+```bash
+make upload UPLOAD_PORT=/dev/ttyACM0
+```
+
+Replace `/dev/ttyACM0` with the exact device path reported in step 4. The port
+is mandatory so this USB path cannot silently rewrite the shared partition
+table. It does not flash the bootloader, partition table, or `otadata`.
+
+Prefer the Firmware Manager SD path when installing a reviewed image: `doctor`,
+then `local --app hub` or `release --app hub`, then CRUB `uphub`. Use
+`make upload` for local USB iteration on a device that already has that layout.
+
+For a Hub-only device that has never used CRUB, or when upgrading a Hub-only
 device that previously ran a Cardputer Hub release with no dedicated
-`hub_config` partition, run the one-time storage-layout migration:
+`hub_config` partition, run the one-time standalone storage-layout migration:
 
 ```bash
 make migrate-storage-layout UPLOAD_PORT=/dev/ttyACM0
 ```
 
-Replace `/dev/ttyACM0` with the exact device path reported in step 4. The port
-is mandatory so both the upload and destructive erase target the same physical
-Cardputer; the migration refuses to auto-detect a port.
-
-This builds and uploads the firmware and partition table, then erases only the
-new configuration partition's range (`0x7e0000-0x7effff`). That range belonged
-to SPIFFS in the previous layout, so it must be provisioned before NVS can use
-it. No Cardputer Hub configuration existed there under the previous layout.
+That target calls `make upload-standalone`, which writes Hub's partition table,
+then erases only the new standalone configuration partition's range
+(`0x7e0000-0x7effff`). That range belonged to SPIFFS in the previous standalone
+layout, so it must be provisioned before NVS can use it. No Cardputer Hub
+configuration existed there under the previous standalone layout. Do not run it
+on a CRUB device.
 
 Do not use this migration target for routine upgrades. It intentionally clears
-`hub_config` and would remove configuration already stored there. Once the
-device has the current layout, use the non-destructive upload path:
-
-```bash
-make upload
-```
+standalone `hub_config` and would remove configuration already stored there.
+Once the device has the current standalone layout, Hub-only upgrades can use
+`make upload-standalone`. CRUB devices must keep using `make upload` or
+`uphub`.
 
 The current firmware lazily upgrades older `HUBH` configuration records to the
 combined version-4 schema on the next successful settings change. Versions 1,
@@ -165,8 +181,8 @@ migration. Clearing
 configuration and is not part of a normal downgrade or routine upgrade.
 
 The first run may take several minutes while ESP-IDF downloads the locked
-managed components. It then builds the production firmware, selects the
-connected serial port, flashes the image, and resets the device.
+managed components. `make upload` then builds the production firmware and
+writes only the Hub application to the CRUB `hub` partition.
 
 If ESP-IDF cannot enter download mode:
 
@@ -194,9 +210,13 @@ cardputer-hub-v0.2.0-partitions.bin
 SHA256SUMS
 ```
 
-Verify both downloads against `SHA256SUMS`. For a device that already has the
-`hub_config` layout, flash both images without erasing data partitions (replace
-the example port and version with the downloaded release):
+Verify both downloads against `SHA256SUMS`. For a CRUB device, stage the
+application image with Firmware Manager `release --app hub` and install it with
+`uphub`. Do not flash `*-partitions.bin` onto that device.
+
+For a Hub-only device that already has the standalone `hub_config` layout, flash
+both images without erasing data partitions (replace the example port and
+version with the downloaded release):
 
 ```bash
 esptool.py --chip esp32s3 --port /dev/ttyACM0 write_flash \
@@ -269,4 +289,5 @@ Exit the serial monitor with `Ctrl+]`. Continue with the
 * If USB serial disappears only after launching Hub through CRUB, use the
   [`hubfast` diagnostic boot procedure](#usb-serial-diagnostics-after-a-crub-launch).
 * To discard local build output and rebuild from scratch, run `make clean`,
-  followed by `make upload`.
+  followed by `make upload UPLOAD_PORT=<device>` on a CRUB device. Use
+  `make upload-standalone` only for a Hub-only factory image.
