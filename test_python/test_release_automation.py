@@ -139,7 +139,7 @@ class ConfigurationPartitionMigrationTest(unittest.TestCase):
         makefile = MAKEFILE.read_text()
         offset, size = configuration_partition_bounds()
         self.assertIn('test -n "$(UPLOAD_PORT)"', makefile)
-        self.assertIn('$(MAKE) upload UPLOAD_PORT="$(UPLOAD_PORT)"', makefile)
+        self.assertIn('$(MAKE) upload-standalone UPLOAD_PORT="$(UPLOAD_PORT)"', makefile)
         self.assertIn(
             f'--port "$(UPLOAD_PORT)" erase_region {offset:#x} {size:#x}', makefile
         )
@@ -148,6 +148,27 @@ class ConfigurationPartitionMigrationTest(unittest.TestCase):
         guide = INSTALL_GUIDE.read_text()
         self.assertIn("make migrate-storage-layout UPLOAD_PORT=/dev/ttyACM0", guide)
         self.assertIn("Do not use this migration target for routine upgrades", guide)
+        self.assertIn("make upload UPLOAD_PORT=/dev/ttyACM0", guide)
+        self.assertIn("Never run `make upload-standalone`", guide)
+
+    def test_upload_writes_only_the_crub_hub_partition(self) -> None:
+        makefile = MAKEFILE.read_text()
+        self.assertIn("CRUB_HUB_OFFSET := 0xd0000", makefile)
+        self.assertIn(
+            "write_flash $(CRUB_HUB_OFFSET) $(IDF_APP_IMAGE)", makefile
+        )
+        upload_recipe, _, standalone_and_rest = makefile.partition("upload-standalone:")
+        self.assertIn("upload:", upload_recipe)
+        self.assertNotIn(") flash", upload_recipe)
+        self.assertIn(") flash", standalone_and_rest)
+        manager_layout = ROOT.parent / "cardputer-firmware-manager" / "layouts" / "cardputer-adv-8mb.csv"
+        if manager_layout.exists():
+            with manager_layout.open(newline="") as partition_file:
+                rows = csv.reader(
+                    line for line in partition_file if not line.lstrip().startswith("#")
+                )
+                hub = next(row for row in rows if row and row[0].strip() == "hub")
+            self.assertEqual(parse_partition_value(hub[3]), 0xD0000)
 
 
 if __name__ == "__main__":

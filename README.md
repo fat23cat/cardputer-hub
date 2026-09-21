@@ -363,19 +363,26 @@ tests and analysis.
 
 ## Flash
 
-Connect the Cardputer-Adv with a USB-C cable that supports data, then run:
+Connect the Cardputer-Adv with a USB-C cable that supports data. On a CRUB
+multiboot device, write only the Hub application into the existing `hub`
+partition:
 
 ```bash
-make upload
+make upload UPLOAD_PORT=<device>
 ```
 
-For the first installation, or a one-time upgrade from the earlier flash
-layout, use `make migrate-storage-layout UPLOAD_PORT=<device>` instead. The
-explicit port ensures the upload and targeted erase reach the same Cardputer.
-It provisions the new configuration range; routine upgrades must continue to
-use `make upload` so stored configuration is preserved. See the
-[`installation guide`](docs/manuals/installing-firmware.md) for the exact
-migration and release-asset flashing procedure.
+That command does not rewrite the bootloader, partition table, or `otadata`.
+Do not run `make upload-standalone` or `idf.py flash` on a CRUB device: those
+install Hub's standalone table and hide saved settings at `0x560000`.
+
+For a Hub-only device that has never used CRUB, the first installation or a
+one-time upgrade from the earlier flash layout uses
+`make migrate-storage-layout UPLOAD_PORT=<device>`. The explicit port ensures
+the standalone upload and targeted erase reach the same Cardputer. It
+provisions the standalone `hub_config` range; routine CRUB upgrades must
+continue to use `make upload` so stored configuration is preserved. See the
+[`installation guide`](docs/manuals/installing-firmware.md) for CRUB staging,
+standalone migration, and release-asset flashing.
 
 ESP-IDF's flash command normally resets the device automatically. If it cannot enter
 download mode, hold the `G0` button, press and release reset, release `G0`, and
@@ -446,9 +453,12 @@ make host-check    run lock, format, lint, and native test checks
 make firmware-check
                    build firmware and verify its effective ESP-IDF configuration
 make check         run all required validation
-make upload        compile and flash firmware
+make upload UPLOAD_PORT=<port>
+                   compile and write Hub into the CRUB hub partition only
+make upload-standalone
+                   Hub-only factory flash; replaces the CRUB partition table
 make migrate-storage-layout UPLOAD_PORT=<device>
-                   one-time migration from the earlier flash layout
+                   one-time migration from the earlier standalone flash layout
 make monitor       open the 115200-baud serial monitor
 make clean         remove ESP-IDF production build output
 ```
