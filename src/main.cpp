@@ -5,12 +5,14 @@
 #include "apps/runtime/mini_app_runtime.h"
 #include "apps/shell/application_shell.h"
 #include "apps/shell/ui_scheduler.h"
+#include "apps/sound_reactive/sound_reactive_app.h"
 #include "apps/system/system_app.h"
 #include "core/app_registry/app_registry.h"
 #include "core/capabilities/capability_registry.h"
 #include "esp_timer.h"
 #include "hardware/cardputer/cardputer_audio_adapter.h"
 #include "hardware/cardputer/cardputer_battery_adapter.h"
+#include "hardware/cardputer/cardputer_microphone_adapter.h"
 #include "hardware/cardputer/cardputer_puzzle_ws2812_adapter.h"
 #include "hardware/esp32/bluetooth/esp32_bluetooth_adapter.h"
 #include "hardware/esp32/esp32_nvs_storage_adapter.h"
@@ -21,6 +23,7 @@
 #include "services/host_control/host_control_service.h"
 #include "services/hosts/host_service.h"
 #include "services/indicator/indicator_service.h"
+#include "services/microphone/microphone_service.h"
 #include "services/network/network_service.h"
 #include "services/pomodoro/pomodoro_led_controller.h"
 #include "services/pomodoro/pomodoro_service.h"
@@ -54,6 +57,8 @@ cardputer_hub::hardware::Esp32NvsStorageAdapter configurationAdapter;
 cardputer_hub::core::Storage configurationStorage(configurationAdapter);
 cardputer_hub::services::ConfigurationService configuration(configurationStorage);
 cardputer_hub::services::AudioService audio(configuration, audioAdapter);
+cardputer_hub::hardware::CardputerMicrophoneAdapter microphoneAdapter;
+cardputer_hub::services::MicrophoneService microphone(microphoneAdapter, audio);
 cardputer_hub::hardware::Esp32WifiAdapter wifiAdapter;
 cardputer_hub::connectivity::WiFiService wifiConnectivity(wifiAdapter, logger);
 cardputer_hub::services::NetworkService network(wifiConnectivity, configuration, &logger);
@@ -83,6 +88,7 @@ cardputer_hub::services::PomodoroService pomodoro;
 cardputer_hub::services::PomodoroLedController pomodoroLed(pomodoro, indicator, &audio,
                                                            &displayPower);
 cardputer_hub::apps::PomodoroApp pomodoroApp(pomodoro, display);
+cardputer_hub::apps::SoundReactiveApp soundReactiveApp(microphone, indicator, display);
 cardputer_hub::apps::UiScheduler uiScheduler;
 std::int64_t previousUpdateMilliseconds = 0;
 bool homeVisible = false;
@@ -115,6 +121,9 @@ extern "C" void app_main(void) {
     (void)miniApps.registerInstance("mac-control", macControl);
     (void)appRegistry.registerApp({"pomodoro", "POMODORO", "pomodoro", "pomodoro", {}});
     (void)miniApps.registerInstance("pomodoro", pomodoroApp);
+    (void)appRegistry.registerApp(
+        {"sound-reactive", "SOUND", "sound-reactive", "sound-reactive", {}});
+    (void)miniApps.registerInstance("sound-reactive", soundReactiveApp);
     battery.update(std::chrono::milliseconds(0));
     previousUpdateMilliseconds = esp_timer_get_time() / 1000;
 
@@ -130,6 +139,7 @@ extern "C" void app_main(void) {
         battery.update(elapsed);
         pomodoro.update(elapsed);
         pomodoroLed.update(elapsed);
+        microphone.update(elapsed);
         indicator.update();
         if (!homeVisible) {
             if (runtime.splashFinished()) {

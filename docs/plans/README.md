@@ -43,6 +43,7 @@ ownership matrix with invariants. Do not rewrite older plans into that format.
 | [031](031-mac-control-app-grid.md) | MAC CONTROL app grid and Telegram activation | Software implemented; physical Telegram focus/launch/disconnect validation pending |
 | [032](032-display-power-and-wake.md) | Display idle dimming, off and wake consumption | Software implemented; physical Cardputer-Adv dim/off/wake acceptance pending |
 | [033](033-pomodoro-timer-and-optional-led-progress.md#0-current-status) | Pomodoro timer, optional LED progress, phase-transition display wake | Software implemented; physical Cardputer-Adv LED and display-wake acceptance pending |
+| [034](034-sound-reactive-visualizer.md) | SOUND sound-reactive visualizer | Software implemented; physical microphone/audio handover, LED, and motion acceptance pending |
 
 The work referred to historically as 013 is the approved
 [UI requirements](../UI_REQUIREMENTS.md); there is no separate plan-013 file.

@@ -7,6 +7,8 @@
 namespace cardputer_hub::services {
 
 AudioResult AudioService::start() {
+    if (suspended_)
+        return AudioResult::AdapterError;
     if (started_)
         return AudioResult::Success;
     if (configuration_.ensureLoaded() != ConfigurationResult::Success)
@@ -15,6 +17,23 @@ AudioResult AudioService::start() {
         return AudioResult::AdapterError;
     started_ = true;
     return AudioResult::Success;
+}
+
+bool AudioService::suspend() {
+    if (suspended_)
+        return true;
+    if (started_)
+        adapter_.end();
+    started_ = false;
+    suspended_ = true;
+    return true;
+}
+
+bool AudioService::resume() {
+    if (!suspended_)
+        return started_;
+    suspended_ = false;
+    return start() == AudioResult::Success;
 }
 
 AudioResult AudioService::setVolume(std::uint8_t volumePercent) {
@@ -28,13 +47,13 @@ AudioResult AudioService::setVolume(std::uint8_t volumePercent) {
     next.soundVolume = volumePercent;
     if (configuration_.save(next) != ConfigurationResult::Success)
         return AudioResult::StorageError;
-    if (started_)
+    if (started_ && !suspended_)
         adapter_.setVolume(volumePercent);
     return AudioResult::Success;
 }
 
 bool AudioService::play(AudioCue cue) {
-    if (!started_ || volume() == 0 || adapter_.isPlaying())
+    if (!started_ || suspended_ || volume() == 0 || adapter_.isPlaying())
         return false;
     if (cue == AudioCue::KeyPress) {
         const auto index = nextKeyVariant_;
@@ -56,7 +75,7 @@ core::ActionHandlingResult AudioService::handle(const core::Action& action) {
         return core::ActionHandlingResult::Rejected;
     // A settings action is also the explicit retry path after a transient
     // adapter-start failure. Persistence remains usable if the retry fails.
-    if (!started_)
+    if (!started_ && !suspended_)
         (void)start();
     const auto next = static_cast<std::uint8_t>(std::clamp(
         static_cast<std::int32_t>(volume()) + *delta, std::int32_t{0}, std::int32_t{100}));

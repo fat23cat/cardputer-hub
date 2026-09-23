@@ -46,6 +46,7 @@ class AudioAdapter final : public core::IAudioAdapter {
         volumes.push_back(volumePercent);
         return beginResult;
     }
+    void end() override { ++endCalls; }
     void setVolume(std::uint8_t volumePercent) override { volumes.push_back(volumePercent); }
     bool isPlaying() const override { return playing; }
     bool play(const core::AudioClip& clip) override {
@@ -56,6 +57,7 @@ class AudioAdapter final : public core::IAudioAdapter {
     bool beginResult = true;
     bool playing = false;
     int beginCalls = 0;
+    int endCalls = 0;
     std::vector<std::uint8_t> volumes;
     std::vector<core::AudioClip> clips;
 };
@@ -67,6 +69,33 @@ struct Fixture {
     AudioAdapter adapter;
     services::AudioService audio{configuration, adapter};
 };
+
+void test_suspend_rejects_cues_and_restores_saved_volume() {
+    Fixture fixture;
+    TEST_ASSERT_TRUE(fixture.audio.start() == services::AudioResult::Success);
+    TEST_ASSERT_TRUE(fixture.audio.suspend());
+    TEST_ASSERT_TRUE(fixture.audio.suspended());
+    TEST_ASSERT_EQUAL(1, fixture.adapter.endCalls);
+    TEST_ASSERT_FALSE(fixture.audio.play(services::AudioCue::KeyPress));
+    TEST_ASSERT_TRUE(fixture.audio.start() == services::AudioResult::AdapterError);
+    TEST_ASSERT_TRUE(fixture.audio.resume());
+    TEST_ASSERT_FALSE(fixture.audio.suspended());
+    TEST_ASSERT_EQUAL(2, fixture.adapter.beginCalls);
+    TEST_ASSERT_EQUAL_UINT8(60, fixture.adapter.volumes.back());
+    TEST_ASSERT_TRUE(fixture.audio.play(services::AudioCue::KeyPress));
+}
+
+void test_failed_resume_keeps_audio_unavailable_until_retry() {
+    Fixture fixture;
+    TEST_ASSERT_TRUE(fixture.audio.start() == services::AudioResult::Success);
+    fixture.audio.suspend();
+    fixture.adapter.beginResult = false;
+    TEST_ASSERT_FALSE(fixture.audio.resume());
+    TEST_ASSERT_FALSE(fixture.audio.suspended());
+    TEST_ASSERT_FALSE(fixture.audio.play(services::AudioCue::KeyPress));
+    fixture.adapter.beginResult = true;
+    TEST_ASSERT_TRUE(fixture.audio.start() == services::AudioResult::Success);
+}
 
 void test_defaults_to_sixty_percent_and_uses_a_bounded_precomputed_thock() {
     Fixture fixture;
@@ -276,6 +305,8 @@ void tearDown() {}
 
 int main() {
     UNITY_BEGIN();
+    RUN_TEST(test_suspend_rejects_cues_and_restores_saved_volume);
+    RUN_TEST(test_failed_resume_keeps_audio_unavailable_until_retry);
     RUN_TEST(test_defaults_to_sixty_percent_and_uses_a_bounded_precomputed_thock);
     RUN_TEST(test_key_clicks_cycle_through_deterministic_variants_without_allocating_at_play_time);
     RUN_TEST(test_every_key_click_variant_releases_to_digital_silence);

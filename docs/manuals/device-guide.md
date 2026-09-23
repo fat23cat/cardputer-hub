@@ -18,14 +18,16 @@ connected. Long host names are shortened with an ellipsis on Home only; their
 stored names remain unchanged. Press **Enter** on Home to open **Apps**. The
 list currently contains **SYSTEM**, a read-only status screen for battery,
 Bluetooth, the selected host, Wi-Fi, and firmware version; **POMODORO**, a
-background focus timer; and **MAC CONTROL** when a live Cardputer Companion
+background focus timer; **SOUND**, an ambient display with microphone response
+still under physical validation;
+and **MAC CONTROL** when a live Cardputer Companion
 session is ready. MAC CONTROL is a full-screen
 3×2 grid. Press the matching number to launch or focus that Mac app; production
 firmware binds **1** to Telegram. Empty numbered tiles do nothing. Left and
 Right move between pages when more than one page exists. A bound press expands
 that tile in blue while the Mac opens the app, then flashes green on success or
 red if the app is not found, and returns to the grid. Escape returns from
-SYSTEM, POMODORO, or MAC CONTROL to Apps and from Apps to Home. If Companion disappears
+SYSTEM, POMODORO, SOUND, or MAC CONTROL to Apps and from Apps to Home. If Companion disappears
 while MAC CONTROL is open, the app closes and Apps returns; reconnect does not
 reopen it or repeat the last launch. Press plain **Tab** on the main keyboard
 to open the general Settings menu. Fn+Tab is inactive, and a normal G0 press
@@ -55,6 +57,24 @@ If a Unit Puzzle LED matrix is attached, it shows a soft steel-blue glow
 for focus and a muted sage for breaks, at a low brightness. When a phase finishes, the display wakes so
 the current screen is visible again; Pomodoro does not steal focus from
 another open app.
+
+## SOUND
+
+**SOUND** is always available in Apps. It is designed to use the built-in
+microphone to animate flowing dots on the LCD: quiet input moves slowly in
+green; louder input moves faster through yellow toward red. Physical testing
+currently shows constant PCM and no response to sound, so this behavior is
+not yet working on Cardputer-Adv. This is a relative visualizer,
+not a calibrated sound meter. An attached Unit Puzzle matrix shows the same
+motion at 3% brightness and temporarily takes priority over Pomodoro's LED
+progress. Escape closes the app and returns the matrix to its current
+background owner. Speaker cues are silent while the microphone is active and
+return when the app closes. If microphone startup or capture fails, the app displays
+`MIC UNAVAILABLE`; Escape still works. The normal display dim/off timing
+continues while it is open. Press **D** in SOUND to toggle capture diagnostics:
+`WINDOWS` counts
+completed microphone windows, `PCM` shows the sample range, and `DBFS` and
+`LEVEL` show the measured and displayed levels.
 
 ## Hosts and Bluetooth
 
@@ -132,6 +152,8 @@ instead of moving a list.
 | Enter on SYSTEM | Open the read-only system status list |
 | Escape in SYSTEM | Return to Apps |
 | Escape in POMODORO | Return to Apps; the timer keeps running |
+| Escape in SOUND | Stop microphone capture and return to Apps |
+| D in SOUND | Toggle microphone capture diagnostics |
 | Space in POMODORO | Start, pause, or resume |
 | R in POMODORO | Reset the timer |
 | Right, S, or / in POMODORO | Skip to the next phase |
@@ -269,9 +291,9 @@ Fresh pairing, two-computer addition/switching, and reconnection to the last
 selected host after Reset/power-on were confirmed on Cardputer-Adv. Extended
 Off, report/interruption and USB hotplug acceptance remains tracked in
 [plan 017](../plans/017-hid-transport-arbitration.md#0-current-closeout-status).
-The current firmware includes Apps, SYSTEM, POMODORO, and MAC CONTROL when
+The current firmware includes Apps, SYSTEM, POMODORO, SOUND, and MAC CONTROL when
 Companion is ready. It does not include profile-metadata editing or template
 resolution, Action-to-HID mappings, a Mac companion CLI/control protocol,
 Wi-Fi network scanning, or weather/VPS/Telegram features. Boot/status sound
 cues from the broader UI requirements remain planned. Unit Puzzle LED
-animations beyond Pomodoro progress remain later work.
+animations beyond Pomodoro progress and SOUND remain later work.

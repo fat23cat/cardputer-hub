@@ -145,6 +145,7 @@ class AudioAdapter final : public core::IAudioAdapter {
         volumes.push_back(volumePercent);
         return true;
     }
+    void end() override {}
     void setVolume(std::uint8_t volumePercent) override { volumes.push_back(volumePercent); }
     bool isPlaying() const override { return false; }
     bool play(const core::AudioClip& clip) override {

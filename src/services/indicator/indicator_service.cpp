@@ -61,6 +61,8 @@ IndicatorService::IndicatorService(core::ILEDAdapter& adapter) : adapter_(adapte
 std::uint8_t IndicatorService::brightnessPercentFor(std::string_view owner) noexcept {
     if (owner == pomodoroIndicatorOwner)
         return pomodoroBrightnessPercent;
+    if (owner == soundReactiveIndicatorOwner)
+        return soundReactiveBrightnessPercent;
     return 100;
 }
 
