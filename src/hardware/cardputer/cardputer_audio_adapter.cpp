@@ -59,8 +59,6 @@ bool CardputerAudioAdapter::begin(std::uint8_t volumePercent) {
         setVolume(volumePercent);
         return true;
     }
-    if (M5.Mic.isEnabled())
-        M5.Mic.end();
     auto config = M5.Speaker.config();
     config.pin_bck = GPIO_NUM_41;
     config.pin_ws = GPIO_NUM_43;
@@ -110,6 +108,14 @@ bool CardputerAudioAdapter::begin(std::uint8_t volumePercent) {
     }
     setVolume(volumePercent);
     return started_;
+}
+
+void CardputerAudioAdapter::end() {
+    if (!started_)
+        return;
+    silenceCodec();
+    M5.Speaker.end();
+    started_ = false;
 }
 
 void CardputerAudioAdapter::setVolume(std::uint8_t volumePercent) {

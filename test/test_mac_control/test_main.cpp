@@ -143,6 +143,7 @@ class Display final : public IDisplayAdapter {
 class AudioAdapter final : public IAudioAdapter {
   public:
     bool begin(std::uint8_t) override { return true; }
+    void end() override {}
     void setVolume(std::uint8_t) override {}
     bool isPlaying() const override { return false; }
     bool play(const AudioClip&) override { return true; }

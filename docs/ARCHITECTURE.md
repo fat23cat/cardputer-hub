@@ -901,6 +901,26 @@ visibility without synthesizing input or changing the active Mini App. LED
 claim visibility, adapter presence, and audio playback success do not gate the
 wake request. Running Pomodoro does not disable the global idle dim/off policy.
 
+`SOUND` is an active-only Mini App. `MicrophoneService` suspends
+`AudioService` before starting `IMicrophoneAdapter`, analyzes fixed 256-sample
+PCM windows at 16 kHz, and exposes only relative normalized level and ambient
+state to the app. The Cardputer microphone adapter alone controls the ES8311
+ADC and its ESP-IDF I²S RX channel; the audio adapter alone calls `M5.Speaker`.
+The app uses elapsed time for its LCD
+and foreground Unit Puzzle animation and releases its indicator claim when
+closed. Microphone shutdown precedes speaker restoration, with the persisted
+volume retained. UI cues are suppressed while capture owns the microphone.
+The microphone is idle outside the app; no PCM is stored or transmitted.
+Microphone reads distinguish a pending window, a completed window, and a
+capture error. A capture error ends microphone ownership, restores the speaker,
+clears the active level snapshot, and displays `MIC UNAVAILABLE`. The adapter
+disables and deletes I²S RX synchronously before `AudioService::resume()` can
+restart the speaker. Its ES8311 setup uses the BCLK clock source and 30 dB
+microphone PGA gain. I²S RX captures 32-bit stereo frames and extracts the
+high 16 bits of the active ADC slot for each analysis sample.
+SOUND can show completed-window count, PCM range, and measured level via D
+for physical capture diagnosis.
+
 `NetworkService` is the application-facing Wi-Fi boundary. It owns the single
 persisted station network, enabled/disabled intent, startup restoration,
 configuration mutations, and mapping of Connectivity state to `Off`,
@@ -1494,7 +1514,8 @@ priority published frame. `update()` resolves the visible owner and writes
 through `ILEDAdapter`. Identical resolved hardware frames are not rewritten.
 
 Brightness policy is owned by `IndicatorService`, not by claim publishers.
-Pomodoro (`owner` `"pomodoro"`) is always rendered at 3%. Work and break LED
+Pomodoro (`owner` `"pomodoro"`) and SOUND (`owner` `"sound-reactive"`)
+are always rendered at 3%. Work and break LED
 pixels use muted steel blue and sage rather than LCD `palette::blue` and
 `palette::leaf`, because the Unit Puzzle diodes are harsh even at that
 brightness. Other current owners use 100%. A newly selected owner does not

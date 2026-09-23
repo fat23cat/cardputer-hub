@@ -15,6 +15,7 @@ class IAudioAdapter {
   public:
     virtual ~IAudioAdapter() = default;
     virtual bool begin(std::uint8_t volumePercent) = 0;
+    virtual void end() = 0;
     virtual void setVolume(std::uint8_t volumePercent) = 0;
     virtual bool isPlaying() const = 0;
     virtual bool play(const AudioClip& clip) = 0;

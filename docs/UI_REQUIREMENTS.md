@@ -271,6 +271,16 @@ exposes `Sound volume` immediately below Wi-Fi; Left/Right adjust 0-100 in
 ten-percent steps, 0 is mute, and the value persists. Boot, menu-open/apply,
 attention, success, error, idle, and broader state-driven cues remain pending.
 
+While SOUND is open, the speaker is suspended so the built-in microphone
+can capture. Key and Pomodoro cues are silent during capture; they are not
+queued. Closing the app stops the microphone and restores speaker output at
+the saved volume. Its resting presentation is a dark field of moving green
+dots and segments, shifting continuously toward yellow and red as relative
+sound level rises. Motion follows elapsed time and is limited to about 30 LCD
+frames and 18 LED frames per second. The optional Unit Puzzle matrix uses a
+foreground claim at 3% effective brightness. The app does not keep the LCD
+awake or present a calibrated dBA reading.
+
 Any source code adapted from the reference repository must retain the notices
 required by its
 [Apache 2.0 license](https://github.com/fat23cat/codex-microputer-adv/blob/main/LICENSE).

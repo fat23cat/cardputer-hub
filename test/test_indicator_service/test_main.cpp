@@ -58,6 +58,26 @@ void test_single_claim_becomes_visible() {
     TEST_ASSERT_TRUE(hardwareEquals(led.last, palette::vermilion));
 }
 
+void test_sound_claim_uses_three_percent_and_restores_latest_background() {
+    FakeLed led;
+    IndicatorService indicator(led);
+    auto background =
+        indicator.acquire(pomodoroIndicatorOwner, IndicatorPriority::BackgroundApplication);
+    background.setFrame(solid({0, 255, 0}));
+    auto sound =
+        indicator.acquire(soundReactiveIndicatorOwner, IndicatorPriority::ForegroundApplication);
+    sound.setFrame(solid({255, 0, 0}));
+    indicator.update();
+    TEST_ASSERT_EQUAL_STRING(soundReactiveIndicatorOwner, indicator.resolved().owner.c_str());
+    TEST_ASSERT_EQUAL_UINT8(3, indicator.resolved().brightnessPercent);
+    TEST_ASSERT_TRUE(hardwareEquals(led.last, {8, 0, 0}));
+    background.setFrame(solid({0, 0, 255}));
+    sound.release();
+    indicator.update();
+    TEST_ASSERT_EQUAL_STRING(pomodoroIndicatorOwner, indicator.resolved().owner.c_str());
+    TEST_ASSERT_TRUE(hardwareEquals(led.last, {0, 0, 8}));
+}
+
 void test_higher_priority_replaces_lower_and_hidden_claim_may_update() {
     FakeLed led;
     IndicatorService indicator(led);
@@ -170,6 +190,7 @@ void tearDown() {}
 
 int main() {
     UNITY_BEGIN();
+    RUN_TEST(test_sound_claim_uses_three_percent_and_restores_latest_background);
     RUN_TEST(test_single_claim_becomes_visible);
     RUN_TEST(test_higher_priority_replaces_lower_and_hidden_claim_may_update);
     RUN_TEST(test_notification_overrides_foreground_and_background_overrides_connection);

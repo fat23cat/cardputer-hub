@@ -23,6 +23,9 @@ class AudioService final : public core::IActionHandler {
         : configuration_(configuration), adapter_(adapter) {}
 
     AudioResult start();
+    bool suspend();
+    bool resume();
+    bool suspended() const noexcept { return suspended_; }
     AudioResult setVolume(std::uint8_t volumePercent);
     std::uint8_t volume() const noexcept { return configuration_.value().soundVolume; }
     bool play(AudioCue cue);
@@ -33,6 +36,7 @@ class AudioService final : public core::IActionHandler {
     core::IAudioAdapter& adapter_;
     std::size_t nextKeyVariant_ = 0;
     bool started_ = false;
+    bool suspended_ = false;
 };
 
 } // namespace cardputer_hub::services

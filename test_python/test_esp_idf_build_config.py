@@ -364,6 +364,7 @@ class EspIdfBuildConfigurationTests(unittest.TestCase):
             "        battery.update(elapsed);\n"
             "        pomodoro.update(elapsed);\n"
             "        pomodoroLed.update(elapsed);\n"
+            "        microphone.update(elapsed);\n"
             "        indicator.update();\n"
             "        if (!homeVisible) {\n"
             "            if (runtime.splashFinished()) {\n"
