@@ -1007,14 +1007,15 @@ void test_first_enable_without_profiles_guides_to_explicit_pairing() {
     TEST_ASSERT_TRUE(f.hosts.status().connection == services::HostConnectionStatus::Off);
 }
 
-void test_home_distinguishes_missing_selection_and_invalid_input_from_fault() {
+void test_home_omits_connection_state_text_while_host_service_tracks_fault() {
     Fixture f;
     f.hosts.start();
     Screen screen(f);
     screen.openBluetooth();
     screen.press(core::NamedKey::Enter);
     screen.press(core::NamedKey::Escape);
-    TEST_ASSERT_TRUE(screen.shows("OFF"));
+    TEST_ASSERT_TRUE(f.hosts.status().connection == services::HostConnectionStatus::Off);
+    TEST_ASSERT_FALSE(screen.shows("OFF"));
     TEST_ASSERT_FALSE(screen.shows("ERROR"));
     f.hosts.renameHost(f.hosts.settings().hosts.front().id, "");
     screen.shell.update({});
@@ -1023,7 +1024,8 @@ void test_home_distinguishes_missing_selection_and_invalid_input_from_fault() {
     TEST_ASSERT_TRUE(f.hosts.selectHost(f.hosts.settings().hosts.front().id) ==
                      services::HostResult::StorageError);
     screen.shell.update({});
-    TEST_ASSERT_TRUE(screen.shows("ERROR"));
+    TEST_ASSERT_TRUE(f.hosts.status().connection == services::HostConnectionStatus::Error);
+    TEST_ASSERT_FALSE(screen.shows("ERROR"));
 }
 
 void test_pairing_digits_follow_the_reference_font_character_order() {
@@ -1112,7 +1114,7 @@ int main() {
     RUN_TEST(test_delete_failure_preserves_profile_and_missing_bond_can_be_removed);
     RUN_TEST(test_first_enable_guides_to_host_and_next_enter_selects_it);
     RUN_TEST(test_first_enable_without_profiles_guides_to_explicit_pairing);
-    RUN_TEST(test_home_distinguishes_missing_selection_and_invalid_input_from_fault);
+    RUN_TEST(test_home_omits_connection_state_text_while_host_service_tracks_fault);
     RUN_TEST(test_pairing_digits_follow_the_reference_font_character_order);
     RUN_TEST(test_settings_pairing_progress_and_rename_cancel_use_real_services);
     RUN_TEST(test_full_profile_list_rejects_pairing_without_interrupting_selected_host);

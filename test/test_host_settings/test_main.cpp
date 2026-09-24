@@ -446,7 +446,7 @@ void test_bluetooth_header_status_is_right_aligned() {
     TEST_ASSERT_EQUAL_INT32(core::rightAlignedTextX("CONNECTING"), connecting->x);
 }
 
-void test_home_bluetooth_status_change_redraws_only_the_host_section() {
+void test_home_bluetooth_status_change_redraws_only_the_bt_slot() {
     Fixture f;
     auto value = f.config.value();
     value.host.activeHost = 8;
@@ -465,17 +465,15 @@ void test_home_bluetooth_status_change_redraws_only_the_host_section() {
     shell.update({});
 
     TEST_ASSERT_EQUAL(presentations + 1, f.display.presentations);
-    TEST_ASSERT_TRUE(std::find(f.display.texts.begin(), f.display.texts.end(), "CONNECTING") !=
+    TEST_ASSERT_TRUE(std::find(f.display.texts.begin(), f.display.texts.end(), "CONNECTING") ==
                      f.display.texts.end());
-    for (const auto& rectangle : f.display.rectangles) {
-        TEST_ASSERT_TRUE(rectangle.position.y >= 32 &&
-                         rectangle.position.y + rectangle.height <= 97);
-    }
+    for (const auto& rectangle : f.display.rectangles)
+        TEST_ASSERT_TRUE(rectangle.position.y + rectangle.height <= 21);
     shell.update({});
     TEST_ASSERT_EQUAL(presentations + 1, f.display.presentations);
 }
 
-void test_home_and_bluetooth_settings_show_the_same_pairing_status() {
+void test_home_hides_pairing_text_while_bluetooth_settings_shows_it() {
     Fixture f;
     f.adapter.hardwareExpected = true;
     TEST_ASSERT_TRUE(f.hosts.start() == services::HostResult::Success);
@@ -484,7 +482,7 @@ void test_home_and_bluetooth_settings_show_the_same_pairing_status() {
                                  f.audio, f.deviceSettings, f.miniApps, f.capabilities);
 
     shell.update({});
-    TEST_ASSERT_TRUE(std::find(f.display.texts.begin(), f.display.texts.end(), "PAIRING") !=
+    TEST_ASSERT_TRUE(std::find(f.display.texts.begin(), f.display.texts.end(), "PAIRING") ==
                      f.display.texts.end());
 
     const core::InputEvent tab{core::InputEventType::NamedKey, 0, core::NamedKey::Tab, {}};
@@ -637,9 +635,9 @@ void test_shell_boots_simple_home_and_opens_settings_before_bluetooth() {
     apps::ApplicationShell shell(f.hosts, f.network, f.bus, f.display, f.ui, f.wifiSettings,
                                  f.audio, f.deviceSettings, f.miniApps, f.capabilities);
     shell.update({});
-    TEST_ASSERT_TRUE(std::find(f.display.texts.begin(), f.display.texts.end(), "SELECTED HOST") !=
+    TEST_ASSERT_TRUE(std::find(f.display.texts.begin(), f.display.texts.end(), "WiFi") !=
                      f.display.texts.end());
-    TEST_ASSERT_TRUE(std::find(f.display.texts.begin(), f.display.texts.end(), "OFF") !=
+    TEST_ASSERT_TRUE(std::find(f.display.texts.begin(), f.display.texts.end(), "BT") !=
                      f.display.texts.end());
     TEST_ASSERT_TRUE(std::find(f.display.texts.begin(), f.display.texts.end(),
                                "BLUETOOTH SETTINGS") == f.display.texts.end());
@@ -658,7 +656,7 @@ void test_shell_boots_simple_home_and_opens_settings_before_bluetooth() {
     TEST_ASSERT_TRUE(std::find(f.display.texts.begin(), f.display.texts.end(), "NO APPS") !=
                      f.display.texts.end());
     shell.update({character('`')});
-    TEST_ASSERT_TRUE(std::find(f.display.texts.begin(), f.display.texts.end(), "SELECTED HOST") !=
+    TEST_ASSERT_TRUE(std::find(f.display.texts.begin(), f.display.texts.end(), "WiFi") !=
                      f.display.texts.end());
     shell.update({settingsChord});
     TEST_ASSERT_TRUE(std::find(f.display.texts.begin(), f.display.texts.end(), "SETTINGS") !=
@@ -686,10 +684,10 @@ void test_shell_boots_simple_home_and_opens_settings_before_bluetooth() {
     TEST_ASSERT_TRUE(std::find(f.display.texts.begin(), f.display.texts.end(), "SETTINGS") !=
                      f.display.texts.end());
     shell.update({character('`')});
-    TEST_ASSERT_TRUE(std::find(f.display.texts.begin(), f.display.texts.end(), "SELECTED HOST") !=
+    TEST_ASSERT_TRUE(std::find(f.display.texts.begin(), f.display.texts.end(), "WiFi") !=
                      f.display.texts.end());
     shell.update({settingsChord, enter, character('`')}); // Preserve Esc Home in BLE.
-    TEST_ASSERT_TRUE(std::find(f.display.texts.begin(), f.display.texts.end(), "SELECTED HOST") !=
+    TEST_ASSERT_TRUE(std::find(f.display.texts.begin(), f.display.texts.end(), "WiFi") !=
                      f.display.texts.end());
     TEST_ASSERT_TRUE(f.actions.seen.empty());
 }
@@ -711,12 +709,12 @@ void test_shell_back_cancels_rename_before_returning_home_and_preserves_host_int
                      f.display.texts.end());
     TEST_ASSERT_TRUE(f.actions.seen.empty());
     shell.update({escape});
-    TEST_ASSERT_TRUE(std::find(f.display.texts.begin(), f.display.texts.end(), "SELECTED HOST") !=
+    TEST_ASSERT_TRUE(std::find(f.display.texts.begin(), f.display.texts.end(), "WiFi") !=
                      f.display.texts.end());
     TEST_ASSERT_TRUE(f.actions.seen.empty());
 }
 
-void test_home_and_panel_show_selected_host_and_do_not_navigate_on_state_updates() {
+void test_bluetooth_panel_keeps_selected_host_without_home_host_content() {
     Fixture f;
     auto value = f.config.value();
     value.host.activeHost = 9;
@@ -725,7 +723,7 @@ void test_home_and_panel_show_selected_host_and_do_not_navigate_on_state_updates
     apps::ApplicationShell shell(f.hosts, f.network, f.bus, f.display, f.ui, f.wifiSettings,
                                  f.audio, f.deviceSettings, f.miniApps, f.capabilities);
     shell.update({});
-    TEST_ASSERT_TRUE(std::find(f.display.texts.begin(), f.display.texts.end(), "SELECTED HOST") !=
+    TEST_ASSERT_TRUE(std::find(f.display.texts.begin(), f.display.texts.end(), "WiFi") !=
                      f.display.texts.end());
     f.display.capture("home-selected");
     shell.update({settingsChord, enter});
@@ -799,36 +797,30 @@ void test_fn_tab_and_system_button_do_not_open_settings() {
     const auto presentations = f.display.presentations;
     shell.update({fnTab, menu});
     TEST_ASSERT_EQUAL(presentations, f.display.presentations);
-    TEST_ASSERT_TRUE(std::find(f.display.texts.begin(), f.display.texts.end(), "SELECTED HOST") !=
+    TEST_ASSERT_TRUE(std::find(f.display.texts.begin(), f.display.texts.end(), "WiFi") !=
                      f.display.texts.end());
     TEST_ASSERT_TRUE(f.display.transitions.empty());
     TEST_ASSERT_TRUE(f.actions.seen.empty());
 }
 
-void test_home_name_fits_without_changing_the_saved_label() {
+void test_home_ignores_host_name_changes_without_altering_saved_label() {
     Fixture f;
     auto value = f.config.value();
     value.host.activeHost = 9;
     value.host.hosts.back().name = std::string(24, 'W');
     TEST_ASSERT_TRUE(f.config.save(value) == services::ConfigurationResult::Success);
-    const auto label = apps::fitHomeHostName(value.host.hosts.back().name);
-    TEST_ASSERT_TRUE(label.size() < 24);
-    TEST_ASSERT_EQUAL_STRING("...", label.substr(label.size() - 3).c_str());
-    TEST_ASSERT_EQUAL_STRING("MACBOOK PRO", apps::fitHomeHostName("MacBook Pro").c_str());
     apps::ApplicationShell shell(f.hosts, f.network, f.bus, f.display, f.ui, f.wifiSettings,
                                  f.audio, f.deviceSettings, f.miniApps, f.capabilities);
     shell.update({});
-    f.display.capture("home-long-name");
-    const auto oldCommands = f.display.commands;
+    const auto presentations = f.display.presentations;
     value.host.hosts.back().name = "MacBook Pro";
     TEST_ASSERT_TRUE(f.config.save(value) == services::ConfigurationResult::Success);
     shell.update({});
-    TEST_ASSERT_TRUE(oldCommands != f.display.commands);
+    TEST_ASSERT_EQUAL(presentations, f.display.presentations);
     TEST_ASSERT_EQUAL_STRING("MacBook Pro", f.config.value().host.hosts.back().name.c_str());
-    f.display.capture("home-compact-name");
 }
 
-void test_home_wave_is_bounded_and_pauses_in_settings() {
+void test_home_orb_is_bounded_and_pauses_in_settings() {
     Fixture f;
     apps::ApplicationShell shell(f.hosts, f.network, f.bus, f.display, f.ui, f.wifiSettings,
                                  f.audio, f.deviceSettings, f.miniApps, f.capabilities);
@@ -837,7 +829,7 @@ void test_home_wave_is_bounded_and_pauses_in_settings() {
     const auto presentations = f.display.presentations;
     f.display.rectangles.clear();
     f.display.texts.clear();
-    shell.update({}, std::chrono::milliseconds(499));
+    shell.update({}, std::chrono::milliseconds(49));
     TEST_ASSERT_EQUAL(presentations, f.display.presentations);
     shell.update({}, std::chrono::milliseconds(1));
     TEST_ASSERT_EQUAL(presentations + 1, f.display.presentations);
@@ -845,8 +837,9 @@ void test_home_wave_is_bounded_and_pauses_in_settings() {
     TEST_ASSERT_TRUE(f.display.texts.empty());
     TEST_ASSERT_FALSE(f.display.rectangles.empty());
     for (const auto& r : f.display.rectangles)
-        TEST_ASSERT_TRUE(r.position.y >= 99 && r.position.y + r.height <= 135);
-    f.display.capture("home-wave");
+        TEST_ASSERT_TRUE(r.position.y >= apps::homeAmbientOrigin.y &&
+                         r.position.y + r.height <= 135);
+    f.display.capture("home-orb");
     shell.update({settingsChord});
     const auto settingsPresentations = f.display.presentations;
     shell.update({}, std::chrono::milliseconds(32000));
@@ -964,7 +957,7 @@ void test_home_shows_unavailable_telemetry_and_updates_only_battery_region() {
     apps::ApplicationShell shell(f.hosts, f.network, f.bus, f.display, f.ui, f.wifiSettings,
                                  f.audio, f.deviceSettings, f.miniApps, f.capabilities);
     shell.update({});
-    for (const auto* label : {"--:--", "--%"})
+    for (const auto* label : {"WiFi", "BT", "--%"})
         TEST_ASSERT_TRUE(std::find(f.display.texts.begin(), f.display.texts.end(), label) !=
                          f.display.texts.end());
     for (const auto* forbidden : {"OFFLINE", "ONLINE", "CONNECTING", "ERROR"})
@@ -1024,20 +1017,20 @@ int main() {
     RUN_TEST(test_plain_tab_opens_settings_and_leaves_editing_intact);
     RUN_TEST(test_page_transitions_follow_navigation_and_ignore_focus_or_status_refresh);
     RUN_TEST(test_fn_tab_and_system_button_do_not_open_settings);
-    RUN_TEST(test_home_name_fits_without_changing_the_saved_label);
-    RUN_TEST(test_home_wave_is_bounded_and_pauses_in_settings);
+    RUN_TEST(test_home_ignores_host_name_changes_without_altering_saved_label);
+    RUN_TEST(test_home_orb_is_bounded_and_pauses_in_settings);
     RUN_TEST(test_home_shows_unavailable_telemetry_and_updates_only_battery_region);
     RUN_TEST(test_host_menu_back_and_incremental_navigation);
     RUN_TEST(test_transactional_modals_show_contextual_footers);
     RUN_TEST(test_rename_input_redraws_once_and_unchanged_rename_state_stays_idle);
     RUN_TEST(test_host_status_changes_redraw_only_status_and_bluetooth_row);
     RUN_TEST(test_bluetooth_header_status_is_right_aligned);
-    RUN_TEST(test_home_bluetooth_status_change_redraws_only_the_host_section);
-    RUN_TEST(test_home_and_bluetooth_settings_show_the_same_pairing_status);
+    RUN_TEST(test_home_bluetooth_status_change_redraws_only_the_bt_slot);
+    RUN_TEST(test_home_hides_pairing_text_while_bluetooth_settings_shows_it);
     RUN_TEST(test_pairing_prompt_change_redraws_pairing_content_then_stays_idle);
     RUN_TEST(test_pairing_passkey_entry_shows_enter_apply_when_complete);
     RUN_TEST(test_bluetooth_footer_is_quiet_and_x_has_no_destructive_action);
-    RUN_TEST(test_home_and_panel_show_selected_host_and_do_not_navigate_on_state_updates);
+    RUN_TEST(test_bluetooth_panel_keeps_selected_host_without_home_host_content);
     RUN_TEST(test_shell_boots_simple_home_and_opens_settings_before_bluetooth);
     RUN_TEST(test_shell_back_cancels_rename_before_returning_home_and_preserves_host_intent);
     RUN_TEST(test_scrolling_repaints_list_content_and_return_from_rename_invalidates_list_cache);

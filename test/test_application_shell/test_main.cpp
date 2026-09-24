@@ -2,6 +2,7 @@
 #include "apps/network/wifi_settings.h"
 #include "apps/runtime/mini_app_runtime.h"
 #include "apps/shell/application_shell.h"
+#include "apps/shell/home_ambient.h"
 #include "apps/shell/home_graphics.h"
 #include "core/app_registry/app_registry.h"
 #include "core/audio/audio_adapter.h"
@@ -13,6 +14,7 @@
 
 #include <algorithm>
 #include <chrono>
+#include <cmath>
 #include <string>
 #include <unity.h>
 #include <vector>
@@ -84,6 +86,16 @@ class Display final : public core::IDisplayAdapter {
     }
     void beginTransition(core::SlideDirection direction) override {
         transitions.push_back(direction);
+        if (emulateTransitions)
+            transitionRemainingMilliseconds = 220;
+    }
+    void advanceTransition(std::chrono::milliseconds elapsed) override {
+        if (emulateTransitions)
+            transitionRemainingMilliseconds = std::max<std::int64_t>(
+                0, transitionRemainingMilliseconds - std::max<std::int64_t>(0, elapsed.count()));
+    }
+    bool transitionActive() const override {
+        return emulateTransitions && transitionRemainingMilliseconds > 0;
     }
     void clear(core::RgbColor) override {
         ++frames;
@@ -98,7 +110,7 @@ class Display final : public core::IDisplayAdapter {
         dirty = true;
     }
     bool drewCompanionDiamond() const {
-        const auto origin = apps::homeCompanionIndicatorPosition("No host selected");
+        const auto origin = apps::homeCompanionPosition;
         return std::any_of(fills.begin(), fills.end(), [origin](const Fill& fill) {
             return fill.color.red == core::palette::leaf.red &&
                    fill.color.green == core::palette::leaf.green &&
@@ -131,6 +143,8 @@ class Display final : public core::IDisplayAdapter {
     int frames = 0;
     int presentations = 0;
     bool dirty = false;
+    bool emulateTransitions = false;
+    std::int64_t transitionRemainingMilliseconds = 0;
 };
 
 class AudioAdapter final : public core::IAudioAdapter {
@@ -413,8 +427,12 @@ void test_idle_runtime_preserves_home_and_settings() {
     auto shell = f.makeShell();
 
     shell.update({});
-    TEST_ASSERT_TRUE(f.display.shows("--:--"));
-    TEST_ASSERT_TRUE(f.display.shows("SELECTED HOST"));
+    TEST_ASSERT_TRUE(f.display.shows("WiFi"));
+    TEST_ASSERT_TRUE(f.display.shows("BT"));
+    TEST_ASSERT_TRUE(f.display.shows("--%"));
+    TEST_ASSERT_FALSE(f.display.shows("--:--"));
+    TEST_ASSERT_FALSE(f.display.shows("SELECTED HOST"));
+    TEST_ASSERT_FALSE(f.display.shows("OFF"));
     TEST_ASSERT_FALSE(f.display.shows("SETTINGS"));
     TEST_ASSERT_FALSE(f.display.shows("APPS"));
 
@@ -437,7 +455,7 @@ void test_home_enter_opens_launcher_and_tab_still_opens_settings() {
     TEST_ASSERT_FALSE(f.display.shows("SETTINGS"));
 
     shell.update({escape});
-    TEST_ASSERT_TRUE(f.display.shows("SELECTED HOST"));
+    TEST_ASSERT_TRUE(f.display.shows("BT"));
     shell.update({tab});
     TEST_ASSERT_TRUE(f.display.shows("SETTINGS"));
 }
@@ -483,13 +501,13 @@ void test_explicit_runtime_deactivation_restores_launcher_before_idle_update() {
     Fixture f;
     auto shell = f.makeShell();
     shell.update({});
-    TEST_ASSERT_TRUE(f.display.shows("--:--"));
+    TEST_ASSERT_TRUE(f.display.shows("WiFi"));
     f.registerApp("weather");
     TEST_ASSERT_EQUAL_UINT8(static_cast<unsigned int>(apps::MiniAppActivationResult::Activated),
                             static_cast<unsigned int>(f.miniApps.activate("weather")));
     shell.update({}, std::chrono::milliseconds(16));
     TEST_ASSERT_TRUE(f.display.shows("MINI APP"));
-    TEST_ASSERT_FALSE(f.display.shows("--:--"));
+    TEST_ASSERT_FALSE(f.display.shows("WiFi"));
 
     TEST_ASSERT_EQUAL_UINT8(static_cast<unsigned int>(apps::MiniAppDeactivationResult::Deactivated),
                             static_cast<unsigned int>(f.miniApps.deactivate()));
@@ -950,7 +968,41 @@ int countWaveFills(const Display& display) {
         }));
 }
 
-void test_home_wave_does_not_advance_while_display_off() {
+std::vector<Display::Fill> ambientFills(const Display& display) {
+    std::vector<Display::Fill> result;
+    for (const auto& fill : display.fills)
+        if (fill.position.y >= apps::homeAmbientOrigin.y)
+            result.push_back(fill);
+    return result;
+}
+
+int countAmbientViewportClears(const Display& display) {
+    return static_cast<int>(
+        std::count_if(display.fills.begin(), display.fills.end(), [](const Display::Fill& fill) {
+            return fill.position.x == apps::homeAmbientOrigin.x &&
+                   fill.position.y == apps::homeAmbientOrigin.y &&
+                   fill.width == apps::homeAmbientWidth && fill.height == apps::homeAmbientHeight;
+        }));
+}
+
+void assertAmbientMatchesPhase(const Display& display, std::uint64_t phaseMilliseconds) {
+    Display expected;
+    apps::drawHomeAmbient(expected, phaseMilliseconds);
+    const auto actual = ambientFills(display);
+    TEST_ASSERT_TRUE(actual.size() >= expected.fills.size());
+    const auto offset = actual.size() - expected.fills.size();
+    for (std::size_t i = 0; i < expected.fills.size(); ++i) {
+        TEST_ASSERT_EQUAL_INT(expected.fills[i].position.x, actual[offset + i].position.x);
+        TEST_ASSERT_EQUAL_INT(expected.fills[i].position.y, actual[offset + i].position.y);
+        TEST_ASSERT_EQUAL_INT(expected.fills[i].width, actual[offset + i].width);
+        TEST_ASSERT_EQUAL_INT(expected.fills[i].height, actual[offset + i].height);
+        TEST_ASSERT_EQUAL_UINT8(expected.fills[i].color.red, actual[offset + i].color.red);
+        TEST_ASSERT_EQUAL_UINT8(expected.fills[i].color.green, actual[offset + i].color.green);
+        TEST_ASSERT_EQUAL_UINT8(expected.fills[i].color.blue, actual[offset + i].color.blue);
+    }
+}
+
+void test_home_orb_does_not_advance_while_display_off() {
     Fixture f;
     auto shell = f.makeShell();
     shell.update({});
@@ -963,14 +1015,201 @@ void test_home_wave_does_not_advance_while_display_off() {
     TEST_ASSERT_EQUAL_INT(0, countWaveFills(f.display));
 
     shell.update({}, std::chrono::milliseconds(600), std::nullopt, false);
-    TEST_ASSERT_TRUE(countWaveFills(f.display) > 0);
+    assertAmbientMatchesPhase(f.display, 600);
+}
+
+void test_home_entering_while_display_off_defers_ambient_frame() {
+    Fixture f;
+    auto shell = f.makeShell();
+    shell.update({}, std::chrono::milliseconds(75), 42, true);
+    TEST_ASSERT_TRUE(f.display.shows("WiFi"));
+    TEST_ASSERT_TRUE(f.display.shows("BT"));
+    TEST_ASSERT_TRUE(f.display.shows("42%"));
+    TEST_ASSERT_TRUE(ambientFills(f.display).empty());
+
+    f.display.fills.clear();
+    shell.update({}, std::chrono::milliseconds(500), 42, true);
+    TEST_ASSERT_TRUE(ambientFills(f.display).empty());
+    shell.update({}, std::chrono::milliseconds(0), 42, false);
+    assertAmbientMatchesPhase(f.display, 0);
+
+    f.display.fills.clear();
+    shell.update({}, std::chrono::milliseconds(49), 42, false);
+    TEST_ASSERT_TRUE(ambientFills(f.display).empty());
+    shell.update({}, std::chrono::milliseconds(1), 42, false);
+    assertAmbientMatchesPhase(f.display, 50);
+
+    shell.update({enter});
+    f.display.fills.clear();
+    shell.update({escape}, std::chrono::milliseconds(0), 42, true);
+    TEST_ASSERT_EQUAL_INT(0, countAmbientViewportClears(f.display));
+    f.display.fills.clear();
+    shell.update({}, std::chrono::milliseconds(0), 42, false);
+    assertAmbientMatchesPhase(f.display, 50);
+}
+
+void test_home_transition_freezes_ambient_phase_and_frame_interval() {
+    Fixture f;
+    f.display.emulateTransitions = true;
+    auto shell = f.makeShell();
+    shell.update({});
+    f.display.fills.clear();
+    shell.update({}, std::chrono::milliseconds(50));
+    assertAmbientMatchesPhase(f.display, 50);
+
+    f.display.fills.clear();
+    shell.update({enter});
+    shell.update({}, std::chrono::milliseconds(220));
+
+    f.display.fills.clear();
+    shell.update({escape});
+    // The incoming Home page is composed once from the retained phase for the slide.
+    assertAmbientMatchesPhase(f.display, 50);
+    f.display.fills.clear();
+    shell.update({}, std::chrono::milliseconds(100));
+    shell.update({}, std::chrono::milliseconds(100));
+    shell.update({}, std::chrono::milliseconds(20));
+    TEST_ASSERT_TRUE(ambientFills(f.display).empty());
+    shell.update({}, std::chrono::milliseconds(49));
+    TEST_ASSERT_TRUE(ambientFills(f.display).empty());
+    shell.update({}, std::chrono::milliseconds(1));
+    assertAmbientMatchesPhase(f.display, 100);
+}
+
+void test_home_ambient_model_is_deterministic_and_bounded() {
+    const std::array<std::uint64_t, 7> phases{0, 2000, 4000, 8000, 12000, 17000, 21000};
+    double minimumRadius = 1000;
+    double maximumRadius = 0;
+    for (const auto phase : phases) {
+        const auto frame = apps::homeAmbientFrame(phase);
+        const auto again = apps::homeAmbientFrame(phase);
+        TEST_ASSERT_EQUAL_UINT(40, frame.size());
+        int large = 0;
+        double centerX = 0;
+        double centerY = 0;
+        for (std::size_t i = 0; i < frame.size(); ++i) {
+            const auto& particle = frame[i];
+            TEST_ASSERT_EQUAL_INT(particle.position.x, again[i].position.x);
+            TEST_ASSERT_EQUAL_INT(particle.position.y, again[i].position.y);
+            TEST_ASSERT_EQUAL_UINT8(particle.size, again[i].size);
+            TEST_ASSERT_EQUAL_UINT8(static_cast<unsigned>(particle.tone),
+                                    static_cast<unsigned>(again[i].tone));
+            TEST_ASSERT_TRUE(particle.size >= 1 && particle.size <= 3);
+            TEST_ASSERT_TRUE(particle.tone == apps::HomeAmbientTone::Far ||
+                             particle.tone == apps::HomeAmbientTone::Middle ||
+                             particle.tone == apps::HomeAmbientTone::Near);
+            const int left = particle.position.x - particle.size / 2;
+            const int top = particle.position.y - particle.size / 2;
+            TEST_ASSERT_TRUE(left >= apps::homeAmbientOrigin.x);
+            TEST_ASSERT_TRUE(top >= apps::homeAmbientOrigin.y);
+            TEST_ASSERT_TRUE(left + particle.size <=
+                             apps::homeAmbientOrigin.x + apps::homeAmbientWidth);
+            TEST_ASSERT_TRUE(top + particle.size <=
+                             apps::homeAmbientOrigin.y + apps::homeAmbientHeight);
+            large += particle.size == 3;
+            if (i < 28) {
+                centerX += particle.position.x;
+                centerY += particle.position.y;
+            }
+        }
+        TEST_ASSERT_TRUE(large < 10);
+        centerX /= 28;
+        centerY /= 28;
+        TEST_ASSERT_TRUE(std::abs(centerX - 120) <= 7);
+        TEST_ASSERT_TRUE(std::abs(centerY - 79) <= 5);
+        double averageRadius = 0;
+        for (std::size_t i = 0; i < 28; ++i)
+            averageRadius +=
+                std::hypot(frame[i].position.x - centerX, frame[i].position.y - centerY);
+        averageRadius /= 28;
+        minimumRadius = std::min(minimumRadius, averageRadius);
+        maximumRadius = std::max(maximumRadius, averageRadius);
+    }
+    TEST_ASSERT_TRUE(maximumRadius - minimumRadius > 2);
+    const auto first = apps::homeAmbientFrame(phases.front());
+    const auto later = apps::homeAmbientFrame(phases[1]);
+    int changed = 0;
+    for (std::size_t i = 0; i < first.size(); ++i)
+        changed += first[i].position.x != later[i].position.x ||
+                   first[i].position.y != later[i].position.y;
+    TEST_ASSERT_TRUE(changed > 10);
+}
+
+void test_home_bluetooth_status_uses_semantic_dot_colors() {
+    using apps::HomeStatusIndicator;
+    using services::HostConnectionStatus;
+    TEST_ASSERT_TRUE(apps::homeBluetoothIndicator(HostConnectionStatus::Off) ==
+                     HomeStatusIndicator::HollowQuiet);
+    for (auto status : {HostConnectionStatus::Connecting, HostConnectionStatus::Securing,
+                        HostConnectionStatus::Pairing})
+        TEST_ASSERT_TRUE(apps::homeBluetoothIndicator(status) == HomeStatusIndicator::FilledBlue);
+    TEST_ASSERT_TRUE(apps::homeBluetoothIndicator(HostConnectionStatus::Ready) ==
+                     HomeStatusIndicator::FilledLeaf);
+    TEST_ASSERT_TRUE(apps::homeBluetoothIndicator(HostConnectionStatus::Error) ==
+                     HomeStatusIndicator::FilledVermilion);
+}
+
+void test_home_ambient_throttles_and_delayed_update_renders_once() {
+    Fixture f;
+    auto shell = f.makeShell();
+    shell.update({});
+    const auto presentations = f.display.presentations;
+    f.display.fills.clear();
+    f.display.texts.clear();
+    shell.update({}, std::chrono::milliseconds(49));
+    TEST_ASSERT_EQUAL(presentations, f.display.presentations);
+    TEST_ASSERT_TRUE(f.display.fills.empty());
+    shell.update({}, std::chrono::milliseconds(1));
+    TEST_ASSERT_EQUAL(presentations + 1, f.display.presentations);
+    TEST_ASSERT_EQUAL_INT(1, std::count_if(f.display.fills.begin(), f.display.fills.end(),
+                                           [](const Display::Fill& fill) {
+                                               return fill.position.x == 0 &&
+                                                      fill.position.y ==
+                                                          apps::homeAmbientOrigin.y &&
+                                                      fill.width == apps::homeAmbientWidth &&
+                                                      fill.height == apps::homeAmbientHeight;
+                                           }));
+    f.display.fills.clear();
+    shell.update({}, std::chrono::milliseconds(250));
+    TEST_ASSERT_EQUAL(presentations + 2, f.display.presentations);
+    TEST_ASSERT_EQUAL_INT(1, std::count_if(f.display.fills.begin(), f.display.fills.end(),
+                                           [](const Display::Fill& fill) {
+                                               return fill.position.x == 0 &&
+                                                      fill.position.y ==
+                                                          apps::homeAmbientOrigin.y &&
+                                                      fill.width == apps::homeAmbientWidth &&
+                                                      fill.height == apps::homeAmbientHeight;
+                                           }));
+    for (const auto& fill : f.display.fills)
+        TEST_ASSERT_TRUE(fill.position.y >= apps::homeAmbientOrigin.y);
+    TEST_ASSERT_TRUE(f.display.texts.empty());
+}
+
+void test_home_reentry_starts_a_new_ambient_frame_interval() {
+    Fixture f;
+    auto shell = f.makeShell();
+    shell.update({});
+    shell.update({}, std::chrono::milliseconds(49));
+    shell.update({enter});
+    shell.update({escape});
+    TEST_ASSERT_TRUE(f.display.shows("WiFi"));
+    const auto presentations = f.display.presentations;
+    f.display.fills.clear();
+
+    shell.update({}, std::chrono::milliseconds(1));
+    TEST_ASSERT_EQUAL(presentations, f.display.presentations);
+    TEST_ASSERT_TRUE(f.display.fills.empty());
+    shell.update({}, std::chrono::milliseconds(48));
+    TEST_ASSERT_EQUAL(presentations, f.display.presentations);
+    shell.update({}, std::chrono::milliseconds(1));
+    TEST_ASSERT_EQUAL(presentations + 1, f.display.presentations);
 }
 
 void test_wake_consumed_frame_plays_no_cue_and_dispatches_no_action() {
     Fixture f;
     auto shell = f.makeShell();
     shell.update({});
-    TEST_ASSERT_TRUE(f.display.shows("--:--"));
+    TEST_ASSERT_TRUE(f.display.shows("WiFi"));
     f.audioAdapter.clips.clear();
     f.display.transitions.clear();
 
@@ -979,7 +1218,7 @@ void test_wake_consumed_frame_plays_no_cue_and_dispatches_no_action() {
 
     TEST_ASSERT_EQUAL_UINT(0, f.audioAdapter.clips.size());
     TEST_ASSERT_EQUAL_UINT(0, f.display.transitions.size());
-    TEST_ASSERT_TRUE(f.display.shows("--:--"));
+    TEST_ASSERT_TRUE(f.display.shows("WiFi"));
     TEST_ASSERT_FALSE(f.display.shows("APPS"));
 
     shell.update({enter});
@@ -996,17 +1235,30 @@ void test_home_companion_indicator_appears_only_when_companion_capability_is_liv
     TEST_ASSERT_EQUAL_UINT8(static_cast<unsigned>(core::CapabilityRegistrationResult::Registered),
                             static_cast<unsigned>(f.capabilities.registerCapability("COMPANION")));
     f.display.fills.clear();
+    f.display.texts.clear();
     shell.update({});
-    const auto diamond = apps::homeCompanionIndicatorPosition("No host selected");
-    TEST_ASSERT_EQUAL_INT(apps::homeCompanionIndicatorY, diamond.y);
-    TEST_ASSERT_TRUE(diamond.x > apps::homeHostNameOriginX);
+    const auto diamond = apps::homeCompanionPosition;
+    TEST_ASSERT_EQUAL_INT(6, diamond.y);
+    TEST_ASSERT_EQUAL_INT(94, diamond.x);
     TEST_ASSERT_TRUE(f.display.drewCompanionDiamond());
     TEST_ASSERT_FALSE(f.display.shows("COMPANION"));
+    TEST_ASSERT_TRUE(f.display.texts.empty());
+    for (const auto& fill : f.display.fills) {
+        TEST_ASSERT_TRUE(fill.position.x >= diamond.x);
+        TEST_ASSERT_TRUE(fill.position.x + fill.width <=
+                         diamond.x + apps::homeCompanionIndicatorSize);
+        TEST_ASSERT_TRUE(fill.position.y >= diamond.y);
+        TEST_ASSERT_TRUE(fill.position.y + fill.height <=
+                         diamond.y + apps::homeCompanionIndicatorSize);
+    }
     TEST_ASSERT_EQUAL_UINT8(static_cast<unsigned>(core::CapabilityRemovalResult::Removed),
                             static_cast<unsigned>(f.capabilities.removeCapability("COMPANION")));
     f.display.fills.clear();
     shell.update({});
     TEST_ASSERT_FALSE(f.display.drewCompanionDiamond());
+    TEST_ASSERT_EQUAL_UINT(1, f.display.fills.size());
+    TEST_ASSERT_EQUAL_INT(diamond.x, f.display.fills[0].position.x);
+    TEST_ASSERT_EQUAL_INT(diamond.y, f.display.fills[0].position.y);
 }
 
 void test_six_settings_rows_step_values_and_repaint_only_changed_row() {
@@ -1076,7 +1328,13 @@ int main() {
     UNITY_BEGIN();
     RUN_TEST(test_idle_runtime_preserves_home_and_settings);
     RUN_TEST(test_home_companion_indicator_appears_only_when_companion_capability_is_live);
-    RUN_TEST(test_home_wave_does_not_advance_while_display_off);
+    RUN_TEST(test_home_orb_does_not_advance_while_display_off);
+    RUN_TEST(test_home_entering_while_display_off_defers_ambient_frame);
+    RUN_TEST(test_home_transition_freezes_ambient_phase_and_frame_interval);
+    RUN_TEST(test_home_ambient_model_is_deterministic_and_bounded);
+    RUN_TEST(test_home_bluetooth_status_uses_semantic_dot_colors);
+    RUN_TEST(test_home_ambient_throttles_and_delayed_update_renders_once);
+    RUN_TEST(test_home_reentry_starts_a_new_ambient_frame_interval);
     RUN_TEST(test_wake_consumed_frame_plays_no_cue_and_dispatches_no_action);
     RUN_TEST(test_home_enter_opens_launcher_and_tab_still_opens_settings);
     RUN_TEST(test_active_mini_app_receives_scheduled_update_instead_of_shell_input);

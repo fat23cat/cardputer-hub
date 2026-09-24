@@ -312,7 +312,7 @@ void test_home_renders_semantic_wifi_dot_without_status_text() {
                                  f.wifiSettings, f.audio, f.deviceSettings, f.miniApps,
                                  f.capabilities);
     shell.update({});
-    TEST_ASSERT_TRUE(f.display.shows("--:--"));
+    TEST_ASSERT_TRUE(f.display.shows("WiFi"));
     TEST_ASSERT_FALSE(f.display.shows("OFFLINE"));
     TEST_ASSERT_FALSE(f.display.shows("ONLINE"));
     TEST_ASSERT_TRUE(
@@ -380,9 +380,8 @@ void test_home_wifi_redraws_only_on_semantic_changes() {
     f.wifiAdapter.adapterState = connectivity::WifiAdapterState::Error;
     f.network.update(std::chrono::milliseconds(1));
     shell.update({});
-    TEST_ASSERT_TRUE(f.display.regionHasColor(apps::homeWifiRegion, apps::homeWifiRegionWidth,
-                                              apps::homeWifiRegionHeight,
-                                              core::palette::vermilion));
+    TEST_ASSERT_TRUE(
+        f.display.regionHasColor(apps::homeWifiDotPosition, 5, 5, core::palette::vermilion));
 }
 
 void test_settings_opens_wifi_forward_and_returns_backward() {

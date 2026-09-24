@@ -91,7 +91,7 @@ Cardputer Hub must use the following reference palette as named design tokens:
 | Light neutral | `#CED0CB` | Acknowledged, viewed, or completed state |
 | Pale | `#DEDBD1` | Idle, disabled, or unbound state |
 | Ordinal | `#ABA89D` | Quiet row numbers and secondary reference marks |
-| Home wave | `#D1CEC4` | Slightly stronger ambient dotted wave on Bone |
+| Home Living Orb | `#D1CEC4` | Far particles in the Home Living Orb |
 
 Token meaning must stay stable between screens. Feature code must request a
 semantic token instead of introducing near-duplicate colors. Ink and Bone are
@@ -204,7 +204,7 @@ physical controls justify one.
 
 ## 6. Motion and Transitions
 
-Motion must be event-driven except for the explicitly approved Home ambient wave
+Motion must be event-driven except for the explicitly approved Home Living Orb
 described below. Settled functional screens must stop requesting animation
 frames, and background polling must not make the interface twitch or repaint
 continuously.
@@ -338,7 +338,7 @@ polling.
 Any physical press edge counts as activity, including a modifier such as `Fn`
 that produces no semantic event. A key release and a continuously held key do
 not. Every press received while waking stays consumed and neither restarts nor
-extends the wake ramp. The Home ambient wave is the one motion that pauses
+extends the wake ramp. The Home Living Orb is the one motion that pauses
 while the display is Off, resuming from its previous phase; other timers and
 Service state keep advancing. LED Gallery continues publishing matrix frames
 while the LCD is Off; its animation is not user activity and creates no wake lock.
@@ -393,36 +393,26 @@ status snapshot. Neither view interprets Bluetooth lifecycle, HID readiness, or
 Bluetooth pairing challenge types; the Service owns those translations and the
 views only map host-domain status and prompts to presentation.
 
-Home is the default root view. The approved dashboard has an eight-pixel gutter,
-a compact top line for time, one Wi-Fi icon and status (no network name), and
-battery percentage (without an icon) above a one-pixel rule at y=24. Time is `--:--` until a
-clock source is implemented. Wi-Fi uses a neutral Ink glyph plus a separate
-status dot: hollow Ordinal when unconfigured, filled Pale when configured but
-disabled, Blue while connecting, Leaf when connected, and Vermilion on error.
-Home does not show SSID or RSSI. BatteryService supplies the hardware's
-estimated percentage, or `--%` when unavailable. No demo telemetry is rendered.
+Home is the default root view. Its device-status bar occupies y=0..20, with a
+one-pixel separator at y=21. The bar has fixed WiFi and BT labels with separate
+five-pixel state dots, a reserved Companion diamond slot, and estimated battery
+percentage aligned to x=232 (or `--%` when unavailable). Wi-Fi is hollow
+Ordinal when unconfigured, Pale when disabled, Blue while connecting, Leaf
+when connected, and Vermilion on error. Bluetooth is hollow Ordinal when Off,
+Blue while connecting, securing, or pairing, Leaf when Ready, and Vermilion on
+error. The Companion diamond is Leaf only while the live COMPANION capability
+is available. These slots never move when states or battery width change.
+Home contains no clock, host name, connection-state text, title, or footer.
 
-Below it, SELECTED HOST is a quiet label at y=38. The selected name uses Micro 5
-at optical size 36, with uppercase ink at y=55..70; long labels are truncated
-with an ellipsis within 205 pixels, leaving a 4-pixel gap and a 15-pixel
-Companion diamond slot to the right of the name. This display conversion does
-not rename the stored profile. No selection is labelled NO HOST SELECTED. One
-Bluetooth icon and an explicit OFF/CONNECTING/SECURING/PAIRING/READY/ERROR label
-sit below the name. The icon uses Ordinal for Off, Blue for connection/pairing,
-Leaf for Ready, and Vermilion for Error; the label stays Ink. When a live
-authenticated Companion session for the selected host is ready, a Leaf diamond
-appears to the right of the host name. The diamond is absent in every other
-Companion state; Home never shows Companion error, waiting, or off copy. There
-is no title or footer on Home.
+The body (y=22..134) shows a deterministic 40-particle Living Orb. It breathes,
+rotates, morphs, and drifts using injected elapsed time, with neutral Home wave,
+Ordinal, and Ink tones. The orb is redrawn in its bounded viewport at most every
+50 ms, pauses while Home is hidden, the display is Off, or a page transition is
+active, and never counts as user activity. Status changes redraw only their
+corresponding slots. Bluetooth host details remain in the Bluetooth panel and
+SYSTEM Mini App. BatteryService supplies the voltage-based estimate.
 
-A low-contrast Home wave dotted texture moves only in y=99..134, with a 28-second cycle
-and at most two frames per second. It advances from injected monotonic elapsed
-time, pauses whenever Home is hidden, never moves text or icons, and redraws
-only that lower region. This is an explicit exception to the event-only motion
-rule. It must eventually pause while the display is off and must never count as
-user activity. Battery updates repaint only their header region; host/status
-updates repaint only the host region; Wi-Fi status-dot changes repaint only
-the reserved Wi-Fi region. Pairing's Micro 5 digits are unchanged.
+Pairing's Micro 5 digits are unchanged.
 
 Plain Tab on the main keyboard opens a general SETTINGS list with
 Bluetooth, Wi-Fi, then Sound volume,
@@ -459,11 +449,11 @@ system-screen control, not a global shortcut for future text-entry Mini Apps.
 
 The Cardputer adapter composes drawing into a persistent RGB565 canvas and copies
 only completed dirty regions to the LCD. Settled functional views cause no display transfer; Home transfers only its
-changed regions, including the bounded ambient wave.
+changed regions, including the bounded ambient orb.
 Page changes use a 220 ms cubic ease-out slide: forward navigation enters from
 right, Back from left. Home, Settings, Bluetooth, host actions, rename/delete,
 and pairing participate; focus moves, typed characters, and status updates do
-not restart transitions. The Home wave pauses during a slide. Input remains
+not restart transitions. The Home Living Orb pauses during a slide. Input remains
 live; a newer navigation transition starts from the currently presented pixels.
 No event is queued for later host replay. Animation positions update at most
 once per 16 ms and stop at completion. Spring focus motion, remaining sound cues, and
@@ -514,7 +504,7 @@ Physical Cardputer-Adv validation must confirm:
 
 This document includes delivered behavior and future requirements. Home,
 Settings/Bluetooth/Wi-Fi and sound-volume rows, synthesized key feedback, per-host
-menus, partial frame presentation, page slides, the ambient wave, and the
+menus, partial frame presentation, page slides, the ambient orb, and the
 two-second segmented startup splash are implemented.
 Normal firmware rate-limits idle UI work to 50 Hz, processes semantic input on
 the loop where it is sampled, and uses typed render-state snapshots so unchanged
@@ -542,13 +532,13 @@ already supported.
 
 When no host is selected, the Bluetooth row directs focus to a saved host (or
 Add device for an empty list) with a visible Enter instruction. Focus alone does
-not select a host or start pairing. Home displays OFF until the user confirms;
+not select a host or start pairing. The Home BT dot remains hollow until the user confirms;
 missing selection and invalid input are not Bluetooth ERROR states. Actual
 storage, Bluetooth, and missing-bond failures retain the ERROR treatment.
 
 Saved host intent is labelled SELECTED, never ACTIVE; selection remains visible
 while Off or after a failed connection attempt. READY denotes the actual secured
-HID connection. Home labels the corresponding name SELECTED HOST.
+HID connection. The Bluetooth panel identifies the selected host.
 
 Settings, the Bluetooth list, and the saved-host action menu have no bottom
 separator or Escape footer.
