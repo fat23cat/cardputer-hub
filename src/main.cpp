@@ -1,4 +1,5 @@
 #include "apps/hosts/host_settings.h"
+#include "apps/led_gallery/led_gallery_app.h"
 #include "apps/mac_control/mac_control_app.h"
 #include "apps/network/wifi_settings.h"
 #include "apps/pomodoro/pomodoro_app.h"
@@ -83,6 +84,7 @@ cardputer_hub::services::PomodoroService pomodoro;
 cardputer_hub::services::PomodoroLedController pomodoroLed(pomodoro, indicator, &audio,
                                                            &displayPower);
 cardputer_hub::apps::PomodoroApp pomodoroApp(pomodoro, display);
+cardputer_hub::apps::LedGalleryApp ledGallery(indicator, display);
 cardputer_hub::apps::UiScheduler uiScheduler;
 std::int64_t previousUpdateMilliseconds = 0;
 bool homeVisible = false;
@@ -115,6 +117,8 @@ extern "C" void app_main(void) {
     (void)miniApps.registerInstance("mac-control", macControl);
     (void)appRegistry.registerApp({"pomodoro", "POMODORO", "pomodoro", "pomodoro", {}});
     (void)miniApps.registerInstance("pomodoro", pomodoroApp);
+    (void)appRegistry.registerApp({"led-gallery", "LED GALLERY", "led-gallery", "led-gallery", {}});
+    (void)miniApps.registerInstance("led-gallery", ledGallery);
     battery.update(std::chrono::milliseconds(0));
     previousUpdateMilliseconds = esp_timer_get_time() / 1000;
 

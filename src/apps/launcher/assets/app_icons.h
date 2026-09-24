@@ -24,6 +24,12 @@ inline constexpr const char* const pomodoroAppIcon[] = {
     " ############ ", "  ##########  ", "   ########   ", "    ######    ",
 };
 
+inline constexpr const char* const ledGalleryAppIcon[] = {
+    "#  #  #  #  # ", "  #  #  #  #  ", "#  #  #  #  # ", "  #  #  #  #  ", "#  #  #  #  # ",
+    "  #  #  #  #  ", "#  #  #  #  # ", "  #  #  #  #  ", "#  #  #  #  # ", "  #  #  #  #  ",
+    "#  #  #  #  # ", "  #  #  #  #  ", "#  #  #  #  # ", "  #  #  #  #  ",
+};
+
 inline constexpr const char* const fallbackAppIcon[] = {
     " ############ ", " #          # ", " # ######## # ", " # #      # # ", " # #      # # ",
     " # #      # # ", " # #      # # ", " # #      # # ", " # ######## # ", " #          # ",
@@ -37,6 +43,8 @@ inline const char* const* appIconRows(const char* iconId) {
         return macControlAppIcon;
     if (iconId != nullptr && std::strcmp(iconId, "pomodoro") == 0)
         return pomodoroAppIcon;
+    if (iconId != nullptr && std::strcmp(iconId, "led-gallery") == 0)
+        return ledGalleryAppIcon;
     return fallbackAppIcon;
 }
 
