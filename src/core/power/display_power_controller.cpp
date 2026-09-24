@@ -13,6 +13,9 @@ void DisplayPowerController::captureNormalLevel() {
     // to a non-zero level, so a zero reading means the level is unavailable
     // rather than an intentional dark screen.
     normalLevel_ = existing > 0 ? existing : maximumLevel;
+    baselineLevel_ = normalLevel_;
+    normalLevel_ = static_cast<std::uint8_t>(
+        std::max(1, (static_cast<int>(baselineLevel_) * brightnessPercent_ + 50) / 100));
     state_ = DisplayPowerState::Awake;
     stateElapsed_ = {};
     rampElapsed_ = {};
@@ -20,6 +23,31 @@ void DisplayPowerController::captureNormalLevel() {
     if (existing != normalLevel_)
         backlight_.setLevel(normalLevel_);
     writtenLevel_ = normalLevel_;
+}
+
+void DisplayPowerController::setTimeoutMode(ScreenTimeoutMode mode) {
+    if (mode != ScreenTimeoutMode::Normal && mode != ScreenTimeoutMode::Long &&
+        mode != ScreenTimeoutMode::Never)
+        return;
+    timeoutMode_ = mode;
+    state_ = DisplayPowerState::Awake;
+    stateElapsed_ = {};
+    rampElapsed_ = {};
+    rampDuration_ = {};
+    writeLevel();
+}
+
+void DisplayPowerController::setBrightnessPercent(std::uint8_t percent) {
+    if (percent < 20 || percent > 100 || percent % 10 != 0)
+        return;
+    brightnessPercent_ = percent;
+    normalLevel_ = static_cast<std::uint8_t>(
+        std::max(1, (static_cast<int>(baselineLevel_) * percent + 50) / 100));
+    state_ = DisplayPowerState::Awake;
+    stateElapsed_ = {};
+    rampElapsed_ = {};
+    rampDuration_ = {};
+    writeLevel();
 }
 
 std::uint8_t DisplayPowerController::dimLevel() const noexcept {
@@ -67,7 +95,12 @@ void DisplayPowerController::startWake() {
 std::chrono::milliseconds DisplayPowerController::advance(std::chrono::milliseconds remaining) {
     switch (state_) {
     case DisplayPowerState::Awake: {
-        const auto need = idleThreshold - stateElapsed_;
+        if (timeoutMode_ == ScreenTimeoutMode::Never)
+            return {};
+        const auto threshold = timeoutMode_ == ScreenTimeoutMode::Long
+                                   ? std::chrono::milliseconds(60000)
+                                   : idleThreshold;
+        const auto need = threshold - stateElapsed_;
         if (remaining < need) {
             stateElapsed_ += remaining;
             return {};
@@ -78,7 +111,10 @@ std::chrono::milliseconds DisplayPowerController::advance(std::chrono::milliseco
         return remaining - need;
     }
     case DisplayPowerState::Dimmed: {
-        const auto need = dimHoldDuration - stateElapsed_;
+        const auto hold = timeoutMode_ == ScreenTimeoutMode::Long
+                              ? std::chrono::milliseconds(300000)
+                              : dimHoldDuration;
+        const auto need = hold - stateElapsed_;
         if (remaining < need) {
             stateElapsed_ += remaining;
             return {};

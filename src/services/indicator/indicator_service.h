@@ -12,8 +12,7 @@ namespace cardputer_hub::services {
 
 inline constexpr char pomodoroIndicatorOwner[] = "pomodoro";
 inline constexpr char ledGalleryIndicatorOwner[] = "led-gallery";
-inline constexpr std::uint8_t ledGalleryBrightnessPercent = 3;
-inline constexpr std::uint8_t pomodoroBrightnessPercent = 3;
+inline constexpr std::uint8_t defaultIndicatorBrightnessPercent = 3;
 
 enum class IndicatorPriority : std::uint8_t {
     Idle = 0,
@@ -67,6 +66,8 @@ class IndicatorService {
 
     [[nodiscard]] IndicatorClaim acquire(std::string_view owner, IndicatorPriority priority);
     void update();
+    void setMaximumBrightnessPercent(std::uint8_t percent) noexcept;
+    std::uint8_t maximumBrightnessPercent() const noexcept { return maximumBrightnessPercent_; }
     [[nodiscard]] IndicatorResolvedOutput resolved() const { return resolved_; }
     [[nodiscard]] int adapterWrites() const noexcept { return adapterWrites_; }
 
@@ -84,7 +85,6 @@ class IndicatorService {
     void release(std::uint32_t token);
     void resolve();
     [[nodiscard]] Record* find(std::uint32_t token) noexcept;
-    [[nodiscard]] static std::uint8_t brightnessPercentFor(std::string_view owner) noexcept;
     [[nodiscard]] static core::LedHardwareFrame hardwareFrame(const IndicatorFrame& frame,
                                                               std::uint8_t brightnessPercent);
 
@@ -96,6 +96,8 @@ class IndicatorService {
     bool haveLastHardware_ = false;
     int adapterWrites_ = 0;
     bool dirty_ = true;
+    bool brightnessDirty_ = false;
+    std::uint8_t maximumBrightnessPercent_ = defaultIndicatorBrightnessPercent;
 };
 
 } // namespace cardputer_hub::services

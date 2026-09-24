@@ -827,11 +827,22 @@ class SilentWifiAdapter final : public IWifiAdapter {
 };
 
 struct Screen {
+    class Backlight final : public core::IBacklightAdapter {
+      public:
+        std::uint8_t level() const override { return value; }
+        void setLevel(std::uint8_t next) override { value = next; }
+        std::uint8_t value = 255;
+    };
+    class Led final : public core::ILEDAdapter {
+      public:
+        void writeFrame(const core::LedHardwareFrame&) override {}
+    };
     explicit Screen(Fixture& f)
         : ui(f.hosts, bus, display), wifi(wifiAdapter), network(wifi, f.config),
           wifiSettings(network, bus, display), audio(f.config, audioAdapter),
-          miniApps(appRegistry, capabilities),
-          shell(f.hosts, network, bus, display, ui, wifiSettings, audio, miniApps, capabilities) {
+          deviceSettings(f.config, displayPower, indicator), miniApps(appRegistry, capabilities),
+          shell(f.hosts, network, bus, display, ui, wifiSettings, audio, deviceSettings, miniApps,
+                capabilities) {
         for (const auto* id : {"host.bluetooth", "host.select", "host.pair", "host.cancel-pairing",
                                "host.delete", "host.rename"})
             bus.registerHandler(id, f.hosts);
@@ -855,6 +866,11 @@ struct Screen {
     apps::WiFiSettings wifiSettings;
     SilentAudioAdapter audioAdapter;
     services::AudioService audio;
+    Backlight backlight;
+    Led led;
+    core::DisplayPowerController displayPower{backlight};
+    services::IndicatorService indicator{led};
+    services::DeviceSettingsService deviceSettings;
     core::AppRegistry appRegistry;
     core::CapabilityRegistry capabilities;
     apps::MiniAppRuntime miniApps;

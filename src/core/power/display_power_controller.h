@@ -16,6 +16,8 @@ enum class DisplayPowerState : std::uint8_t {
     Waking,
 };
 
+enum class ScreenTimeoutMode : std::uint8_t { Normal, Long, Never };
+
 // Global backlight idle policy. Off means backlight zero; nothing here sleeps
 // the ESP32 or touches UI, Actions or Services.
 class DisplayPowerController {
@@ -40,6 +42,10 @@ class DisplayPowerController {
     // Programmatic attention: restores visibility without synthesizing input.
     // Background features may call this for a meaningful user-visible event.
     void requestWake();
+    void setTimeoutMode(ScreenTimeoutMode mode);
+    void setBrightnessPercent(std::uint8_t percent);
+    ScreenTimeoutMode timeoutMode() const noexcept { return timeoutMode_; }
+    std::uint8_t brightnessPercent() const noexcept { return brightnessPercent_; }
 
     DisplayPowerState state() const noexcept { return state_; }
     bool displayOff() const noexcept { return state_ == DisplayPowerState::Off; }
@@ -57,6 +63,9 @@ class DisplayPowerController {
     DisplayPowerState state_ = DisplayPowerState::Awake;
     std::uint8_t normalLevel_ = maximumLevel;
     std::uint8_t writtenLevel_ = maximumLevel;
+    std::uint8_t baselineLevel_ = maximumLevel;
+    std::uint8_t brightnessPercent_ = 100;
+    ScreenTimeoutMode timeoutMode_ = ScreenTimeoutMode::Normal;
     std::uint8_t rampFrom_ = 0;
     std::uint8_t rampTo_ = 0;
     std::chrono::milliseconds rampDuration_{0};

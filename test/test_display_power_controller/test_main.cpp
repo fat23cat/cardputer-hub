@@ -12,6 +12,7 @@ namespace {
 using cardputer_hub::core::DisplayPowerController;
 using cardputer_hub::core::DisplayPowerState;
 using cardputer_hub::core::IBacklightAdapter;
+using cardputer_hub::core::ScreenTimeoutMode;
 
 constexpr std::uint8_t existingBrightness = 128;
 constexpr std::uint8_t expectedDimLevel = 13;
@@ -466,6 +467,47 @@ void test_programmatic_wake_completes_at_normal_level_and_idle_policy_resumes() 
     f.assertState(DisplayPowerState::Dimming);
 }
 
+void test_long_and_never_timeout_profiles() {
+    Fixture f;
+    f.controller.setTimeoutMode(ScreenTimeoutMode::Long);
+    (void)f.controller.update(ms(59999), false);
+    f.assertState(DisplayPowerState::Awake);
+    (void)f.controller.update(ms(1), false);
+    f.assertState(DisplayPowerState::Dimming);
+    (void)f.controller.update(DisplayPowerController::dimRampDuration, false);
+    (void)f.controller.update(ms(299999), false);
+    f.assertState(DisplayPowerState::Dimmed);
+    (void)f.controller.update(ms(1), false);
+    f.assertState(DisplayPowerState::TurningOff);
+    f.controller.setTimeoutMode(ScreenTimeoutMode::Never);
+    f.assertState(DisplayPowerState::Awake);
+    TEST_ASSERT_EQUAL_UINT8(existingBrightness, f.backlight.level());
+    (void)f.controller.update(ms(1000000), false);
+    f.assertState(DisplayPowerState::Awake);
+    f.controller.setTimeoutMode(ScreenTimeoutMode::Normal);
+    (void)f.controller.update(ms(14999), false);
+    f.assertState(DisplayPowerState::Awake);
+}
+
+void test_brightness_changes_wake_from_every_power_state() {
+    for (const auto state :
+         {DisplayPowerState::Awake, DisplayPowerState::Dimming, DisplayPowerState::Dimmed,
+          DisplayPowerState::TurningOff, DisplayPowerState::Off, DisplayPowerState::Waking}) {
+        Fixture f(255);
+        if (state != DisplayPowerState::Awake)
+            f.idleUntil(state == DisplayPowerState::Waking ? DisplayPowerState::Off : state);
+        if (state == DisplayPowerState::Waking)
+            f.controller.requestWake();
+        f.controller.setBrightnessPercent(70);
+        f.assertState(DisplayPowerState::Awake);
+        TEST_ASSERT_EQUAL_UINT8(179, f.backlight.level());
+        TEST_ASSERT_EQUAL_UINT8(18, f.controller.dimLevel());
+    }
+    Fixture minimum(255);
+    minimum.controller.setBrightnessPercent(20);
+    TEST_ASSERT_TRUE(minimum.controller.dimLevel() > 0);
+}
+
 int main() {
     UNITY_BEGIN();
     RUN_TEST(test_normal_level_is_captured_from_existing_firmware_brightness);
@@ -490,5 +532,7 @@ int main() {
     RUN_TEST(test_off_request_wake_enters_waking);
     RUN_TEST(test_waking_request_wake_does_not_restart_ramp);
     RUN_TEST(test_programmatic_wake_completes_at_normal_level_and_idle_policy_resumes);
+    RUN_TEST(test_long_and_never_timeout_profiles);
+    RUN_TEST(test_brightness_changes_wake_from_every_power_state);
     return UNITY_END();
 }

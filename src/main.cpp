@@ -19,6 +19,7 @@
 #include "services/audio/audio_service.h"
 #include "services/battery/battery_service.h"
 #include "services/companion/companion_service.h"
+#include "services/device_settings/device_settings_service.h"
 #include "services/host_control/host_control_service.h"
 #include "services/hosts/host_service.h"
 #include "services/indicator/indicator_service.h"
@@ -70,9 +71,6 @@ cardputer_hub::apps::MiniAppRuntime miniApps(appRegistry, capabilities);
 cardputer_hub::apps::SystemApp systemApp(battery, hosts, network, display);
 cardputer_hub::apps::HostSettings hostSettings(hosts, actions, display);
 cardputer_hub::apps::WiFiSettings wifiSettings(network, actions, display);
-cardputer_hub::apps::ApplicationShell applicationShell(hosts, network, actions, display,
-                                                       hostSettings, wifiSettings, audio, miniApps,
-                                                       capabilities);
 cardputer_hub::services::CompanionService companion(bluetooth.companionTransport(), capabilities,
                                                     &logger);
 cardputer_hub::services::HostControlService hostControl(hosts, companion, capabilities);
@@ -80,6 +78,11 @@ cardputer_hub::apps::MacControlApp macControl(actions, hostControl, display);
 cardputer_hub::hardware::EspPuzzleLedBackend puzzleLedBackend;
 cardputer_hub::hardware::PuzzleWs2812Adapter puzzleLeds(puzzleLedBackend);
 cardputer_hub::services::IndicatorService indicator(puzzleLeds);
+cardputer_hub::services::DeviceSettingsService deviceSettings(configuration, displayPower,
+                                                              indicator);
+cardputer_hub::apps::ApplicationShell applicationShell(hosts, network, actions, display,
+                                                       hostSettings, wifiSettings, audio,
+                                                       deviceSettings, miniApps, capabilities);
 cardputer_hub::services::PomodoroService pomodoro;
 cardputer_hub::services::PomodoroLedController pomodoroLed(pomodoro, indicator, &audio,
                                                            &displayPower);
@@ -92,8 +95,10 @@ bool homeVisible = false;
 } // namespace
 
 extern "C" void app_main(void) {
-    runtime.start();
+    runtime.prepare();
     (void)configuration.ensureLoaded();
+    (void)deviceSettings.start();
+    runtime.start();
     (void)puzzleLeds.begin();
     for (const auto* id : {"host.select", "host.bluetooth", "host.rename", "host.platform",
                            "host.capability", "host.mapping-template", "host.pair",
@@ -101,6 +106,9 @@ extern "C" void app_main(void) {
         (void)actions.registerHandler(id, hosts);
     }
     (void)actions.registerHandler("audio.volume.step", audio);
+    for (const auto* id :
+         {"display.timeout.step", "display.brightness.step", "indicator.brightness.step"})
+        (void)actions.registerHandler(id, deviceSettings);
     for (const auto* id : {"network.set-enabled", "network.configure", "network.forget"})
         (void)actions.registerHandler(id, network);
     (void)actions.registerHandler(cardputer_hub::services::hostAppActivateActionId, hostControl);

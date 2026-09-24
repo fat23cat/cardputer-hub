@@ -148,7 +148,8 @@ void test_navigation_claim_and_no_auto_switch() {
     app.update({}, 60ms);
     indicator.update();
     TEST_ASSERT_EQUAL_STRING(ledGalleryIndicatorOwner, indicator.resolved().owner.c_str());
-    TEST_ASSERT_EQUAL_UINT8(ledGalleryBrightnessPercent, indicator.resolved().brightnessPercent);
+    TEST_ASSERT_EQUAL_UINT8(defaultIndicatorBrightnessPercent,
+                            indicator.resolved().brightnessPercent);
     TEST_ASSERT_EQUAL(1, display.clears);
     app.update({arrow(NamedKey::Left)}, 0ms);
     TEST_ASSERT_EQUAL_UINT8(19, static_cast<unsigned>(app.currentEffect()));

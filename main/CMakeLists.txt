@@ -21,6 +21,7 @@ set(CARDPUTER_HUB_SOURCES
     "${CMAKE_CURRENT_LIST_DIR}/../src/apps/pomodoro/pomodoro_graphics.cpp"
     "${CMAKE_CURRENT_LIST_DIR}/../src/apps/shell/application_shell.cpp"
     "${CMAKE_CURRENT_LIST_DIR}/../src/services/configuration/configuration_service.cpp"
+    "${CMAKE_CURRENT_LIST_DIR}/../src/services/device_settings/device_settings_service.cpp"
     "${CMAKE_CURRENT_LIST_DIR}/../src/services/network/network_service.cpp"
     "${CMAKE_CURRENT_LIST_DIR}/../src/services/hosts/host_service.cpp"
     "${CMAKE_CURRENT_LIST_DIR}/../src/services/pomodoro/pomodoro_service.cpp"

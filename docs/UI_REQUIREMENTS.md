@@ -293,20 +293,23 @@ Display power is a three-state policy independent of application navigation:
 | State | Local fallback behavior |
 | --- | --- |
 | Awake | Use the configured normal brightness while activity is recent |
-| Dimmed | After 15 seconds without activity, smoothly reach 10% of configured normal brightness |
-| Off | After remaining at the readable 10% level for a full 2 minutes, smoothly reduce the backlight to zero |
+| Dimmed | Normal: after 15 seconds without activity, reach 10% of configured brightness; Long: after 60 seconds |
+| Off | Normal: after 2 minutes at the dim level, fade to zero; Long: after 5 minutes |
 
-The two-minute dim hold begins after the display reaches its 10% target; it
-must not be shortened by the fade time. Brightness changes must use a short,
-monotonic, non-blocking ramp rather than an abrupt step. Waking uses the same
+Never disables automatic dim and off. Screen brightness persists at 20%–100%
+in 10% steps and changes immediately; dim brightness remains 10% of that level.
+The dim hold begins after the display reaches its 10% target; it
+must not be shortened by the fade time. Idle dim/off transitions use short,
+monotonic, non-blocking ramps; a Settings brightness change applies immediately.
+Waking uses the same
 ramp mechanism toward the configured normal brightness; its duration is
 independent of the dim and off ramps.
 
-Delivered timing is a 15-second idle threshold, a 300 ms dim ramp, a 120-second
+Normal timing is a 15-second idle threshold, a 300 ms dim ramp, a 120-second
 dim hold, a 400 ms off ramp and a 200 ms wake ramp. A press during an active
 fade reverses it from the brightness actually on screen; brightness never jumps
-to the cancelled fade's target first. Normal brightness is whatever the firmware
-already uses at startup: this policy neither persists nor changes it.
+to the cancelled fade's target first. Normal brightness is the persisted setting
+applied to the initialized backlight baseline.
 
 The local fallback applies whenever no connected external system owns a
 supported brightness and auto-dim policy. If a future host policy is active,

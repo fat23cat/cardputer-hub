@@ -126,7 +126,8 @@ void test_progress_pixels_and_phase_colors() {
     controller.update(0ms);
     indicator.update();
     TEST_ASSERT_EQUAL(64, countColor(indicator.resolved().frame, pomodoroWorkLed));
-    TEST_ASSERT_EQUAL_UINT8(pomodoroBrightnessPercent, indicator.resolved().brightnessPercent);
+    TEST_ASSERT_EQUAL_UINT8(defaultIndicatorBrightnessPercent,
+                            indicator.resolved().brightnessPercent);
     TEST_ASSERT_EQUAL_UINT8(static_cast<unsigned>(IndicatorPriority::BackgroundApplication),
                             static_cast<unsigned>(indicator.resolved().priority));
 
@@ -149,7 +150,8 @@ void test_progress_pixels_and_phase_colors() {
     controller.update(0ms);
     indicator.update();
     TEST_ASSERT_EQUAL(64, countColor(indicator.resolved().frame, pomodoroBreakLed));
-    TEST_ASSERT_EQUAL_UINT8(pomodoroBrightnessPercent, indicator.resolved().brightnessPercent);
+    TEST_ASSERT_EQUAL_UINT8(defaultIndicatorBrightnessPercent,
+                            indicator.resolved().brightnessPercent);
 
     controller.update(pomodoroTransitionFeedback);
     pomodoro.update(8s);
@@ -171,7 +173,8 @@ void test_long_break_uses_leaf_and_reset_releases_claim() {
     TEST_ASSERT_EQUAL_UINT8(static_cast<unsigned>(PomodoroPhase::LongBreak),
                             static_cast<unsigned>(pomodoro.snapshot().phase));
     TEST_ASSERT_EQUAL(64, countColor(indicator.resolved().frame, pomodoroBreakLed));
-    TEST_ASSERT_EQUAL_UINT8(pomodoroBrightnessPercent, indicator.resolved().brightnessPercent);
+    TEST_ASSERT_EQUAL_UINT8(defaultIndicatorBrightnessPercent,
+                            indicator.resolved().brightnessPercent);
     pomodoro.reset();
     controller.update(0ms);
     indicator.update();
@@ -187,7 +190,8 @@ void test_transition_stays_at_policy_brightness_and_is_not_brighter() {
     pomodoro.skip();
     controller.update(0ms);
     indicator.update();
-    TEST_ASSERT_EQUAL_UINT8(pomodoroBrightnessPercent, indicator.resolved().brightnessPercent);
+    TEST_ASSERT_EQUAL_UINT8(defaultIndicatorBrightnessPercent,
+                            indicator.resolved().brightnessPercent);
     TEST_ASSERT_EQUAL(64, countColor(indicator.resolved().frame, pomodoroBreakLed));
 }
 
@@ -218,11 +222,12 @@ void test_hidden_claim_keeps_updating_and_restore_stays_policy_brightness() {
     controller.update(0ms);
     indicator.update();
     TEST_ASSERT_EQUAL_STRING("led-control", indicator.resolved().owner.c_str());
-    TEST_ASSERT_EQUAL_UINT8(100, indicator.resolved().brightnessPercent);
+    TEST_ASSERT_EQUAL_UINT8(3, indicator.resolved().brightnessPercent);
     foreground.release();
     indicator.update();
     TEST_ASSERT_EQUAL_STRING("pomodoro", indicator.resolved().owner.c_str());
-    TEST_ASSERT_EQUAL_UINT8(pomodoroBrightnessPercent, indicator.resolved().brightnessPercent);
+    TEST_ASSERT_EQUAL_UINT8(defaultIndicatorBrightnessPercent,
+                            indicator.resolved().brightnessPercent);
     TEST_ASSERT_EQUAL(32, countColor(indicator.resolved().frame, pomodoroWorkLed));
 }
 
@@ -269,7 +274,7 @@ void test_led_phase_colors_are_muted_not_lcd_palette() {
 
     const auto scale = [](std::uint8_t channel) {
         return static_cast<std::uint8_t>(
-            (static_cast<unsigned>(channel) * pomodoroBrightnessPercent + 50U) / 100U);
+            (static_cast<unsigned>(channel) * defaultIndicatorBrightnessPercent + 50U) / 100U);
     };
     const RgbColor workHw{scale(pomodoroWorkLed.red), scale(pomodoroWorkLed.green),
                           scale(pomodoroWorkLed.blue)};

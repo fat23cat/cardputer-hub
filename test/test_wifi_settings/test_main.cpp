@@ -219,11 +219,24 @@ class WifiAdapter final : public connectivity::IWifiAdapter {
 };
 
 struct Fixture {
+    class Backlight final : public core::IBacklightAdapter {
+      public:
+        std::uint8_t level() const override { return value; }
+        void setLevel(std::uint8_t next) override { value = next; }
+        std::uint8_t value = 255;
+    } backlight;
+    class Led final : public core::ILEDAdapter {
+      public:
+        void writeFrame(const core::LedHardwareFrame&) override {}
+    } led;
     Memory memory;
     core::Storage storage{memory};
     services::ConfigurationService config{storage};
     AudioAdapter audioAdapter;
     services::AudioService audio{config, audioAdapter};
+    core::DisplayPowerController displayPower{backlight};
+    services::IndicatorService indicator{led};
+    services::DeviceSettingsService deviceSettings{config, displayPower, indicator};
     BluetoothAdapter bluetoothAdapter;
     connectivity::BluetoothService bluetooth{bluetoothAdapter};
     services::HostService hosts{bluetooth, config};
@@ -296,7 +309,8 @@ void test_home_wifi_indicator_mapping() {
 void test_home_renders_semantic_wifi_dot_without_status_text() {
     Fixture f;
     apps::ApplicationShell shell(f.hosts, f.network, f.bus, f.display, f.hostSettings,
-                                 f.wifiSettings, f.audio, f.miniApps, f.capabilities);
+                                 f.wifiSettings, f.audio, f.deviceSettings, f.miniApps,
+                                 f.capabilities);
     shell.update({});
     TEST_ASSERT_TRUE(f.display.shows("--:--"));
     TEST_ASSERT_FALSE(f.display.shows("OFFLINE"));
@@ -343,7 +357,8 @@ void test_home_wifi_redraws_only_on_semantic_changes() {
     Fixture f;
     f.reachWifi(connectivity::WifiAdapterState::Connected, -40);
     apps::ApplicationShell shell(f.hosts, f.network, f.bus, f.display, f.hostSettings,
-                                 f.wifiSettings, f.audio, f.miniApps, f.capabilities);
+                                 f.wifiSettings, f.audio, f.deviceSettings, f.miniApps,
+                                 f.capabilities);
     shell.update({});
     const auto presentations = f.display.presentations;
     f.display.rectangles.clear();
@@ -373,7 +388,8 @@ void test_home_wifi_redraws_only_on_semantic_changes() {
 void test_settings_opens_wifi_forward_and_returns_backward() {
     Fixture f;
     apps::ApplicationShell shell(f.hosts, f.network, f.bus, f.display, f.hostSettings,
-                                 f.wifiSettings, f.audio, f.miniApps, f.capabilities);
+                                 f.wifiSettings, f.audio, f.deviceSettings, f.miniApps,
+                                 f.capabilities);
     shell.update({tab});
     TEST_ASSERT_TRUE(f.display.shows("Wi-Fi"));
     f.display.transitions.clear();
@@ -680,7 +696,8 @@ void test_storage_failure_leaves_configuration_and_shows_error() {
 void test_editor_tab_does_not_submit_and_shell_returns_to_settings() {
     Fixture f;
     apps::ApplicationShell shell(f.hosts, f.network, f.bus, f.display, f.hostSettings,
-                                 f.wifiSettings, f.audio, f.miniApps, f.capabilities);
+                                 f.wifiSettings, f.audio, f.deviceSettings, f.miniApps,
+                                 f.capabilities);
     shell.update({tab, down, enter, enter});
     TEST_ASSERT_TRUE(f.display.shows("NETWORK NAME"));
     type(f.wifiSettings, "KeepMe");

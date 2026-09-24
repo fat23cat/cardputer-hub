@@ -29,7 +29,8 @@ SYSTEM, POMODORO, LED GALLERY, or MAC CONTROL to Apps and from Apps to Home. If 
 while MAC CONTROL is open, the app closes and Apps returns; reconnect does not
 reopen it or repeat the last launch. Press plain **Tab** on the main keyboard
 to open the general Settings menu. Fn+Tab is inactive, and a normal G0 press
-has no application action. Settings lists Bluetooth, Wi-Fi, then Sound volume.
+has no application action. Settings lists Bluetooth, Wi-Fi, Sound volume, Screen
+timeout, Screen brightness, and LED brightness.
 BLE is the only host-control transport. USB supplies power, firmware
 installation, and fixed USB Serial/JTAG diagnostics.
 
@@ -39,8 +40,12 @@ recorded sound. The default volume is 60%; 0% mutes it completely, and the
 setting survives Reset and power cycles. Rapid presses are coalesced into one
 uninterrupted cue instead of building up an audio queue.
 
-After about 15 seconds without a key press the backlight dims, then later
-turns off. A key press while dimmed or off wakes the display and is not
+Screen timeout defaults to Normal: after 15 seconds without a key press the
+backlight dims to 10% of the selected Screen brightness, then turns off after
+two minutes at the dim level. Long waits 60 seconds before dimming and five
+minutes before turning off. Never keeps the display awake. Screen brightness
+can be set from 20% to 100% in 10% steps; the default is 100%. A key press
+while dimmed or off wakes the display and is not
 delivered as a command. Background work keeps running while the screen is
 dark. A Pomodoro phase change also wakes the display without switching the
 active app; the normal idle dim/off cycle then starts again.
@@ -74,7 +79,8 @@ Escape returns
 to Apps. The last selected effect is restored when reopening the app during this
 firmware session; after reboot it starts with Plasma. Effects never switch on
 their own. The LCD can dim and turn off while the LED animation continues. The
-matrix runs at a maximum effective brightness of 3%. If Pomodoro is active, its
+matrix uses the global LED brightness setting, 1% to 10% in 1% steps (default
+3%). The shared output path limits every app to 10%. If Pomodoro is active, its
 LED progress returns when you close Gallery.
 
 ## Hosts and Bluetooth
@@ -162,8 +168,11 @@ instead of moving a list.
 | Plain Tab on Home | Open Settings without changing BLE state |
 | Enter on Bluetooth in Settings | Open the Bluetooth panel |
 | Enter on Wi-Fi in Settings | Open Wi-Fi Settings |
-| `;` / `.` or Up / Down in Settings | Move between Bluetooth, Wi-Fi, and Sound volume |
+| `;` / `.` or Up / Down in Settings | Move among all six rows |
 | `,` / `/` (keys marked Left / Right, without Fn) on Sound volume | Decrease / increase volume by 10%, from 0% to 100%; Fn+arrow combinations also work |
+| Left / Right on Screen timeout | Select Normal, Long, or Never without wrapping |
+| Left / Right on Screen brightness | Change by 10% within 20%–100% |
+| Left / Right on LED brightness | Change by 1% within 1%–10% |
 | Backtick/Escape in Settings | Return Home |
 | Plain Tab in the Bluetooth list or Wi-Fi Settings | Return to Settings |
 | Backtick/Escape on the Wi-Fi page, name, password, or Forget confirmation | Return to Wi-Fi Settings or cancel without saving |

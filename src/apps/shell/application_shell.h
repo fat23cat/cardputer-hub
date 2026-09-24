@@ -5,6 +5,7 @@
 #include "core/capabilities/capability_registry.h"
 #include "core/navigation/navigation_stack.h"
 #include "services/audio/audio_service.h"
+#include "services/device_settings/device_settings_service.h"
 #include "services/network/network_service.h"
 
 namespace cardputer_hub::apps {
@@ -15,8 +16,8 @@ class ApplicationShell final : public core::IActionHandler {
     ApplicationShell(services::HostService& hosts, services::NetworkService& network,
                      core::ActionBus& actions, core::IDisplayAdapter& display,
                      HostSettings& settings, WiFiSettings& wifiSettings,
-                     services::AudioService& audio, MiniAppRuntime& miniApps,
-                     core::CapabilityRegistry& capabilities);
+                     services::AudioService& audio, services::DeviceSettingsService& deviceSettings,
+                     MiniAppRuntime& miniApps, core::CapabilityRegistry& capabilities);
     void update(const core::InputEvents& input, std::chrono::milliseconds elapsed = {},
                 std::optional<std::uint8_t> batteryPercent = std::nullopt, bool displayOff = false);
     core::ActionHandlingResult handle(const core::Action& action) override;
@@ -38,6 +39,9 @@ class ApplicationShell final : public core::IActionHandler {
     struct SettingsFrame {
         std::uint8_t selection = 0;
         std::uint8_t volume = 0;
+        core::ScreenTimeoutMode timeout = core::ScreenTimeoutMode::Normal;
+        std::uint8_t screenBrightness = 100;
+        std::uint8_t ledBrightness = 3;
     };
 
     void ensureLauncher();
@@ -63,6 +67,7 @@ class ApplicationShell final : public core::IActionHandler {
     HostSettings& settings_;
     WiFiSettings& wifiSettings_;
     services::AudioService& audio_;
+    services::DeviceSettingsService& deviceSettings_;
     MiniAppRuntime& miniApps_;
     core::CapabilityRegistry& capabilities_;
     Launcher launcher_;

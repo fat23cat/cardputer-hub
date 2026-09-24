@@ -45,6 +45,7 @@ ownership matrix with invariants. Do not rewrite older plans into that format.
 | [033](033-pomodoro-timer-and-optional-led-progress.md#0-current-status) | Pomodoro timer, optional LED progress, phase-transition display wake | Software implemented; physical Cardputer-Adv LED and display-wake acceptance pending |
 | [034](034-led-gallery.md) | LED Gallery with ten procedural matrix effects, including Kaleidoscope | Software implemented; physical Unit Puzzle acceptance and tuning pending |
 | [034/2](034-2-led-gallery-expansion.md) | Twenty LED Gallery effects and contextual interaction | Software implemented; physical Unit Puzzle acceptance and tuning pending |
+| [035](035-device-display-and-led-brightness-settings.md) | Persistent display timeout and brightness, shared LED brightness limit | Implemented; physical device testing confirmed by user on 2026-09-24 |
 
 The work referred to historically as 013 is the approved
 [UI requirements](../UI_REQUIREMENTS.md); there is no separate plan-013 file.
