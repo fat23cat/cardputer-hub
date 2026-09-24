@@ -53,6 +53,17 @@ remain dynamic `HostProfile` data and must never be hardcoded.
 The primary target is the Cardputer-Adv 240x135 landscape LCD. Layout must be
 authored for this exact raster rather than treated as a scaled desktop UI.
 
+LED Gallery uses the normal LCD palette for its resting labels; its external
+8×8 matrix content may use procedural full RGB and HSV hues at a shared 3%
+brightness cap. The LCD does not mirror the matrix animation. Its resting
+screen shows `NN/20`, the effect name, and a stable bottom row with sequential
+navigation and both direct-selection banks (`1-0 / FN+1-0`). This global row
+stays at the lower edge. An action row appears above it only when the selected
+effect has actions; its labels come from the effect registry. Temporary feedback
+for parameter changes appears in the otherwise empty center and expires after
+about one second. There is no reset
+hint or permanent action row for passive effects.
+
 The interface should feel continuous with the keyboard:
 
 * prefer full-bleed surfaces;
@@ -326,7 +337,8 @@ that produces no semantic event. A key release and a continuously held key do
 not. Every press received while waking stays consumed and neither restarts nor
 extends the wake ramp. The Home ambient wave is the one motion that pauses
 while the display is Off, resuming from its previous phase; other timers and
-Service state keep advancing.
+Service state keep advancing. LED Gallery continues publishing matrix frames
+while the LCD is Off; its animation is not user activity and creates no wake lock.
 
 ### Splash-only low-brightness treatment
 

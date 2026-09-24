@@ -11,6 +11,8 @@
 namespace cardputer_hub::services {
 
 inline constexpr char pomodoroIndicatorOwner[] = "pomodoro";
+inline constexpr char ledGalleryIndicatorOwner[] = "led-gallery";
+inline constexpr std::uint8_t ledGalleryBrightnessPercent = 3;
 inline constexpr std::uint8_t pomodoroBrightnessPercent = 3;
 
 enum class IndicatorPriority : std::uint8_t {

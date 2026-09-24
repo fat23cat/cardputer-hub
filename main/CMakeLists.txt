@@ -15,6 +15,8 @@ set(CARDPUTER_HUB_SOURCES
     "${CMAKE_CURRENT_LIST_DIR}/../src/apps/mac_control/mac_control_app.cpp"
     "${CMAKE_CURRENT_LIST_DIR}/../src/apps/mac_control/mac_control_bindings.cpp"
     "${CMAKE_CURRENT_LIST_DIR}/../src/apps/mac_control/mac_control_graphics.cpp"
+    "${CMAKE_CURRENT_LIST_DIR}/../src/apps/led_gallery/led_gallery_app.cpp"
+    "${CMAKE_CURRENT_LIST_DIR}/../src/apps/led_gallery/led_gallery_engine.cpp"
     "${CMAKE_CURRENT_LIST_DIR}/../src/apps/pomodoro/pomodoro_app.cpp"
     "${CMAKE_CURRENT_LIST_DIR}/../src/apps/pomodoro/pomodoro_graphics.cpp"
     "${CMAKE_CURRENT_LIST_DIR}/../src/apps/shell/application_shell.cpp"

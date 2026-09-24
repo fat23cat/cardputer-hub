@@ -1494,10 +1494,11 @@ priority published frame. `update()` resolves the visible owner and writes
 through `ILEDAdapter`. Identical resolved hardware frames are not rewritten.
 
 Brightness policy is owned by `IndicatorService`, not by claim publishers.
-Pomodoro (`owner` `"pomodoro"`) is always rendered at 3%. Work and break LED
+Pomodoro (`owner` `"pomodoro"`) and LED Gallery (`owner` `"led-gallery"`) are always rendered at 3%. Work and break LED
 pixels use muted steel blue and sage rather than LCD `palette::blue` and
 `palette::leaf`, because the Unit Puzzle diodes are harsh even at that
-brightness. Other current owners use 100%. A newly selected owner does not
+brightness. Gallery emits full-range procedural RGB; the shared service applies the 3% limit.
+Other current owners use 100%. A newly selected owner does not
 inherit the previous owner's brightness.
 
 `ILEDAdapter` lives in System Core so Services can depend on it without
@@ -1514,8 +1515,19 @@ Mini App / presentation helper
  PuzzleWs2812Adapter
 ```
 
-Animations, connection patterns, and additional owner-specific brightness
-policies remain later work. Physical Unit Puzzle acceptance is still required.
+`LedGalleryApp` is a Mini App with twenty fixed-ID effects. Its engine owns
+fixed simulation buffers and deterministic randomness; the app owns selection,
+keyboard interaction, LCD labels, and one `ForegroundApplication` claim. The
+selected effect survives closing and reopening within a firmware session. LED
+frames are published at roughly 20 FPS and continue while the LCD is dim or
+off. Left/Right navigate the full registry; digits 1–0 select effects 1–10 and
+Fn+digits select 11–20 (physical Fn+digits arrive as F1–F10 key events).
+Effect-specific keys are routed only after global selection. The LCD shows
+`NN/20`, a stable global navigation row, an optional metadata-driven action row,
+and short-lived interaction feedback. R/r has no reset meaning. No timer changes
+the selected effect. Releasing
+the claim restores the latest lower-priority frame, including Pomodoro. Physical
+Unit Puzzle acceptance for the gallery is still required.
 
 ---
 

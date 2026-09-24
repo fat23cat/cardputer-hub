@@ -10,8 +10,8 @@ OUTPUT=""
 REINDEX=true
 
 # Safety limits only. Symbols are NOT ranked.
-MAX_SYMBOLS=50
-MAX_DIFF_LINES=6000
+MAX_SYMBOLS=500
+MAX_DIFF_LINES=60000
 TRACE_DEPTH=2
 MAX_SNIPPET_LINES=400
 MAX_TRACE_LINES=250
@@ -38,11 +38,11 @@ Options:
   --max-symbols <n>
       Safety limit for deep-inspected production symbols.
       Symbols are processed in file/source order, not ranked.
-      Default: 50
+      Default: 500
 
   --max-diff-lines <n>
       Maximum number of diff lines included in the bundle.
-      Default: 6000
+      Default: 60000
 
   --trace-depth <1-5>
       Call graph traversal depth.
