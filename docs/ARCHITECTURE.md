@@ -1515,15 +1515,17 @@ Mini App / presentation helper
  PuzzleWs2812Adapter
 ```
 
-`LedGalleryApp` is a Mini App with ten fixed-ID procedural effects. Its engine owns
+`LedGalleryApp` is a Mini App with twenty fixed-ID effects. Its engine owns
 fixed simulation buffers and deterministic randomness; the app owns selection,
 keyboard interaction, LCD labels, and one `ForegroundApplication` claim. The
 selected effect survives closing and reopening within a firmware session. LED
 frames are published at roughly 20 FPS and continue while the LCD is dim or
-off. Left/Right and digits 1–0 select effects; Space interacts with Ripple and
-Particle Storm. The LCD shows a right-arrow next-effect hint and a contextual
-Space hint beside the direct-selection hint for those two effects. R/r has no
-reset meaning. No timer changes the selected effect. Releasing
+off. Left/Right navigate the full registry; digits 1–0 select effects 1–10 and
+Fn+digits select 11–20 (physical Fn+digits arrive as F1–F10 key events).
+Effect-specific keys are routed only after global selection. The LCD shows
+`NN/20`, a stable global navigation row, an optional metadata-driven action row,
+and short-lived interaction feedback. R/r has no reset meaning. No timer changes
+the selected effect. Releasing
 the claim restores the latest lower-priority frame, including Pomodoro. Physical
 Unit Puzzle acceptance for the gallery is still required.
 

@@ -59,15 +59,18 @@ another open app.
 ## LED Gallery
 
 **LED GALLERY** is always available in Apps, including without a Unit Puzzle
-matrix. With the matrix attached, it runs one of ten animations continuously:
+matrix. With the matrix attached, it runs one of twenty animations continuously:
 Plasma, Lava, Kaleidoscope, Aurora, Warp, Comets, Fireflies, Vortex,
-Ripple, or Particle Storm. Right selects the next effect; Left selects the previous one, wrapping
-at the ends. `1`–`9` select those effects directly and `0` selects Particle
-Storm. Space adds a ripple in Ripple or a large burst in Particle Storm;
+Ripple, Particle Storm, Game of Life, Reaction Diffusion, Fire, Gravity Well,
+Swarm, Falling Sand, Langton's Ant, Tetris Dream, Rule Machine, and Electric Storm.
+Falling Sand fills the matrix, fades when it is full, then begins again.
+Right selects the next effect; Left selects the previous one, wrapping at the
+ends. `1`–`9` select effects 1–9, `0` selects effect 10, and Fn with the same
+digits selects effects 11–20. The LCD shows `NN/20`, the global navigation row
+at the bottom, and effect-specific controls above it only when available. Space
+triggers the shown primary action. WASD and G have effect-specific meanings shown on the LCD;
 other printable keys, including R/r, add smaller bursts in Particle Storm.
-The LCD shows a right arrow with `NEXT EFFECT` and `1-0 DIRECT`. A contextual
-`SPACE RIPPLE` or `SPACE BURST` hint appears to the right of `1-0 DIRECT` only
-for those two effects. Both control rows sit at the bottom of the LCD. Escape returns
+Escape returns
 to Apps. The last selected effect is restored when reopening the app during this
 firmware session; after reboot it starts with Plasma. Effects never switch on
 their own. The LCD can dim and turn off while the LED animation continues. The
@@ -151,8 +154,8 @@ instead of moving a list.
 | Escape in SYSTEM | Return to Apps |
 | Escape in POMODORO | Return to Apps; the timer keeps running |
 | Escape in LED GALLERY | Return to Apps; Pomodoro LED progress returns if active |
-| Left/Right, 1–0 in LED GALLERY | Select one of ten effects |
-| Space in Ripple / Particle Storm | Add a ripple / large particle burst |
+| Left/Right, 1–0, Fn+1–0 in LED GALLERY | Select one of twenty effects |
+| Space in LED GALLERY | Trigger the current effect's primary action shown on the LCD |
 | Space in POMODORO | Start, pause, or resume |
 | R in POMODORO | Reset the timer |
 | Right, S, or / in POMODORO | Skip to the next phase |

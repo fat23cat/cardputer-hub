@@ -27,6 +27,8 @@ class LedGalleryApp final : public IMiniApp {
     LedGalleryEffect effect_ = LedGalleryEffect::Plasma;
     const std::uint32_t seed_;
     std::chrono::milliseconds outputElapsed_{0};
+    std::chrono::milliseconds feedbackElapsed_{0};
+    char feedback_[32]{};
     bool redraw_ = true;
 };
 

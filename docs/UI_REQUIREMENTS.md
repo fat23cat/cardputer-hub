@@ -56,10 +56,13 @@ authored for this exact raster rather than treated as a scaled desktop UI.
 LED Gallery uses the normal LCD palette for its resting labels; its external
 8×8 matrix content may use procedural full RGB and HSV hues at a shared 3%
 brightness cap. The LCD does not mirror the matrix animation. Its resting
-screen shows a right arrow beside `NEXT EFFECT` and `1-0 DIRECT`; the same row
-places `SPACE RIPPLE` or `SPACE BURST` to the right only when that effect is
-selected. The two control rows sit near the LCD bottom with a small bottom
-gutter; there is no reserved third row. It does not show a reset hint.
+screen shows `NN/20`, the effect name, and a stable bottom row with sequential
+navigation and both direct-selection banks (`1-0 / FN+1-0`). This global row
+stays at the lower edge. An action row appears above it only when the selected
+effect has actions; its labels come from the effect registry. Temporary feedback
+for parameter changes appears in the otherwise empty center and expires after
+about one second. There is no reset
+hint or permanent action row for passive effects.
 
 The interface should feel continuous with the keyboard:
 
