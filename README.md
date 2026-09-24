@@ -189,8 +189,9 @@ Follow the maintained
 [`docs/manuals/installing-firmware.md`](docs/manuals/installing-firmware.md)
 guide for prerequisites, USB installation, verification, and troubleshooting.
 
-To keep Cardputer Hub and Codex Microputer ADV installed simultaneously, use
-the separate [Cardputer Firmware Manager](https://github.com/fat23cat/cardputer-firmware-manager).
+To keep Cardputer Hub installed beside Codex Microputer ADV, Bruce, or another
+application in CRUB's shared `extra` slot, use the separate
+[Cardputer Firmware Manager](https://github.com/fat23cat/cardputer-firmware-manager).
 It owns the shared `crub` layout, stages all or selected local builds and GitHub
 Release images on microSD, and keeps application data partitions intact during
 routine updates.
@@ -383,7 +384,8 @@ make upload UPLOAD_PORT=<device>
 
 That command does not rewrite the bootloader, partition table, or `otadata`.
 Do not run `make upload-standalone` or `idf.py flash` on a CRUB device: those
-install Hub's standalone table and hide saved settings at `0x560000`.
+install Hub's standalone table and hide saved settings at `0x7a0000`.
+`make upload` refuses an image larger than the 2 MiB CRUB `hub` partition.
 
 For a Hub-only device that has never used CRUB, the first installation or a
 one-time upgrade from the earlier flash layout uses

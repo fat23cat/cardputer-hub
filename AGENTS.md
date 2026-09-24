@@ -86,4 +86,5 @@ the manager before running CRUB's `uphub` command.
 `make upload` writes only the CRUB `hub` application at `0xd0000`. Never use
 `idf.py flash` or `make upload-standalone` on a CRUB device: that replaces the
 shared partition table and makes Hub read `hub_config` at `0x7e0000` instead of
-`0x560000`.
+`0x7a0000`. The CRUB `hub` partition is 2 MiB; `make upload` refuses larger
+images because Hub's standalone table does not enforce that limit.

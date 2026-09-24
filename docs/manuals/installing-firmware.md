@@ -5,15 +5,21 @@ Cardputer-Adv over USB. No global PlatformIO or M5Stack library installation is
 required. Production builds use the repository's exact ESP-IDF 5.5.5 setup;
 PlatformIO is retained only for native host checks.
 
-For a microSD-based multiboot installation alongside Codex Microputer ADV, use
-the separate [Cardputer Firmware Manager](https://github.com/fat23cat/cardputer-firmware-manager).
+For a microSD-based multiboot installation alongside Codex Microputer ADV,
+Bruce, or another application in CRUB's shared `extra` slot, use the separate
+[Cardputer Firmware Manager](https://github.com/fat23cat/cardputer-firmware-manager).
 Its shared `crub` partition table replaces the standalone installation layout
 described later in this guide. A device that already boots CRUB must keep that
 table: `make upload` writes only the Hub application into the `hub` partition
-at `0xd0000`. Never run `make upload-standalone`, `idf.py flash`, or a
-release-asset flash of `*-partitions.bin` onto that device. Those commands
+at `0xd0000`, which holds at most 2 MiB. Never run `make upload-standalone`,
+`idf.py flash`, or a release-asset flash of `*-partitions.bin` onto that
+device. Those commands
 install Hub's standalone table, which looks for `hub_config` at `0x7e0000` and
-hides the CRUB settings that remain at `0x560000`.
+hides the CRUB settings that remain at `0x7a0000`. A device provisioned with
+the earlier CRUB layout, which had a dedicated `codex` partition, follows the
+manager's one-time
+[layout migration](https://github.com/fat23cat/cardputer-firmware-manager/blob/main/docs/install-crub.md#migrate-from-the-dedicated-codex-layout)
+before installing this build.
 
 With the manager cloned beside this repository, build Hub, enter `usbsd` in
 CRUB, and run:
@@ -143,7 +149,8 @@ make upload UPLOAD_PORT=/dev/ttyACM0
 
 Replace `/dev/ttyACM0` with the exact device path reported in step 4. The port
 is mandatory so this USB path cannot silently rewrite the shared partition
-table. It does not flash the bootloader, partition table, or `otadata`.
+table. It does not flash the bootloader, partition table, or `otadata`, and it
+refuses an image larger than the 2 MiB CRUB `hub` partition.
 
 Prefer the Firmware Manager SD path when installing a reviewed image: `doctor`,
 then `local --app hub` or `release --app hub`, then CRUB `uphub`. Use

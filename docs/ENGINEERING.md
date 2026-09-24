@@ -700,11 +700,13 @@ Hub's standalone partition image. The separate
 owns the shared loader partition contract, while routine updates write only the
 raw Cardputer Hub application image into the existing `hub` partition at
 `0xd0000`. `make upload` follows that contract over USB: it requires
-`UPLOAD_PORT` and writes only `build/cardputer_hub.bin` to `0xd0000`. It must
+`UPLOAD_PORT`, rejects an image larger than the 2 MiB CRUB `hub` partition, and
+writes only `build/cardputer_hub.bin` to `0xd0000`. The standalone table's
+larger application slots do not enforce that limit at build time. It must
 not run `idf.py flash` or otherwise rewrite the bootloader, partition table, or
 `otadata`. Those full-image writes install Hub's standalone table, which maps
 `hub_config` to `0x7e0000` and hides the CRUB settings that remain at
-`0x560000`.
+`0x7a0000`.
 
 `make upload-standalone` is the Hub-only factory path. Do not use it on a
 device that already has CRUB. Restore a smashed CRUB table from
@@ -713,7 +715,7 @@ without erasing `hub_config`.
 
 The manager's checks must validate that the shared layout is non-overlapping, fits
 8 MiB, retains the loader partitions, and provides the required `hub_config`,
-`apps_nvs`, `hub`, and `codex` partitions. Its SD staging commands must reject
+`apps_nvs`, `hub`, and shared `extra` partitions. Its SD staging commands must reject
 oversized or non-application images before they reach `crub`.
 
 Before installing a local Cardputer Hub build into the shared layout, run the
