@@ -423,7 +423,7 @@ void test_selection_is_remembered_across_activate() {
                           f.display.plateY().value_or(-1));
 }
 
-void test_selection_plate_moves_immediately_then_settles() {
+void test_selection_plate_jumps_to_new_row_without_animation() {
     Fixture f;
     f.registerApp("alpha", "ALPHA", "");
     f.registerApp("beta", "BETA", "");
@@ -433,11 +433,12 @@ void test_selection_plate_moves_immediately_then_settles() {
     f.tick();
     const auto start = f.display.plateY().value_or(-1);
     f.tick({down}, std::chrono::milliseconds(16));
-    const auto moving = f.display.plateY().value_or(-1);
-    TEST_ASSERT_TRUE(moving > start);
-    TEST_ASSERT_TRUE(moving < start + apps::launcherRowHeight);
+    TEST_ASSERT_EQUAL_INT(start + apps::launcherRowHeight, f.display.plateY().value_or(-1));
+    TEST_ASSERT_FALSE(f.launcher.animating());
+    const auto presentations = f.display.presentations;
     f.tick({}, std::chrono::milliseconds(400));
     TEST_ASSERT_EQUAL_INT(start + apps::launcherRowHeight, f.display.plateY().value_or(-1));
+    TEST_ASSERT_EQUAL_INT(presentations, f.display.presentations);
     TEST_ASSERT_FALSE(f.launcher.animating());
 }
 
@@ -463,6 +464,6 @@ int main() {
     RUN_TEST(test_long_capability_overlay_reason_is_truncated_to_display_width);
     RUN_TEST(test_successful_enter_dispatches_exact_app_open);
     RUN_TEST(test_selection_is_remembered_across_activate);
-    RUN_TEST(test_selection_plate_moves_immediately_then_settles);
+    RUN_TEST(test_selection_plate_jumps_to_new_row_without_animation);
     return UNITY_END();
 }

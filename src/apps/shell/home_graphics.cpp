@@ -74,16 +74,38 @@ void drawHomeBluetooth(core::IDisplayAdapter& display, HomeStatusIndicator indic
     drawDot(display, homeBluetoothDotPosition, indicator);
 }
 
-void drawHomeCompanion(core::IDisplayAdapter& display, bool visible) {
-    display.fillRectangle(homeCompanionPosition, homeCompanionIndicatorSize,
-                          homeCompanionIndicatorSize, core::palette::bone);
-    if (!visible)
+std::string homeConnectedDeviceName(const services::HostStatusSnapshot& status) {
+    if (status.connection != services::HostConnectionStatus::Ready || status.activeHostName.empty())
+        return {};
+    // The normal system font is six pixels wide. Keep the stored profile untouched.
+    constexpr std::size_t maxCharacters = (240 - 20 - 8) / 6;
+    if (status.activeHostName.size() <= maxCharacters)
+        return status.activeHostName;
+    return status.activeHostName.substr(0, maxCharacters - 3) + "...";
+}
+
+void drawHomeConnectedDevice(core::IDisplayAdapter& display, const std::string& name) {
+    display.fillRectangle(homeDeviceRowOrigin, 240, homeDeviceRowHeight, core::palette::bone);
+    if (name.empty())
         return;
-    for (int y = 0; y < homeCompanionIndicatorSize; ++y) {
-        const int radius = 4 - (y > 4 ? y - 4 : 4 - y);
-        display.fillRectangle({homeCompanionPosition.x + 4 - radius, homeCompanionPosition.y + y},
-                              radius * 2 + 1, 1, core::palette::leaf);
-    }
+    drawDot(display, {8, 101}, HomeStatusIndicator::FilledLeaf);
+    display.drawText({20, 100}, name.c_str(), {core::palette::ink, core::palette::bone, 1});
+}
+
+void drawHomeActions(core::IDisplayAdapter& display, std::int32_t plateX) {
+    display.fillRectangle(homeActionBarOrigin, 240, homeActionBarHeight, core::palette::bone);
+    display.fillRectangle({0, 112}, 240, 1, core::palette::ink);
+    display.fillRectangle({119, 113}, 1, 22, core::palette::ink);
+    display.fillRectangle({plateX, 116}, 112, 16, core::palette::ink);
+    const auto drawAction = [&](int x, int width, const char* label, bool onPlate) {
+        const core::RgbColor background = onPlate ? core::palette::ink : core::palette::bone;
+        const core::RgbColor foreground = onPlate ? core::palette::bone : core::palette::ink;
+        const int textWidth = static_cast<int>(std::string(label).size()) * 6;
+        display.drawText({x + (width - textWidth) / 2, 120}, label, {foreground, background, 1});
+    };
+    const bool settingsOnPlate = plateX >= 64;
+    drawAction(0, 119, "APPS", !settingsOnPlate);
+    drawAction(120, 120, "SETTINGS", settingsOnPlate);
 }
 
 void drawHomeBattery(core::IDisplayAdapter& display, std::optional<std::uint8_t> batteryPercent) {

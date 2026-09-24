@@ -1,4 +1,5 @@
 #pragma once
+#include "apps/common/focus_plate_motion.h"
 #include "apps/hosts/host_settings.h"
 #include "apps/launcher/launcher.h"
 #include "apps/network/wifi_settings.h"
@@ -26,8 +27,8 @@ class ApplicationShell final : public core::IActionHandler {
     struct HomeStatusFrame {
         std::uint8_t wifi = 0;
         std::uint8_t bluetooth = 0;
-        bool companionReady = false;
         std::optional<std::uint8_t> batteryPercent;
+        std::string connectedDeviceName;
     };
 
     struct SettingsFrame {
@@ -69,6 +70,10 @@ class ApplicationShell final : public core::IActionHandler {
     Launcher launcher_;
     core::NavigationStack navigation_;
     std::optional<HomeStatusFrame> homeStatusFrame_;
+    bool homeSettingsFocused_ = false;
+    std::optional<bool> homeRenderedSettingsFocused_;
+    std::optional<int> homeRenderedPlateX_;
+    FocusPlateMotion homePlateMotion_;
     std::uint64_t homePhaseMilliseconds_ = 0;
     std::uint64_t homeFrameAccumulatorMilliseconds_ = 0;
     bool homeAmbientRendered_ = false;

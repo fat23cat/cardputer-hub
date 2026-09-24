@@ -5,6 +5,11 @@
 **Software implemented — Home presentation, tests, and user documentation updated;
 physical Cardputer-Adv visual acceptance pending.**
 
+Plan [036/2](036-2-home-actions-and-connected-device-context.md) supersedes
+the Home layout, Companion indicator, host-name, and controls below. This
+document retains the original design rationale and historical implementation
+record.
+
 This plan replaces the current Mac-centric Home screen with a device-centric ambient Home.
 
 The current firmware Home still contains:

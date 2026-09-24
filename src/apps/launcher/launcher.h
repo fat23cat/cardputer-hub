@@ -52,7 +52,6 @@ class Launcher {
     void clearOverlay();
     void startOverlay(std::string reason);
     void advanceOverlay(std::chrono::milliseconds elapsed);
-    void advancePlate(std::chrono::milliseconds elapsed);
     void render();
     std::string overlayReasonFor(const MiniAppAvailability& availability) const;
     MiniAppAvailability selectedAvailability() const;
@@ -68,9 +67,6 @@ class Launcher {
     float overlayY_ = -21;
     std::chrono::milliseconds holdElapsed_{0};
     std::string overlayReason_;
-    float plateSlot_ = 0;
-    float plateVelocity_ = 0;
-    float plateTarget_ = 0;
     std::optional<Frame> frame_;
 };
 

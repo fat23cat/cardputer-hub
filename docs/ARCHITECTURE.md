@@ -251,19 +251,22 @@ The shell must not know the internal implementation of Mini Apps.
 
 ## 5. Home / Launcher
 
-Home is a device-centric idle screen. It presents global status and a
-procedural Living Orb; it does not show host names, Mini App state, navigation
-hints, or a clock. Launcher is a separate route opened from Home.
+Home is a device-centric idle screen. It presents global status, a
+procedural Living Orb, one connected Bluetooth host name, and a bottom
+`APPS` / `SETTINGS` action bar. It does not show Mini App state or a clock.
+Launcher is a separate route opened from Home.
 
-The top status bar has fixed WiFi and BT groups, a reserved Companion diamond
-slot, and a right-aligned battery estimate. `NetworkService` supplies Wi-Fi
-state, `HostService` supplies Bluetooth domain state, the live `COMPANION`
-capability controls the diamond, and `BatteryService` supplies the estimate.
+The top status bar has fixed WiFi and BT groups and a right-aligned battery
+estimate. `NetworkService` supplies Wi-Fi state, `HostService` supplies
+Bluetooth domain state and the active host name, and `BatteryService` supplies
+the estimate. The host row is visible only for a Ready connection with a name;
+it remains reserved while empty and truncates its display label when needed.
 The body is a 40-particle neutral Living Orb owned by Home presentation code.
 Home never uses application-specific Services to decorate its idle view.
 
-`ApplicationShell` owns a NavigationStack rooted at `home`; plain Enter
-routes `ui.launcher` through ActionBus to the AppRegistry-driven Launcher.
+`ApplicationShell` owns a NavigationStack rooted at `home`. Home selects `APPS`
+on each entry. Left/Right selects `APPS` or `SETTINGS`; plain Enter routes the
+selected navigation Action through ActionBus.
 Plain Tab routes `ui.settings` to a general Settings list. Its Bluetooth entry
 routes `ui.bluetooth` to the existing HostSettings view. The Wi-Fi entry routes
 `ui.wifi` to the built-in WiFiSettings view, which consumes only
@@ -310,16 +313,23 @@ adapter obtains the estimate from the pinned M5Unified power driver. The main
 composition passes the snapshot into the shell; drawing code does not read
 hardware or manage polling. This does not add a BLE battery service.
 
+Home's bottom actions use critically damped horizontal focus-plate motion. Home
+repaints only its action bar while the plate moves; display-Off time does not
+advance it or change the Living Orb's timing. Selection in the Launcher,
+Settings, Bluetooth, and Wi-Fi vertical lists changes immediately.
+
 Home's Wi-Fi and Bluetooth dots map their Service snapshots to Ordinal when
 unconfigured/Off, Pale when configured but disabled, Blue while connecting or
-pairing, Leaf when connected/Ready, and Vermilion on error. The Companion
-diamond is visible exactly while the live capability is available. Each slot
-has stable coordinates; changing one status redraws only its area. Home does
-not show SSID, RSSI, host name, connection-state text, or a clock. Wi-Fi
+pairing, Leaf when connected/Ready, and Vermilion on error. Each status slot
+has stable coordinates; changing one status redraws only its area. The
+connected-device row and action bar repaint independently of the Orb. Home
+shows the host row only while `HostService` is Ready with an active name and
+`COMPANION` is live; the BT dot continues to reflect HostService alone. Home
+does not show SSID, RSSI, connection-state text, or a clock. Wi-Fi
 scanning remains pending. Battery percentage is a voltage-derived estimate,
 especially while externally powered, rather than a calibrated charge gauge.
 
-The Living Orb uses a deterministic fixed set of particles in y=22..134. Its
+The Living Orb uses a deterministic fixed set of particles in y=22..95. Its
 phase advances from injected monotonic elapsed time, with at most one bounded
 viewport redraw per 50 ms. It pauses while Home is hidden, the display is Off,
 or a page transition is active. Ambient motion does not count as user activity
@@ -2659,8 +2669,8 @@ Transport expansion does not block the BLE-only software scope.
 - [x] Live Home Wi-Fi status from NetworkService; no clock placeholder.
 - [x] Manual on-device Wi-Fi configuration, enable/disable, change, and forget.
 - [x] Synthesized key feedback, directional volume-step cues and persistent mute/volume.
-- [x] Launcher spring focus motion; boot/status semantic sound cues remain pending.
-- [ ] Remaining Settings/list spring focus motion.
+- [x] Home horizontal spring focus motion and immediate vertical list selection;
+      boot/status semantic sound cues remain pending.
 - [ ] Idle dim/off, brightness policy and wake-input consumption — software
       delivered by plan 032; physical Cardputer-Adv acceptance pending.
 

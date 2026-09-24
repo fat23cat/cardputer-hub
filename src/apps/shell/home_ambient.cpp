@@ -17,7 +17,7 @@ HomeAmbientFrame homeAmbientFrame(std::uint64_t phaseMilliseconds) {
     const double morphA = cycle(phaseMilliseconds, 11000);
     const double morphB = cycle(phaseMilliseconds, 17000);
     const double centerX = 120 + 5 * std::sin(cycle(phaseMilliseconds, 16000));
-    const double centerY = 79 + 3 * std::sin(cycle(phaseMilliseconds, 13000));
+    const double centerY = 59 + 3 * std::sin(cycle(phaseMilliseconds, 13000));
     for (std::size_t i = 0; i < frame.size(); ++i) {
         const bool outer = i < 28;
         const unsigned ringIndex = outer ? static_cast<unsigned>(i) : static_cast<unsigned>(i - 28);
@@ -27,7 +27,7 @@ HomeAmbientFrame homeAmbientFrame(std::uint64_t phaseMilliseconds) {
         const double morph = 1.0 + 0.05 * std::sin(3 * baseAngle + morphA) +
                              0.035 * std::sin(5 * baseAngle - morphB);
         const double radiusX = (outer ? 57.0 : 29.0) * breath * morph;
-        const double radiusY = (outer ? 37.0 : 19.0) * breath * morph;
+        const double radiusY = (outer ? 26.0 : 14.0) * breath * morph;
         const double local = 1.7 * std::sin(cycle(phaseMilliseconds, 7000 + i * 31) + i * 1.37);
         const double depth = std::sin(angle + i * 0.31);
         const std::uint8_t size = depth > 0.88 ? 3 : depth > -0.2 ? 2 : 1;

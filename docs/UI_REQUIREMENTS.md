@@ -6,8 +6,10 @@ This document defines the shared visual, motion, sound, display-power, and
 input-routing rules for Cardputer Hub system UI and Mini Apps. It distinguishes the delivered Home and Bluetooth panel from the full UI still
 planned. The screen implements the palette, flat layout, local controls, and
 Micro5 pairing digits, horizontal page transitions, and synthesized key feedback.
-Launcher page transitions and spring focus motion are implemented. Remaining
-semantic audio cues, idle dimming, wake-input consumption, and the Home
+Launcher page transitions and horizontal spring focus motion on Home are
+implemented. Vertical list selection changes immediately in Launcher,
+Settings, Bluetooth, and Wi-Fi. Remaining semantic audio cues,
+idle dimming, wake-input consumption, and the Home
 display-power treatment are not implemented yet.
 
 The visual and acoustic direction is derived from
@@ -156,10 +158,10 @@ grammar is:
 two-digit ordinal    tracked label                  right-aligned value
 ```
 
-Focus is represented by one square-ended Ink selection plate that travels
-between rows. The focused row is redrawn as the same content clipped and
-inverted through that plate; it must not be a separately positioned duplicate
-that can drift from the background row.
+Focus is represented by one square-ended Ink selection plate that jumps to the
+selected row. The focused row is redrawn as the same content inverted through
+that plate; it must not be a separately positioned duplicate that can drift
+from the background row.
 
 Information hierarchy must remain visible without extra containers:
 
@@ -180,7 +182,7 @@ competing chrome.
 
 Reusable components may include:
 
-* the travelling selection plate for lists and menus;
+* the selection plate for lists and menus;
 * discrete segment meters with visible empty seats;
 * discrete one-of-N segment selectors;
 * a top-edge transient annunciator for exceptional state;
@@ -213,7 +215,8 @@ The common motion grammar is:
 
 * direct key feedback reaches its full visual response on the first rendered
   frame after contact, then eases out;
-* list focus uses a damped spring while rows remain stationary;
+* vertical list focus changes immediately while rows remain stationary;
+* Home's bottom action focus uses a damped horizontal spring;
 * horizontal page changes use one short cubic-eased slide, approximately
   220 ms on the target hardware;
 * full-screen takeovers grow from the element or region that originated the
@@ -395,22 +398,28 @@ views only map host-domain status and prompts to presentation.
 
 Home is the default root view. Its device-status bar occupies y=0..20, with a
 one-pixel separator at y=21. The bar has fixed WiFi and BT labels with separate
-five-pixel state dots, a reserved Companion diamond slot, and estimated battery
+five-pixel state dots and estimated battery
 percentage aligned to x=232 (or `--%` when unavailable). Wi-Fi is hollow
 Ordinal when unconfigured, Pale when disabled, Blue while connecting, Leaf
 when connected, and Vermilion on error. Bluetooth is hollow Ordinal when Off,
 Blue while connecting, securing, or pairing, Leaf when Ready, and Vermilion on
-error. The Companion diamond is Leaf only while the live COMPANION capability
-is available. These slots never move when states or battery width change.
-Home contains no clock, host name, connection-state text, title, or footer.
+error. These slots never move when states or battery width change.
+Home contains no clock, connection-state text, or title.
 
-The body (y=22..134) shows a deterministic 40-particle Living Orb. It breathes,
+The ambient viewport (y=22..95) shows a deterministic 40-particle Living Orb. It breathes,
 rotates, morphs, and drifts using injected elapsed time, with neutral Home wave,
 Ordinal, and Ink tones. The orb is redrawn in its bounded viewport at most every
 50 ms, pauses while Home is hidden, the display is Off, or a page transition is
-active, and never counts as user activity. Status changes redraw only their
-corresponding slots. Bluetooth host details remain in the Bluetooth panel and
-SYSTEM Mini App. BatteryService supplies the voltage-based estimate.
+active, and never counts as user activity. A reserved row at y=96..111 shows a
+round Leaf dot and active host name only when HostService is Ready, provides
+a name, and the COMPANION capability is live; long labels are visually
+truncated. The BT status dot remains tied to HostService. The fixed bottom
+action bar at y=113..134 contains APPS and SETTINGS, with APPS focused on each
+Home entry.
+Left/Right selects the action with the shared spring focus plate, Enter activates
+it, and Tab opens Settings directly. The plate pauses while the display is Off.
+Status, device row, action bar, and ambient updates redraw their own
+regions. BatteryService supplies the voltage-based estimate.
 
 Pairing's Micro 5 digits are unchanged.
 
@@ -456,8 +465,12 @@ and pairing participate; focus moves, typed characters, and status updates do
 not restart transitions. The Home Living Orb pauses during a slide. Input remains
 live; a newer navigation transition starts from the currently presented pixels.
 No event is queued for later host replay. Animation positions update at most
-once per 16 ms and stop at completion. Spring focus motion, remaining sound cues, and
-display-power policy remain pending. If canvas allocation
+once per 16 ms and stop at completion. The Home bottom action plate moves
+horizontally. Vertical focus in Launcher, Settings, Bluetooth, and Wi-Fi lists
+jumps directly to the selected row; changes in list contents retain the visible
+selection.
+Remaining sound cues and display-power
+policy remain pending. If canvas allocation
 fails, the adapter retains direct drawing as a usable fallback. Full Device
 Manager integration and Phase 7 Action-to-HID mappings remain planned.
 
@@ -511,10 +524,10 @@ the loop where it is sampled, and uses typed render-state snapshots so unchanged
 Home, host-list, and host-modal content does not redraw.
 The splash uses Bone, Ink, Blue, Pale, and Ordinal tokens, keeps the firmware
 version visible throughout, and advances without blocking background work.
-The AppRegistry-driven Launcher, its spring focus motion, the SYSTEM Mini App,
-and the MAC CONTROL 3×2 numeric grid are implemented. MAC CONTROL has no
-internal chrome: bound tiles show a number and label; unbound tiles keep only
-the number. Digit keys 1–6 activate the current page slot, Left/Right slide
+The AppRegistry-driven Launcher, its immediate vertical list selection, the
+SYSTEM Mini App, and the MAC CONTROL 3×2 numeric grid are implemented. MAC
+CONTROL has no internal chrome: bound tiles show a number and label; unbound
+tiles keep only the number. Digit keys 1–6 activate the current page slot, Left/Right slide
 between pages. A bound press waits on the resting grid; success lights that
 tile Leaf for 1.5 s, failure Vermilion for 2 s. Status is colour only. The tile
 then returns to the resting grid. Companion loss closes MAC CONTROL

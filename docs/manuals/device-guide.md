@@ -8,15 +8,18 @@ shows a compact device-status bar above a gently moving 40-particle Living Orb.
 The fixed WiFi and BT groups use a dot and label. WiFi is hollow when no network
 is saved, pale when off, blue while connecting, green when connected, and red
 on error. BT is hollow when off, blue while connecting or pairing, green when
-ready, and red on error. A green diamond appears in its reserved slot only
-while a live Cardputer Companion session is available. The right-aligned
+ready, and red on error. The right-aligned
 battery percentage has no icon; it shows `--%` when unavailable. Battery is
 sampled every five seconds, and the voltage-based estimate can be less
-accurate with USB power connected. Home shows no clock, host name, or connection
-state text. Host details remain in Bluetooth Settings and SYSTEM. The orb
-pauses while Home is hidden, the display is Off, or a page is sliding.
+accurate with USB power connected. A row below the Orb shows a round green dot
+and the active Bluetooth host name only while the host is ready and Cardputer
+Companion is connected. The row stays empty otherwise. Home shows no clock or
+connection-state text. The orb pauses while Home is hidden, the display is Off,
+or a page is sliding.
 
-Press **Enter** on Home to open **Apps**. The
+Home has **APPS** and **SETTINGS** actions at the bottom. **APPS** is selected
+each time Home opens. Press **Left** or **Right** to select an action, then
+**Enter** to open it. Plain **Tab** opens Settings directly. The
 list currently contains **SYSTEM**, a read-only status screen for battery,
 Bluetooth, the selected host, Wi-Fi, and firmware version; **POMODORO**, a
 background focus timer; **LED GALLERY**, an 8×8 matrix animation app; and **MAC CONTROL** when a live Cardputer Companion
@@ -32,6 +35,8 @@ reopen it or repeat the last launch. Press plain **Tab** on the main keyboard
 to open the general Settings menu. Fn+Tab is inactive, and a normal G0 press
 has no application action. Settings lists Bluetooth, Wi-Fi, Sound volume, Screen
 timeout, Screen brightness, and LED brightness.
+Selection changes immediately between rows in Apps, Settings, Bluetooth, and
+Wi-Fi. Host-list scrolling keeps the selected row visible.
 BLE is the only host-control transport. USB supplies power, firmware
 installation, and fixed USB Serial/JTAG diagnostics.
 
@@ -115,12 +120,13 @@ The macOS **Cardputer Companion.app** is optional. Build and launch it from
 permission on first launch and allow login-item startup if macOS asks. The
 Companion attaches to the already-paired Cardputer; it does not scan or create
 a second pairing. After that, it can start at login. Closing the Mac lid, sleep,
-or a BLE drop invalidates the session and hides the diamond; after wake and HID
-reconnect it attaches again without relaunching Companion or re-pairing. When a
-compatible session is alive, Home shows a green diamond in the status bar.
+or a BLE drop invalidates the session; after wake and HID reconnect it attaches
+again without relaunching Companion or re-pairing.
 MAC CONTROL becomes available in Apps only while that session is live. Press **1** to focus Telegram if it is already running, or to launch it
 if it is closed. Keyboard and consumer HID keep working if the Companion is
 missing, crashed, or disconnected.
+After Companion closes, its host-name row on Home disappears when the session
+is detected as unavailable, even if Bluetooth HID remains connected.
 
 ## Wi-Fi
 
@@ -154,7 +160,8 @@ instead of moving a list.
 
 | Control | Behavior |
 | --- | --- |
-| Enter on Home | Open Apps |
+| Left / Right on Home | Select APPS / SETTINGS |
+| Enter on Home | Open the selected action; APPS is selected by default |
 | Escape in Apps | Return Home |
 | Enter on SYSTEM | Open the read-only system status list |
 | Escape in SYSTEM | Return to Apps |
@@ -201,8 +208,8 @@ Back from rename/delete returns to the host menu; Back from the host menu
 returns to the Bluetooth list. Back from pairing returns to the Bluetooth list.
 Settings and the Bluetooth list have no bottom bar or Esc Home label.
 Escape/backtick still returns Home; arrows and Enter work as before. The X shortcut and global cleanup button are removed. Backtick remains a printable character while renaming (use
-Escape to cancel that edit). Home is always the default screen after reboot. Ordinary Enter on Home opens
-Apps. Plain Tab does not dismiss a host submenu, rename/delete prompt,
+Escape to cancel that edit). Home is always the default screen after reboot. Enter opens
+the selected Home action. Plain Tab does not dismiss a host submenu, rename/delete prompt,
 or pairing view; leave that view using Back first. The existing Esc Home action
 in the Bluetooth list continues to return directly Home;
 opening/closing settings does not change saved host selection or BLE On/Off.

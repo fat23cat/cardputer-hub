@@ -4,6 +4,7 @@
 #include "apps/shell/home_graphics.h"
 #include "core/display/palette.h"
 #include <algorithm>
+#include <cmath>
 #include <variant>
 
 namespace cardputer_hub::apps {
@@ -168,7 +169,12 @@ void ApplicationShell::routeSystemEvent(const InputEvent& event) {
     } else if (settingsChord) {
         (void)actions_.dispatch({"ui.settings", "shell", {}});
     } else if (homeEnter) {
-        (void)actions_.dispatch({"ui.launcher", "shell", {}});
+        (void)actions_.dispatch(
+            {homeSettingsFocused_ ? "ui.settings" : "ui.launcher", "shell", {}});
+    } else if (atHome() && plain && !event.modifiers.shift && !event.modifiers.fn &&
+               (isLeft(event) || isRight(event))) {
+        homeSettingsFocused_ = isRight(event);
+        homePlateMotion_.setTarget(homeSettingsFocused_ ? 1.0f : 0.0f);
     } else if (atLauncher()) {
         launcher_.update({event});
     } else if (atWifi()) {
@@ -262,11 +268,19 @@ ActionHandlingResult ApplicationShell::handle(const Action& action) {
             launcher_.deactivate();
             (void)navigation_.back();
             homeStatusFrame_.reset();
+            homeSettingsFocused_ = false;
+            homeRenderedSettingsFocused_.reset();
+            homeRenderedPlateX_.reset();
+            homePlateMotion_.reset(0);
         } else if (!atHome()) {
             display_.beginTransition(SlideDirection::Backward);
             // Preserve the existing BLE list's explicit Esc Home behavior.
             (void)navigation_.resetTo("home");
             homeStatusFrame_.reset();
+            homeSettingsFocused_ = false;
+            homeRenderedSettingsFocused_.reset();
+            homeRenderedPlateX_.reset();
+            homePlateMotion_.reset(0);
         }
     } else if (action.id == "ui.launcher") {
         if (!atHome())
@@ -373,11 +387,14 @@ void ApplicationShell::renderHome(std::chrono::milliseconds elapsed,
                                   std::optional<std::uint8_t> batteryPercent, bool displayOff,
                                   bool transitionPaused) {
     const auto wifi = homeWifiIndicator(network_.status());
-    const auto bluetooth = homeBluetoothIndicator(hosts_.status().connection);
-    const bool companionReady = capabilities_.isAvailable("COMPANION");
+    const auto hostStatus = hosts_.status();
+    const auto bluetooth = homeBluetoothIndicator(hostStatus.connection);
+    const auto connectedDeviceName = capabilities_.isAvailable("COMPANION")
+                                         ? homeConnectedDeviceName(hostStatus)
+                                         : std::string{};
     const auto percent = batteryPercent && *batteryPercent <= 100 ? batteryPercent : std::nullopt;
     const HomeStatusFrame next{static_cast<std::uint8_t>(wifi),
-                               static_cast<std::uint8_t>(bluetooth), companionReady, percent};
+                               static_cast<std::uint8_t>(bluetooth), percent, connectedDeviceName};
     const bool entering = !homeStatusFrame_;
     if (entering) {
         homeAmbientRendered_ = false;
@@ -388,10 +405,21 @@ void ApplicationShell::renderHome(std::chrono::milliseconds elapsed,
         drawHomeWifi(display_, wifi);
     if (entering || homeStatusFrame_->bluetooth != next.bluetooth)
         drawHomeBluetooth(display_, bluetooth);
-    if (entering || homeStatusFrame_->companionReady != next.companionReady)
-        drawHomeCompanion(display_, companionReady);
     if (entering || homeStatusFrame_->batteryPercent != next.batteryPercent)
         drawHomeBattery(display_, percent);
+    if (entering || homeStatusFrame_->connectedDeviceName != next.connectedDeviceName)
+        drawHomeConnectedDevice(display_, connectedDeviceName);
+    if (!displayOff && !transitionPaused)
+        homePlateMotion_.advance(elapsed);
+    const int plateX =
+        std::clamp(4 + static_cast<int>(std::lround(homePlateMotion_.position() * 120)), 4, 124);
+    if (entering || !homeRenderedSettingsFocused_ ||
+        *homeRenderedSettingsFocused_ != homeSettingsFocused_ || !homeRenderedPlateX_ ||
+        *homeRenderedPlateX_ != plateX) {
+        drawHomeActions(display_, plateX);
+        homeRenderedSettingsFocused_ = homeSettingsFocused_;
+        homeRenderedPlateX_ = plateX;
+    }
     homeStatusFrame_ = next;
 
     if (displayOff)
