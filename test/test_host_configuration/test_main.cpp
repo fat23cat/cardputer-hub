@@ -130,6 +130,12 @@ core::StorageBytes versionThreeConfiguration() {
     return bytes;
 }
 
+void assertDefaultDeviceSettings(const services::ConfigurationService& config) {
+    TEST_ASSERT_TRUE(config.value().device.screenTimeout == core::ScreenTimeoutMode::Normal);
+    TEST_ASSERT_EQUAL_UINT8(100, config.value().device.screenBrightness);
+    TEST_ASSERT_EQUAL_UINT8(3, config.value().device.ledBrightness);
+}
+
 void test_selection_names_and_off_survive_reload() {
     MemoryStorage memory;
     core::Storage storage(memory);
@@ -201,7 +207,7 @@ void test_version_four_wifi_round_trips_open_protected_enabled_and_disabled_netw
         value.wifi = wifi;
         TEST_ASSERT_TRUE(writer.load() == services::ConfigurationResult::Success);
         TEST_ASSERT_TRUE(writer.save(value) == services::ConfigurationResult::Success);
-        TEST_ASSERT_EQUAL_UINT8(4, memory.bytes[4]);
+        TEST_ASSERT_EQUAL_UINT8(6, memory.bytes[4]);
         TEST_ASSERT_TRUE(reader.load() == services::ConfigurationResult::Success);
         TEST_ASSERT_EQUAL(wifi.enabled, reader.value().wifi.enabled);
         TEST_ASSERT_EQUAL_STRING(wifi.ssid.c_str(), reader.value().wifi.ssid.c_str());
@@ -239,6 +245,7 @@ void test_version_two_migrates_metadata_and_defaults_to_version_four_wifi() {
     services::ConfigurationService config(storage);
 
     TEST_ASSERT_TRUE(config.load() == services::ConfigurationResult::Success);
+    assertDefaultDeviceSettings(config);
     TEST_ASSERT_EQUAL(0, memory.writes);
     TEST_ASSERT_TRUE(memory.bytes == versionTwo);
     TEST_ASSERT_EQUAL_UINT8(60, config.value().soundVolume);
@@ -264,7 +271,7 @@ void test_version_two_migrates_metadata_and_defaults_to_version_four_wifi() {
     auto upgraded = config.value();
     upgraded.soundVolume = 80;
     TEST_ASSERT_TRUE(config.save(upgraded) == services::ConfigurationResult::Success);
-    TEST_ASSERT_EQUAL_UINT8(4, memory.bytes[4]);
+    TEST_ASSERT_EQUAL_UINT8(6, memory.bytes[4]);
     services::ConfigurationService reloaded(storage);
     TEST_ASSERT_TRUE(reloaded.load() == services::ConfigurationResult::Success);
     TEST_ASSERT_EQUAL_UINT8(80, reloaded.value().soundVolume);
@@ -280,6 +287,7 @@ void test_version_three_migrates_losslessly_without_an_eager_write() {
     services::ConfigurationService config(storage);
 
     TEST_ASSERT_TRUE(config.load() == services::ConfigurationResult::Success);
+    assertDefaultDeviceSettings(config);
     TEST_ASSERT_EQUAL(0, memory.writes);
     TEST_ASSERT_TRUE(memory.bytes == versionThree);
     TEST_ASSERT_EQUAL_UINT8(80, config.value().soundVolume);
@@ -291,7 +299,7 @@ void test_version_three_migrates_losslessly_without_an_eager_write() {
     TEST_ASSERT_TRUE(config.value().wifi.passphrase.empty());
 
     TEST_ASSERT_TRUE(config.save(config.value()) == services::ConfigurationResult::Success);
-    TEST_ASSERT_EQUAL_UINT8(4, memory.bytes[4]);
+    TEST_ASSERT_EQUAL_UINT8(6, memory.bytes[4]);
 }
 
 void test_invalid_version_two_lengths_counts_and_duplicates_are_rejected() {
@@ -444,7 +452,7 @@ void test_truncated_trailing_and_future_schema_records_preserve_last_valid_value
     memory.bytes.push_back(0);
     TEST_ASSERT_TRUE(config.load() == services::ConfigurationResult::InvalidData);
     memory.bytes = valid;
-    memory.bytes[4] = 6;
+    memory.bytes[4] = 7;
     TEST_ASSERT_TRUE(config.load() == services::ConfigurationResult::InvalidData);
     TEST_ASSERT_EQUAL(1, memory.writes);
 }
@@ -458,10 +466,12 @@ void test_version_five_companion_byte_loads_and_resaves_as_version_four() {
     TEST_ASSERT_TRUE(writer.load() == services::ConfigurationResult::Success);
     TEST_ASSERT_TRUE(writer.save(value) == services::ConfigurationResult::Success);
     auto versionFive = memory.bytes;
+    versionFive.resize(versionFive.size() - 3);
     versionFive.push_back(0);
     versionFive[4] = 5;
     memory.bytes = versionFive;
     TEST_ASSERT_TRUE(reader.load() == services::ConfigurationResult::Success);
+    assertDefaultDeviceSettings(reader);
     TEST_ASSERT_TRUE(reader.value().host.bluetoothEnabled);
     TEST_ASSERT_TRUE(reader.value().host.activeHost == 9);
     TEST_ASSERT_EQUAL_UINT(2, reader.value().host.hosts.size());
@@ -469,7 +479,7 @@ void test_version_five_companion_byte_loads_and_resaves_as_version_four() {
     TEST_ASSERT_EQUAL_STRING("recognizable-secret", reader.value().wifi.passphrase.c_str());
     TEST_ASSERT_EQUAL(1, memory.writes);
     TEST_ASSERT_TRUE(reader.save(reader.value()) == services::ConfigurationResult::Success);
-    TEST_ASSERT_EQUAL_UINT8(4, memory.bytes[4]);
+    TEST_ASSERT_EQUAL_UINT8(6, memory.bytes[4]);
     TEST_ASSERT_EQUAL(2, memory.writes);
 
     versionFive.back() = 1;
@@ -494,7 +504,7 @@ void test_invalid_version_four_wifi_payloads_preserve_the_last_valid_value() {
 
     memory.bytes = valid;
     const auto wifiEnabledOffset =
-        memory.bytes.size() - value.wifi.ssid.size() - value.wifi.passphrase.size() - 3;
+        memory.bytes.size() - value.wifi.ssid.size() - value.wifi.passphrase.size() - 6;
     memory.bytes[wifiEnabledOffset] = 2;
     TEST_ASSERT_TRUE(config.load() == services::ConfigurationResult::InvalidData);
     TEST_ASSERT_EQUAL_STRING("Protected", config.value().wifi.ssid.c_str());
@@ -518,6 +528,7 @@ void test_version_one_host_records_migrate_with_default_sound_volume() {
     core::Storage storage(memory);
     services::ConfigurationService config(storage);
     TEST_ASSERT_TRUE(config.load() == services::ConfigurationResult::Success);
+    assertDefaultDeviceSettings(config);
     TEST_ASSERT_EQUAL_UINT8(60, config.value().soundVolume);
     TEST_ASSERT_EQUAL(0, memory.writes);
     TEST_ASSERT_TRUE(config.value().host.activeHost == 7);
@@ -535,7 +546,49 @@ void test_version_one_host_records_migrate_with_default_sound_volume() {
     memory.bytes = versionOne;
     TEST_ASSERT_TRUE(config.load() == services::ConfigurationResult::Success);
     TEST_ASSERT_TRUE(config.save(config.value()) == services::ConfigurationResult::Success);
-    TEST_ASSERT_EQUAL_UINT8(4, memory.bytes[4]);
+    TEST_ASSERT_EQUAL_UINT8(6, memory.bytes[4]);
+}
+
+void test_device_settings_v6_round_trip_and_old_record_defaults() {
+    MemoryStorage memory;
+    core::Storage storage(memory);
+    services::ConfigurationService writer(storage), reader(storage);
+    auto value = configuration();
+    value.device = {core::ScreenTimeoutMode::Never, 40, 8};
+    TEST_ASSERT_TRUE(writer.load() == services::ConfigurationResult::Success);
+    TEST_ASSERT_TRUE(writer.save(value) == services::ConfigurationResult::Success);
+    TEST_ASSERT_EQUAL_UINT8(6, memory.bytes[4]);
+    TEST_ASSERT_TRUE(reader.load() == services::ConfigurationResult::Success);
+    TEST_ASSERT_TRUE(reader.value().device.screenTimeout == core::ScreenTimeoutMode::Never);
+    TEST_ASSERT_EQUAL_UINT8(40, reader.value().device.screenBrightness);
+    TEST_ASSERT_EQUAL_UINT8(8, reader.value().device.ledBrightness);
+    const auto v6 = memory.bytes;
+    memory.bytes.resize(memory.bytes.size() - 3);
+    memory.bytes[4] = 4;
+    TEST_ASSERT_TRUE(reader.load() == services::ConfigurationResult::Success);
+    assertDefaultDeviceSettings(reader);
+    TEST_ASSERT_EQUAL_UINT8(100, reader.value().device.screenBrightness);
+    TEST_ASSERT_EQUAL_UINT8(3, reader.value().device.ledBrightness);
+    TEST_ASSERT_TRUE(reader.value().device.screenTimeout == core::ScreenTimeoutMode::Normal);
+    TEST_ASSERT_EQUAL_STRING("Office laptop", reader.value().host.hosts.front().name.c_str());
+    TEST_ASSERT_EQUAL_UINT8(80, reader.value().soundVolume);
+    memory.bytes = v6;
+}
+
+void test_invalid_v6_device_bytes_are_rejected_without_clamping() {
+    MemoryStorage memory;
+    core::Storage storage(memory);
+    services::ConfigurationService config(storage);
+    TEST_ASSERT_TRUE(config.load() == services::ConfigurationResult::Success);
+    TEST_ASSERT_TRUE(config.save(configuration()) == services::ConfigurationResult::Success);
+    const auto valid = memory.bytes;
+    for (const auto& mutation : std::vector<std::pair<std::size_t, std::uint8_t>>{
+             {3, 3}, {2, 10}, {2, 110}, {2, 25}, {1, 0}, {1, 11}}) {
+        memory.bytes = valid;
+        memory.bytes[memory.bytes.size() - mutation.first] = mutation.second;
+        TEST_ASSERT_TRUE(config.load() == services::ConfigurationResult::InvalidData);
+        TEST_ASSERT_EQUAL_UINT8(100, config.value().device.screenBrightness);
+    }
 }
 
 } // namespace
@@ -557,6 +610,8 @@ int main() {
     RUN_TEST(test_version_five_companion_byte_loads_and_resaves_as_version_four);
     RUN_TEST(test_invalid_version_four_wifi_payloads_preserve_the_last_valid_value);
     RUN_TEST(test_version_one_host_records_migrate_with_default_sound_volume);
+    RUN_TEST(test_device_settings_v6_round_trip_and_old_record_defaults);
+    RUN_TEST(test_invalid_v6_device_bytes_are_rejected_without_clamping);
     RUN_TEST(test_selection_names_and_off_survive_reload);
     RUN_TEST(test_missing_is_off_and_corrupt_or_unknown_records_are_not_overwritten);
     RUN_TEST(test_invalid_profiles_and_failed_writes_do_not_replace_saved_selection);

@@ -7,6 +7,7 @@
 
 #include "connectivity/bluetooth/bluetooth_service.h"
 #include "connectivity/wifi/wifi_service.h"
+#include "core/power/display_power_controller.h"
 #include "core/storage/storage.h"
 
 namespace cardputer_hub::services {
@@ -37,10 +38,17 @@ struct WifiConfiguration {
     std::string passphrase;
 };
 
+struct DeviceConfiguration {
+    core::ScreenTimeoutMode screenTimeout = core::ScreenTimeoutMode::Normal;
+    std::uint8_t screenBrightness = 100;
+    std::uint8_t ledBrightness = 3;
+};
+
 struct SystemConfiguration {
     HostConfiguration host;
     WifiConfiguration wifi;
     std::uint8_t soundVolume = 60;
+    DeviceConfiguration device;
 };
 
 enum class ConfigurationResult { Success, InvalidData, StorageError };
@@ -57,7 +65,8 @@ class ConfigurationService {
              maximumMetadataIdentifierLength + 1 +
              maximumHostCapabilityCount * (1 + maximumMetadataIdentifierLength) + 1 +
              maximumMetadataIdentifierLength) +
-        1 + 1 + connectivity::maximumWifiSsidLength + 1 + connectivity::maximumWifiPassphraseLength;
+        1 + 1 + connectivity::maximumWifiSsidLength + 1 +
+        connectivity::maximumWifiPassphraseLength + 3;
     explicit ConfigurationService(core::Storage& storage) : storage_(storage) {}
     ConfigurationResult load();
     ConfigurationResult ensureLoaded();

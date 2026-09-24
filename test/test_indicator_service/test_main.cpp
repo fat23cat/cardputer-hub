@@ -55,7 +55,7 @@ void test_single_claim_becomes_visible() {
     TEST_ASSERT_TRUE(indicator.resolved().hasFrame);
     TEST_ASSERT_EQUAL_STRING("foreground", indicator.resolved().owner.c_str());
     TEST_ASSERT_EQUAL(1, led.writes);
-    TEST_ASSERT_TRUE(hardwareEquals(led.last, palette::vermilion));
+    TEST_ASSERT_TRUE(hardwareEquals(led.last, scaled(palette::vermilion, 3)));
 }
 
 void test_higher_priority_replaces_lower_and_hidden_claim_may_update() {
@@ -68,19 +68,20 @@ void test_higher_priority_replaces_lower_and_hidden_claim_may_update() {
     foreground.setFrame(solid(palette::vermilion));
     indicator.update();
     TEST_ASSERT_EQUAL_STRING("led-control", indicator.resolved().owner.c_str());
-    TEST_ASSERT_TRUE(hardwareEquals(led.last, palette::vermilion));
+    TEST_ASSERT_TRUE(hardwareEquals(led.last, scaled(palette::vermilion, 3)));
 
     IndicatorFrame progress{};
     progress.pixels[0] = palette::blue;
     background.setFrame(progress);
     indicator.update();
     TEST_ASSERT_EQUAL_STRING("led-control", indicator.resolved().owner.c_str());
-    TEST_ASSERT_TRUE(hardwareEquals(led.last, palette::vermilion));
+    TEST_ASSERT_TRUE(hardwareEquals(led.last, scaled(palette::vermilion, 3)));
 
     foreground.release();
     indicator.update();
     TEST_ASSERT_EQUAL_STRING("pomodoro", indicator.resolved().owner.c_str());
-    TEST_ASSERT_EQUAL_UINT8(pomodoroBrightnessPercent, indicator.resolved().brightnessPercent);
+    TEST_ASSERT_EQUAL_UINT8(defaultIndicatorBrightnessPercent,
+                            indicator.resolved().brightnessPercent);
     TEST_ASSERT_EQUAL(1, litCount(indicator.resolved().frame, palette::blue));
 }
 
@@ -132,13 +133,14 @@ void test_pomodoro_brightness_is_three_percent_and_does_not_leak() {
     auto foreground = indicator.acquire("led-control", IndicatorPriority::ForegroundApplication);
     foreground.setFrame(solid(palette::vermilion));
     indicator.update();
-    TEST_ASSERT_EQUAL_UINT8(100, indicator.resolved().brightnessPercent);
-    TEST_ASSERT_TRUE(hardwareEquals(led.last, palette::vermilion));
+    TEST_ASSERT_EQUAL_UINT8(3, indicator.resolved().brightnessPercent);
+    TEST_ASSERT_TRUE(hardwareEquals(led.last, scaled(palette::vermilion, 3)));
     foreground.release();
     indicator.update();
-    TEST_ASSERT_EQUAL_UINT8(pomodoroBrightnessPercent, indicator.resolved().brightnessPercent);
+    TEST_ASSERT_EQUAL_UINT8(defaultIndicatorBrightnessPercent,
+                            indicator.resolved().brightnessPercent);
     TEST_ASSERT_EQUAL(64, litCount(indicator.resolved().frame, palette::blue));
-    TEST_ASSERT_TRUE(hardwareEquals(led.last, scaled(palette::blue, pomodoroBrightnessPercent)));
+    TEST_ASSERT_TRUE(hardwareEquals(led.last, scaled(palette::blue, 3)));
     TEST_ASSERT_FALSE(hardwareEquals(led.last, palette::blue));
 }
 
@@ -163,6 +165,25 @@ void test_empty_owner_does_not_acquire() {
     indicator.update();
     TEST_ASSERT_FALSE(indicator.resolved().hasFrame);
 }
+
+void test_global_brightness_rewrites_same_logical_frame_and_caps_unknown_owner() {
+    FakeLed led;
+    IndicatorService indicator(led);
+    auto claim = indicator.acquire("future-owner", IndicatorPriority::Critical);
+    claim.setFrame(solid({255, 255, 255}));
+    indicator.update();
+    for (const std::uint8_t percent : {1, 5, 10}) {
+        indicator.setMaximumBrightnessPercent(percent);
+        indicator.update();
+        TEST_ASSERT_EQUAL_UINT8(percent, indicator.resolved().brightnessPercent);
+        TEST_ASSERT_TRUE(hardwareEquals(led.last, scaled({255, 255, 255}, percent)));
+    }
+    TEST_ASSERT_EQUAL(4, led.writes);
+    indicator.setMaximumBrightnessPercent(100);
+    indicator.update();
+    TEST_ASSERT_EQUAL_UINT8(10, indicator.maximumBrightnessPercent());
+    TEST_ASSERT_TRUE(hardwareEquals(led.last, scaled({255, 255, 255}, 10)));
+}
 } // namespace
 
 void setUp() {}
@@ -177,5 +198,6 @@ int main() {
     RUN_TEST(test_pomodoro_brightness_is_three_percent_and_does_not_leak);
     RUN_TEST(test_unchanged_frame_does_not_rewrite_adapter);
     RUN_TEST(test_empty_owner_does_not_acquire);
+    RUN_TEST(test_global_brightness_rewrites_same_logical_frame_and_caps_unknown_owner);
     return UNITY_END();
 }

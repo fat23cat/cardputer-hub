@@ -9,10 +9,13 @@ namespace cardputer_hub::apps {
 using namespace core;
 
 namespace {
-constexpr std::uint8_t settingsRowCount = 3;
+constexpr std::uint8_t settingsRowCount = 6;
 constexpr std::uint8_t bluetoothRow = 0;
 constexpr std::uint8_t wifiRow = 1;
 constexpr std::uint8_t volumeRow = 2;
+constexpr std::uint8_t timeoutRow = 3;
+constexpr std::uint8_t screenBrightnessRow = 4;
+constexpr std::uint8_t ledBrightnessRow = 5;
 
 bool isUnmodified(const InputEvent& event) {
     return !event.modifiers.ctrl && !event.modifiers.alt && !event.modifiers.option;
@@ -34,10 +37,12 @@ bool isRight(const InputEvent& event) {
 ApplicationShell::ApplicationShell(services::HostService& hosts, services::NetworkService& network,
                                    ActionBus& actions, IDisplayAdapter& display,
                                    HostSettings& settings, WiFiSettings& wifiSettings,
-                                   services::AudioService& audio, MiniAppRuntime& miniApps,
-                                   CapabilityRegistry& capabilities)
+                                   services::AudioService& audio,
+                                   services::DeviceSettingsService& deviceSettings,
+                                   MiniAppRuntime& miniApps, CapabilityRegistry& capabilities)
     : hosts_(hosts), network_(network), actions_(actions), display_(display), settings_(settings),
-      wifiSettings_(wifiSettings), audio_(audio), miniApps_(miniApps), capabilities_(capabilities),
+      wifiSettings_(wifiSettings), audio_(audio), deviceSettings_(deviceSettings),
+      miniApps_(miniApps), capabilities_(capabilities),
       launcher_(miniApps.apps(), miniApps, actions, display) {
     (void)navigation_.resetTo("home");
     (void)actions_.registerHandler("ui.settings", *this);
@@ -100,17 +105,36 @@ void ApplicationShell::applyMiniAppUpdate(const InputEvents& input,
 }
 
 void ApplicationShell::playInputFeedback(const InputEvent& event) {
-    const bool volumeStep = atSettings() && isUnmodified(event) &&
-                            settingsSelection_ == volumeRow && (isLeft(event) || isRight(event));
-    if (volumeStep) {
+    const bool adjustable = atSettings() && isUnmodified(event) &&
+                            settingsSelection_ >= volumeRow && (isLeft(event) || isRight(event));
+    if (adjustable) {
         const bool right = isRight(event);
-        const auto previousVolume = audio_.volume();
-        const bool changesVolume = right ? previousVolume < 100 : previousVolume > 0;
+        const char* id = "audio.volume.step";
+        int value = audio_.volume(), minimum = 0, maximum = 100, step = 10;
+        if (settingsSelection_ == timeoutRow) {
+            id = "display.timeout.step";
+            value = static_cast<int>(deviceSettings_.screenTimeout());
+            maximum = 2;
+            step = 1;
+        } else if (settingsSelection_ == screenBrightnessRow) {
+            id = "display.brightness.step";
+            value = deviceSettings_.screenBrightness();
+            minimum = 20;
+        } else if (settingsSelection_ == ledBrightnessRow) {
+            id = "indicator.brightness.step";
+            value = deviceSettings_.ledBrightness();
+            minimum = 1;
+            maximum = 10;
+            step = 1;
+        }
+        const bool changesValue = right ? value < maximum : value > minimum;
         const auto result =
-            actions_.dispatch({"audio.volume.step",
-                               "settings",
-                               {{"delta", static_cast<std::int32_t>(right ? 10 : -10)}}});
-        if (result == DispatchResult::Handled && changesVolume) {
+            changesValue
+                ? actions_.dispatch({id,
+                                     "settings",
+                                     {{"delta", static_cast<std::int32_t>(right ? step : -step)}}})
+                : DispatchResult::Rejected;
+        if (result == DispatchResult::Handled && changesValue) {
             (void)audio_.play(right ? services::AudioCue::StepRight : services::AudioCue::StepLeft);
         } else {
             (void)audio_.play(services::AudioCue::KeyPress);
@@ -298,9 +322,12 @@ void ApplicationShell::update(const InputEvents& input, std::chrono::millisecond
 }
 
 void ApplicationShell::renderSettings() {
-    const SettingsFrame next{settingsSelection_, audio_.volume()};
+    const SettingsFrame next{settingsSelection_, audio_.volume(), deviceSettings_.screenTimeout(),
+                             deviceSettings_.screenBrightness(), deviceSettings_.ledBrightness()};
     if (settingsFrame_ && settingsFrame_->selection == next.selection &&
-        settingsFrame_->volume == next.volume)
+        settingsFrame_->volume == next.volume && settingsFrame_->timeout == next.timeout &&
+        settingsFrame_->screenBrightness == next.screenBrightness &&
+        settingsFrame_->ledBrightness == next.ledBrightness)
         return;
     const bool full = !settingsFrame_;
     const TextStyle normal{palette::ink, palette::bone, 1};
@@ -315,7 +342,12 @@ void ApplicationShell::renderSettings() {
         const bool focusChanged =
             settingsFrame_ && (settingsFrame_->selection == index) != (next.selection == index);
         const bool valueChanged =
-            index == volumeRow && settingsFrame_ && settingsFrame_->volume != next.volume;
+            settingsFrame_ &&
+            ((index == volumeRow && settingsFrame_->volume != next.volume) ||
+             (index == timeoutRow && settingsFrame_->timeout != next.timeout) ||
+             (index == screenBrightnessRow &&
+              settingsFrame_->screenBrightness != next.screenBrightness) ||
+             (index == ledBrightnessRow && settingsFrame_->ledBrightness != next.ledBrightness));
         if (!full && !focusChanged && !valueChanged)
             return;
         const bool focused = settingsSelection_ == index;
@@ -330,6 +362,12 @@ void ApplicationShell::renderSettings() {
     drawRow(0, 24, "01", "Bluetooth", {});
     drawRow(1, 42, "02", "Wi-Fi", {});
     drawRow(2, 60, "03", "Sound volume", std::to_string(audio_.volume()) + "%");
+    const char* timeout = next.timeout == core::ScreenTimeoutMode::Normal ? "Normal"
+                          : next.timeout == core::ScreenTimeoutMode::Long ? "Long"
+                                                                          : "Never";
+    drawRow(3, 78, "04", "Screen timeout", timeout);
+    drawRow(4, 96, "05", "Screen brightness", std::to_string(next.screenBrightness) + "%");
+    drawRow(5, 114, "06", "LED brightness", std::to_string(next.ledBrightness) + "%");
     settingsFrame_ = next;
 }
 

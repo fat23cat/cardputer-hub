@@ -1,5 +1,6 @@
 #include <unity.h>
 
+#include <algorithm>
 #include <chrono>
 #include <cstdint>
 #include <string>
@@ -266,6 +267,21 @@ void test_repeated_startup_is_idempotent() {
     TEST_ASSERT_EQUAL_UINT(actionCount, fixture.trace.size());
 }
 
+void test_prepare_captures_baseline_without_drawing_splash() {
+    RuntimeFixture fixture;
+    fixture.runtime.prepare();
+    TEST_ASSERT_EQUAL_UINT(1, fixture.trace.size());
+    TEST_ASSERT_EQUAL_STRING("platform.begin", fixture.trace.front().c_str());
+    TEST_ASSERT_TRUE(fixture.display.clears.empty());
+
+    fixture.displayPower.setBrightnessPercent(20);
+    fixture.runtime.start();
+    TEST_ASSERT_EQUAL_UINT8(26, fixture.backlight.level());
+    TEST_ASSERT_EQUAL_UINT(1, fixture.display.clears.size());
+    TEST_ASSERT_EQUAL_UINT(
+        1, std::count(fixture.trace.begin(), fixture.trace.end(), std::string{"platform.begin"}));
+}
+
 void test_update_before_start_is_safe_and_returns_no_events() {
     RuntimeFixture fixture;
 
@@ -426,6 +442,7 @@ int main() {
     RUN_TEST(test_startup_draws_branded_splash_with_visible_version);
     RUN_TEST(test_splash_progresses_in_segments_and_finishes_after_two_seconds);
     RUN_TEST(test_repeated_startup_is_idempotent);
+    RUN_TEST(test_prepare_captures_baseline_without_drawing_splash);
     RUN_TEST(test_update_before_start_is_safe_and_returns_no_events);
     RUN_TEST(test_running_update_refreshes_platform_before_polling_and_returns_events);
     RUN_TEST(test_display_power_policy_starts_only_after_splash_handoff);

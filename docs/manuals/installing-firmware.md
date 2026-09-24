@@ -171,8 +171,10 @@ Once the device has the current standalone layout, Hub-only upgrades can use
 `uphub`.
 
 The current firmware lazily upgrades older `HUBH` configuration records to the
-combined version-4 schema on the next successful settings change. Versions 1,
-2, 3, and a leftover version-5 Companion-flag record remain readable. Firmware
+combined version-6 schema on the next successful settings change. Versions 1,
+2, 3, 4, and a leftover version-5 Companion-flag record remain readable. Older
+records receive Normal timeout, 100% screen brightness, and 3% LED brightness
+until the next successful settings write. Firmware
 that cannot read the record currently stored in `hub_config` will not erase it;
 Bluetooth hosts then look empty until a compatible image loads that record.
 Downgrade safely only with a release that documents compatibility or an explicit

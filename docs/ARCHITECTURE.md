@@ -175,6 +175,10 @@ Mac-specific application mappings
 WS2812 animation implementation
 ```
 
+`SystemRuntime::prepare()` initializes the platform and captures the backlight
+baseline once. Startup then loads configuration and applies device brightness
+before `SystemRuntime::start()` presents the first splash frame. `start()` also
+calls `prepare()` when used directly, preserving the existing runtime contract.
 `SystemRuntime` owns the normal-firmware startup presentation. It renders the
 firmware identity and version with the shared UI palette, then advances a
 twelve-segment progress treatment from injected monotonic elapsed time for two
@@ -194,10 +198,12 @@ begins after the splash hands off, so the idle timer starts from the normal
 application UI rather than from boot.
 
 `DisplayPowerController` is the only owner of idle, dim, off and wake timing. It
-holds normal brightness at the level the firmware already uses, dims to 10% of
-it after 15 seconds of no physical press, holds that readable level for a full
-120 seconds once the 300 ms dim ramp has actually completed, fades to zero over
-400 ms, and wakes over 200 ms from the brightness currently on screen. Background
+captures the initialized backlight level as its baseline and applies the persisted
+Screen brightness percentage (20%–100%) to its normal level. Normal dims to 10%
+of that level after 15 seconds of no physical press, holds it for 120 seconds,
+then fades to zero. Long uses 60 seconds and 300 seconds; Never disables idle
+transitions. The dim, off, and wake ramps remain 300 ms, 400 ms, and 200 ms.
+Policy changes reset idle progress and restore Awake output. Background
 features may request display attention through `requestWake()` for a meaningful
 user-visible event; that restores visibility from the current brightness without
 synthesizing input or changing the active application. An already-awake display
@@ -286,7 +292,10 @@ routes `ui.bluetooth` to the existing HostSettings view. The Wi-Fi entry routes
 `network.configure`, and `network.forget`. The following row exposes
 the persistent system sound volume directly; Left/Right dispatch
 `audio.volume.step` to change it from 0 to 100 percent in ten-percent steps,
-with zero acting as mute. `ui.back` from Wi-Fi Settings returns to Settings;
+with zero acting as mute. Three further rows dispatch device-setting Actions
+through `DeviceSettingsService` for Screen timeout, Screen brightness, and LED
+brightness. The service saves the full configuration before applying display or
+indicator policy. `ui.back` from Wi-Fi Settings returns to Settings;
 from Bluetooth it keeps the existing Esc Home behavior; from Launcher it
 returns Home. A local modal or
 editor consumes input before any Settings shortcut. Navigation never changes
@@ -1494,12 +1503,13 @@ priority published frame. `update()` resolves the visible owner and writes
 through `ILEDAdapter`. Identical resolved hardware frames are not rewritten.
 
 Brightness policy is owned by `IndicatorService`, not by claim publishers.
-Pomodoro (`owner` `"pomodoro"`) and LED Gallery (`owner` `"led-gallery"`) are always rendered at 3%. Work and break LED
+All owners use the same persisted global brightness of 1%–10%, default 3%,
+with a hard 10% cap in the shared output path. Brightness changes regenerate
+the physical frame from the original logical RGB values. Work and break LED
 pixels use muted steel blue and sage rather than LCD `palette::blue` and
 `palette::leaf`, because the Unit Puzzle diodes are harsh even at that
-brightness. Gallery emits full-range procedural RGB; the shared service applies the 3% limit.
-Other current owners use 100%. A newly selected owner does not
-inherit the previous owner's brightness.
+brightness. Gallery emits full-range procedural RGB; the shared service applies
+the global limit. A newly selected owner uses the same configured limit.
 
 `ILEDAdapter` lives in System Core so Services can depend on it without
 depending on hardware. `PuzzleWs2812Adapter` is the Cardputer Unit Puzzle
@@ -1554,7 +1564,7 @@ Idle
 
 Foreground application and notification claims overlay a background application
 claim such as Pomodoro. Releasing the overlay restores the current background
-frame at that owner's brightness policy. Pomodoro publishes
+frame at the global brightness policy. Pomodoro publishes
 `BackgroundApplication` progress so a later LED-control Mini App can take the
 matrix without stopping the timer.
 
@@ -2100,16 +2110,18 @@ defaults, validation, migrations, and application-level configuration
 operations. It uses the configuration interfaces and persistence primitives
 provided by System Core; System Core must not duplicate this domain behavior.
 
-The delivered `SystemConfiguration` version-4 schema composes a host-only
+The delivered `SystemConfiguration` version-6 schema composes a host-only
 `HostConfiguration`—Host Profiles with bounded platform, capability, and
 mapping-template metadata, `activeHost`, monotonic `nextHostId`, and
 `bluetoothEnabled`—with the system `soundVolume` and one bounded Wi-Fi station
-configuration containing enabled intent, SSID, and passphrase. One versioned binary record at
+configuration containing enabled intent, SSID, and passphrase, plus device timeout,
+screen brightness, and LED brightness. One versioned binary record at
 `StorageAddress{"hosts", "configuration"}` lives in internal `hub_config` NVS.
 The address retains its historical host-only name for in-place upgrade
 compatibility. Version 4 appends the Wi-Fi enabled byte and length-prefixed SSID
-and passphrase after the version-3-compatible host payload. Its maximum encoding
-is 10,355 bytes for 16 maximally populated profiles and maximum Wi-Fi values,
+and passphrase after the version-3-compatible host payload. Version 6 appends
+three device-setting bytes to the version-4 payload. Its maximum encoding
+is 10,358 bytes for 16 maximally populated profiles and maximum Wi-Fi values,
 within the 64 KiB partition. The decoder consumes the
 complete record and validates its `HUBH` header, version, booleans, bounded
 lengths and counts, identifiers, unique capabilities, unique IDs and bonds,
@@ -2118,13 +2130,15 @@ credential contract before acceptance.
 Version-1 records load with absent host metadata and the 60-percent sound default.
 Version-2 records retain their metadata and receive the same sound default.
 Version-3 records retain both. Versions 1, 2, and 3 default Wi-Fi to disabled and
-unconfigured, and are lazily written as version 4 after the next successful
-configuration change; migration never rewrites storage at boot.
+unconfigured, and are lazily written as version 6 after the next successful
+configuration change; migration never rewrites storage at boot. Version 4 is
+readable and receives the device defaults.
 A version-5 record, written by a short-lived Companion enable flag, remains
 readable: the extra trailing byte is consumed and discarded. The next successful
-save writes version 4 again. Version 6 and later stay rejected.
+save writes version 6. Versions 1–5 receive Normal timeout, 100% screen
+brightness, and 3% LED brightness. Version 7 and later stay rejected.
 Missing records default to an empty list, BLE Off, Wi-Fi Off and unconfigured,
-and 60-percent sound. Invalid,
+60-percent sound, and the device defaults. Invalid,
 truncated, trailing, unreadable, and future-version records are preserved and
 reported as errors, never reset silently. Failed writes retain the previous
 stored and published values.
@@ -2421,10 +2435,8 @@ that calls the M5Unified backlight API, and it carries no policy: idle, dim,
 off and wake timing stay in `DisplayPowerController`. UI screens and Mini Apps
 never set physical brightness. Programmatic attention goes through
 `DisplayPowerController::requestWake()`, not through a second backlight path.
-The controller reads the existing level once,
-after platform initialization, so the delivered firmware brightness is
-preserved rather than reset to maximum; a future Settings brightness control
-can change that normal level without redesigning the idle policy.
+The controller reads the existing level once after platform initialization and
+uses it as the baseline for the persisted Screen brightness percentage.
 
 The `FileStorage` facade and its adapter interface contain no Arduino, SPI,
 filesystem, or board-library types. Those types and the Cardputer-Adv microSD
@@ -2636,18 +2648,18 @@ Transport expansion does not block the BLE-only software scope.
 - [x] HostService: import existing bonds, pair/add, select, rename and delete hosts.
 - [x] Persisted active-host intent and Cardputer BLE On/Off.
 - [x] Selection isolation, release-before-switch and failure results through Actions.
-- [x] ConfigurationService: bounded version-4 system schema, validation,
+- [x] ConfigurationService: bounded version-6 system schema, validation,
   centralized safe loading, stable IDs and writes that publish state only after
   successful storage.
 - [x] HostProfile platform/capability metadata and mapping-template references.
-- [x] Lazy lossless version-1/version-2/version-3 to version-4 migration.
-- [x] Version-5 leftover Companion byte is readable and rewritten as version 4.
+- [x] Lazy lossless version-1 through version-5 to version-6 migration.
+- [x] Version-5 leftover Companion byte remains readable.
 - [x] Persisted single-network Wi-Fi intent and application-facing NetworkService.
 - [x] Normal Wi-Fi startup restoration and main-loop updates independent of UI scheduling.
 - [x] BatteryService: optional hardware estimate, bounded five-second sampling.
 - [ ] Mapping-template catalog and resolution (Phase 7).
 - [ ] Mini App, Service, shortcut, indicator and remote configuration.
-- [ ] Explicit migration when a schema later than version 4 is introduced.
+- [x] Explicit version-6 device-setting migration, validation and persistence.
 - [x] IndicatorService claim arbitration and owner brightness policy.
 
 ### Phase 4 — Application Shell

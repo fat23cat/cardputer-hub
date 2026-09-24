@@ -17,6 +17,9 @@ class SystemRuntime {
                   DisplayPowerController& displayPower, Logger& logger,
                   const BuildInfo& buildInfo) noexcept;
 
+    // Initialize hardware and capture its backlight baseline before applying
+    // persisted policy or presenting the first splash frame.
+    void prepare();
     void start();
     const InputEvents& update(std::chrono::milliseconds elapsed = {});
     bool splashFinished() const noexcept { return splashElapsed_ >= splashDuration; }
@@ -39,6 +42,7 @@ class SystemRuntime {
     InputEvents inputEvents_;
     std::chrono::milliseconds splashElapsed_{0};
     std::size_t filledSplashSegments_ = 0;
+    bool prepared_ = false;
     bool started_ = false;
 };
 

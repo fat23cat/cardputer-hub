@@ -739,6 +739,19 @@ struct ShellFixture {
     ConfigurationService config{storage};
     AudioAdapter audioAdapter;
     AudioService audio{config, audioAdapter};
+    class Backlight final : public IBacklightAdapter {
+      public:
+        std::uint8_t level() const override { return value; }
+        void setLevel(std::uint8_t next) override { value = next; }
+        std::uint8_t value = 255;
+    } backlight;
+    class Led final : public ILEDAdapter {
+      public:
+        void writeFrame(const LedHardwareFrame&) override {}
+    } led;
+    DisplayPowerController displayPower{backlight};
+    IndicatorService indicator{led};
+    DeviceSettingsService deviceSettings{config, displayPower, indicator};
     BluetoothAdapter bluetoothAdapter;
     BluetoothService bluetooth{bluetoothAdapter};
     HostService hosts{bluetooth, config};
@@ -760,6 +773,8 @@ struct ShellFixture {
     ShellFixture() {
         TEST_ASSERT_TRUE(config.load() == ConfigurationResult::Success);
         TEST_ASSERT_TRUE(audio.start() == AudioResult::Success);
+        displayPower.captureNormalLevel();
+        TEST_ASSERT_TRUE(deviceSettings.start());
         TEST_ASSERT_TRUE(bus.registerHandler("audio.volume.step", audio) ==
                          RegistrationResult::Registered);
         TEST_ASSERT_TRUE(appRegistry.registerApp({macControlAppId,
@@ -774,7 +789,7 @@ struct ShellFixture {
 
     ApplicationShell makeShell() {
         return ApplicationShell(hosts, network, bus, display, hostSettings, wifiSettings, audio,
-                                miniApps, capabilities);
+                                deviceSettings, miniApps, capabilities);
     }
 };
 

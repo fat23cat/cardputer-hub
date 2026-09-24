@@ -7,6 +7,7 @@
 #include "core/audio/audio_adapter.h"
 #include "core/capabilities/capability_registry.h"
 #include "core/display/palette.h"
+#include "core/lifecycle/system_runtime.h"
 #include "services/audio/audio_service.h"
 #include "services/network/network_service.h"
 
@@ -32,6 +33,46 @@ class Memory final : public core::IStorageAdapter {
     core::StorageRemoveStatus remove(const core::StorageAddress&) override {
         return core::StorageRemoveStatus::NotFound;
     }
+};
+
+class Backlight final : public core::IBacklightAdapter {
+  public:
+    std::uint8_t level() const override { return brightness; }
+    void setLevel(std::uint8_t value) override { brightness = value; }
+    std::uint8_t brightness = 255;
+};
+
+class Led final : public core::ILEDAdapter {
+  public:
+    void writeFrame(const core::LedHardwareFrame&) override {}
+};
+
+class RuntimePlatform final : public core::IPlatformAdapter {
+  public:
+    void begin() override {}
+    void update() override {}
+};
+
+class RuntimeKeyboard final : public core::IKeyboardAdapter {
+  public:
+    core::KeyboardPollResult poll(core::InputEvents& events) override {
+        events = next;
+        next.clear();
+        const bool wasPressed = physicalPress;
+        physicalPress = false;
+        return {wasPressed};
+    }
+    void press(const core::InputEvent& event) {
+        next = {event};
+        physicalPress = true;
+    }
+    core::InputEvents next;
+    bool physicalPress = false;
+};
+
+class SilentLogSink final : public core::ILogSink {
+  public:
+    void write(const core::LogRecord&) override {}
 };
 
 class Display final : public core::IDisplayAdapter {
@@ -260,6 +301,11 @@ struct Fixture {
     services::ConfigurationService config{storage};
     AudioAdapter audioAdapter;
     services::AudioService audio{config, audioAdapter};
+    Backlight backlight;
+    core::DisplayPowerController displayPower{backlight};
+    Led led;
+    services::IndicatorService indicator{led};
+    services::DeviceSettingsService deviceSettings{config, displayPower, indicator};
     BluetoothAdapter bluetoothAdapter;
     connectivity::BluetoothService bluetooth{bluetoothAdapter};
     services::HostService hosts{bluetooth, config};
@@ -278,15 +324,21 @@ struct Fixture {
         app.display = &display;
         TEST_ASSERT_TRUE(config.load() == services::ConfigurationResult::Success);
         TEST_ASSERT_TRUE(audio.start() == services::AudioResult::Success);
+        displayPower.captureNormalLevel();
+        TEST_ASSERT_TRUE(deviceSettings.start());
         TEST_ASSERT_TRUE(bus.registerHandler("audio.volume.step", audio) ==
                          core::RegistrationResult::Registered);
+        for (const auto* id :
+             {"display.timeout.step", "display.brightness.step", "indicator.brightness.step"})
+            TEST_ASSERT_TRUE(bus.registerHandler(id, deviceSettings) ==
+                             core::RegistrationResult::Registered);
         for (const auto* id : {"network.set-enabled", "network.configure", "network.forget"})
             TEST_ASSERT_TRUE(bus.registerHandler(id, network) ==
                              core::RegistrationResult::Registered);
     }
     apps::ApplicationShell makeShell() {
         return apps::ApplicationShell(hosts, network, bus, display, hostSettings, wifiSettings,
-                                      audio, miniApps, capabilities);
+                                      audio, deviceSettings, miniApps, capabilities);
     }
     void registerApp(const char* id, apps::IMiniApp& instance,
                      std::vector<std::string> required = {}) {
@@ -300,6 +352,31 @@ struct Fixture {
     void registerApp(const char* id, std::vector<std::string> required = {}) {
         registerApp(id, app, std::move(required));
     }
+};
+
+struct RuntimeBridge {
+    explicit RuntimeBridge(Fixture& fixture)
+        : runtime(platform, keyboard, fixture.display, fixture.displayPower, logger, buildInfo) {
+        runtime.start();
+        (void)runtime.update(std::chrono::milliseconds(2000));
+    }
+    void idleOff() {
+        (void)runtime.update(core::DisplayPowerController::idleThreshold +
+                             core::DisplayPowerController::dimRampDuration +
+                             core::DisplayPowerController::dimHoldDuration +
+                             core::DisplayPowerController::offRampDuration);
+        TEST_ASSERT_TRUE(runtime.displayOff());
+    }
+    const core::InputEvents& press(const core::InputEvent& event) {
+        keyboard.press(event);
+        return runtime.update(std::chrono::milliseconds(1));
+    }
+    RuntimePlatform platform;
+    RuntimeKeyboard keyboard;
+    SilentLogSink sink;
+    core::Logger logger{sink, core::LogLevel::Info};
+    const core::BuildInfo buildInfo{"Test Hub", "1", "test", "test"};
+    core::SystemRuntime runtime;
 };
 
 const core::InputEvent tab{core::InputEventType::NamedKey, 0, core::NamedKey::Tab, {}};
@@ -932,6 +1009,63 @@ void test_home_companion_indicator_appears_only_when_companion_capability_is_liv
     TEST_ASSERT_FALSE(f.display.drewCompanionDiamond());
 }
 
+void test_six_settings_rows_step_values_and_repaint_only_changed_row() {
+    Fixture f;
+    auto shell = f.makeShell();
+    shell.update({tab});
+    for (const char* label : {"Bluetooth", "Wi-Fi", "Sound volume", "Screen timeout",
+                              "Screen brightness", "LED brightness"})
+        TEST_ASSERT_TRUE(f.display.shows(label));
+    shell.update({down, down, down});
+    TEST_ASSERT_TRUE(f.display.shows("Normal"));
+    shell.update({right});
+    TEST_ASSERT_TRUE(f.display.shows("Long"));
+    TEST_ASSERT_TRUE(f.deviceSettings.screenTimeout() == core::ScreenTimeoutMode::Long);
+    shell.update({down, left});
+    TEST_ASSERT_EQUAL_UINT8(90, f.deviceSettings.screenBrightness());
+    TEST_ASSERT_TRUE(f.display.shows("90%"));
+    shell.update({down, right});
+    TEST_ASSERT_EQUAL_UINT8(4, f.deviceSettings.ledBrightness());
+    TEST_ASSERT_TRUE(f.display.shows("4%"));
+    const auto frames = f.display.frames;
+    shell.update({});
+    TEST_ASSERT_EQUAL(frames, f.display.frames);
+}
+
+void test_led_brightness_key_wakes_without_changing_setting() {
+    Fixture f;
+    auto shell = f.makeShell();
+    RuntimeBridge bridge(f);
+    shell.update({tab, down, down, down, down, down});
+    TEST_ASSERT_EQUAL_UINT8(3, f.deviceSettings.ledBrightness());
+    bridge.idleOff();
+
+    shell.update(bridge.press(right));
+    TEST_ASSERT_TRUE(f.displayPower.state() == core::DisplayPowerState::Waking);
+    TEST_ASSERT_EQUAL_UINT8(3, f.deviceSettings.ledBrightness());
+    (void)bridge.runtime.update(core::DisplayPowerController::wakeRampDuration);
+    TEST_ASSERT_TRUE(f.displayPower.state() == core::DisplayPowerState::Awake);
+    shell.update(bridge.press(right));
+    TEST_ASSERT_EQUAL_UINT8(4, f.deviceSettings.ledBrightness());
+}
+
+void test_screen_brightness_key_wakes_without_changing_setting() {
+    Fixture f;
+    auto shell = f.makeShell();
+    RuntimeBridge bridge(f);
+    shell.update({tab, down, down, down, down});
+    TEST_ASSERT_EQUAL_UINT8(100, f.deviceSettings.screenBrightness());
+    bridge.idleOff();
+
+    shell.update(bridge.press(left));
+    TEST_ASSERT_TRUE(f.displayPower.state() == core::DisplayPowerState::Waking);
+    TEST_ASSERT_EQUAL_UINT8(100, f.deviceSettings.screenBrightness());
+    (void)bridge.runtime.update(core::DisplayPowerController::wakeRampDuration);
+    TEST_ASSERT_TRUE(f.displayPower.state() == core::DisplayPowerState::Awake);
+    shell.update(bridge.press(left));
+    TEST_ASSERT_EQUAL_UINT8(90, f.deviceSettings.screenBrightness());
+}
+
 } // namespace
 
 void setUp() {}
@@ -970,5 +1104,8 @@ int main() {
     RUN_TEST(test_malformed_app_open_does_not_mutate_runtime);
     RUN_TEST(test_app_open_from_launcher_activates_when_idle);
     RUN_TEST(test_app_open_is_rejected_while_mini_app_is_active);
+    RUN_TEST(test_six_settings_rows_step_values_and_repaint_only_changed_row);
+    RUN_TEST(test_led_brightness_key_wakes_without_changing_setting);
+    RUN_TEST(test_screen_brightness_key_wakes_without_changing_setting);
     return UNITY_END();
 }

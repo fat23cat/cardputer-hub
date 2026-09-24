@@ -259,8 +259,12 @@ Plain Enter on Home opens the AppRegistry-driven Launcher. The first registered
 Mini App is SYSTEM, a read-only status list of battery, Bluetooth, host, Wi-Fi,
 and firmware version. Escape returns from SYSTEM to Launcher and from Launcher
 to Home. Plain Tab opens Settings; Bluetooth opens the existing BLE panel, Wi-Fi opens
-manual network setup, and the following Sound volume row adjusts the
-persistent 0-100% key-click volume with Left/Right in 10% steps.
+manual network setup, and Sound volume adjusts persistent 0-100% key-click
+volume in 10% steps. The remaining Settings rows control Screen timeout
+(Normal: 15 seconds to dim, then 2 minutes to off; Long: 60 seconds, then
+5 minutes; Never: always awake), Screen brightness (20%–100% in 10% steps),
+and Unit Puzzle LED brightness (1%–10% in 1% steps). Left/Right changes each
+value immediately; all three settings survive reboot.
 Screen navigation uses short horizontal transitions with live input. The update loop polls semantic keyboard events, routes
 local settings Actions, and advances HostService/BluetoothService plus
 NetworkService/WiFiService independently of UI scheduling. Host selection,
@@ -322,7 +326,7 @@ filtering, keyboard event translation and deduplication, opaque record-storage
 validation and forwarding, owned navigation history and Back traversal,
 dynamic capability registration and enumeration, owned application metadata
 validation and lookup, bounded logical file-storage operations, and System
-Core boot and update orchestration. They also cover version-4 Wi-Fi persistence
+Core boot and update orchestration. They also cover version-6 configuration persistence
 and legacy migration, storage-before-radio failure atomicity, domain status,
 configuration validation, connection state, timeout and capped retry timing,
 connected-only and link-loss-safe RSSI access, disconnect-error propagation,

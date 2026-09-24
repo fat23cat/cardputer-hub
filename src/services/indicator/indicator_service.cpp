@@ -58,12 +58,13 @@ void IndicatorClaim::release() {
 
 IndicatorService::IndicatorService(core::ILEDAdapter& adapter) : adapter_(adapter) {}
 
-std::uint8_t IndicatorService::brightnessPercentFor(std::string_view owner) noexcept {
-    if (owner == pomodoroIndicatorOwner)
-        return pomodoroBrightnessPercent;
-    if (owner == ledGalleryIndicatorOwner)
-        return ledGalleryBrightnessPercent;
-    return 100;
+void IndicatorService::setMaximumBrightnessPercent(std::uint8_t percent) noexcept {
+    const auto safe = std::clamp<std::uint8_t>(percent, 1, 10);
+    if (safe != maximumBrightnessPercent_) {
+        maximumBrightnessPercent_ = safe;
+        dirty_ = true;
+        brightnessDirty_ = true;
+    }
 }
 
 core::LedHardwareFrame IndicatorService::hardwareFrame(const IndicatorFrame& frame,
@@ -129,7 +130,7 @@ void IndicatorService::resolve() {
     resolved_.owner = selected->owner;
     resolved_.priority = selected->priority;
     resolved_.frame = selected->frame;
-    resolved_.brightnessPercent = brightnessPercentFor(selected->owner);
+    resolved_.brightnessPercent = maximumBrightnessPercent_;
 }
 
 void IndicatorService::update() {
@@ -139,7 +140,7 @@ void IndicatorService::update() {
     core::LedHardwareFrame hardware{};
     if (resolved_.hasFrame)
         hardware = hardwareFrame(resolved_.frame, resolved_.brightnessPercent);
-    if (haveLastHardware_ && sameFrame(hardware, lastHardware_)) {
+    if (haveLastHardware_ && sameFrame(hardware, lastHardware_) && !brightnessDirty_) {
         dirty_ = false;
         return;
     }
@@ -148,6 +149,7 @@ void IndicatorService::update() {
     haveLastHardware_ = true;
     ++adapterWrites_;
     dirty_ = false;
+    brightnessDirty_ = false;
 }
 
 } // namespace cardputer_hub::services

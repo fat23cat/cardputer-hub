@@ -30,13 +30,18 @@ SystemRuntime::SystemRuntime(IPlatformAdapter& platform, IKeyboardAdapter& keybo
     : platform_(platform), keyboard_(keyboard), display_(display), displayPower_(displayPower),
       logger_(logger), buildInfo_(buildInfo) {}
 
-void SystemRuntime::start() {
-    if (started_) {
+void SystemRuntime::prepare() {
+    if (prepared_)
         return;
-    }
-
     platform_.begin();
     displayPower_.captureNormalLevel();
+    prepared_ = true;
+}
+
+void SystemRuntime::start() {
+    if (started_)
+        return;
+    prepare();
     logger_.info("firmware.name", buildInfo_.name);
     logger_.info("firmware.version", buildInfo_.version);
     logger_.info("firmware.commit", buildInfo_.commit);
