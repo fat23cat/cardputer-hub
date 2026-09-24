@@ -1,6 +1,6 @@
 # Implementation Plans and Status
 
-Reviewed on **2026-09-18**. Plan numbers identify individual changes; they are
+Reviewed on **2026-09-24**. Plan numbers identify individual changes; they are
 not phase numbers. The authoritative delivered/pending step checklist is in
 [Architecture §47](../ARCHITECTURE.md#47-initial-development-order).
 
@@ -46,6 +46,8 @@ ownership matrix with invariants. Do not rewrite older plans into that format.
 | [034](034-led-gallery.md) | LED Gallery with ten procedural matrix effects, including Kaleidoscope | Software implemented; physical Unit Puzzle acceptance and tuning pending |
 | [034/2](034-2-led-gallery-expansion.md) | Twenty LED Gallery effects and contextual interaction | Software implemented; physical Unit Puzzle acceptance and tuning pending |
 | [035](035-device-display-and-led-brightness-settings.md) | Persistent display timeout and brightness, shared LED brightness limit | Implemented; physical device testing confirmed by user on 2026-09-24 |
+| [036](036-ambient-home-redesign.md) | Device-centric ambient Home | Software implemented; physical Cardputer-Adv visual acceptance pending |
+| [036/2](036-2-home-actions-and-connected-device-context.md) | Home actions and connected device context | Software implemented; physical Cardputer-Adv visual acceptance pending |
 
 The work referred to historically as 013 is the approved
 [UI requirements](../UI_REQUIREMENTS.md); there is no separate plan-013 file.

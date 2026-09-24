@@ -1,8 +1,10 @@
 #include "apps/shell/application_shell.h"
 #include "apps/runtime/mini_app_runtime.h"
+#include "apps/shell/home_ambient.h"
 #include "apps/shell/home_graphics.h"
 #include "core/display/palette.h"
 #include <algorithm>
+#include <cmath>
 #include <variant>
 
 namespace cardputer_hub::apps {
@@ -167,7 +169,12 @@ void ApplicationShell::routeSystemEvent(const InputEvent& event) {
     } else if (settingsChord) {
         (void)actions_.dispatch({"ui.settings", "shell", {}});
     } else if (homeEnter) {
-        (void)actions_.dispatch({"ui.launcher", "shell", {}});
+        (void)actions_.dispatch(
+            {homeSettingsFocused_ ? "ui.settings" : "ui.launcher", "shell", {}});
+    } else if (atHome() && plain && !event.modifiers.shift && !event.modifiers.fn &&
+               (isLeft(event) || isRight(event))) {
+        homeSettingsFocused_ = isRight(event);
+        homePlateMotion_.setTarget(homeSettingsFocused_ ? 1.0f : 0.0f);
     } else if (atLauncher()) {
         launcher_.update({event});
     } else if (atWifi()) {
@@ -201,7 +208,7 @@ void ApplicationShell::routeSystemEvent(const InputEvent& event) {
 
 void ApplicationShell::tickCurrentPresentation(std::chrono::milliseconds elapsed,
                                                std::optional<std::uint8_t> batteryPercent,
-                                               bool displayOff) {
+                                               bool displayOff, bool transitionWasActive) {
     if (showingMiniApp_ && !miniApps_.hasActiveApp())
         restoreLauncherFromMiniApp(false);
     if (miniApps_.hasActiveApp()) {
@@ -210,10 +217,8 @@ void ApplicationShell::tickCurrentPresentation(std::chrono::milliseconds elapsed
             return;
     }
     if (atHome())
-        // A dark backlight holds the ambient wave's phase instead of advancing it.
-        renderHome(display_.transitionActive() || displayOff ? std::chrono::milliseconds(0)
-                                                             : elapsed,
-                   batteryPercent);
+        renderHome(elapsed, batteryPercent, displayOff,
+                   transitionWasActive || display_.transitionActive());
     else if (atSettings())
         renderSettings();
     else if (atWifi())
@@ -262,14 +267,20 @@ ActionHandlingResult ApplicationShell::handle(const Action& action) {
             display_.beginTransition(SlideDirection::Backward);
             launcher_.deactivate();
             (void)navigation_.back();
-            homeConnectionFrame_.reset();
-            homeNetworkFrame_.reset();
+            homeStatusFrame_.reset();
+            homeSettingsFocused_ = false;
+            homeRenderedSettingsFocused_.reset();
+            homeRenderedPlateX_.reset();
+            homePlateMotion_.reset(0);
         } else if (!atHome()) {
             display_.beginTransition(SlideDirection::Backward);
             // Preserve the existing BLE list's explicit Esc Home behavior.
             (void)navigation_.resetTo("home");
-            homeConnectionFrame_.reset();
-            homeNetworkFrame_.reset();
+            homeStatusFrame_.reset();
+            homeSettingsFocused_ = false;
+            homeRenderedSettingsFocused_.reset();
+            homeRenderedPlateX_.reset();
+            homePlateMotion_.reset(0);
         }
     } else if (action.id == "ui.launcher") {
         if (!atHome())
@@ -307,6 +318,7 @@ ActionHandlingResult ApplicationShell::handle(const Action& action) {
 void ApplicationShell::update(const InputEvents& input, std::chrono::milliseconds elapsed,
                               std::optional<std::uint8_t> batteryPercent, bool displayOff) {
     display_.beginFrame();
+    const bool transitionWasActive = display_.transitionActive();
     display_.advanceTransition(elapsed);
     if (showingMiniApp_ && !miniApps_.hasActiveApp())
         restoreLauncherFromMiniApp(false);
@@ -317,7 +329,7 @@ void ApplicationShell::update(const InputEvents& input, std::chrono::millisecond
         else
             routeSystemEvent(event);
     }
-    tickCurrentPresentation(elapsed, batteryPercent, displayOff);
+    tickCurrentPresentation(elapsed, batteryPercent, displayOff, transitionWasActive);
     display_.endFrame();
 }
 
@@ -372,92 +384,65 @@ void ApplicationShell::renderSettings() {
 }
 
 void ApplicationShell::renderHome(std::chrono::milliseconds elapsed,
-                                  std::optional<std::uint8_t> batteryPercent) {
+                                  std::optional<std::uint8_t> batteryPercent, bool displayOff,
+                                  bool transitionPaused) {
+    const auto wifi = homeWifiIndicator(network_.status());
     const auto hostStatus = hosts_.status();
-    const auto networkStatus = network_.status();
-    static const std::string noHostSelected = "No host selected";
-    const auto& name =
-        hostStatus.activeHostName.empty() ? noHostSelected : hostStatus.activeHostName;
-    const char* state = "ERROR";
-    RgbColor accent = palette::vermilion;
-    switch (hostStatus.connection) {
-    case services::HostConnectionStatus::Off:
-        state = "OFF";
-        accent = palette::ordinal;
-        break;
-    case services::HostConnectionStatus::Connecting:
-        state = "CONNECTING";
-        accent = palette::blue;
-        break;
-    case services::HostConnectionStatus::Securing:
-        state = "SECURING";
-        accent = palette::blue;
-        break;
-    case services::HostConnectionStatus::Ready:
-        state = "READY";
-        accent = palette::leaf;
-        break;
-    case services::HostConnectionStatus::Pairing:
-        state = "PAIRING";
-        accent = palette::blue;
-        break;
-    case services::HostConnectionStatus::Error:
-        state = "ERROR";
-        accent = palette::vermilion;
-        break;
-    }
-    const bool companionReady = capabilities_.isAvailable("COMPANION");
-    const bool entering = !homeConnectionFrame_;
-    const bool connectionChanged = entering ||
-                                   homeConnectionFrame_->activeHost != hostStatus.activeHostId ||
-                                   homeConnectionFrame_->hostName != name ||
-                                   homeConnectionFrame_->status != hostStatus.connection;
-    const bool companionChanged =
-        entering || homeConnectionFrame_->companionReady != companionReady;
-    const HomeNetworkFrame nextNetwork{networkStatus.configured, networkStatus.enabled,
-                                       networkStatus.connection};
-    const bool networkChanged = !homeNetworkFrame_ ||
-                                homeNetworkFrame_->configured != nextNetwork.configured ||
-                                homeNetworkFrame_->enabled != nextNetwork.enabled ||
-                                homeNetworkFrame_->connection != nextNetwork.connection;
-    const TextStyle normal{palette::ink, palette::bone, 1};
-    const TextStyle quiet{palette::ordinal, palette::bone, 1};
-    if (entering) {
-        display_.clear(palette::bone);
-        display_.drawText({8, 8}, "--:--", normal);
-        display_.fillRectangle({8, 24}, 224, 1, palette::ink);
-    }
-    if (networkChanged) {
-        display_.fillRectangle(homeWifiRegion, homeWifiRegionWidth, homeWifiRegionHeight,
-                               palette::bone);
-        drawWifiIcon(display_, homeWifiIconPosition, palette::ink);
-        drawWifiStatusIndicator(display_, homeWifiDotPosition, homeWifiIndicator(networkStatus));
-        homeNetworkFrame_ = nextNetwork;
-    }
-    if (connectionChanged) {
-        display_.fillRectangle({8, 32}, 224, 65, palette::bone);
-        display_.drawText({8, 38}, "SELECTED HOST", quiet);
-        drawHomeHostName(display_, name);
-        drawBluetoothIcon(display_, accent);
-        display_.drawText({29, 84}, state, normal);
-        homeConnectionFrame_ = HomeConnectionFrame{hostStatus.activeHostId, name,
-                                                   hostStatus.connection, companionReady};
-        drawCompanionIndicator(display_, companionReady, name);
-    } else if (companionChanged) {
-        drawCompanionIndicator(display_, companionReady, name);
-        homeConnectionFrame_->companionReady = companionReady;
-    }
+    const auto bluetooth = homeBluetoothIndicator(hostStatus.connection);
+    const auto connectedDeviceName = capabilities_.isAvailable("COMPANION")
+                                         ? homeConnectedDeviceName(hostStatus)
+                                         : std::string{};
     const auto percent = batteryPercent && *batteryPercent <= 100 ? batteryPercent : std::nullopt;
-    if (entering || percent != homeBatteryPercent_) {
-        const auto battery = percent ? std::to_string(*percent) + "%" : std::string("--%");
-        display_.fillRectangle({184, 5}, 48, 14, palette::bone);
-        display_.drawText({232 - static_cast<int>(battery.size()) * 6, 8}, battery.c_str(), normal);
-        homeBatteryPercent_ = percent;
+    const HomeStatusFrame next{static_cast<std::uint8_t>(wifi),
+                               static_cast<std::uint8_t>(bluetooth), percent, connectedDeviceName};
+    const bool entering = !homeStatusFrame_;
+    if (entering) {
+        homeAmbientRendered_ = false;
+        display_.clear(palette::bone);
+        drawHomeStatusBar(display_);
     }
-    const auto oldStep = homePhaseMilliseconds_ / 500;
-    const auto advance = static_cast<unsigned>(std::max<std::int64_t>(0, elapsed.count()) % 28000);
-    homePhaseMilliseconds_ = (homePhaseMilliseconds_ + advance) % 28000;
-    if (entering || oldStep != homePhaseMilliseconds_ / 500)
-        drawHomeWave(display_, (homePhaseMilliseconds_ / 500) * 500);
+    if (entering || homeStatusFrame_->wifi != next.wifi)
+        drawHomeWifi(display_, wifi);
+    if (entering || homeStatusFrame_->bluetooth != next.bluetooth)
+        drawHomeBluetooth(display_, bluetooth);
+    if (entering || homeStatusFrame_->batteryPercent != next.batteryPercent)
+        drawHomeBattery(display_, percent);
+    if (entering || homeStatusFrame_->connectedDeviceName != next.connectedDeviceName)
+        drawHomeConnectedDevice(display_, connectedDeviceName);
+    if (!displayOff && !transitionPaused)
+        homePlateMotion_.advance(elapsed);
+    const int plateX =
+        std::clamp(4 + static_cast<int>(std::lround(homePlateMotion_.position() * 120)), 4, 124);
+    if (entering || !homeRenderedSettingsFocused_ ||
+        *homeRenderedSettingsFocused_ != homeSettingsFocused_ || !homeRenderedPlateX_ ||
+        *homeRenderedPlateX_ != plateX) {
+        drawHomeActions(display_, plateX);
+        homeRenderedSettingsFocused_ = homeSettingsFocused_;
+        homeRenderedPlateX_ = plateX;
+    }
+    homeStatusFrame_ = next;
+
+    if (displayOff)
+        return;
+    if (transitionPaused) {
+        // Compose the incoming Home page once; the slide reuses this frozen image.
+        if (entering) {
+            homeFrameAccumulatorMilliseconds_ = 0;
+            drawHomeAmbient(display_, homePhaseMilliseconds_);
+            homeAmbientRendered_ = true;
+        }
+        return;
+    }
+
+    const auto advance = static_cast<std::uint64_t>(std::max<std::int64_t>(0, elapsed.count()));
+    homePhaseMilliseconds_ += advance;
+    homeFrameAccumulatorMilliseconds_ += advance;
+    if (entering || !homeAmbientRendered_ || homeFrameAccumulatorMilliseconds_ >= 50) {
+        homeFrameAccumulatorMilliseconds_ =
+            entering || !homeAmbientRendered_ ? 0 : homeFrameAccumulatorMilliseconds_ % 50;
+        drawHomeAmbient(display_, homePhaseMilliseconds_);
+        homeAmbientRendered_ = true;
+    }
 }
+
 } // namespace cardputer_hub::apps

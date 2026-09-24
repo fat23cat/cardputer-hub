@@ -252,10 +252,16 @@ keeps the framework's default NVS separate from the dedicated `hub_config` NVS
 partition reserved for authoritative configuration records. On startup, the
 firmware enters through native ESP-IDF, initializes M5Unified directly, writes
 structured informational records for the product name, version, commit, and
-build type to serial, briefly renders the product name/version, then opens a compact Home with the selected host, BT status, an estimated battery
-percentage, and a slow dotted wave. Time currently shows `--:--`. Home Wi-Fi
-uses a compact glyph and a separate status dot rather than OFFLINE/ONLINE text.
-Plain Enter on Home opens the AppRegistry-driven Launcher. The first registered
+build type to serial, briefly renders the product name/version, then opens a
+device-centric, application-neutral Home. Its fixed status bar shows `WiFi` and
+`BT` dot indicators and a right-aligned estimated battery percentage (`--%` if
+unavailable). A procedural Living Orb occupies the center. A reserved row shows
+a round Leaf dot and the active Bluetooth host name only while HostService is
+Ready and the Companion session is live. The bottom bar offers `APPS` and
+`SETTINGS`; Left/Right selects one and Enter opens it. `APPS` is selected
+whenever Home opens. Home has no clock or
+connection-state text.
+The default Enter action opens the AppRegistry-driven Launcher. The first registered
 Mini App is SYSTEM, a read-only status list of battery, Bluetooth, host, Wi-Fi,
 and firmware version. Escape returns from SYSTEM to Launcher and from Launcher
 to Home. Plain Tab opens Settings; Bluetooth opens the existing BLE panel, Wi-Fi opens

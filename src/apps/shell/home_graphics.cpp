@@ -1,141 +1,119 @@
 #include "apps/shell/home_graphics.h"
-#include "apps/shell/assets/micro5_home.h"
 #include "core/display/palette.h"
-#include <cmath>
+#include <string>
+
 namespace cardputer_hub::apps {
 namespace {
-unsigned glyphIndex(char c) { return c >= 32 && c <= 126 ? unsigned(c - 32) : unsigned('?' - 32); }
-int textWidth(const std::string& text) {
-    int width = 0;
-    for (const auto c : text)
-        width += assets::homeGlyphAdvance[glyphIndex(c)];
-    return width;
-}
-void bitmap(core::IDisplayAdapter& display, core::PixelPosition position, const char* const* rows,
-            int height, core::RgbColor color) {
-    for (int y = 0; y < height; ++y)
-        for (int x = 0; rows[y][x] != '\0'; ++x)
+void drawDot(core::IDisplayAdapter& display, core::PixelPosition position,
+             HomeStatusIndicator indicator) {
+    const bool hollow = indicator == HomeStatusIndicator::HollowQuiet;
+    const core::RgbColor color =
+        indicator == HomeStatusIndicator::FilledPale        ? core::palette::pale
+        : indicator == HomeStatusIndicator::FilledBlue      ? core::palette::blue
+        : indicator == HomeStatusIndicator::FilledLeaf      ? core::palette::leaf
+        : indicator == HomeStatusIndicator::FilledVermilion ? core::palette::vermilion
+                                                            : core::palette::ordinal;
+    static const char* const filled[] = {" ### ", "#####", "#####", "#####", " ### "};
+    static const char* const outline[] = {" ### ", "#   #", "#   #", "#   #", " ### "};
+    const auto rows = hollow ? outline : filled;
+    for (int y = 0; y < 5; ++y)
+        for (int x = 0; x < 5; ++x)
             if (rows[y][x] == '#')
                 display.fillRectangle({position.x + x, position.y + y}, 1, 1, color);
 }
 } // namespace
-std::string fitHomeHostName(const std::string& name) {
-    std::string label = name;
-    for (auto& c : label)
-        if (c >= 'a' && c <= 'z')
-            c -= 'a' - 'A';
-    if (textWidth(label) <= homeHostNameMaxWidth)
-        return label;
-    while (!label.empty() && textWidth(label + "...") > homeHostNameMaxWidth)
-        label.pop_back();
-    return label + "...";
-}
-core::PixelPosition homeCompanionIndicatorPosition(const std::string& name) {
-    return {homeHostNameOriginX + textWidth(fitHomeHostName(name)) + homeCompanionIndicatorGap,
-            homeCompanionIndicatorY};
-}
-void drawHomeHostName(core::IDisplayAdapter& display, const std::string& name) {
-    int x = homeHostNameOriginX;
-    for (const auto c : fitHomeHostName(name)) {
-        const auto index = glyphIndex(c);
-        const auto* mask = assets::homeGlyphs[index];
-        // Fixed baseline: uppercase ink occupies y=55..70 at this optical size.
-        for (int y = 0; y < 36; ++y) {
-            for (int col = 0; col < 32;) {
-                if (!(mask[y * 4 + col / 8] & (0x80 >> (col % 8)))) {
-                    ++col;
-                    continue;
-                }
-                const auto start = col;
-                do {
-                    ++col;
-                } while (col < 32 && (mask[y * 4 + col / 8] & (0x80 >> (col % 8))));
-                display.fillRectangle({x + start, 45 + y}, col - start, 1, core::palette::ink);
-            }
-        }
-        x += assets::homeGlyphAdvance[index];
-    }
-}
-void drawBluetoothIcon(core::IDisplayAdapter& display, core::RgbColor color) {
-    static const char* const rows[] = {
-        "     #      ", "     ##     ", "     # #    ", " #   #  #   ", "  #  # #    ",
-        "   # ##     ", "    ##      ", "    ##      ", "   # ##     ", "  #  # #    ",
-        " #   #  #   ", "     # #    ", "     ##     ", "     #      "};
-    bitmap(display, {8, 80}, rows, 14, color);
-}
-HomeWifiIndicator homeWifiIndicator(const services::WifiStatusSnapshot& status) {
+
+HomeStatusIndicator homeWifiIndicator(const services::WifiStatusSnapshot& status) {
     if (!status.configured)
-        return HomeWifiIndicator::HollowQuiet;
-    if (!status.enabled)
-        return HomeWifiIndicator::FilledPale;
+        return HomeStatusIndicator::HollowQuiet;
+    if (!status.enabled || status.connection == services::WifiConnectionStatus::Off)
+        return HomeStatusIndicator::FilledPale;
     switch (status.connection) {
     case services::WifiConnectionStatus::Connecting:
-        return HomeWifiIndicator::FilledBlue;
+        return HomeStatusIndicator::FilledBlue;
     case services::WifiConnectionStatus::Connected:
-        return HomeWifiIndicator::FilledLeaf;
+        return HomeStatusIndicator::FilledLeaf;
     case services::WifiConnectionStatus::Error:
-        return HomeWifiIndicator::FilledVermilion;
+        return HomeStatusIndicator::FilledVermilion;
     case services::WifiConnectionStatus::Off:
-        return HomeWifiIndicator::FilledPale;
+        return HomeStatusIndicator::FilledPale;
     }
-    return HomeWifiIndicator::HollowQuiet;
+    return HomeStatusIndicator::FilledPale;
 }
 
-void drawWifiIcon(core::IDisplayAdapter& display, core::PixelPosition position,
-                  core::RgbColor color) {
-    static const char* const rows[] = {
-        "  #########  ", " #         # ", "             ", "   #######   ", "  #       #  ",
-        "             ", "     ###     ", "      #      ", "             ", "      #      "};
-    bitmap(display, position, rows, 10, color);
+HomeStatusIndicator homeBluetoothIndicator(services::HostConnectionStatus status) {
+    switch (status) {
+    case services::HostConnectionStatus::Off:
+        return HomeStatusIndicator::HollowQuiet;
+    case services::HostConnectionStatus::Connecting:
+    case services::HostConnectionStatus::Securing:
+    case services::HostConnectionStatus::Pairing:
+        return HomeStatusIndicator::FilledBlue;
+    case services::HostConnectionStatus::Ready:
+        return HomeStatusIndicator::FilledLeaf;
+    case services::HostConnectionStatus::Error:
+        return HomeStatusIndicator::FilledVermilion;
+    }
+    return HomeStatusIndicator::HollowQuiet;
 }
 
-void drawWifiStatusIndicator(core::IDisplayAdapter& display, core::PixelPosition position,
-                             HomeWifiIndicator indicator) {
-    const bool filled = indicator != HomeWifiIndicator::HollowQuiet;
-    core::RgbColor color = core::palette::ordinal;
-    switch (indicator) {
-    case HomeWifiIndicator::HollowQuiet:
-        color = core::palette::ordinal;
-        break;
-    case HomeWifiIndicator::FilledPale:
-        color = core::palette::pale;
-        break;
-    case HomeWifiIndicator::FilledBlue:
-        color = core::palette::blue;
-        break;
-    case HomeWifiIndicator::FilledLeaf:
-        color = core::palette::leaf;
-        break;
-    case HomeWifiIndicator::FilledVermilion:
-        color = core::palette::vermilion;
-        break;
-    }
-    static const char* const filledRows[] = {" ### ", "#####", "#####", "#####", " ### "};
-    static const char* const hollowRows[] = {" ### ", "#   #", "#   #", "#   #", " ### "};
-    bitmap(display, position, filled ? filledRows : hollowRows, 5, color);
+void drawHomeStatusBar(core::IDisplayAdapter& display) {
+    display.fillRectangle({0, 21}, 240, 1, core::palette::ink);
+    const core::TextStyle label{core::palette::ink, core::palette::bone, 1};
+    display.drawText({18, 6}, "WiFi", label);
+    display.drawText({72, 6}, "BT", label);
 }
-void drawCompanionIndicator(core::IDisplayAdapter& display, bool visible, const std::string& name) {
-    const auto position = homeCompanionIndicatorPosition(name);
-    display.fillRectangle(position, homeCompanionIndicatorSize, homeCompanionIndicatorSize,
-                          core::palette::bone);
-    if (!visible)
+
+void drawHomeWifi(core::IDisplayAdapter& display, HomeStatusIndicator indicator) {
+    display.fillRectangle(homeWifiDotPosition, 5, 5, core::palette::bone);
+    drawDot(display, homeWifiDotPosition, indicator);
+}
+
+void drawHomeBluetooth(core::IDisplayAdapter& display, HomeStatusIndicator indicator) {
+    display.fillRectangle(homeBluetoothDotPosition, 5, 5, core::palette::bone);
+    drawDot(display, homeBluetoothDotPosition, indicator);
+}
+
+std::string homeConnectedDeviceName(const services::HostStatusSnapshot& status) {
+    if (status.connection != services::HostConnectionStatus::Ready || status.activeHostName.empty())
+        return {};
+    // The normal system font is six pixels wide. Keep the stored profile untouched.
+    constexpr std::size_t maxCharacters = (240 - 20 - 8) / 6;
+    if (status.activeHostName.size() <= maxCharacters)
+        return status.activeHostName;
+    return status.activeHostName.substr(0, maxCharacters - 3) + "...";
+}
+
+void drawHomeConnectedDevice(core::IDisplayAdapter& display, const std::string& name) {
+    display.fillRectangle(homeDeviceRowOrigin, 240, homeDeviceRowHeight, core::palette::bone);
+    if (name.empty())
         return;
-    static const char* const rows[] = {"       #       ", "      ###      ", "     #####     ",
-                                       "    #######    ", "   #########   ", "  ###########  ",
-                                       " ############# ", "###############", " ############# ",
-                                       "  ###########  ", "   #########   ", "    #######    ",
-                                       "     #####     ", "      ###      ", "       #       "};
-    bitmap(display, position, rows, homeCompanionIndicatorSize, core::palette::leaf);
+    drawDot(display, {8, 101}, HomeStatusIndicator::FilledLeaf);
+    display.drawText({20, 100}, name.c_str(), {core::palette::ink, core::palette::bone, 1});
 }
-void drawHomeWave(core::IDisplayAdapter& display, unsigned phaseMilliseconds) {
-    display.fillRectangle({0, 99}, 240, 36, core::palette::bone);
-    const double phase = phaseMilliseconds * (6.283185307179586 / 28000.0);
-    for (int band = 0; band < 5; ++band)
-        for (int x = 0; x < 240; x += 3) {
-            const int y =
-                int(std::lround(104 + band * 7 + std::sin(x / 34.0 + phase + band * .45) * 5));
-            if (y >= 99 && y < 135)
-                display.fillRectangle({x, y}, 1, 1, core::palette::homeWave);
-        }
+
+void drawHomeActions(core::IDisplayAdapter& display, std::int32_t plateX) {
+    display.fillRectangle(homeActionBarOrigin, 240, homeActionBarHeight, core::palette::bone);
+    display.fillRectangle({0, 112}, 240, 1, core::palette::ink);
+    display.fillRectangle({119, 113}, 1, 22, core::palette::ink);
+    display.fillRectangle({plateX, 116}, 112, 16, core::palette::ink);
+    const auto drawAction = [&](int x, int width, const char* label, bool onPlate) {
+        const core::RgbColor background = onPlate ? core::palette::ink : core::palette::bone;
+        const core::RgbColor foreground = onPlate ? core::palette::bone : core::palette::ink;
+        const int textWidth = static_cast<int>(std::string(label).size()) * 6;
+        display.drawText({x + (width - textWidth) / 2, 120}, label, {foreground, background, 1});
+    };
+    const bool settingsOnPlate = plateX >= 64;
+    drawAction(0, 119, "APPS", !settingsOnPlate);
+    drawAction(120, 120, "SETTINGS", settingsOnPlate);
+}
+
+void drawHomeBattery(core::IDisplayAdapter& display, std::optional<std::uint8_t> batteryPercent) {
+    const auto label = batteryPercent && *batteryPercent <= 100
+                           ? std::to_string(*batteryPercent) + "%"
+                           : std::string("--%");
+    display.fillRectangle({202, 4}, 30, 14, core::palette::bone);
+    display.drawText({232 - static_cast<int>(label.size()) * 6, 6}, label.c_str(),
+                     {core::palette::ink, core::palette::bone, 1});
 }
 } // namespace cardputer_hub::apps

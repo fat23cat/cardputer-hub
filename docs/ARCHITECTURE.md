@@ -216,7 +216,7 @@ Display Off means backlight zero only: there is no ESP32 light or deep sleep,
 and Connectivity, Services, Companion traffic, timers and keyboard polling all
 continue. The framebuffer keeps receiving state-driven updates behind the dark
 backlight so wake cannot reveal stale host, network or battery state. Home's
-ambient wave is the one exception and pauses while Off, resuming from its
+Living Orb is the one exception and pauses while Off, resuming from its
 previous phase; ApplicationShell receives only that read-only display-off
 state and never commands the controller.
 
@@ -228,7 +228,7 @@ Application Shell provides the common device UI.
 
 The normal-firmware composition root schedules Application Shell updates at a
 20 ms idle cadence and immediately when semantic input is available. Elapsed
-time is accumulated between UI updates so transitions and the Home ambient wave
+time is accumulated between UI updates so transitions and the Home Living Orb
 continue to advance from monotonic time; a delayed update produces one frame
 rather than a catch-up burst. Input polling, HostService, BluetoothService, and
 other time-sensitive Services remain outside this UI cadence and continue to
@@ -251,40 +251,22 @@ The shell must not know the internal implementation of Mini Apps.
 
 ## 5. Home / Launcher
 
-Home is both a lightweight system dashboard and the Mini App launcher.
+Home is a device-centric idle screen. It presents global status, a
+procedural Living Orb, one connected Bluetooth host name, and a bottom
+`APPS` / `SETTINGS` action bar. It does not show Mini App state or a clock.
+Launcher is a separate route opened from Home.
 
-Example:
+The top status bar has fixed WiFi and BT groups and a right-aligned battery
+estimate. `NetworkService` supplies Wi-Fi state, `HostService` supplies
+Bluetooth domain state and the active host name, and `BatteryService` supplies
+the estimate. The host row is visible only for a Ready connection with a name;
+it remains reserved while empty and truncates its display label when needed.
+The body is a 40-particle neutral Living Orb owned by Home presentation code.
+Home never uses application-specific Services to decorate its idle view.
 
-```text
-┌────────────────────────┐
-│ 10:21      ☀ 27°  81%  │
-│ WiFi ●     MacBook ●   │
-├────────────────────────┤
-│ > Device Manager       │
-│   Weather              │
-│   VPS Monitor          │
-│   Media                │
-│   LED Control          │
-│   Settings             │
-└────────────────────────┘
-```
-
-Home may consume state from Services:
-
-```text
-WeatherService    → temperature
-HostService       → active host
-WiFiService       → connectivity
-IndicatorService  → status
-```
-
-Home must not implement these functions itself.
-
-The initial Home dashboard is implemented under plan 017. It displays actual
-HostService state, a compact Micro 5 host label, a single Wi-Fi status, and
-battery telemetry. Home itself is not the AppRegistry-driven Launcher.
-`ApplicationShell` owns a NavigationStack rooted at `home`; plain Enter
-routes `ui.launcher` through ActionBus to the AppRegistry-driven Launcher.
+`ApplicationShell` owns a NavigationStack rooted at `home`. Home selects `APPS`
+on each entry. Left/Right selects `APPS` or `SETTINGS`; plain Enter routes the
+selected navigation Action through ActionBus.
 Plain Tab routes `ui.settings` to a general Settings list. Its Bluetooth entry
 routes `ui.bluetooth` to the existing HostSettings view. The Wi-Fi entry routes
 `ui.wifi` to the built-in WiFiSettings view, which consumes only
@@ -331,18 +313,27 @@ adapter obtains the estimate from the pinned M5Unified power driver. The main
 composition passes the snapshot into the shell; drawing code does not read
 hardware or manage polling. This does not add a BLE battery service.
 
-The clock slot displays `--:--` pending a time source. Home consumes the live
-`NetworkService` snapshot through a neutral Ink Wi-Fi glyph and a separate
-semantic status dot: hollow Ordinal when no network is configured, filled Pale
-when configured but disabled, Blue while connecting, Leaf when connected, and
-Vermilion on error. Home does not show SSID, RSSI, or OFFLINE/ONLINE text;
-Wi-Fi scanning remains pending. Battery percentage is a voltage-derived estimate,
+Home's bottom actions use critically damped horizontal focus-plate motion. Home
+repaints only its action bar while the plate moves; display-Off time does not
+advance it or change the Living Orb's timing. Selection in the Launcher,
+Settings, Bluetooth, and Wi-Fi vertical lists changes immediately.
+
+Home's Wi-Fi and Bluetooth dots map their Service snapshots to Ordinal when
+unconfigured/Off, Pale when configured but disabled, Blue while connecting or
+pairing, Leaf when connected/Ready, and Vermilion on error. Each status slot
+has stable coordinates; changing one status redraws only its area. The
+connected-device row and action bar repaint independently of the Orb. Home
+shows the host row only while `HostService` is Ready with an active name and
+`COMPANION` is live; the BT dot continues to reflect HostService alone. Home
+does not show SSID, RSSI, connection-state text, or a clock. Wi-Fi
+scanning remains pending. Battery percentage is a voltage-derived estimate,
 especially while externally powered, rather than a calibrated charge gauge.
 
-Home's approved ambient dotted wave is presentation state owned by the shell:
-a 28-second cycle, at most two updates per second, using injected elapsed time
-and only the lower 36 rows. It pauses while Home is hidden. Static labels and
-icons have separate dirty regions; menus and pairing do not animate this wave.
+The Living Orb uses a deterministic fixed set of particles in y=22..95. Its
+phase advances from injected monotonic elapsed time, with at most one bounded
+viewport redraw per 50 ms. It pauses while Home is hidden, the display is Off,
+or a page transition is active. Ambient motion does not count as user activity
+or request display wake.
 
 The display contract adds optional `beginFrame`/`endFrame` grouping. The Cardputer
 adapter lazily creates a 240×135 RGB565 canvas after board initialization, tracks
@@ -1117,9 +1108,10 @@ READY alone confirms secured HID connectivity.
 Enabling without an active host returns `HostSelectionRequired`, with no adapter
 calls or configuration writes. The Bluetooth panel moves focus to the first saved
 host, or to Add device when the list is empty, and asks for Enter to confirm.
-It never selects a laptop or opens pairing merely by moving focus. Home keeps
-showing OFF for this prerequisite and for invalid input; ERROR is reserved for
-storage, Bluetooth, and missing-bond failures or an actual Bluetooth Error state.
+It never selects a laptop or opens pairing merely by moving focus. The Home
+BT dot stays hollow for this prerequisite and for invalid input; Vermilion is
+reserved for storage, Bluetooth, and missing-bond failures or an actual
+Bluetooth Error state.
 
 `deleteHost(id)` removes only the named profile and its Bluetooth bond through
 BluetoothService. The local host menu exposes Connect, Rename, and Delete;
@@ -1272,7 +1264,7 @@ Device Control → host required
 ## 21. Device Manager Mini App
 
 The full Device Manager is planned as a Mini App. The delivered minimal
-`HostSettings` screen opens from Home and handles list navigation, BLE On/Off,
+`HostSettings` screen opens from Settings and handles list navigation, BLE On/Off,
 pairing prompts, selection, and renaming. It renders Service state and routes
 logical Actions; it does not own pairing, persistence, or connection policy.
 Its keys remain local and are not forwarded as HID input. The list maps plain
@@ -1394,7 +1386,7 @@ WeatherService
 WiFiService
 ```
 
-The Home screen may also consume the same Service.
+Home does not consume WeatherService; weather presentation belongs in WeatherApp.
 
 ---
 
@@ -2666,7 +2658,7 @@ Transport expansion does not block the BLE-only software scope.
 
 **Partial** — Home, Settings, and the AppRegistry-driven Launcher are delivered.
 
-- [x] Home with selected host, real BLE state, estimated battery and ambient wave.
+- [x] Device-centric Home with compact WiFi, BT, Companion, and battery status plus a Living Orb.
 - [x] General Settings menu with Bluetooth, Wi-Fi, and persistent 0-100% sound volume.
 - [x] NavigationStack/ActionBus integration and modal-aware Back behavior.
 - [x] Plain Tab for built-in settings; Fn+Tab is inactive and normal G0 has no application action.
@@ -2674,11 +2666,11 @@ Transport expansion does not block the BLE-only software scope.
 - [x] Non-blocking 220 ms page slides and interruption from the visible frame.
 - [x] AppRegistry-driven Launcher and navigation into registered Mini Apps.
 - [ ] Configurable global shortcuts and broader shell controls.
-- [x] Live Home Wi-Fi status from NetworkService; clock placeholder remains `--:--`.
+- [x] Live Home Wi-Fi status from NetworkService; no clock placeholder.
 - [x] Manual on-device Wi-Fi configuration, enable/disable, change, and forget.
 - [x] Synthesized key feedback, directional volume-step cues and persistent mute/volume.
-- [x] Launcher spring focus motion; boot/status semantic sound cues remain pending.
-- [ ] Remaining Settings/list spring focus motion.
+- [x] Home horizontal spring focus motion and immediate vertical list selection;
+      boot/status semantic sound cues remain pending.
 - [ ] Idle dim/off, brightness policy and wake-input consumption — software
       delivered by plan 032; physical Cardputer-Adv acceptance pending.
 
@@ -2742,11 +2734,11 @@ foundation. Plan 031 added the MAC CONTROL Mini App and `host.app.activate`.
 
 ### Phase 9 — Weather
 
-**Not implemented.** This will validate one Service consumed by several UI views.
+**Not implemented.** Weather presentation belongs in WeatherApp; Home remains
+application-neutral.
 
 - [ ] WeatherService.
 - [ ] WeatherApp.
-- [ ] Home weather summary.
 
 ### Phase 10 — RGB Indicator
 

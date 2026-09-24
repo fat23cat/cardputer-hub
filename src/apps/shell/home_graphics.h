@@ -1,39 +1,37 @@
 #pragma once
 #include "core/display/display_adapter.h"
+#include "services/hosts/host_service.h"
 #include "services/network/network_service.h"
+#include <optional>
 #include <string>
-namespace cardputer_hub::apps {
-inline constexpr core::PixelPosition homeWifiIconPosition{108, 7};
-inline constexpr core::PixelPosition homeWifiDotPosition{123, 9};
-inline constexpr core::PixelPosition homeWifiRegion{104, 5};
-inline constexpr std::int32_t homeHostNameOriginX = 8;
-inline constexpr std::int32_t homeHostNameRightEdge = 232;
-inline constexpr std::int32_t homeCompanionIndicatorSize = 15;
-inline constexpr std::int32_t homeCompanionIndicatorGap = 4;
-inline constexpr std::int32_t homeCompanionIndicatorY = 55;
-inline constexpr std::int32_t homeHostNameMaxWidth = homeHostNameRightEdge - homeHostNameOriginX -
-                                                     homeCompanionIndicatorGap -
-                                                     homeCompanionIndicatorSize;
-inline constexpr std::int32_t homeWifiRegionWidth = 36;
-inline constexpr std::int32_t homeWifiRegionHeight = 14;
 
-enum class HomeWifiIndicator : std::uint8_t {
+namespace cardputer_hub::apps {
+inline constexpr core::PixelPosition homeWifiDotPosition{8, 8};
+inline constexpr core::PixelPosition homeBluetoothDotPosition{62, 8};
+inline constexpr core::PixelPosition homeAmbientOrigin{0, 22};
+inline constexpr std::int32_t homeAmbientWidth = 240;
+inline constexpr std::int32_t homeAmbientHeight = 74;
+inline constexpr core::PixelPosition homeDeviceRowOrigin{0, 96};
+inline constexpr std::int32_t homeDeviceRowHeight = 16;
+inline constexpr core::PixelPosition homeActionBarOrigin{0, 113};
+inline constexpr std::int32_t homeActionBarHeight = 22;
+
+enum class HomeStatusIndicator : std::uint8_t {
     HollowQuiet,
     FilledPale,
     FilledBlue,
     FilledLeaf,
     FilledVermilion,
 };
+using HomeWifiIndicator = HomeStatusIndicator;
 
-HomeWifiIndicator homeWifiIndicator(const services::WifiStatusSnapshot& status);
-std::string fitHomeHostName(const std::string& name);
-core::PixelPosition homeCompanionIndicatorPosition(const std::string& name);
-void drawHomeHostName(core::IDisplayAdapter& display, const std::string& name);
-void drawBluetoothIcon(core::IDisplayAdapter& display, core::RgbColor color);
-void drawWifiIcon(core::IDisplayAdapter& display, core::PixelPosition position,
-                  core::RgbColor color);
-void drawWifiStatusIndicator(core::IDisplayAdapter& display, core::PixelPosition position,
-                             HomeWifiIndicator indicator);
-void drawCompanionIndicator(core::IDisplayAdapter& display, bool visible, const std::string& name);
-void drawHomeWave(core::IDisplayAdapter& display, unsigned phaseMilliseconds);
+HomeStatusIndicator homeWifiIndicator(const services::WifiStatusSnapshot& status);
+HomeStatusIndicator homeBluetoothIndicator(services::HostConnectionStatus status);
+void drawHomeStatusBar(core::IDisplayAdapter& display);
+void drawHomeWifi(core::IDisplayAdapter& display, HomeStatusIndicator indicator);
+void drawHomeBluetooth(core::IDisplayAdapter& display, HomeStatusIndicator indicator);
+std::string homeConnectedDeviceName(const services::HostStatusSnapshot& status);
+void drawHomeConnectedDevice(core::IDisplayAdapter& display, const std::string& name);
+void drawHomeActions(core::IDisplayAdapter& display, std::int32_t plateX);
+void drawHomeBattery(core::IDisplayAdapter& display, std::optional<std::uint8_t> batteryPercent);
 } // namespace cardputer_hub::apps

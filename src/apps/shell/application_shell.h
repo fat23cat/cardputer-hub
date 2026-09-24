@@ -1,4 +1,5 @@
 #pragma once
+#include "apps/common/focus_plate_motion.h"
 #include "apps/hosts/host_settings.h"
 #include "apps/launcher/launcher.h"
 #include "apps/network/wifi_settings.h"
@@ -23,17 +24,11 @@ class ApplicationShell final : public core::IActionHandler {
     core::ActionHandlingResult handle(const core::Action& action) override;
 
   private:
-    struct HomeConnectionFrame {
-        std::optional<std::uint32_t> activeHost;
-        std::string hostName;
-        services::HostConnectionStatus status = services::HostConnectionStatus::Off;
-        bool companionReady = false;
-    };
-
-    struct HomeNetworkFrame {
-        bool configured = false;
-        bool enabled = false;
-        services::WifiConnectionStatus connection = services::WifiConnectionStatus::Off;
+    struct HomeStatusFrame {
+        std::uint8_t wifi = 0;
+        std::uint8_t bluetooth = 0;
+        std::optional<std::uint8_t> batteryPercent;
+        std::string connectedDeviceName;
     };
 
     struct SettingsFrame {
@@ -52,8 +47,10 @@ class ApplicationShell final : public core::IActionHandler {
     void routeMiniAppEvent(const core::InputEvent& event);
     void routeSystemEvent(const core::InputEvent& event);
     void tickCurrentPresentation(std::chrono::milliseconds elapsed,
-                                 std::optional<std::uint8_t> batteryPercent, bool displayOff);
-    void renderHome(std::chrono::milliseconds elapsed, std::optional<std::uint8_t> batteryPercent);
+                                 std::optional<std::uint8_t> batteryPercent, bool displayOff,
+                                 bool transitionWasActive);
+    void renderHome(std::chrono::milliseconds elapsed, std::optional<std::uint8_t> batteryPercent,
+                    bool displayOff, bool transitionPaused);
     void renderSettings();
     bool atSettings() const;
     bool atBluetooth() const;
@@ -72,10 +69,14 @@ class ApplicationShell final : public core::IActionHandler {
     core::CapabilityRegistry& capabilities_;
     Launcher launcher_;
     core::NavigationStack navigation_;
-    std::optional<HomeConnectionFrame> homeConnectionFrame_;
-    std::optional<HomeNetworkFrame> homeNetworkFrame_;
-    std::optional<std::uint8_t> homeBatteryPercent_;
-    unsigned homePhaseMilliseconds_ = 0;
+    std::optional<HomeStatusFrame> homeStatusFrame_;
+    bool homeSettingsFocused_ = false;
+    std::optional<bool> homeRenderedSettingsFocused_;
+    std::optional<int> homeRenderedPlateX_;
+    FocusPlateMotion homePlateMotion_;
+    std::uint64_t homePhaseMilliseconds_ = 0;
+    std::uint64_t homeFrameAccumulatorMilliseconds_ = 0;
+    bool homeAmbientRendered_ = false;
     std::optional<SettingsFrame> settingsFrame_;
     std::uint8_t settingsSelection_ = 0;
     bool showingMiniApp_ = false;

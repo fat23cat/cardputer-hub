@@ -12,7 +12,6 @@ namespace cardputer_hub::apps {
 using namespace core;
 
 namespace {
-constexpr float plateSpringOmega = 32.0f;
 constexpr int overlayHiddenY = -launcherHeaderHeight;
 
 bool isPlain(const InputEvent& event) {
@@ -71,15 +70,9 @@ void Launcher::activate() {
             windowStart_ = selected_;
         else if (selected_ >= windowStart_ + visibleRows)
             windowStart_ = selected_ + 1 - visibleRows;
-        plateTarget_ = static_cast<float>(selected_ - windowStart_);
-        plateSlot_ = plateTarget_;
-        plateVelocity_ = 0;
     } else {
         selected_ = 0;
         windowStart_ = 0;
-        plateTarget_ = 0;
-        plateSlot_ = 0;
-        plateVelocity_ = 0;
     }
     frame_.reset();
 }
@@ -89,10 +82,7 @@ void Launcher::deactivate() {
     frame_.reset();
 }
 
-bool Launcher::animating() const {
-    return overlay_ != OverlayPhase::Hidden || std::fabs(plateSlot_ - plateTarget_) > 0.01f ||
-           std::fabs(plateVelocity_) > 0.01f;
-}
+bool Launcher::animating() const { return overlay_ != OverlayPhase::Hidden; }
 
 void Launcher::showUnavailableOverlay() { startOverlay(overlayReasonFor(selectedAvailability())); }
 
@@ -103,7 +93,6 @@ void Launcher::update(const InputEvents& input, std::chrono::milliseconds elapse
             return;
     }
     advanceOverlay(elapsed);
-    advancePlate(elapsed);
     render();
 }
 
@@ -136,17 +125,11 @@ void Launcher::moveSelection(int delta) {
                           : 0;
     if (next == selected_)
         return;
-    const auto previousWindow = windowStart_;
     selected_ = next;
     if (selected_ < windowStart_)
         windowStart_ = selected_;
     else if (selected_ >= windowStart_ + visibleRows)
         windowStart_ = selected_ + 1 - visibleRows;
-    plateTarget_ = static_cast<float>(selected_ - windowStart_);
-    if (windowStart_ != previousWindow) {
-        plateSlot_ = plateTarget_;
-        plateVelocity_ = 0;
-    }
 }
 
 void Launcher::launchSelected() {
@@ -204,26 +187,6 @@ void Launcher::advanceOverlay(std::chrono::milliseconds elapsed) {
         clearOverlay();
 }
 
-void Launcher::advancePlate(std::chrono::milliseconds elapsed) {
-    const auto seconds = static_cast<float>(std::max<std::int64_t>(0, elapsed.count())) / 1000.0f;
-    if (seconds <= 0)
-        return;
-    const float x = plateSlot_ - plateTarget_;
-    if (std::fabs(x) < 0.01f && std::fabs(plateVelocity_) < 0.01f) {
-        plateSlot_ = plateTarget_;
-        plateVelocity_ = 0;
-        return;
-    }
-    const float decay = std::exp(-plateSpringOmega * seconds);
-    const float combo = plateVelocity_ + plateSpringOmega * x;
-    plateSlot_ = plateTarget_ + (x + combo * seconds) * decay;
-    plateVelocity_ = (plateVelocity_ - plateSpringOmega * combo * seconds) * decay;
-    if (std::fabs(plateSlot_ - plateTarget_) < 0.01f && std::fabs(plateVelocity_) < 0.01f) {
-        plateSlot_ = plateTarget_;
-        plateVelocity_ = 0;
-    }
-}
-
 MiniAppAvailability Launcher::selectedAvailability() const {
     if (apps_.apps().empty())
         return {};
@@ -264,7 +227,7 @@ void Launcher::render() {
     next.overlay = overlay_;
     next.overlayY = static_cast<int>(std::lround(overlayY_));
     next.overlayReason = overlayReason_;
-    next.plateY = launcherRowTop + static_cast<int>(std::lround(plateSlot_ * launcherRowHeight));
+    next.plateY = launcherRowTop + static_cast<int>((selected_ - windowStart_) * launcherRowHeight);
     next.empty = registered.empty();
 
     const bool full = !frame_;
@@ -325,7 +288,7 @@ void Launcher::render() {
                 const auto index = windowStart_ + slot;
                 const auto& app = registered[index];
                 const int rowY = launcherRowTop + static_cast<int>(slot) * launcherRowHeight;
-                const bool inverted = std::abs(next.plateY - rowY) <= launcherRowHeight / 2;
+                const bool inverted = index == selected_;
                 const auto style = inverted ? selected : normal;
                 const int contentY = rowY + 14;
                 display_.drawText({10, contentY}, ordinal(index).c_str(), style);
