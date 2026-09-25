@@ -41,10 +41,16 @@ class CompanionService {
     void update(std::chrono::milliseconds elapsed);
     CompanionServiceState state() const noexcept { return state_; }
     std::uint16_t session() const noexcept { return session_; }
+    std::uint8_t selectedProtocolVersion() const noexcept { return selectedProtocolVersion_; }
+    std::uint8_t lastSubmittedRequestId() const noexcept { return lastSubmittedRequestId_; }
     bool hasLiveCompanion() const noexcept { return state_ == CompanionServiceState::Ready; }
     CompanionSubmitResult requestActiveApplication();
     CompanionSubmitResult activateApplication(std::string_view bundleId);
+    CompanionSubmitResult requestSystemMetrics();
+    bool hasPendingRequest(connectivity::CompanionOperation operation) const noexcept;
     std::optional<CompanionCompletedRequest> takeCompletedRequest();
+    std::optional<CompanionCompletedRequest>
+    takeCompletedRequest(connectivity::CompanionOperation operation);
     bool readActiveBundleIdentifier(char* destination, std::size_t capacity,
                                     std::uint8_t& length) const;
 
@@ -86,8 +92,10 @@ class CompanionService {
     core::Logger* logger_ = nullptr;
     CompanionServiceState state_ = CompanionServiceState::Unavailable;
     std::uint16_t session_ = 0;
+    std::uint8_t selectedProtocolVersion_ = connectivity::companionProtocolVersion;
     std::uint16_t nextSession_ = 1;
     std::uint8_t nextRequestId_ = 1;
+    std::uint8_t lastSubmittedRequestId_ = 0;
     std::array<PendingRequest, connectivity::companionMaxOutstandingRequests> pending_{};
     std::array<CompanionCompletedRequest, connectivity::companionMaxOutstandingRequests>
         completed_{};

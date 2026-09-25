@@ -23,13 +23,14 @@ each time Home opens. Press **Left** or **Right** to select an action, then
 list currently contains **SYSTEM**, a read-only status screen for battery,
 Bluetooth, the selected host, Wi-Fi, and firmware version; **POMODORO**, a
 background focus timer; **LED GALLERY**, an 8×8 matrix animation app; and **MAC CONTROL** when a live Cardputer Companion
-session is ready. MAC CONTROL is a full-screen
+session is ready. **MAC STATUS** appears when that Companion supports system
+metrics. MAC CONTROL is a full-screen
 3×2 grid. Press the matching number to launch or focus that Mac app; production
 firmware binds **1** to Telegram. Empty numbered tiles do nothing. Left and
 Right move between pages when more than one page exists. A bound press expands
 that tile in blue while the Mac opens the app, then flashes green on success or
 red if the app is not found, and returns to the grid. Escape returns from
-SYSTEM, POMODORO, LED GALLERY, or MAC CONTROL to Apps and from Apps to Home. If Companion disappears
+SYSTEM, POMODORO, LED GALLERY, MAC CONTROL, or MAC STATUS to Apps and from Apps to Home. If Companion disappears
 while MAC CONTROL is open, the app closes and Apps returns; reconnect does not
 reopen it or repeat the last launch. Press plain **Tab** on the main keyboard
 to open the general Settings menu. Fn+Tab is inactive, and a normal G0 press
@@ -117,9 +118,12 @@ ASCII characters and cannot consist only of spaces.
 
 The macOS **Cardputer Companion.app** is optional. Build and launch it from
 `companion/macos` as described in that directory's README. Grant Bluetooth
-permission on first launch and allow login-item startup if macOS asks. The
+permission on first launch. The
 Companion attaches to the already-paired Cardputer; it does not scan or create
-a second pairing. After that, it can start at login. Closing the Mac lid, sleep,
+a second pairing. The menu-bar popover shows connection status, protocol, and
+last valid message; it also provides Reconnect, Start at Login, Diagnostics,
+About, and Quit. Start at Login can be enabled or disabled in the popover.
+Closing the Mac lid, sleep,
 or a BLE drop invalidates the session; after wake and HID reconnect it attaches
 again without relaunching Companion or re-pairing.
 MAC CONTROL becomes available in Apps only while that session is live. Press **1** to focus Telegram if it is already running, or to launch it
@@ -127,6 +131,18 @@ if it is closed. Keyboard and consumer HID keep working if the Companion is
 missing, crashed, or disconnected.
 After Companion closes, its host-name row on Home disappears when the session
 is detected as unavailable, even if Bluetooth HID remains connected.
+
+MAC STATUS shows CPU, physical memory used/total, memory pressure, root-volume
+storage usage, Mac battery, download/upload rates, and thermal state. The
+memory value is an estimate that counts compressed and inactive app memory but
+excludes free memory and file-backed cache.
+The dashboard occupies the full screen without a title or connection indicator.
+It polls roughly once per second only while open. Individual unavailable
+metrics and values older than three seconds show `--`. CPU and network rates
+may initially show `--` while the Companion establishes counter baselines.
+Press Escape to leave; the other keys do not control the dashboard. A v1
+Companion still supports MAC CONTROL but does not expose MAC STATUS. Companion
+loss closes MAC STATUS and reconnect does not reopen it automatically.
 
 ## Wi-Fi
 
@@ -308,8 +324,8 @@ Fresh pairing, two-computer addition/switching, and reconnection to the last
 selected host after Reset/power-on were confirmed on Cardputer-Adv. Extended
 Off, report/interruption and USB hotplug acceptance remains tracked in
 [plan 017](../plans/017-hid-transport-arbitration.md#0-current-closeout-status).
-The current firmware includes Apps, SYSTEM, POMODORO, LED GALLERY, and MAC CONTROL when
-Companion is ready. It does not include profile-metadata editing or template
+The current firmware includes Apps, SYSTEM, POMODORO, LED GALLERY, MAC CONTROL when
+Companion is ready, and MAC STATUS when system telemetry is available. It does not include profile-metadata editing or template
 resolution, Action-to-HID mappings, a Mac companion CLI/control protocol,
 Wi-Fi network scanning, or weather/VPS/Telegram features. Boot/status sound
 cues from the broader UI requirements remain planned. Unit Puzzle LED Gallery

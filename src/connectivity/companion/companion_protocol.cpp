@@ -11,7 +11,7 @@ bool isKnownKindValue(std::uint8_t kind) noexcept {
 }
 
 bool isKnownOperationValue(std::uint8_t operation) noexcept {
-    return operation <= static_cast<std::uint8_t>(CompanionOperation::AppActiveChanged);
+    return operation <= static_cast<std::uint8_t>(CompanionOperation::SystemMetrics);
 }
 
 bool isKnownStatusValue(std::uint8_t status) noexcept {
@@ -67,7 +67,8 @@ bool operationPayloadValid(const CompanionEnvelope& message) noexcept {
             return helloPayloadValid(message);
         }
         return message.kind == CompanionKind::HelloAck && message.payloadSize == 1 &&
-               message.payload[0] == companionProtocolVersion;
+               message.payload[0] >= companionProtocolVersion &&
+               message.payload[0] <= companionLatestProtocolVersion;
     case CompanionOperation::Ping:
         return message.payloadSize == companionPingTokenSize;
     case CompanionOperation::Capabilities:
@@ -93,12 +94,21 @@ bool operationPayloadValid(const CompanionEnvelope& message) noexcept {
         return message.payloadSize == 0;
     case CompanionOperation::AppActiveChanged:
         return message.payloadSize == 0 || bundlePayloadValid(message);
+    case CompanionOperation::SystemMetrics:
+        if (message.version < companionLatestProtocolVersion)
+            return false;
+        if (message.kind == CompanionKind::Request || message.status != CompanionStatus::Ok)
+            return message.payloadSize == 0;
+        CompanionSystemMetrics metrics{};
+        return readSystemMetrics(message, metrics);
     }
     return false;
 }
 
 bool envelopeValid(const CompanionEnvelope& message) noexcept {
-    return isKnownKindValue(static_cast<std::uint8_t>(message.kind)) &&
+    return message.version >= companionProtocolVersion &&
+           message.version <= companionLatestProtocolVersion &&
+           isKnownKindValue(static_cast<std::uint8_t>(message.kind)) &&
            isKnownOperationValue(static_cast<std::uint8_t>(message.operation)) &&
            isKnownStatusValue(static_cast<std::uint8_t>(message.status)) &&
            operationAllowedForKind(message.kind, message.operation) &&
@@ -114,12 +124,14 @@ bool operationAllowedForKind(CompanionKind kind, CompanionOperation operation) n
         return operation == CompanionOperation::Ping ||
                operation == CompanionOperation::Capabilities ||
                operation == CompanionOperation::AppActive ||
-               operation == CompanionOperation::AppActivate;
+               operation == CompanionOperation::AppActivate ||
+               operation == CompanionOperation::SystemMetrics;
     case CompanionKind::Response:
         return operation == CompanionOperation::Ping ||
                operation == CompanionOperation::Capabilities ||
                operation == CompanionOperation::AppActive ||
-               operation == CompanionOperation::AppActivate;
+               operation == CompanionOperation::AppActivate ||
+               operation == CompanionOperation::SystemMetrics;
     case CompanionKind::Event:
         return operation == CompanionOperation::AppActiveChanged;
     }
@@ -192,13 +204,14 @@ const char* companionCapabilityName(CompanionCapability capability) noexcept {
         return companionAppActivateCapabilityId;
     case CompanionCapability::AppActiveEvents:
         return companionAppActiveEventsCapabilityId;
+    case CompanionCapability::SystemMetrics:
+        return companionSystemMetricsCapabilityId;
     }
     return nullptr;
 }
 
 std::optional<CompanionEncodedMessage> encodeCompanionMessage(const CompanionEnvelope& message) {
-    if (message.version != companionProtocolVersion ||
-        !isKnownKindValue(static_cast<std::uint8_t>(message.kind)) ||
+    if (!isKnownKindValue(static_cast<std::uint8_t>(message.kind)) ||
         !isKnownOperationValue(static_cast<std::uint8_t>(message.operation)) ||
         !isKnownStatusValue(static_cast<std::uint8_t>(message.status)) ||
         message.payloadSize > companionMaxPayloadSize || !envelopeValid(message)) {
@@ -230,8 +243,9 @@ std::optional<CompanionEnvelope> decodeCompanionMessage(const std::uint8_t* data
     if (size != companionEnvelopeSize + payloadSize) {
         return std::nullopt;
     }
-    if (data[0] != companionProtocolVersion || !isKnownKindValue(data[1]) ||
-        !isKnownOperationValue(data[5]) || !isKnownStatusValue(data[6])) {
+    if ((data[0] != companionProtocolVersion && data[0] != companionLatestProtocolVersion) ||
+        !isKnownKindValue(data[1]) || !isKnownOperationValue(data[5]) ||
+        !isKnownStatusValue(data[6])) {
         return std::nullopt;
     }
     CompanionEnvelope message{};
@@ -330,6 +344,9 @@ bool setCapabilityList(CompanionEnvelope& message, const CompanionCapability* ca
     }
     message.payload[0] = count;
     for (std::uint8_t index = 0; index < count; ++index) {
+        if (capabilities[index] == CompanionCapability::SystemMetrics &&
+            message.version != companionLatestProtocolVersion)
+            return false;
         message.payload[index + 1] = static_cast<std::uint8_t>(capabilities[index]);
     }
     message.payloadSize = static_cast<std::uint8_t>(count + 1);
@@ -348,7 +365,9 @@ bool readCapabilityList(const CompanionEnvelope& message, CompanionCapability* c
     for (std::uint8_t index = 0; index < message.payload[0]; ++index) {
         const auto value = message.payload[index + 1];
         if (value < static_cast<std::uint8_t>(CompanionCapability::AppActive) ||
-            value > static_cast<std::uint8_t>(CompanionCapability::AppActiveEvents)) {
+            value > static_cast<std::uint8_t>(message.version == companionProtocolVersion
+                                                  ? CompanionCapability::AppActiveEvents
+                                                  : CompanionCapability::SystemMetrics)) {
             count = 0;
             return false;
         }
@@ -388,6 +407,74 @@ bool readBundleIdentifier(const CompanionEnvelope& message, char* destination, s
     std::memcpy(destination, view.data(), view.size());
     destination[view.size()] = '\0';
     length = static_cast<std::uint8_t>(view.size());
+    return true;
+}
+
+namespace {
+void write32(std::uint8_t* bytes, std::uint32_t value) {
+    for (int i = 0; i < 4; ++i)
+        bytes[i] = static_cast<std::uint8_t>(value >> (8 * i));
+}
+std::uint32_t read32(const std::uint8_t* bytes) {
+    return static_cast<std::uint32_t>(bytes[0]) | (static_cast<std::uint32_t>(bytes[1]) << 8U) |
+           (static_cast<std::uint32_t>(bytes[2]) << 16U) |
+           (static_cast<std::uint32_t>(bytes[3]) << 24U);
+}
+bool validMetrics(const CompanionSystemMetrics& value) {
+    return (value.validity & ~std::uint16_t{0x7f}) == 0 &&
+           (!(value.validity & 1U) || value.cpuPercent <= 100) &&
+           (!(value.validity & 2U) ||
+            (value.memoryTotalMiB > 0 && value.memoryUsedMiB <= value.memoryTotalMiB)) &&
+           (!(value.validity & 4U) || (value.memoryPressure >= 1 && value.memoryPressure <= 3)) &&
+           (!(value.validity & 8U) || value.diskUsedPercent <= 100) &&
+           (!(value.validity & 16U) || value.batteryPercent <= 100) &&
+           (!(value.validity & 64U) || (value.thermalState >= 1 && value.thermalState <= 4));
+}
+} // namespace
+
+bool setSystemMetrics(CompanionEnvelope& message, const CompanionSystemMetrics& metrics) {
+    if (message.operation != CompanionOperation::SystemMetrics ||
+        message.kind != CompanionKind::Response || message.status != CompanionStatus::Ok ||
+        message.version != companionLatestProtocolVersion || !validMetrics(metrics))
+        return false;
+    auto* p = message.payload.data();
+    p[0] = 1;
+    p[1] = static_cast<std::uint8_t>(metrics.validity);
+    p[2] = static_cast<std::uint8_t>(metrics.validity >> 8U);
+    p[3] = metrics.cpuPercent;
+    write32(p + 4, metrics.memoryUsedMiB);
+    write32(p + 8, metrics.memoryTotalMiB);
+    p[12] = metrics.memoryPressure;
+    p[13] = metrics.diskUsedPercent;
+    p[14] = metrics.batteryPercent;
+    p[15] = metrics.thermalState;
+    write32(p + 16, metrics.downloadKiBps);
+    write32(p + 20, metrics.uploadKiBps);
+    message.payloadSize = companionMetricsPayloadSize;
+    return true;
+}
+
+bool readSystemMetrics(const CompanionEnvelope& message, CompanionSystemMetrics& metrics) {
+    if (message.operation != CompanionOperation::SystemMetrics ||
+        message.kind != CompanionKind::Response || message.status != CompanionStatus::Ok ||
+        message.version != companionLatestProtocolVersion ||
+        message.payloadSize != companionMetricsPayloadSize || message.payload[0] != 1)
+        return false;
+    const auto* p = message.payload.data();
+    CompanionSystemMetrics result{};
+    result.validity = static_cast<std::uint16_t>(p[1] | (std::uint16_t(p[2]) << 8U));
+    result.cpuPercent = p[3];
+    result.memoryUsedMiB = read32(p + 4);
+    result.memoryTotalMiB = read32(p + 8);
+    result.memoryPressure = p[12];
+    result.diskUsedPercent = p[13];
+    result.batteryPercent = p[14];
+    result.thermalState = p[15];
+    result.downloadKiBps = read32(p + 16);
+    result.uploadKiBps = read32(p + 20);
+    if (!validMetrics(result))
+        return false;
+    metrics = result;
     return true;
 }
 

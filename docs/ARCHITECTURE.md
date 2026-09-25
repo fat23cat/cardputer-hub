@@ -1769,9 +1769,9 @@ transport selected to deliver it.
 ## 35. Host Companion Boundary
 
 An optional host-side companion provides semantic integration that cannot be
-expressed reliably as keyboard HID. The initial implementation is a headless
-macOS `Cardputer Companion.app` in this repository, not a required dependency
-and not a polished menu-bar application.
+expressed reliably as keyboard HID. The macOS `Cardputer Companion.app` in
+this repository is a menu-bar utility with a native popover and remains an
+optional dependency.
 
 ```text
 HostControlService
@@ -1793,6 +1793,29 @@ capabilities, responses, and events for the selected host. It may depend on
 hardware, host selection, UI, or macOS-specific behavior. The companion is a
 separate program and shares a versioned wire contract and conformance fixtures
 with firmware, not a cross-platform C++ implementation library.
+
+The Mac offers protocol versions 2 and 1 in a v1-framed HELLO; Cardputer
+selects the highest shared version. Protocol v2 adds `SYSTEM_METRICS` with a
+fixed 24-byte payload. A v1 session retains its original capability list and
+cannot use telemetry. `CompanionService` exposes operation-filtered completions:
+`HostControlService` consumes APP_ACTIVATE, while `MacStatusService` consumes
+SYSTEM_METRICS. Internal handshake and heartbeat responses stay private.
+`MacStatusService` owns one-second foreground polling, one outstanding metrics
+request, normalized snapshots, and a three-second freshness threshold. The
+MAC STATUS Mini App starts and stops monitoring with its lifecycle and renders
+placeholders for unavailable or stale fields. The macOS collector alone samples
+system metrics; it is injected into `CompanionSession` through a testable
+`SystemMetricsCollecting` boundary.
+
+On macOS, `CompanionCentral` owns CoreBluetooth attach and reconnect decisions.
+`CompanionSession` owns negotiated protocol state, the last valid message time,
+and the advertised capability snapshot. `CompanionStatusStore` maps those
+values into UI state for `CompanionPopoverView`; `CompanionMenuBarController`
+owns the status item and popover lifecycle. The popover does not initiate
+protocol traffic when opened. Its Reconnect action restarts the existing
+attach lifecycle without changing bonds, while Start at Login reads and writes
+the actual `SMAppService` registration. Quit releases observers, timers, BLE
+session resources, and the status item without changing login registration.
 
 The version-1 feature surface is intentionally small:
 

@@ -193,6 +193,85 @@ void test_capabilities_round_trip_rejects_unknown_ids() {
     TEST_ASSERT_FALSE(readCapabilityList(response, decoded, count, 8));
 }
 
+void test_v2_metrics_round_trip_and_v1_rejection() {
+    using cardputer_hub::connectivity::CompanionSystemMetrics;
+    using cardputer_hub::connectivity::readSystemMetrics;
+    using cardputer_hub::connectivity::setSystemMetrics;
+    const std::uint8_t versions[] = {2, 1};
+    TEST_ASSERT_TRUE(encodeCompanionMessage(makeHello(versions, 2)).has_value());
+    TEST_ASSERT_TRUE(encodeCompanionMessage(makeHelloAck(42, 2)).has_value());
+    assertEncodedMatchesFixture(makeHello(versions, 2), "hello-v2.bin");
+    assertEncodedMatchesFixture(makeHelloAck(42, 2), "hello-ack-v2.bin");
+    auto request = makeRequest(42, 1, CompanionOperation::SystemMetrics);
+    TEST_ASSERT_FALSE(encodeCompanionMessage(request).has_value());
+    request.version = 2;
+    TEST_ASSERT_TRUE(encodeCompanionMessage(request).has_value());
+    auto fixtureRequest = request;
+    fixtureRequest.requestId = 5;
+    assertEncodedMatchesFixture(fixtureRequest, "system-metrics-request-v2.bin");
+    request.payloadSize = 1;
+    TEST_ASSERT_FALSE(encodeCompanionMessage(request).has_value());
+
+    auto response = makeResponse(42, 1, CompanionOperation::SystemMetrics, CompanionStatus::Ok);
+    response.version = 2;
+    CompanionSystemMetrics metrics{};
+    metrics.validity = 0x7f;
+    metrics.cpuPercent = 34;
+    metrics.memoryUsedMiB = 11500;
+    metrics.memoryTotalMiB = 16384;
+    metrics.memoryPressure = 1;
+    metrics.diskUsedPercent = 63;
+    metrics.batteryPercent = 82;
+    metrics.thermalState = 2;
+    metrics.downloadKiBps = 12698;
+    metrics.uploadKiBps = 1843;
+    TEST_ASSERT_TRUE(setSystemMetrics(response, metrics));
+    auto fixtureResponse = response;
+    fixtureResponse.requestId = 5;
+    assertEncodedMatchesFixture(fixtureResponse, "system-metrics-response-v2.bin");
+    const auto encoded = encodeCompanionMessage(response);
+    TEST_ASSERT_TRUE(encoded.has_value());
+    const auto decoded = decodeCompanionMessage(encoded->bytes.data(), encoded->size);
+    TEST_ASSERT_TRUE(decoded.has_value());
+    CompanionSystemMetrics observed{};
+    TEST_ASSERT_TRUE(readSystemMetrics(*decoded, observed));
+    TEST_ASSERT_EQUAL_UINT8(34, observed.cpuPercent);
+    TEST_ASSERT_EQUAL_UINT32(12698, observed.downloadKiBps);
+    auto damaged = *encoded;
+    damaged.bytes[8] = 2;
+    TEST_ASSERT_FALSE(decodeCompanionMessage(damaged.bytes.data(), damaged.size).has_value());
+    damaged = *encoded;
+    damaged.bytes[11] = 101;
+    TEST_ASSERT_FALSE(decodeCompanionMessage(damaged.bytes.data(), damaged.size).has_value());
+    damaged = *encoded;
+    damaged.bytes[7] = 23;
+    TEST_ASSERT_FALSE(decodeCompanionMessage(damaged.bytes.data(), damaged.size).has_value());
+    damaged = *encoded;
+    damaged.bytes[7] = 25;
+    TEST_ASSERT_FALSE(decodeCompanionMessage(damaged.bytes.data(), damaged.size).has_value());
+    damaged = *encoded;
+    damaged.bytes[23] = 9;
+    TEST_ASSERT_FALSE(decodeCompanionMessage(damaged.bytes.data(), damaged.size).has_value());
+
+    auto capabilities = makeResponse(42, 2, CompanionOperation::Capabilities, CompanionStatus::Ok);
+    const CompanionCapability ids[] = {CompanionCapability::AppActive,
+                                       CompanionCapability::SystemMetrics};
+    TEST_ASSERT_FALSE(setCapabilityList(capabilities, ids, 2));
+    capabilities.version = 2;
+    TEST_ASSERT_TRUE(setCapabilityList(capabilities, ids, 2));
+    TEST_ASSERT_TRUE(encodeCompanionMessage(capabilities).has_value());
+    auto fixtureCapabilities =
+        makeResponse(42, 2, CompanionOperation::Capabilities, CompanionStatus::Ok);
+    fixtureCapabilities.version = 2;
+    const CompanionCapability full[] = {
+        CompanionCapability::AppActive, CompanionCapability::AppActivate,
+        CompanionCapability::AppActiveEvents, CompanionCapability::SystemMetrics};
+    TEST_ASSERT_TRUE(setCapabilityList(fixtureCapabilities, full, 4));
+    assertEncodedMatchesFixture(fixtureCapabilities, "capabilities-response-v2.bin");
+    capabilities.version = 1;
+    TEST_ASSERT_FALSE(encodeCompanionMessage(capabilities).has_value());
+}
+
 } // namespace
 
 int main() {
@@ -206,5 +285,6 @@ int main() {
     RUN_TEST(test_wrong_session_fixture_is_structurally_valid);
     RUN_TEST(test_oversized_and_invalid_bundle_identifiers_are_rejected);
     RUN_TEST(test_capabilities_round_trip_rejects_unknown_ids);
+    RUN_TEST(test_v2_metrics_round_trip_and_v1_rejection);
     return UNITY_END();
 }

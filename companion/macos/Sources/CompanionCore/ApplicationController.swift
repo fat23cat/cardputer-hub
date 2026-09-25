@@ -10,6 +10,11 @@ public protocol ApplicationControlling: AnyObject {
     func activeApplication() -> String?
     func activate(bundleIdentifier: String) -> ActivateResult
     func observeActiveApplication(_ handler: @escaping (String?) -> Void)
+    func stopObservingActiveApplication()
+}
+
+public extension ApplicationControlling {
+    func stopObservingActiveApplication() {}
 }
 
 public final class WorkspaceApplicationController: ApplicationControlling {
@@ -18,9 +23,7 @@ public final class WorkspaceApplicationController: ApplicationControlling {
     public init() {}
 
     deinit {
-        if let observer {
-            NotificationCenter.default.removeObserver(observer)
-        }
+        stopObservingActiveApplication()
     }
 
     public func activeApplication() -> String? {
@@ -45,12 +48,20 @@ public final class WorkspaceApplicationController: ApplicationControlling {
     }
 
     public func observeActiveApplication(_ handler: @escaping (String?) -> Void) {
+        stopObservingActiveApplication()
         observer = NSWorkspace.shared.notificationCenter.addObserver(
             forName: NSWorkspace.didActivateApplicationNotification,
             object: nil,
             queue: .main
         ) { _ in
             handler(NSWorkspace.shared.frontmostApplication?.bundleIdentifier)
+        }
+    }
+
+    public func stopObservingActiveApplication() {
+        if let observer {
+            NSWorkspace.shared.notificationCenter.removeObserver(observer)
+            self.observer = nil
         }
     }
 }
