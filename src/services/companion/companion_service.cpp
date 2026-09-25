@@ -26,19 +26,21 @@ using connectivity::readPingToken;
 using connectivity::setBundleIdentifier;
 using connectivity::setPingToken;
 
-bool helloSupportsVersionOne(const CompanionEnvelope& message) {
+std::uint8_t selectedVersion(const CompanionEnvelope& message) {
     if (message.kind != CompanionKind::Hello || message.payloadSize < 2 ||
         message.payload[0] == 0 ||
         message.payloadSize != static_cast<std::uint8_t>(message.payload[0] + 1) ||
         message.payload[0] > connectivity::companionMaxSupportedVersions) {
-        return false;
+        return 0;
     }
+    std::uint8_t selected = 0;
     for (std::uint8_t index = 0; index < message.payload[0]; ++index) {
-        if (message.payload[index + 1] == connectivity::companionProtocolVersion) {
-            return true;
-        }
+        const auto version = message.payload[index + 1];
+        if (version >= connectivity::companionProtocolVersion &&
+            version <= connectivity::companionLatestProtocolVersion && version > selected)
+            selected = version;
     }
-    return false;
+    return selected;
 }
 
 CompanionPayload toPayload(const connectivity::CompanionEncodedMessage& encoded) {
@@ -97,7 +99,9 @@ void CompanionService::failAllPending(CompanionStatus status) {
 }
 
 void CompanionService::completePending(PendingRequest& pending, const CompanionEnvelope& message) {
-    if (!pending.heartbeat) {
+    if (!pending.heartbeat && pending.operation != CompanionOperation::Capabilities &&
+        !(state_ == CompanionServiceState::Handshaking &&
+          pending.operation == CompanionOperation::AppActive)) {
         pushCompleted(pending, message);
     }
     if (pending.heartbeat) {
@@ -198,10 +202,12 @@ CompanionSubmitResult CompanionService::submit(CompanionOperation operation,
     outgoing.kind = CompanionKind::Request;
     outgoing.operation = operation;
     outgoing.requestId = nextRequestId_;
+    outgoing.version = selectedProtocolVersion_;
     nextRequestId_ = nextRequestId_ == 255 ? 1 : static_cast<std::uint8_t>(nextRequestId_ + 1);
     if (!sendMessage(outgoing)) {
         return CompanionSubmitResult::NotReady;
     }
+    lastSubmittedRequestId_ = outgoing.requestId;
     *slot = PendingRequest{outgoing.requestId, operation, {}, true, heartbeat, {}};
     if (heartbeat) {
         (void)readPingToken(outgoing, slot->pingToken);
@@ -230,6 +236,22 @@ CompanionSubmitResult CompanionService::activateApplication(std::string_view bun
     return submit(CompanionOperation::AppActivate, request, false);
 }
 
+CompanionSubmitResult CompanionService::requestSystemMetrics() {
+    if (state_ != CompanionServiceState::Ready ||
+        selectedProtocolVersion_ != connectivity::companionLatestProtocolVersion ||
+        !capabilities_.isAvailable(connectivity::companionSystemMetricsCapabilityId))
+        return CompanionSubmitResult::NotReady;
+    return submit(CompanionOperation::SystemMetrics,
+                  makeRequest(session_, 0, CompanionOperation::SystemMetrics), false);
+}
+
+bool CompanionService::hasPendingRequest(CompanionOperation operation) const noexcept {
+    for (const auto& pending : pending_)
+        if (pending.used && pending.operation == operation)
+            return true;
+    return false;
+}
+
 std::optional<CompanionCompletedRequest> CompanionService::takeCompletedRequest() {
     if (completedCount_ == 0) {
         return std::nullopt;
@@ -238,6 +260,25 @@ std::optional<CompanionCompletedRequest> CompanionService::takeCompletedRequest(
     completedHead_ = static_cast<std::uint8_t>((completedHead_ + 1) % completed_.size());
     --completedCount_;
     return completed;
+}
+
+std::optional<CompanionCompletedRequest>
+CompanionService::takeCompletedRequest(CompanionOperation operation) {
+    for (std::uint8_t offset = 0; offset < completedCount_; ++offset) {
+        const auto index = static_cast<std::uint8_t>((completedHead_ + offset) % completed_.size());
+        if (completed_[index].operation != operation)
+            continue;
+        const auto result = completed_[index];
+        for (std::uint8_t move = offset; move + 1 < completedCount_; ++move) {
+            const auto from =
+                static_cast<std::uint8_t>((completedHead_ + move + 1) % completed_.size());
+            const auto to = static_cast<std::uint8_t>((completedHead_ + move) % completed_.size());
+            completed_[to] = completed_[from];
+        }
+        --completedCount_;
+        return result;
+    }
+    return std::nullopt;
 }
 
 bool CompanionService::readActiveBundleIdentifier(char* destination, std::size_t capacity,
@@ -275,7 +316,8 @@ bool CompanionService::setActiveBundle(const CompanionEnvelope& message, bool al
 }
 
 void CompanionService::handleHello(const CompanionEnvelope& message) {
-    if (!helloSupportsVersionOne(message)) {
+    const auto version = selectedVersion(message);
+    if (message.version != connectivity::companionProtocolVersion || version == 0) {
         enterProtocolError();
         return;
     }
@@ -283,12 +325,13 @@ void CompanionService::handleHello(const CompanionEnvelope& message) {
     clearLiveCapabilities();
     hasActiveBundle_ = false;
     session_ = nextSession_;
+    selectedProtocolVersion_ = version;
     nextSession_ = nextSession_ == 65535 ? 1 : static_cast<std::uint16_t>(nextSession_ + 1);
     nextRequestId_ = 1;
     heartbeatInFlight_ = false;
     sinceHeartbeat_ = {};
     sinceHeartbeatSend_ = {};
-    if (!sendMessage(makeHelloAck(session_, connectivity::companionProtocolVersion))) {
+    if (!sendMessage(makeHelloAck(session_, version))) {
         becomeUnavailable();
         return;
     }
@@ -394,6 +437,15 @@ void CompanionService::handleIncoming(const CompanionPayload& payload) {
         if (state_ != CompanionServiceState::Unavailable) {
             enterProtocolError();
         }
+        return;
+    }
+    if ((decoded->kind == CompanionKind::Response || decoded->kind == CompanionKind::Event) &&
+        decoded->session != session_)
+        return;
+    if (decoded->kind != CompanionKind::Hello && decoded->kind != CompanionKind::HelloAck &&
+        decoded->version != selectedProtocolVersion_) {
+        if (state_ != CompanionServiceState::Unavailable)
+            enterProtocolError();
         return;
     }
     switch (decoded->kind) {

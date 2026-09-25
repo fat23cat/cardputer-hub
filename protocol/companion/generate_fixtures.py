@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Write committed Companion protocol v1 fixtures. Run from the repository root."""
+"""Write committed Companion protocol v1/v2 fixtures. Run from the repository root."""
 
 from __future__ import annotations
 
@@ -7,16 +7,17 @@ from pathlib import Path
 
 HELLO, HELLO_ACK, REQUEST, RESPONSE, EVENT = 1, 2, 3, 4, 5
 PING, CAPABILITIES, APP_ACTIVE, APP_ACTIVATE, APP_ACTIVE_CHANGED = 1, 2, 3, 4, 5
+SYSTEM_METRICS = 6
 SESSION = 42
 
 
 def envelope(kind: int, session: int, request_id: int, operation: int, status: int,
-             payload: bytes) -> bytes:
+             payload: bytes, version: int = 1) -> bytes:
     if len(payload) > 248:
         raise ValueError("payload too large")
     return bytes(
         [
-            1,
+            version,
             kind,
             session & 0xFF,
             (session >> 8) & 0xFF,
@@ -60,6 +61,20 @@ def main() -> None:
         "app-activate-response-v1.bin": envelope(RESPONSE, SESSION, 4, APP_ACTIVATE, 0, b""),
         "app-active-changed-event-v1.bin": envelope(
             EVENT, SESSION, 0, APP_ACTIVE_CHANGED, 0, bundle("dev.zed.Zed")
+        ),
+        "hello-v2.bin": envelope(HELLO, 0, 0, 0, 0, bytes([2, 2, 1])),
+        "hello-ack-v2.bin": envelope(HELLO_ACK, SESSION, 0, 0, 0, bytes([2])),
+        "capabilities-response-v2.bin": envelope(
+            RESPONSE, SESSION, 2, CAPABILITIES, 0, bytes([4, 1, 2, 3, 4]), 2
+        ),
+        "system-metrics-request-v2.bin": envelope(
+            REQUEST, SESSION, 5, SYSTEM_METRICS, 0, b"", 2
+        ),
+        "system-metrics-response-v2.bin": envelope(
+            RESPONSE, SESSION, 5, SYSTEM_METRICS, 0,
+            bytes([1, 0x7f, 0, 34]) + (11500).to_bytes(4, "little") +
+            (16384).to_bytes(4, "little") + bytes([1, 63, 82, 2]) +
+            (12698).to_bytes(4, "little") + (1843).to_bytes(4, "little"), 2
         ),
         "malformed-length.bin": bytes([1, REQUEST, SESSION, 0, 1, PING, 0, 10, 0x01, 0x02]),
         "unsupported-version.bin": bytes([99, REQUEST, SESSION, 0, 1, PING, 0, 4]) + token,

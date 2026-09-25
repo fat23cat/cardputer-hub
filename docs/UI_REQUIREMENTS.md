@@ -532,6 +532,13 @@ between pages. A bound press waits on the resting grid; success lights that
 tile Leaf for 1.5 s, failure Vermilion for 2 s. Status is colour only. The tile
 then returns to the resting grid. Companion loss closes MAC CONTROL
 through the existing Mini App runtime and returns Launcher.
+MAC STATUS requires the live `SYSTEM_METRICS` capability. Its single 240×135
+overview uses the complete surface with CPU/RAM and SSD/battery blocks, a
+download/upload row, and pressure/thermal labels. It has no internal title,
+connection label, connection dot, or navigation chrome. Missing metrics and
+stale snapshots show `--` in their own fields. It repaints changed metric
+regions only. Escape uses the shared Mini App exit path; other keys have no
+dashboard action. Capability loss closes it through MiniAppRuntime.
 Idle dimming, the final off fade and wake-input consumption are implemented for
 every screen and Mini App from the shared runtime input path; physical
 acceptance on Cardputer-Adv is pending. Remaining semantic

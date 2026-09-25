@@ -11,14 +11,93 @@ enum CompanionCoreCheck {
             failed += 1
         }
 
+        let cpuPrevious = CPUTimeTicks(user: 100, system: 100, idle: 700, nice: 100)
+        let cpuCurrent = CPUTimeTicks(user: 110, system: 120, idle: 760, nice: 110)
+        expect(CPUTimeTicks.usagePercent(from: cpuPrevious, to: cpuCurrent) == 40,
+               "CPU usage excludes idle ticks and includes nice ticks")
+        let memory = SystemMemoryUsage.estimate(totalBytes: 16 * 1_073_741_824,
+                                                pageBytes: 16_384,
+                                                freePages: 6_400,
+                                                fileBackedPages: 160_000)
+        expect(memory?.usedMiB == 13_784 && memory?.totalMiB == 16_384,
+               "RAM usage excludes file cache but retains inactive app memory")
+
+        let displayNow = Date(timeIntervalSince1970: 10_000)
+        expect(CompanionPresentation.connection(session: 0, phase: .idle, error: false) == .disconnected,
+               "idle presentation is disconnected")
+        expect(CompanionPresentation.connection(session: 0, phase: .handshaking, error: false) == .connecting,
+               "handshake presentation is connecting")
+        expect(CompanionPresentation.connection(session: 8, phase: .handshaking, error: false) == .connected,
+               "negotiated session presentation is connected")
+        expect(CompanionPresentation.connection(session: 0, phase: .idle, error: true) == .error,
+               "failure presentation is error")
+        expect(CompanionPresentation.connection(session: 0, phase: .cancelling, error: false) == .disconnected,
+               "completed cancellation is disconnected")
+        expect(CompanionPresentation.connection(session: 0, phase: .cancelling, error: false,
+                                                waitingToConnect: true) == .connecting,
+               "pending replacement connection is connecting")
+        expect(CompanionPresentation.lastSeen(Date(timeIntervalSince1970: 9_999), now: displayNow) == "Just now",
+               "last seen just now")
+        expect(CompanionPresentation.lastSeen(Date(timeIntervalSince1970: 9_992), now: displayNow) == "8s ago",
+               "last seen seconds")
+        expect(CompanionPresentation.lastSeen(Date(timeIntervalSince1970: 9_760), now: displayNow) == "4m ago",
+               "last seen minutes")
+        expect(CompanionPresentation.lastSeen(Date(timeIntervalSince1970: 6_400), now: displayNow) == "1h ago",
+               "last seen hours")
+        expect(CompanionPresentation.statusMetadata(connection: .connected, protocolVersion: 2,
+                                                    lastMessageAt: Date(timeIntervalSince1970: 9_999),
+                                                    now: displayNow) == "Protocol v2 · just now",
+               "connected v2 compact status metadata")
+        expect(CompanionPresentation.statusMetadata(connection: .connected, protocolVersion: 1,
+                                                    lastMessageAt: Date(timeIntervalSince1970: 9_992),
+                                                    now: displayNow) == "Protocol v1 · 8s ago",
+               "connected v1 compact status metadata")
+        expect(CompanionPresentation.statusMetadata(connection: .disconnected, protocolVersion: 2,
+                                                    lastMessageAt: Date(timeIntervalSince1970: 9_999),
+                                                    now: displayNow) == nil,
+               "disconnected status hides stale protocol metadata")
+        expect(CompanionPresentation.sessionDuration(Date(timeIntervalSince1970: 8_878), now: displayNow) == "18m 42s",
+               "session duration")
+        let capabilities = CompanionCapabilitySummary([.appActive, .appActivate, .appActiveEvents,
+                                                       .systemMetrics])
+        expect(capabilities.appControl && capabilities.appEvents && capabilities.systemMetrics,
+               "diagnostics capability mapping")
+        let loginService = FakeLoginRegistration()
+        let login = StartAtLoginModel(service: loginService)
+        expect(!login.enabled && !login.hasError, "login state reads service")
+        login.setEnabled(true)
+        expect(login.enabled && !login.hasError, "login enable reflects service")
+        loginService.shouldFail = true
+        login.setEnabled(false)
+        expect(login.enabled && login.hasError, "login failure retains actual state")
+        loginService.shouldFail = false
+        login.setEnabled(false)
+        expect(!login.enabled && !login.hasError, "login retry clears error")
+        let externalService = FakeLoginRegistration()
+        let externalLogin = StartAtLoginModel(service: externalService)
+        externalService.shouldFail = true
+        externalLogin.setEnabled(true)
+        externalLogin.refresh()
+        expect(!externalLogin.enabled && externalLogin.hasError,
+               "login error remains while registration is still disabled")
+        externalService.isEnabled = true
+        externalLogin.refresh()
+        expect(externalLogin.enabled && !externalLogin.hasError,
+               "login error clears when external approval enables registration")
+
         let hello = CompanionCodec.encode(CompanionCodec.hello())
         expect(hello == fixture("hello-v1.bin"), "hello fixture")
+        expect(CompanionCodec.encode(CompanionCodec.hello(versions: [2, 1])) == fixture("hello-v2.bin"),
+               "v2 hello fixture")
 
         var ack = CompanionEnvelope()
         ack.kind = .helloAck
         ack.session = 42
         ack.payload = [1]
         expect(CompanionCodec.encode(ack) == fixture("hello-ack-v1.bin"), "hello-ack fixture")
+        ack.payload = [2]
+        expect(CompanionCodec.encode(ack) == fixture("hello-ack-v2.bin"), "v2 ack fixture")
+        ack.payload = [1]
 
         var ping = CompanionEnvelope()
         ping.kind = .request
@@ -217,7 +296,7 @@ enum CompanionCoreCheck {
         session.handle(zeroSession)
         expect(session.session == 0, "zero session hello-ack ignored")
         var wrongVersion = CompanionCodec.encode(validAck)!
-        wrongVersion[wrongVersion.count - 1] = 2
+        wrongVersion[wrongVersion.count - 1] = 3
         session.handle(wrongVersion)
         expect(session.session == 0, "wrong version hello-ack ignored")
         session.handle(CompanionCodec.encode(validAck)!)
@@ -248,6 +327,7 @@ enum CompanionCoreCheck {
         let beforeStale = sent.count
         session.handle(CompanionCodec.encode(stale)!)
         expect(sent.count == beforeStale, "stale session ignored")
+        expect(session.lastValidMessageAt != nil, "valid session keeps last-seen time")
 
         var activate = CompanionEnvelope()
         activate.kind = .request
@@ -278,6 +358,79 @@ enum CompanionCoreCheck {
         apps.observer?("com.apple.Mail")
         expect(sent.count == afterReset, "reset suppresses events")
         expect(session.session == 0, "reset clears session")
+        expect(session.lastValidMessageAt == nil && session.sessionStartedAt == nil &&
+               session.liveCapabilities.isEmpty, "reset clears presentation session details")
+
+        let collector = FakeMetrics()
+        var sessionClock = Date(timeIntervalSince1970: 100)
+        let v2 = CompanionSession(applications: FakeApplications(), metrics: collector,
+                                  now: { sessionClock })
+        var v2Sent: [[UInt8]] = []
+        v2.outgoing = { v2Sent.append($0) }
+        v2.startHandshake()
+        expect(CompanionCodec.decode(v2Sent[0])?.payload == [2, 2, 1], "v2 hello offers fallback")
+        var v2Ack = CompanionEnvelope()
+        v2Ack.kind = .helloAck
+        v2Ack.session = 21
+        v2Ack.payload = [2]
+        v2.handle(CompanionCodec.encode(v2Ack)!)
+        expect(v2.selectedProtocolVersion == 2, "v2 negotiated")
+        expect(v2.sessionStartedAt == sessionClock && v2.lastValidMessageAt == sessionClock,
+               "negotiation starts session and last-seen clock")
+        var v2Caps = CompanionEnvelope()
+        v2Caps.version = 2
+        v2Caps.kind = .request
+        v2Caps.session = 21
+        v2Caps.requestId = 1
+        v2Caps.operation = .capabilities
+        sessionClock = Date(timeIntervalSince1970: 105)
+        v2.handle(CompanionCodec.encode(v2Caps)!)
+        expect(CompanionCodec.decode(v2Sent.last!)?.payload == [4, 1, 2, 3, 4], "v2 capability")
+        expect(v2.lastValidMessageAt == sessionClock && v2.liveCapabilities.count == 4,
+               "valid request updates last seen and capability snapshot")
+        var oldSessionRequest = v2Caps
+        oldSessionRequest.session = 99
+        sessionClock = Date(timeIntervalSince1970: 110)
+        v2.handle(CompanionCodec.encode(oldSessionRequest)!)
+        expect(v2.lastValidMessageAt == Date(timeIntervalSince1970: 105),
+               "old-session traffic does not update last seen")
+        var v2Metrics = v2Caps
+        v2Metrics.requestId = 2
+        v2Metrics.operation = .systemMetrics
+        v2.handle(CompanionCodec.encode(v2Metrics)!)
+        expect(collector.calls == 1, "metrics collected once")
+        let metricsResponse = CompanionCodec.decode(v2Sent.last!)
+        expect(metricsResponse?.version == 2 && metricsResponse?.operation == .systemMetrics,
+               "metrics v2 response")
+        expect(metricsResponse?.status == .ok && metricsResponse?.payload.count == 24,
+               "metrics payload")
+        var fixtureSample = SystemMetricsSample()
+        fixtureSample.cpuPercent = 34
+        fixtureSample.memory = (11500, 16384)
+        fixtureSample.memoryPressure = .normal
+        fixtureSample.diskUsedPercent = 63
+        fixtureSample.batteryPercent = 82
+        fixtureSample.thermalState = .fair
+        fixtureSample.network = (12698, 1843)
+        var fixtureResponse = CompanionEnvelope()
+        fixtureResponse.version = 2
+        fixtureResponse.kind = .response
+        fixtureResponse.session = 42
+        fixtureResponse.requestId = 5
+        fixtureResponse.operation = .systemMetrics
+        fixtureResponse.payload = fixtureSample.encode()!
+        expect(CompanionCodec.encode(fixtureResponse) == fixture("system-metrics-response-v2.bin"),
+               "v2 metrics fixture")
+        expect(SystemMetricsSample.decode(metricsResponse?.payload ?? [])?.cpuPercent == 34,
+               "metrics round trip")
+        var invalidMetrics = v2Metrics
+        invalidMetrics.version = 1
+        expect(CompanionCodec.encode(invalidMetrics) == nil, "v1 metrics rejected")
+        var badPayload = metricsResponse?.payload ?? []
+        badPayload[0] = 2
+        expect(SystemMetricsSample.decode(badPayload) == nil, "metrics schema rejected")
+        badPayload = Array((metricsResponse?.payload ?? []).dropLast())
+        expect(SystemMetricsSample.decode(badPayload) == nil, "truncated metrics rejected")
 
         if failed > 0 {
             fputs("\(failed) checks failed\n", stderr)
@@ -317,5 +470,28 @@ final class FakeApplications: ApplicationControlling {
     }
     func observeActiveApplication(_ handler: @escaping (String?) -> Void) {
         observer = handler
+    }
+}
+
+final class FakeMetrics: SystemMetricsCollecting {
+    var calls = 0
+    func collect() -> SystemMetricsSample? {
+        calls += 1
+        var sample = SystemMetricsSample()
+        sample.cpuPercent = 34
+        sample.memory = (8192, 16384)
+        sample.memoryPressure = .normal
+        sample.diskUsedPercent = 63
+        sample.thermalState = .fair
+        return sample
+    }
+}
+
+final class FakeLoginRegistration: LoginRegistration {
+    var isEnabled = false
+    var shouldFail = false
+    func setEnabled(_ enabled: Bool) throws {
+        if shouldFail { throw NSError(domain: "FakeLoginRegistration", code: 1) }
+        isEnabled = enabled
     }
 }

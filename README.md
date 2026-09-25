@@ -117,8 +117,10 @@ scripts/
 
 The `apps`, `connectivity`, and `services` directories contain the built-in
 system UI, connectivity foundations, and host/configuration/battery/audio/companion
-Services. `companion/macos` holds the optional headless Cardputer Companion.app.
-`protocol/companion` holds the shared v1 wire contract and binary fixtures.
+Services. `companion/macos` holds the optional macOS menu-bar Cardputer Companion.app.
+`protocol/companion` holds the shared v1/v2 wire contract and binary fixtures.
+The MAC STATUS Mini App shows live Mac system metrics when a v2 Companion is
+connected; polling runs only while the app is open.
 
 ---
 

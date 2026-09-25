@@ -15,6 +15,7 @@ public enum CompanionOperation: UInt8 {
     case appActive = 3
     case appActivate = 4
     case appActiveChanged = 5
+    case systemMetrics = 6
 }
 
 public enum CompanionStatus: UInt8 {
@@ -29,10 +30,12 @@ public enum CompanionCapability: UInt8 {
     case appActive = 1
     case appActivate = 2
     case appActiveEvents = 3
+    case systemMetrics = 4
 }
 
 public struct CompanionConstants {
     public static let protocolVersion: UInt8 = 1
+    public static let latestProtocolVersion: UInt8 = 2
     public static let maxMessageSize = 256
     public static let envelopeSize = 8
     public static let maxPayloadSize = maxMessageSize - envelopeSize
@@ -58,7 +61,7 @@ public struct CompanionEnvelope: Equatable {
 
 public enum CompanionCodec {
     public static func encode(_ message: CompanionEnvelope) -> [UInt8]? {
-        guard message.version == CompanionConstants.protocolVersion,
+        guard (1...CompanionConstants.latestProtocolVersion).contains(message.version),
               message.payload.count <= CompanionConstants.maxPayloadSize,
               isValid(message)
         else { return nil }
@@ -82,7 +85,7 @@ public enum CompanionCodec {
         else { return nil }
         let payloadSize = Int(data[7])
         guard data.count == CompanionConstants.envelopeSize + payloadSize,
-              data[0] == CompanionConstants.protocolVersion,
+              (1...CompanionConstants.latestProtocolVersion).contains(data[0]),
               let kind = CompanionKind(rawValue: data[1]),
               let operation = CompanionOperation(rawValue: data[5]),
               let status = CompanionStatus(rawValue: data[6])
@@ -123,8 +126,10 @@ public enum CompanionCodec {
         return message
     }
 
-    public static func capabilitiesResponse(session: UInt16, requestId: UInt8) -> CompanionEnvelope {
+    public static func capabilitiesResponse(session: UInt16, requestId: UInt8,
+                                            version: UInt8 = CompanionConstants.protocolVersion) -> CompanionEnvelope {
         var message = CompanionEnvelope()
+        message.version = version
         message.kind = .response
         message.session = session
         message.requestId = requestId
@@ -132,6 +137,10 @@ public enum CompanionCodec {
         message.payload = [3, CompanionCapability.appActive.rawValue,
                            CompanionCapability.appActivate.rawValue,
                            CompanionCapability.appActiveEvents.rawValue]
+        if version >= CompanionConstants.latestProtocolVersion {
+            message.payload[0] = 4
+            message.payload.append(CompanionCapability.systemMetrics.rawValue)
+        }
         return message
     }
 
@@ -156,7 +165,7 @@ public enum CompanionCodec {
             return operation == .none
         case .request, .response:
             return operation == .ping || operation == .capabilities ||
-                operation == .appActive || operation == .appActivate
+                operation == .appActive || operation == .appActivate || operation == .systemMetrics
         case .event:
             return operation == .appActiveChanged
         }
@@ -188,7 +197,9 @@ public enum CompanionCodec {
                     message.payload[0] <= 4 &&
                     message.payload.count == Int(message.payload[0]) + 1
             }
-            return message.kind == .helloAck && message.payload == [CompanionConstants.protocolVersion]
+            return message.kind == .helloAck && message.version == 1 &&
+                message.payload.count == 1 &&
+                (1...CompanionConstants.latestProtocolVersion).contains(message.payload[0])
         case .ping:
             return message.payload.count == CompanionConstants.pingTokenSize
         case .capabilities:
@@ -197,7 +208,10 @@ public enum CompanionCodec {
             guard let count = message.payload.first, count > 0, count <= 8,
                   message.payload.count == Int(count) + 1
             else { return false }
-            return message.payload.dropFirst().allSatisfy { CompanionCapability(rawValue: $0) != nil }
+            return message.payload.dropFirst().allSatisfy {
+                guard let capability = CompanionCapability(rawValue: $0) else { return false }
+                return capability != .systemMetrics || message.version >= 2
+            }
         case .appActive:
             if message.kind == .request { return message.payload.isEmpty }
             if message.status == .ok { return readBundle(message.payload) != nil }
@@ -207,6 +221,10 @@ public enum CompanionCodec {
             return message.payload.isEmpty
         case .appActiveChanged:
             return message.payload.isEmpty || readBundle(message.payload) != nil
+        case .systemMetrics:
+            guard message.version >= 2 else { return false }
+            if message.kind == .request || message.status != .ok { return message.payload.isEmpty }
+            return SystemMetricsSample.decode(message.payload) != nil
         }
     }
 }

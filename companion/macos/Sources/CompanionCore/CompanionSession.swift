@@ -2,48 +2,77 @@ import Foundation
 
 public final class CompanionSession {
     public private(set) var session: UInt16 = 0
+    public private(set) var selectedProtocolVersion: UInt8 = 0
+    public private(set) var sessionStartedAt: Date?
+    public private(set) var lastValidMessageAt: Date?
+    public private(set) var liveCapabilities: [CompanionCapability] = []
     public private(set) var lastActiveBundle: String?
     private var lastEventBundle: String?
     private let applications: ApplicationControlling
+    private let metrics: SystemMetricsCollecting?
+    private let now: () -> Date
     public var outgoing: ([UInt8]) -> Void = { _ in }
     private var awaitingHelloAck = false
 
-    public init(applications: ApplicationControlling) {
+    public init(applications: ApplicationControlling, metrics: SystemMetricsCollecting? = nil,
+                now: @escaping () -> Date = Date.init) {
         self.applications = applications
+        self.metrics = metrics
+        self.now = now
         applications.observeActiveApplication { [weak self] bundle in
             self?.handleForegroundChange(bundle)
         }
     }
 
     public func startHandshake() {
-        guard let bytes = CompanionCodec.encode(CompanionCodec.hello()) else { return }
+        guard let bytes = CompanionCodec.encode(CompanionCodec.hello(versions: [2, 1])) else { return }
         awaitingHelloAck = true
-        outgoing(bytes)
+        self.outgoing(bytes)
     }
 
     public func reset() {
         session = 0
+        selectedProtocolVersion = 0
+        sessionStartedAt = nil
+        lastValidMessageAt = nil
+        liveCapabilities = []
         lastActiveBundle = nil
         lastEventBundle = nil
         awaitingHelloAck = false
     }
 
-    public func handle(_ data: [UInt8]) {
-        guard let message = CompanionCodec.decode(data) else { return }
+    public func stop() {
+        reset()
+        applications.stopObservingActiveApplication()
+    }
+
+    @discardableResult
+    public func handle(_ data: [UInt8]) -> Bool {
+        guard let message = CompanionCodec.decode(data) else { return false }
         switch message.kind {
         case .helloAck:
             guard awaitingHelloAck,
                   message.session != 0,
-                  message.payload == [CompanionConstants.protocolVersion]
-            else { return }
+                  message.version == 1,
+                  let selected = message.payload.first,
+                  message.payload.count == 1,
+                  (1...CompanionConstants.latestProtocolVersion).contains(selected)
+            else { return false }
             awaitingHelloAck = false
             session = message.session
+            selectedProtocolVersion = selected
+            sessionStartedAt = now()
+            lastValidMessageAt = sessionStartedAt
             sendInitialActive()
+            return true
         case .request:
-            guard session != 0, message.session == session else { return }
+            guard session != 0, message.session == session,
+                  message.version == selectedProtocolVersion else { return false }
+            lastValidMessageAt = now()
             handleRequest(message)
+            return true
         default:
-            break
+            return false
         }
     }
 
@@ -54,7 +83,24 @@ public final class CompanionSession {
                 session: message.session, requestId: message.requestId, token: message.payload)
             send(response)
         case .capabilities:
-            send(CompanionCodec.capabilitiesResponse(session: message.session, requestId: message.requestId))
+            let response = CompanionCodec.capabilitiesResponse(session: message.session,
+                                                                requestId: message.requestId,
+                                                                version: selectedProtocolVersion)
+            liveCapabilities = response.payload.dropFirst().compactMap(CompanionCapability.init(rawValue:))
+            send(response)
+        case .systemMetrics:
+            guard selectedProtocolVersion >= 2 else { return }
+            var response = CompanionEnvelope()
+            response.kind = .response
+            response.session = message.session
+            response.requestId = message.requestId
+            response.operation = .systemMetrics
+            if let sample = metrics?.collect(), let payload = sample.encode() {
+                response.payload = payload
+            } else {
+                response.status = .notAvailable
+            }
+            send(response)
         case .appActive:
             var response = CompanionEnvelope()
             response.kind = .response
@@ -111,7 +157,9 @@ public final class CompanionSession {
     }
 
     private func send(_ message: CompanionEnvelope) {
-        guard let bytes = CompanionCodec.encode(message) else { return }
-        outgoing(bytes)
+        var outgoing = message
+        outgoing.version = selectedProtocolVersion
+        guard let bytes = CompanionCodec.encode(outgoing) else { return }
+        self.outgoing(bytes)
     }
 }
