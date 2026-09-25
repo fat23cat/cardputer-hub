@@ -13,6 +13,16 @@ CI_WORKFLOW = ROOT / ".github" / "workflows" / "ci.yml"
 MAKEFILE = ROOT / "Makefile"
 INSTALL_GUIDE = ROOT / "docs" / "manuals" / "installing-firmware.md"
 PARTITION_TABLE = ROOT / "partitions.csv"
+MANAGER_LAYOUT = (
+    ROOT.parent / "cardputer-firmware-manager" / "layouts" / "cardputer-adv-8mb.csv"
+)
+CRUB_HUB_CONFIG_DOCUMENTS = [
+    ROOT / "AGENTS.md",
+    ROOT / "README.md",
+    MAKEFILE,
+    INSTALL_GUIDE,
+    ROOT / "docs" / "ENGINEERING.md",
+]
 
 
 def parse_partition_value(value: str) -> int:
@@ -169,6 +179,36 @@ class ConfigurationPartitionMigrationTest(unittest.TestCase):
                 )
                 hub = next(row for row in rows if row and row[0].strip() == "hub")
             self.assertEqual(parse_partition_value(hub[3]), 0xD0000)
+
+    def test_upload_rejects_image_larger_than_the_crub_hub_partition(self) -> None:
+        makefile = MAKEFILE.read_text()
+        self.assertIn("CRUB_HUB_SIZE := 0x200000", makefile)
+        before_standalone = makefile.partition("upload-standalone:")[0]
+        upload_recipe = before_standalone[before_standalone.index("\nupload:") :]
+        self.assertLess(
+            upload_recipe.index("$(CRUB_HUB_SIZE)"), upload_recipe.index("write_flash")
+        )
+        if MANAGER_LAYOUT.exists():
+            hub = manager_partition("hub")
+            self.assertEqual(parse_partition_value(hub[4]), 0x200000)
+
+    def test_crub_documents_name_the_current_hub_config_offset(self) -> None:
+        for document in CRUB_HUB_CONFIG_DOCUMENTS:
+            with self.subTest(document=document.name):
+                text = document.read_text()
+                self.assertNotIn("0x560000", text)
+                self.assertIn("0x7a0000", text)
+        if MANAGER_LAYOUT.exists():
+            configuration = manager_partition("hub_config")
+            self.assertEqual(parse_partition_value(configuration[3]), 0x7A0000)
+
+
+def manager_partition(name: str) -> list[str]:
+    with MANAGER_LAYOUT.open(newline="") as partition_file:
+        rows = csv.reader(
+            line for line in partition_file if not line.lstrip().startswith("#")
+        )
+        return next(row for row in rows if row and row[0].strip() == name)
 
 
 if __name__ == "__main__":

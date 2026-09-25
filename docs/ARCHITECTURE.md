@@ -2254,9 +2254,9 @@ The optional `crub` multiboot deployment is owned by the separate
 [Cardputer Firmware Manager](https://github.com/fat23cat/cardputer-firmware-manager),
 including its version-controlled shared partition layout and SD staging
 contract. In that layout `crub` owns the bootloader and partition table,
-Cardputer Hub occupies one OTA application partition, Codex Microputer occupies
-another, and the applications retain dedicated `hub_config` and `apps_nvs`
-data partitions. Cardputer Hub remains an ordinary ESP-IDF application image
+Cardputer Hub occupies one OTA application partition, a shared `extra` OTA
+partition holds Codex Microputer, Bruce, or another application at a time, and
+Hub and Codex retain dedicated `hub_config` and `apps_nvs` data partitions. Cardputer Hub remains an ordinary ESP-IDF application image
 and must not attempt to replace the loader-owned table during an app-only
 update. This deployment changes packaging and boot ownership, not the Mini App,
 Service, Connectivity, or hardware-adapter layer boundaries.

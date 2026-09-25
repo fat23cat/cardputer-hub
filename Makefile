@@ -10,8 +10,10 @@ IDF_CONFIG_HEADER := $(IDF_BUILD_DIR)/config/sdkconfig.h
 CPP_FILES := $(shell find src test -type f \( -name '*.c' -o -name '*.cc' -o -name '*.cpp' -o -name '*.h' -o -name '*.hpp' \) | sort)
 
 # CRUB hub partition from cardputer-firmware-manager layouts/cardputer-adv-8mb.csv.
-# make upload must not write Hub's standalone table; that hides hub_config at 0x560000.
+# make upload must not write Hub's standalone table; that hides hub_config at 0x7a0000.
+# The standalone app slots are larger, so the build does not enforce CRUB's limit.
 CRUB_HUB_OFFSET := 0xd0000
+CRUB_HUB_SIZE := 0x200000
 
 .PHONY: setup lock-check architecture-check validate-idf validate-submodules configure build firmware-size test format format-check lint host-check firmware-check companion-check check upload upload-standalone migrate-storage-layout monitor clean
 
@@ -75,6 +77,7 @@ check: host-check firmware-check
 upload: validate-idf validate-submodules
 	@test -n "$(UPLOAD_PORT)" || (echo "UPLOAD_PORT is required. make upload writes only the CRUB hub partition at $(CRUB_HUB_OFFSET) and does not replace the shared partition table." >&2; exit 2)
 	$(MAKE) build
+	@size=$$(wc -c < "$(IDF_APP_IMAGE)" | tr -d ' '); test "$$size" -le $$(($(CRUB_HUB_SIZE))) || (echo "$(IDF_APP_IMAGE) is $$size bytes; the CRUB hub partition holds $$(($(CRUB_HUB_SIZE))) bytes." >&2; exit 2)
 	esptool.py --chip esp32s3 --port "$(UPLOAD_PORT)" -b 1500000 --before default_reset --after hard_reset write_flash $(CRUB_HUB_OFFSET) $(IDF_APP_IMAGE)
 
 upload-standalone: validate-idf validate-submodules
