@@ -9,6 +9,9 @@ private let log = Logger(subsystem: "org.cardputer.companion", category: "runtim
 
 final class CompanionCentral: NSObject, CBCentralManagerDelegate, CBPeripheralDelegate {
     private let session: CompanionSession
+    private let status: CompanionStatusStore
+    private var connectionError = false
+    private var stopped = false
     private var manager: CBCentralManager?
     private var peripheral: CBPeripheral?
     private var hostToDevice: CBCharacteristic?
@@ -25,14 +28,17 @@ final class CompanionCentral: NSObject, CBCentralManagerDelegate, CBPeripheralDe
     private var cancellationTick: Timer?
     private var workspaceObservers: [NSObjectProtocol] = []
 
-    init(applications: ApplicationControlling) {
-        session = CompanionSession(applications: applications)
+    init(applications: ApplicationControlling, metrics: SystemMetricsCollecting,
+         status: CompanionStatusStore) {
+        session = CompanionSession(applications: applications, metrics: metrics)
+        self.status = status
         super.init()
         session.outgoing = { [weak self] bytes in self?.send(bytes) }
     }
 
     func start() {
         manager = CBCentralManager(delegate: self, queue: .main)
+        refreshStatus()
         if workspaceObservers.isEmpty {
             let workspace = NSWorkspace.shared.notificationCenter
             workspaceObservers = [
@@ -54,14 +60,17 @@ final class CompanionCentral: NSObject, CBCentralManagerDelegate, CBPeripheralDe
         guard central === manager else { return }
         if central.state != .poweredOn {
             log.info("bluetooth unavailable; dropping companion attach")
+            connectionError = true
             apply(coordinator.handleRadioUnavailable())
             return
         }
+        connectionError = false
         lookup()
     }
 
     private func handleWillSleep() {
         log.info("mac sleeping; dropping companion attach")
+        connectionError = false
         if let peripheral, let deviceToHost, deviceToHost.isNotifying {
             peripheral.setNotifyValue(false, for: deviceToHost)
         }
@@ -84,23 +93,30 @@ final class CompanionCentral: NSObject, CBCentralManagerDelegate, CBPeripheralDe
     }
 
     private func apply(_ action: CompanionAttachAction) {
+        defer { refreshStatus() }
         switch action {
         case .idle:
             break
         case .retryLater, .ambiguous, .cancelCurrentAndRetry:
             if action == .ambiguous {
                 log.error("multiple Cardputer peripherals connected; not choosing")
+                connectionError = true
+            } else if action == .retryLater {
+                connectionError = false
             }
             resetLocalConnection()
             scheduleRetry()
         case .connectCompanion(let index):
+            connectionError = false
             retry?.invalidate()
             connect(companionMatches, index: index)
         case .connectHid(let index):
+            connectionError = false
             retry?.invalidate()
             log.info("probing connected HID peripheral")
             connect(hidMatches, index: index)
         case .cancelCurrentAndProbeHid(let index):
+            connectionError = false
             retry?.invalidate()
             resetLocalConnection()
             connect(hidMatches, index: index)
@@ -146,9 +162,43 @@ final class CompanionCentral: NSObject, CBCentralManagerDelegate, CBPeripheralDe
             handshakeWatchdog = Timer.scheduledTimer(withTimeInterval: 5, repeats: false) { [weak self] _ in
                 guard let self, self.session.session == 0 else { return }
                 log.error("companion handshake timed out")
+                self.connectionError = true
                 self.apply(self.coordinator.handleHandshakeTimeout(attempt))
             }
         }
+    }
+
+    private func refreshStatus() {
+        status.sync(session: session, phase: coordinator.phase,
+                    error: connectionError, bluetoothReady: manager?.state == .poweredOn,
+                    waitingToConnect: coordinator.pendingConnectId != nil)
+    }
+
+    func reconnect() {
+        guard !stopped else { return }
+        connectionError = false
+        coordinator = CompanionAttachCoordinator()
+        restartCentral()
+        status.sync(session: session, phase: .connecting,
+                    error: false, bluetoothReady: manager?.state == .poweredOn)
+    }
+
+    func stop() {
+        guard !stopped else { return }
+        stopped = true
+        retry?.invalidate()
+        retry = nil
+        resetLocalConnection()
+        session.stop()
+        for observer in workspaceObservers {
+            NSWorkspace.shared.notificationCenter.removeObserver(observer)
+        }
+        workspaceObservers.removeAll()
+        manager?.delegate = nil
+        manager = nil
+        coordinator = CompanionAttachCoordinator()
+        connectionError = false
+        refreshStatus()
     }
 
     private func connect(_ matches: [CBPeripheral], index: Int) {
@@ -254,11 +304,13 @@ final class CompanionCentral: NSObject, CBCentralManagerDelegate, CBPeripheralDe
     func centralManager(_ central: CBCentralManager, didFailToConnect peripheral: CBPeripheral, error: Error?) {
         guard central === manager else { return }
         log.error("failed to connect to Cardputer")
+        connectionError = true
         apply(coordinator.handleDidFailToConnect(peripheral.identifier))
     }
 
     func centralManager(_ central: CBCentralManager, didDisconnectPeripheral peripheral: CBPeripheral, error: Error?) {
         guard central === manager else { return }
+        connectionError = error != nil
         apply(coordinator.handleDidDisconnect(peripheral.identifier))
     }
 
@@ -268,6 +320,7 @@ final class CompanionCentral: NSObject, CBCentralManagerDelegate, CBPeripheralDe
         }) == true
         if !hasCompanion {
             log.error("companion GATT service missing")
+            connectionError = true
         }
         apply(coordinator.handleDidDiscoverServices(
             peripheral.identifier, hasCompanion: hasCompanion, error: error != nil))
@@ -296,6 +349,7 @@ final class CompanionCentral: NSObject, CBCentralManagerDelegate, CBPeripheralDe
         }
         if error != nil || host == nil || device == nil {
             log.error("companion GATT characteristics missing")
+            connectionError = true
         }
         apply(action)
     }
@@ -305,6 +359,7 @@ final class CompanionCentral: NSObject, CBCentralManagerDelegate, CBPeripheralDe
         let notifying = error == nil && characteristic.isNotifying
         if !notifying {
             log.error("companion notify subscribe failed")
+            connectionError = true
         }
         apply(coordinator.handleDidUpdateNotificationState(
             peripheral.identifier, notifying: notifying, error: error != nil))
@@ -315,7 +370,9 @@ final class CompanionCentral: NSObject, CBCentralManagerDelegate, CBPeripheralDe
               error == nil, let data = characteristic.value,
               let assembled = reassembler.ingest([UInt8](data))
         else { return }
-        session.handle(assembled)
+        if session.handle(assembled) {
+            refreshStatus()
+        }
     }
 
     private func send(_ bytes: [UInt8]) {
@@ -330,24 +387,43 @@ final class CompanionCentral: NSObject, CBCentralManagerDelegate, CBPeripheralDe
     }
 }
 
-enum LoginItem {
-    static func register() {
-        do {
-            try SMAppService.mainApp.register()
-            log.info("login item registered")
-        } catch {
-            log.error("login item registration failed")
+struct SystemLoginRegistration: LoginRegistration {
+    var isEnabled: Bool { SMAppService.mainApp.status == .enabled }
+
+    func setEnabled(_ enabled: Bool) throws {
+        if enabled {
+            if !isEnabled { try SMAppService.mainApp.register() }
+        } else if SMAppService.mainApp.status != .notRegistered {
+            try SMAppService.mainApp.unregister()
         }
     }
 }
 
 final class AppDelegate: NSObject, NSApplicationDelegate {
     private var central: CompanionCentral?
+    private var status: CompanionStatusStore?
+    private var menuBar: CompanionMenuBarController?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
-        LoginItem.register()
-        central = CompanionCentral(applications: WorkspaceApplicationController())
-        central?.start()
+        let status = CompanionStatusStore(login: StartAtLoginModel(service: SystemLoginRegistration()))
+        let menuBar = CompanionMenuBarController(status: status)
+        let central = CompanionCentral(applications: WorkspaceApplicationController(),
+                                       metrics: MacSystemMetricsCollector(), status: status)
+        status.onReconnect = { [weak central] in central?.reconnect() }
+        status.onQuit = { [weak self] in self?.quit() }
+        self.status = status
+        self.menuBar = menuBar
+        self.central = central
+        central.start()
+    }
+
+    func applicationWillTerminate(_ notification: Notification) {
+        central?.stop()
+        menuBar?.stop()
+    }
+
+    private func quit() {
+        NSApp.terminate(nil)
     }
 }
 

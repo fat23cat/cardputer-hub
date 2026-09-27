@@ -1,4 +1,4 @@
-# Companion Protocol v1
+# Companion Protocol v1 and v2
 
 Firmware and the macOS Companion share this wire contract and the binary
 fixtures in `fixtures/`. They do not share implementation code.
@@ -35,7 +35,7 @@ Partial payloads never reach `CompanionService`.
 
 | Offset | Size | Field |
 | --- | --- | --- |
-| 0 | 1 | version (`1`) |
+| 0 | 1 | version (`1` or `2`) |
 | 1 | 1 | kind |
 | 2 | 2 | session generation |
 | 4 | 1 | request ID (`0` if unused) |
@@ -52,6 +52,9 @@ with a non-zero session or request ID, REQUEST/RESPONSE with session or
 request ID `0`, EVENT with a non-zero request ID, PING payloads other than
 4 bytes, non-empty CAPABILITIES/APP_ACTIVE requests, and APP_ACTIVATE
 requests without a valid bundle identifier.
+SYSTEM_METRICS is valid only in v2; its request payload is empty and an OK
+response has exactly 24 bytes. Normal session messages must match the selected
+protocol version.
 
 ### Kinds
 
@@ -73,6 +76,7 @@ requests without a valid bundle identifier.
 | 3 | APP_ACTIVE | REQUEST, RESPONSE |
 | 4 | APP_ACTIVATE | REQUEST, RESPONSE |
 | 5 | APP_ACTIVE_CHANGED | EVENT |
+| 6 | SYSTEM_METRICS | REQUEST, RESPONSE (v2) |
 
 ### Status
 
@@ -87,12 +91,34 @@ requests without a valid bundle identifier.
 ### Payloads
 
 * HELLO: `count` then up to 4 supported protocol versions.
-* HELLO_ACK: selected protocol version (`1`). Session generation is in the envelope.
+* HELLO_ACK: selected protocol version (`1` or `2`). Session generation is in the envelope.
 * PING: 4-byte token, echoed by the response.
-* CAPABILITIES request: empty. Response: `count` then capability IDs `1=APP_ACTIVE`, `2=APP_ACTIVATE`, `3=APP_ACTIVE_EVENTS`.
+* CAPABILITIES request: empty. Response: `count` then capability IDs `1=APP_ACTIVE`, `2=APP_ACTIVATE`, `3=APP_ACTIVE_EVENTS`. Version 2 may additionally advertise `4=SYSTEM_METRICS`; v1 must not include it.
 * APP_ACTIVE / APP_ACTIVATE / APP_ACTIVE_CHANGED: `length` then UTF-8 bundle identifier, 1–128 bytes. APP_ACTIVE may return `NOT_AVAILABLE` with an empty payload. APP_ACTIVATE may return `NOT_FOUND`. APP_ACTIVE_CHANGED with an empty payload and status `OK` means there is no active bundle.
+* SYSTEM_METRICS request: empty. `OK` response: the fixed payload below. `NOT_AVAILABLE` or `MALFORMED`: empty response. Individual unavailable fields are represented by clear validity bits, not a failed response.
 
-The Mac sends HELLO. Cardputer replies HELLO_ACK with a new session generation,
+| Offset | Size | SYSTEM_METRICS response field |
+| --- | --- | --- |
+| 0 | 1 | schema version `1` |
+| 1 | 2 | validity bits: CPU 0, RAM 1, pressure 2, SSD 3, battery 4, network 5, thermal 6 |
+| 3 | 1 | CPU percentage |
+| 4 | 4 | physical RAM used estimate, MiB |
+| 8 | 4 | physical RAM total, MiB |
+| 12 | 1 | pressure: normal 1, warning 2, critical 3 |
+| 13 | 1 | root-volume disk used percentage |
+| 14 | 1 | battery percentage |
+| 15 | 1 | thermal: normal 1, fair 2, serious 3, critical 4 |
+| 16 | 4 | download KiB/s |
+| 20 | 4 | upload KiB/s |
+
+Values with clear validity bits are ignored. Percentages must be 0–100 when
+valid. Unknown pressure or thermal state uses a clear validity bit. The first
+CPU and network samples may be unavailable while their rate baselines form.
+
+The Mac sends a v1-framed HELLO offering `[2, 1]`. Cardputer selects the
+highest common version and replies with a v1-framed HELLO_ACK. An older peer
+selects v1, retaining its original three capabilities and operations. Cardputer
+replies HELLO_ACK with a new session generation,
 then requests capabilities and the current active application. Cardputer sends
 PING heartbeats. The Mac sends APP_ACTIVE_CHANGED events.
 

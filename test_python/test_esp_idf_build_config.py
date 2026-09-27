@@ -360,6 +360,7 @@ class EspIdfBuildConfigurationTests(unittest.TestCase):
             "        hosts.update(elapsed);\n"
             "        companion.update(elapsed);\n"
             "        hostControl.update();\n"
+            "        macStatus.update(elapsed);\n"
             "        network.update(elapsed);\n"
             "        battery.update(elapsed);\n"
             "        pomodoro.update(elapsed);\n"

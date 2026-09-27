@@ -63,7 +63,8 @@ void HostControlService::applyActivateCompletion(const CompanionCompletedRequest
 }
 
 void HostControlService::update() {
-    while (const auto completed = companion_.takeCompletedRequest())
+    while (const auto completed =
+               companion_.takeCompletedRequest(connectivity::CompanionOperation::AppActivate))
         applyActivateCompletion(*completed);
     if (status_.state == HostControlCommandState::Pending &&
         (!companion_.hasLiveCompanion() ||

@@ -181,6 +181,27 @@ void test_stale_response_and_event_are_ignored() {
     TEST_ASSERT_EQUAL_STRING("dev.zed.Zed", bundle);
 }
 
+void test_stale_v1_response_does_not_break_new_v2_handshake() {
+    FakeTransport transport;
+    CapabilityRegistry capabilities;
+    CompanionService service(transport, capabilities);
+    completeHandshake(transport, service, capabilities);
+    const auto oldSession = service.session();
+    const std::uint8_t versions[] = {1, 2};
+    transport.incoming.push_back(encode(makeHello(versions, 2)));
+    auto stale = makeResponse(oldSession, 1, CompanionOperation::Capabilities,
+                              CompanionStatus::NotAvailable);
+    transport.incoming.push_back(encode(stale));
+    service.update(std::chrono::milliseconds::zero());
+    TEST_ASSERT_EQUAL_UINT8(2, service.selectedProtocolVersion());
+    TEST_ASSERT_EQUAL_UINT8(static_cast<unsigned>(CompanionServiceState::Handshaking),
+                            static_cast<unsigned>(service.state()));
+    const auto capsRequest = lastSent(transport);
+    TEST_ASSERT_EQUAL_UINT8(2, capsRequest.version);
+    TEST_ASSERT_EQUAL_UINT8(static_cast<unsigned>(CompanionOperation::Capabilities),
+                            static_cast<unsigned>(capsRequest.operation));
+}
+
 void test_request_timeout_and_duplicate_response_do_not_disable_transport() {
     FakeTransport transport;
     CapabilityRegistry capabilities;
@@ -410,6 +431,70 @@ void test_active_changed_event_updates_bundle_and_logs_omit_it() {
     }
 }
 
+void test_v2_negotiation_and_operation_owned_completions() {
+    using cardputer_hub::connectivity::CompanionSystemMetrics;
+    using cardputer_hub::connectivity::companionSystemMetricsCapabilityId;
+    using cardputer_hub::connectivity::setSystemMetrics;
+    FakeTransport transport;
+    CapabilityRegistry capabilities;
+    CompanionService service(transport, capabilities);
+    transport.transportState = CompanionTransportState::Ready;
+    const std::uint8_t versions[] = {1, 2};
+    transport.incoming.push_back(encode(makeHello(versions, 2)));
+    service.update(std::chrono::milliseconds::zero());
+    const auto ack = sentAt(transport, 0);
+    TEST_ASSERT_EQUAL_UINT8(2, ack.payload[0]);
+    TEST_ASSERT_EQUAL_UINT8(2, service.selectedProtocolVersion());
+    const auto capsRequest = sentAt(transport, 1);
+    TEST_ASSERT_EQUAL_UINT8(2, capsRequest.version);
+    auto caps = makeResponse(ack.session, capsRequest.requestId, CompanionOperation::Capabilities,
+                             CompanionStatus::Ok);
+    caps.version = 2;
+    const CompanionCapability ids[] = {
+        CompanionCapability::AppActive, CompanionCapability::AppActivate,
+        CompanionCapability::AppActiveEvents, CompanionCapability::SystemMetrics};
+    TEST_ASSERT_TRUE(setCapabilityList(caps, ids, 4));
+    transport.incoming.push_back(encode(caps));
+    service.update(std::chrono::milliseconds::zero());
+    const auto activeRequest = lastSent(transport);
+    auto active = makeResponse(ack.session, activeRequest.requestId, CompanionOperation::AppActive,
+                               CompanionStatus::NotAvailable);
+    active.version = 2;
+    transport.incoming.push_back(encode(active));
+    service.update(std::chrono::milliseconds::zero());
+    TEST_ASSERT_TRUE(capabilities.isAvailable(companionSystemMetricsCapabilityId));
+    TEST_ASSERT_FALSE(service.takeCompletedRequest().has_value());
+
+    TEST_ASSERT_EQUAL_UINT8(static_cast<unsigned>(CompanionSubmitResult::Submitted),
+                            static_cast<unsigned>(service.activateApplication("dev.zed.Zed")));
+    const auto activateRequest = lastSent(transport);
+    TEST_ASSERT_EQUAL_UINT8(static_cast<unsigned>(CompanionSubmitResult::Submitted),
+                            static_cast<unsigned>(service.requestSystemMetrics()));
+    const auto metricsRequest = lastSent(transport);
+    TEST_ASSERT_EQUAL_UINT8(2, metricsRequest.version);
+    auto metricsResponse = makeResponse(ack.session, metricsRequest.requestId,
+                                        CompanionOperation::SystemMetrics, CompanionStatus::Ok);
+    metricsResponse.version = 2;
+    CompanionSystemMetrics metrics{};
+    metrics.validity = 1;
+    metrics.cpuPercent = 50;
+    TEST_ASSERT_TRUE(setSystemMetrics(metricsResponse, metrics));
+    transport.incoming.push_back(encode(metricsResponse));
+    service.update(std::chrono::milliseconds::zero());
+    TEST_ASSERT_FALSE(service.takeCompletedRequest(CompanionOperation::AppActivate).has_value());
+    TEST_ASSERT_TRUE(service.takeCompletedRequest(CompanionOperation::SystemMetrics).has_value());
+    auto activateResponse = makeResponse(ack.session, activateRequest.requestId,
+                                         CompanionOperation::AppActivate, CompanionStatus::Ok);
+    activateResponse.version = 2;
+    transport.incoming.push_back(encode(activateResponse));
+    service.update(std::chrono::milliseconds::zero());
+    TEST_ASSERT_FALSE(service.takeCompletedRequest(CompanionOperation::SystemMetrics).has_value());
+    TEST_ASSERT_TRUE(service.takeCompletedRequest(CompanionOperation::AppActivate).has_value());
+    transport.transportState = CompanionTransportState::Unavailable;
+    service.update(std::chrono::milliseconds::zero());
+    TEST_ASSERT_FALSE(capabilities.isAvailable(companionSystemMetricsCapabilityId));
+}
+
 } // namespace
 
 int main() {
@@ -417,6 +502,7 @@ int main() {
     RUN_TEST(test_handshake_reaches_ready_and_registers_capabilities);
     RUN_TEST(test_new_hello_invalidates_old_session_and_pending_requests);
     RUN_TEST(test_stale_response_and_event_are_ignored);
+    RUN_TEST(test_stale_v1_response_does_not_break_new_v2_handshake);
     RUN_TEST(test_request_timeout_and_duplicate_response_do_not_disable_transport);
     RUN_TEST(test_heartbeat_success_and_expiry_remove_capability);
     RUN_TEST(test_transport_drop_invalidates_session_immediately);
@@ -427,5 +513,6 @@ int main() {
     RUN_TEST(test_malformed_app_active_payload_is_protocol_error);
     RUN_TEST(test_empty_active_changed_clears_bundle_and_malformed_event_fails);
     RUN_TEST(test_active_changed_event_updates_bundle_and_logs_omit_it);
+    RUN_TEST(test_v2_negotiation_and_operation_owned_completions);
     return UNITY_END();
 }

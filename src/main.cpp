@@ -1,6 +1,7 @@
 #include "apps/hosts/host_settings.h"
 #include "apps/led_gallery/led_gallery_app.h"
 #include "apps/mac_control/mac_control_app.h"
+#include "apps/mac_status/mac_status_app.h"
 #include "apps/network/wifi_settings.h"
 #include "apps/pomodoro/pomodoro_app.h"
 #include "apps/runtime/mini_app_runtime.h"
@@ -23,6 +24,7 @@
 #include "services/host_control/host_control_service.h"
 #include "services/hosts/host_service.h"
 #include "services/indicator/indicator_service.h"
+#include "services/mac_status/mac_status_service.h"
 #include "services/network/network_service.h"
 #include "services/pomodoro/pomodoro_led_controller.h"
 #include "services/pomodoro/pomodoro_service.h"
@@ -74,7 +76,9 @@ cardputer_hub::apps::WiFiSettings wifiSettings(network, actions, display);
 cardputer_hub::services::CompanionService companion(bluetooth.companionTransport(), capabilities,
                                                     &logger);
 cardputer_hub::services::HostControlService hostControl(hosts, companion, capabilities);
+cardputer_hub::services::MacStatusService macStatus(companion);
 cardputer_hub::apps::MacControlApp macControl(actions, hostControl, display);
+cardputer_hub::apps::MacStatusApp macStatusApp(macStatus, display);
 cardputer_hub::hardware::EspPuzzleLedBackend puzzleLedBackend;
 cardputer_hub::hardware::PuzzleWs2812Adapter puzzleLeds(puzzleLedBackend);
 cardputer_hub::services::IndicatorService indicator(puzzleLeds);
@@ -123,6 +127,13 @@ extern "C" void app_main(void) {
                                    "mac-control",
                                    {cardputer_hub::connectivity::companionCapabilityId}});
     (void)miniApps.registerInstance("mac-control", macControl);
+    (void)appRegistry.registerApp(
+        {"mac-status",
+         "MAC STATUS",
+         "mac-status",
+         "mac-status",
+         {cardputer_hub::connectivity::companionSystemMetricsCapabilityId}});
+    (void)miniApps.registerInstance("mac-status", macStatusApp);
     (void)appRegistry.registerApp({"pomodoro", "POMODORO", "pomodoro", "pomodoro", {}});
     (void)miniApps.registerInstance("pomodoro", pomodoroApp);
     (void)appRegistry.registerApp({"led-gallery", "LED GALLERY", "led-gallery", "led-gallery", {}});
@@ -138,6 +149,7 @@ extern "C" void app_main(void) {
         hosts.update(elapsed);
         companion.update(elapsed);
         hostControl.update();
+        macStatus.update(elapsed);
         network.update(elapsed);
         battery.update(elapsed);
         pomodoro.update(elapsed);

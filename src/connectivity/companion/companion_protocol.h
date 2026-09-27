@@ -9,6 +9,8 @@
 namespace cardputer_hub::connectivity {
 
 inline constexpr std::uint8_t companionProtocolVersion = 1;
+inline constexpr std::uint8_t companionLatestProtocolVersion = 2;
+inline constexpr std::size_t companionMetricsPayloadSize = 24;
 inline constexpr std::size_t companionMaxMessageSize = 256;
 inline constexpr std::size_t companionEnvelopeSize = 8;
 inline constexpr std::size_t companionMaxPayloadSize =
@@ -34,6 +36,7 @@ inline constexpr char companionCapabilityId[] = "COMPANION";
 inline constexpr char companionAppActiveCapabilityId[] = "APP_ACTIVE";
 inline constexpr char companionAppActivateCapabilityId[] = "APP_ACTIVATE";
 inline constexpr char companionAppActiveEventsCapabilityId[] = "APP_ACTIVE_EVENTS";
+inline constexpr char companionSystemMetricsCapabilityId[] = "SYSTEM_METRICS";
 
 enum class CompanionKind : std::uint8_t {
     Hello = 1,
@@ -50,6 +53,7 @@ enum class CompanionOperation : std::uint8_t {
     AppActive = 3,
     AppActivate = 4,
     AppActiveChanged = 5,
+    SystemMetrics = 6,
 };
 
 enum class CompanionStatus : std::uint8_t {
@@ -64,6 +68,20 @@ enum class CompanionCapability : std::uint8_t {
     AppActive = 1,
     AppActivate = 2,
     AppActiveEvents = 3,
+    SystemMetrics = 4,
+};
+
+struct CompanionSystemMetrics {
+    std::uint16_t validity = 0;
+    std::uint8_t cpuPercent = 0;
+    std::uint32_t memoryUsedMiB = 0;
+    std::uint32_t memoryTotalMiB = 0;
+    std::uint8_t memoryPressure = 0;
+    std::uint8_t diskUsedPercent = 0;
+    std::uint8_t batteryPercent = 0;
+    std::uint8_t thermalState = 0;
+    std::uint32_t downloadKiBps = 0;
+    std::uint32_t uploadKiBps = 0;
 };
 
 struct CompanionEncodedMessage {
@@ -110,5 +128,7 @@ bool readCapabilityList(const CompanionEnvelope& message, CompanionCapability* c
 bool setBundleIdentifier(CompanionEnvelope& message, std::string_view bundleId);
 bool readBundleIdentifier(const CompanionEnvelope& message, char* destination, std::size_t capacity,
                           std::uint8_t& length);
+bool setSystemMetrics(CompanionEnvelope& message, const CompanionSystemMetrics& metrics);
+bool readSystemMetrics(const CompanionEnvelope& message, CompanionSystemMetrics& metrics);
 
 } // namespace cardputer_hub::connectivity
