@@ -315,6 +315,147 @@ void test_v3_ai_usage_round_trip_and_bounds() {
     TEST_ASSERT_FALSE(decodeCompanionMessage(damaged.bytes.data(), damaged.size).has_value());
 }
 
+void test_v4_reset_credits_and_v3_compatibility() {
+    using namespace cardputer_hub::connectivity;
+    const std::uint8_t versions[] = {4, 3, 2, 1};
+    assertEncodedMatchesFixture(makeHello(versions, 4), "hello-v4.bin");
+    assertEncodedMatchesFixture(makeHelloAck(42, 4), "hello-ack-v4.bin");
+    CompanionAiUsage usage{};
+    usage.state = AiUsageState::Ready;
+    usage.generation = 9;
+    usage.providerCount = 1;
+    auto& provider = usage.providers[0];
+    provider.plan = AiPlan::Plus;
+    provider.metricCount = 1;
+    auto& metric = provider.metrics[0];
+    metric.limit = 100;
+    metric.used = 37;
+    metric.remaining = 63;
+    metric.remainingPercent = 63;
+    metric.resetAt = 1780000000;
+    metric.resetRemainingSeconds = 3600;
+    auto& resets = provider.resetCredits;
+    resets.known = true;
+    resets.availableCount = 2;
+    resets.creditCount = 1;
+    std::memcpy(resets.credits[0].title.data(), "Full reset", 10);
+    resets.credits[0].expiresAt = 1790000000;
+    resets.credits[0].expiresRemainingSeconds = 86400;
+    auto response = makeResponse(42, 7, CompanionOperation::AiUsage, CompanionStatus::Ok);
+    response.version = 4;
+    TEST_ASSERT_TRUE(setAiUsage(response, usage));
+    assertEncodedMatchesFixture(response, "ai-usage-response-v4.bin");
+    CompanionAiUsage read{};
+    TEST_ASSERT_TRUE(readAiUsage(response, read));
+    TEST_ASSERT_TRUE(read.providers[0].resetCredits.known);
+    TEST_ASSERT_EQUAL_UINT8(2, read.providers[0].resetCredits.availableCount);
+    TEST_ASSERT_EQUAL_STRING("Full reset", read.providers[0].resetCredits.credits[0].title.data());
+    auto malformed = response;
+    malformed.payload[7 + 4 + 23 + 3] = 25;
+    TEST_ASSERT_FALSE(readAiUsage(malformed, read));
+    response.version = 3;
+    TEST_ASSERT_TRUE(setAiUsage(response, usage));
+    TEST_ASSERT_EQUAL_UINT8(1, response.payload[0]);
+    TEST_ASSERT_TRUE(readAiUsage(response, read));
+    TEST_ASSERT_FALSE(read.providers[0].resetCredits.known);
+}
+
+void test_v4_reset_credit_bounds_and_malformed_payloads() {
+    using namespace cardputer_hub::connectivity;
+    CompanionAiUsage usage{};
+    usage.state = AiUsageState::Ready;
+    usage.providerCount = 1;
+    auto& provider = usage.providers[0];
+    provider.plan = AiPlan::Plus;
+    provider.metricCount = 1;
+    provider.metrics[0].limit = 100;
+    provider.metrics[0].remaining = 100;
+    auto response = makeResponse(42, 7, CompanionOperation::AiUsage, CompanionStatus::Ok);
+    response.version = 4;
+    CompanionAiUsage decoded{};
+    TEST_ASSERT_TRUE(setAiUsage(response, usage));
+    TEST_ASSERT_TRUE(readAiUsage(response, decoded));
+    TEST_ASSERT_FALSE(decoded.providers[0].resetCredits.known);
+
+    auto& resets = provider.resetCredits;
+    resets.known = true;
+    TEST_ASSERT_TRUE(setAiUsage(response, usage));
+    TEST_ASSERT_TRUE(readAiUsage(response, decoded));
+    TEST_ASSERT_TRUE(decoded.providers[0].resetCredits.known);
+    TEST_ASSERT_EQUAL_UINT8(0, decoded.providers[0].resetCredits.availableCount);
+
+    resets.creditCount = 1;
+    std::memcpy(resets.credits[0].title.data(), "A", 1);
+    resets.credits[0].expiresAt = 1;
+    resets.credits[0].expiresRemainingSeconds = 60;
+    TEST_ASSERT_FALSE(setAiUsage(response, usage)); // 0 available, 1 detail.
+    resets.availableCount = 1;
+    resets.credits[0].expiresAt = 0;
+    resets.credits[0].expiresRemainingSeconds = 0;
+    TEST_ASSERT_TRUE(setAiUsage(response, usage));
+    TEST_ASSERT_TRUE(readAiUsage(response, decoded));
+    TEST_ASSERT_EQUAL_UINT32(0, decoded.providers[0].resetCredits.credits[0].expiresAt);
+    resets.credits[0].expiresAt = 1;
+    resets.credits[0].expiresRemainingSeconds = 60;
+    TEST_ASSERT_TRUE(setAiUsage(response, usage));
+    TEST_ASSERT_TRUE(readAiUsage(response, decoded));
+    TEST_ASSERT_EQUAL_UINT32(1, decoded.providers[0].resetCredits.credits[0].expiresAt);
+    auto malformed = response;
+    constexpr std::size_t availableOffset = 7 + 4 + 23 + 1;
+    constexpr std::size_t countOffset = availableOffset + 1;
+    constexpr std::size_t titleLengthOffset = countOffset + 1;
+    malformed.payload[availableOffset] = 0;
+    TEST_ASSERT_FALSE(readAiUsage(malformed, decoded));
+    malformed = response;
+    malformed.payload[countOffset] = 2;
+    TEST_ASSERT_FALSE(readAiUsage(malformed, decoded));
+    malformed = response;
+    malformed.payload[titleLengthOffset + 1] = 0xff;
+    TEST_ASSERT_FALSE(readAiUsage(malformed, decoded));
+    malformed = response;
+    malformed.payload[titleLengthOffset] = 24;
+    TEST_ASSERT_FALSE(readAiUsage(malformed, decoded));
+    malformed = response;
+    --malformed.payloadSize;
+    TEST_ASSERT_FALSE(readAiUsage(malformed, decoded));
+    malformed = response;
+    malformed.payload[malformed.payloadSize++] = 0;
+    TEST_ASSERT_FALSE(readAiUsage(malformed, decoded));
+    malformed = response;
+    malformed.payload[7] = static_cast<std::uint8_t>(AiProvider::Cursor);
+    TEST_ASSERT_FALSE(readAiUsage(malformed, decoded));
+    malformed = response;
+    malformed.payload[8] = static_cast<std::uint8_t>(AiPlan::Business);
+    TEST_ASSERT_FALSE(readAiUsage(malformed, decoded));
+    provider.provider = AiProvider::Cursor;
+    TEST_ASSERT_FALSE(setAiUsage(response, usage));
+    provider.provider = AiProvider::Codex;
+    provider.plan = AiPlan::Business;
+    TEST_ASSERT_FALSE(setAiUsage(response, usage));
+    provider.plan = AiPlan::Plus;
+    resets.creditCount = 2;
+    TEST_ASSERT_FALSE(setAiUsage(response, usage)); // 1 available, 2 details.
+    resets.availableCount = 2;
+    resets.credits[1].title[0] = 'B';
+    TEST_ASSERT_TRUE(setAiUsage(response, usage));
+    malformed = response;
+    malformed.payload[availableOffset] = 1;
+    TEST_ASSERT_FALSE(readAiUsage(malformed, decoded));
+    resets.availableCount = 4;
+    resets.creditCount = 4;
+    for (std::uint8_t i = 1; i < 4; ++i) {
+        resets.credits[i].title[0] = static_cast<char>('A' + i);
+        resets.credits[i].expiresAt = i + 1;
+    }
+    TEST_ASSERT_TRUE(setAiUsage(response, usage));
+    TEST_ASSERT_TRUE(readAiUsage(response, decoded));
+    TEST_ASSERT_EQUAL_UINT8(4, decoded.providers[0].resetCredits.creditCount);
+    resets.availableCount = 7;
+    TEST_ASSERT_TRUE(setAiUsage(response, usage));
+    TEST_ASSERT_TRUE(readAiUsage(response, decoded));
+    TEST_ASSERT_EQUAL_UINT8(7, decoded.providers[0].resetCredits.availableCount);
+}
+
 } // namespace
 
 int main() {
@@ -330,5 +471,7 @@ int main() {
     RUN_TEST(test_capabilities_round_trip_rejects_unknown_ids);
     RUN_TEST(test_v2_metrics_round_trip_and_v1_rejection);
     RUN_TEST(test_v3_ai_usage_round_trip_and_bounds);
+    RUN_TEST(test_v4_reset_credits_and_v3_compatibility);
+    RUN_TEST(test_v4_reset_credit_bounds_and_malformed_payloads);
     return UNITY_END();
 }

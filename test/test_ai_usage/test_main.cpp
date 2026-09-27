@@ -1,6 +1,7 @@
 #include <unity.h>
 
 #include <algorithm>
+#include <cstdio>
 #include <cstring>
 #include <deque>
 #include <string>
@@ -88,16 +89,16 @@ struct Fixture {
     services::IndicatorService indicator{leds};
     services::AiUsageIndicatorController gauge{usage, indicator};
 
-    void ready() {
+    void ready(std::uint8_t version = 3) {
         transport.transportState = CompanionTransportState::Ready;
-        const std::uint8_t versions[] = {3, 2, 1};
-        transport.incoming.push_back(wire(makeHello(versions, 3)));
+        const std::uint8_t versions[] = {4, 3, 2, 1};
+        transport.incoming.push_back(wire(makeHello(versions + (4 - version), version)));
         companion.update({});
         auto capsRequest = transport.last();
-        TEST_ASSERT_EQUAL_UINT8(3, capsRequest.version);
+        TEST_ASSERT_EQUAL_UINT8(version, capsRequest.version);
         auto caps = makeResponse(companion.session(), capsRequest.requestId,
                                  CompanionOperation::Capabilities, CompanionStatus::Ok);
-        caps.version = 3;
+        caps.version = version;
         const CompanionCapability ids[] = {CompanionCapability::AppActive,
                                            CompanionCapability::SystemMetrics,
                                            CompanionCapability::AiUsage};
@@ -107,7 +108,7 @@ struct Fixture {
         auto activeRequest = transport.last();
         auto active = makeResponse(companion.session(), activeRequest.requestId,
                                    CompanionOperation::AppActive, CompanionStatus::NotAvailable);
-        active.version = 3;
+        active.version = version;
         transport.incoming.push_back(wire(active));
         companion.update({});
         TEST_ASSERT_TRUE(companion.supportsAiUsage());
@@ -122,7 +123,7 @@ struct Fixture {
         const auto request = transport.last();
         auto reply = makeResponse(companion.session(), request.requestId,
                                   CompanionOperation::AiUsage, CompanionStatus::Ok);
-        reply.version = 3;
+        reply.version = companion.selectedProtocolVersion();
         TEST_ASSERT_TRUE(setAiUsage(reply, value));
         transport.incoming.push_back(wire(reply));
         companion.update({});
@@ -734,6 +735,235 @@ void test_work_usage_renders_business_credits_and_cursor_spend() {
     TEST_ASSERT_TRUE(std::find(display.labels.begin(), display.labels.end(), "96% LEFT") !=
                      display.labels.end());
 }
+
+void test_plus_reset_details_navigation_and_session_clear() {
+    Fixture f;
+    f.ready(4);
+    CompanionAiUsage value{};
+    value.state = AiUsageState::Ready;
+    value.providerCount = 1;
+    auto& provider = value.providers[0];
+    provider.plan = AiPlan::Plus;
+    provider.metricCount = 2;
+    for (int i = 0; i < 2; ++i) {
+        auto& metric = provider.metrics[i];
+        metric.kind = i == 0 ? AiMetricKind::FiveHour : AiMetricKind::Week;
+        metric.limit = 100;
+        metric.used = i == 0 ? 37 : 19;
+        metric.remaining = 100 - metric.used;
+        metric.remainingPercent = static_cast<std::uint8_t>(metric.remaining);
+    }
+    auto& resets = provider.resetCredits;
+    resets.known = true;
+    resets.availableCount = 3;
+    resets.creditCount = 3;
+    for (int i = 0; i < 3; ++i) {
+        std::snprintf(resets.credits[i].title.data(), resets.credits[i].title.size(), "CREDIT %d",
+                      i + 1);
+        resets.credits[i].expiresAt = 100 + i;
+        resets.credits[i].expiresRemainingSeconds = 86400 * (i + 1);
+    }
+    f.respondValue(value);
+    Display display;
+    apps::AiUsageApp app(f.usage, f.gauge, display);
+    app.onActivate();
+    app.update({}, {});
+    TEST_ASSERT_TRUE(std::find(display.labels.begin(), display.labels.end(), "R") !=
+                     display.labels.end());
+    TEST_ASSERT_TRUE(std::find(display.labels.begin(), display.labels.end(), "3") !=
+                     display.labels.end());
+    const core::InputEvent enter{core::InputEventType::NamedKey, 0, core::NamedKey::Enter, {}};
+    const core::InputEvent right{core::InputEventType::NamedKey, 0, core::NamedKey::Right, {}};
+    const core::InputEvent down{core::InputEventType::NamedKey, 0, core::NamedKey::Down, {}};
+    display.labels.clear();
+    app.update({enter}, {});
+    TEST_ASSERT_TRUE(std::find(display.labels.begin(), display.labels.end(), "USED") !=
+                     display.labels.end());
+    TEST_ASSERT_TRUE(std::find(display.labels.begin(), display.labels.end(), "STALE") ==
+                     display.labels.end());
+    f.usage.update(std::chrono::seconds(30));
+    provider.freshness = AiFreshness::Stale;
+    f.respondValue(value);
+    display.labels.clear();
+    app.update({}, {});
+    TEST_ASSERT_TRUE(std::find(display.labels.begin(), display.labels.end(), "STALE") !=
+                     display.labels.end());
+    display.labels.clear();
+    app.update({right}, {});
+    TEST_ASSERT_TRUE(std::find(display.labels.begin(), display.labels.end(), "#1  CREDIT 1") !=
+                     display.labels.end());
+    TEST_ASSERT_TRUE(std::find(display.labels.begin(), display.labels.end(), "STALE") !=
+                     display.labels.end());
+    display.labels.clear();
+    app.update({down}, {});
+    TEST_ASSERT_TRUE(std::find(display.labels.begin(), display.labels.end(), "#3  CREDIT 3") !=
+                     display.labels.end());
+    display.labels.clear();
+    app.update({enter}, {});
+    TEST_ASSERT_TRUE(std::find(display.labels.begin(), display.labels.end(), "63% LEFT") !=
+                     display.labels.end());
+    f.usage.update(std::chrono::seconds(30));
+    value.providerCount = 2;
+    auto& cursor = value.providers[1];
+    cursor.provider = AiProvider::Cursor;
+    cursor.plan = AiPlan::Enterprise;
+    cursor.metricCount = 1;
+    cursor.metrics[0].kind = AiMetricKind::Money;
+    cursor.metrics[0].unit = AiMetricUnit::Cents;
+    cursor.metrics[0].limit = 100;
+    cursor.metrics[0].remaining = 80;
+    cursor.metrics[0].used = 20;
+    cursor.metrics[0].remainingPercent = 80;
+    resets.availableCount = 0;
+    resets.creditCount = 0;
+    f.respondValue(value);
+    display.labels.clear();
+    app.update({}, {});
+    TEST_ASSERT_TRUE(std::find(display.labels.begin(), display.labels.end(), "R") !=
+                     display.labels.end());
+    TEST_ASSERT_TRUE(std::find(display.labels.begin(), display.labels.end(), "0") !=
+                     display.labels.end());
+    f.usage.update(std::chrono::seconds(30));
+    resets.known = false;
+    f.respondValue(value);
+    display.labels.clear();
+    app.update({}, {});
+    TEST_ASSERT_TRUE(std::find(display.labels.begin(), display.labels.end(), "R") ==
+                     display.labels.end());
+    f.transport.transportState = CompanionTransportState::Unavailable;
+    f.companion.update({});
+    f.usage.update({});
+    app.update({}, {});
+    TEST_ASSERT_EQUAL_UINT8(0, f.usage.snapshot().providerCount);
+}
+
+void test_plus_reset_expiry_formats_short_intervals() {
+    struct Case {
+        std::uint32_t expiresAt;
+        std::uint32_t seconds;
+        const char* expected;
+    };
+    const Case cases[] = {{1, 49 * 3600, "EXP IN 2D"},
+                          {1, 24 * 3600, "EXP IN 1D"},
+                          {1, 23 * 3600, "EXP IN 23H"},
+                          {1, 3600, "EXP IN 1H"},
+                          {1, 59 * 60, "EXP IN 59M"},
+                          {1, 60, "EXP IN 1M"},
+                          {1, 0, "EXP NOW"},
+                          {0, 0, "EXP --"}};
+    for (const auto& item : cases) {
+        Fixture f;
+        f.ready(4);
+        CompanionAiUsage value{};
+        value.state = AiUsageState::Ready;
+        value.providerCount = 1;
+        auto& provider = value.providers[0];
+        provider.plan = AiPlan::Plus;
+        provider.metricCount = 2;
+        provider.metrics[0].limit = 100;
+        provider.metrics[0].remaining = 100;
+        provider.metrics[1].kind = AiMetricKind::Week;
+        provider.metrics[1].limit = 100;
+        provider.metrics[1].remaining = 100;
+        provider.resetCredits.known = true;
+        provider.resetCredits.availableCount = 1;
+        provider.resetCredits.creditCount = 1;
+        auto& credit = provider.resetCredits.credits[0];
+        std::memcpy(credit.title.data(), "RESET", 5);
+        credit.expiresAt = item.expiresAt;
+        credit.expiresRemainingSeconds = item.seconds;
+        f.respondValue(value);
+        Display display;
+        apps::AiUsageApp app(f.usage, f.gauge, display);
+        app.onActivate();
+        const core::InputEvent enter{core::InputEventType::NamedKey, 0, core::NamedKey::Enter, {}};
+        const core::InputEvent right{core::InputEventType::NamedKey, 0, core::NamedKey::Right, {}};
+        app.update({enter, right}, {});
+        TEST_ASSERT_TRUE(std::find(display.labels.begin(), display.labels.end(), item.expected) !=
+                         display.labels.end());
+    }
+}
+
+void test_expanded_resets_clear_on_real_session_switch() {
+    Fixture f;
+    f.ready(4);
+    const auto homeSession = f.companion.session();
+    CompanionAiUsage home{};
+    home.state = AiUsageState::Ready;
+    home.providerCount = 1;
+    auto& homeCodex = home.providers[0];
+    homeCodex.plan = AiPlan::Plus;
+    homeCodex.metricCount = 2;
+    for (auto& metric : homeCodex.metrics) {
+        metric.limit = 100;
+        metric.remaining = 100;
+    }
+    homeCodex.metrics[1].kind = AiMetricKind::Week;
+    homeCodex.resetCredits.known = true;
+    homeCodex.resetCredits.availableCount = 2;
+    homeCodex.resetCredits.creditCount = 2;
+    std::memcpy(homeCodex.resetCredits.credits[0].title.data(), "OLD A", 5);
+    std::memcpy(homeCodex.resetCredits.credits[1].title.data(), "OLD B", 5);
+    f.respondValue(home);
+    Display display;
+    apps::AiUsageApp app(f.usage, f.gauge, display);
+    app.onActivate();
+    const core::InputEvent enter{core::InputEventType::NamedKey, 0, core::NamedKey::Enter, {}};
+    const core::InputEvent right{core::InputEventType::NamedKey, 0, core::NamedKey::Right, {}};
+    app.update({enter, right}, {});
+    TEST_ASSERT_TRUE(std::find(display.labels.begin(), display.labels.end(), "#1  OLD A") !=
+                     display.labels.end());
+
+    f.ready(4);
+    TEST_ASSERT_NOT_EQUAL(homeSession, f.companion.session());
+    CompanionAiUsage work{};
+    work.state = AiUsageState::Ready;
+    work.providerCount = 2;
+    work.providers[0].plan = AiPlan::Business;
+    work.providers[0].metricCount = 1;
+    work.providers[0].metrics[0].limit = 100;
+    work.providers[0].metrics[0].remaining = 100;
+    work.providers[1].provider = AiProvider::Cursor;
+    work.providers[1].plan = AiPlan::Enterprise;
+    work.providers[1].metricCount = 1;
+    work.providers[1].metrics[0].kind = AiMetricKind::Money;
+    work.providers[1].metrics[0].unit = AiMetricUnit::Cents;
+    work.providers[1].metrics[0].limit = 100;
+    work.providers[1].metrics[0].remaining = 100;
+    f.respondValue(work);
+    display.labels.clear();
+    app.update({}, {});
+    TEST_ASSERT_TRUE(std::find(display.labels.begin(), display.labels.end(), "RESET CREDITS") ==
+                     display.labels.end());
+    TEST_ASSERT_TRUE(std::find(display.labels.begin(), display.labels.end(), "#1  OLD A") ==
+                     display.labels.end());
+    TEST_ASSERT_TRUE(std::find(display.labels.begin(), display.labels.end(), "R") ==
+                     display.labels.end());
+
+    const auto workSession = f.companion.session();
+    f.ready(4);
+    TEST_ASSERT_NOT_EQUAL(workSession, f.companion.session());
+    homeCodex.resetCredits.availableCount = 1;
+    homeCodex.resetCredits.creditCount = 1;
+    std::memcpy(homeCodex.resetCredits.credits[0].title.data(), "NEW", 4);
+    f.respondValue(home);
+    display.labels.clear();
+    app.update({}, {});
+    TEST_ASSERT_TRUE(std::find(display.labels.begin(), display.labels.end(), "R") !=
+                     display.labels.end());
+    TEST_ASSERT_TRUE(std::find(display.labels.begin(), display.labels.end(), "1") !=
+                     display.labels.end());
+    TEST_ASSERT_TRUE(std::find(display.labels.begin(), display.labels.end(), "2") ==
+                     display.labels.end());
+    TEST_ASSERT_TRUE(std::find(display.labels.begin(), display.labels.end(), "RESET CREDITS") ==
+                     display.labels.end());
+    display.labels.clear();
+    app.update({enter, right}, {});
+    TEST_ASSERT_TRUE(std::find(display.labels.begin(), display.labels.end(), "#1  NEW") !=
+                     display.labels.end());
+    TEST_ASSERT_TRUE(std::find(display.labels.begin(), display.labels.end(), "#1  OLD A") ==
+                     display.labels.end());
+}
 } // namespace
 
 int main() {
@@ -756,5 +986,8 @@ int main() {
     RUN_TEST(test_remaining_percent_is_right_aligned_in_all_layouts);
     RUN_TEST(test_home_then_work_replaces_provider_set_and_puzzle);
     RUN_TEST(test_work_usage_renders_business_credits_and_cursor_spend);
+    RUN_TEST(test_plus_reset_details_navigation_and_session_clear);
+    RUN_TEST(test_plus_reset_expiry_formats_short_intervals);
+    RUN_TEST(test_expanded_resets_clear_on_real_session_switch);
     return UNITY_END();
 }

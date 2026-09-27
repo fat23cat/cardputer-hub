@@ -1,6 +1,7 @@
 #include "services/ai_usage/ai_usage_service.h"
 
 #include <algorithm>
+#include <cstring>
 
 namespace cardputer_hub::services {
 namespace {
@@ -13,7 +14,8 @@ bool sameMetric(const connectivity::AiUsageMetric& left,
 
 bool samePresentation(const connectivity::CompanionAiUsage& left,
                       const connectivity::CompanionAiUsage& right) noexcept {
-    if (left.state != right.state || left.providerCount != right.providerCount)
+    if (left.schemaVersion != right.schemaVersion || left.state != right.state ||
+        left.providerCount != right.providerCount)
         return false;
     for (std::uint8_t i = 0; i < left.providerCount; ++i) {
         const auto& a = left.providers[i];
@@ -21,6 +23,15 @@ bool samePresentation(const connectivity::CompanionAiUsage& left,
         if (a.provider != b.provider || a.plan != b.plan || a.freshness != b.freshness ||
             a.metricCount != b.metricCount)
             return false;
+        const auto& ar = a.resetCredits;
+        const auto& br = b.resetCredits;
+        if (ar.known != br.known || ar.availableCount != br.availableCount ||
+            ar.creditCount != br.creditCount)
+            return false;
+        for (std::uint8_t j = 0; j < ar.creditCount; ++j)
+            if (std::strcmp(ar.credits[j].title.data(), br.credits[j].title.data()) != 0 ||
+                ar.credits[j].expiresAt != br.credits[j].expiresAt)
+                return false;
         for (std::uint8_t j = 0; j < a.metricCount; ++j)
             if (!sameMetric(a.metrics[j], b.metrics[j]))
                 return false;
@@ -83,6 +94,10 @@ void AiUsageService::update(std::chrono::milliseconds elapsed) {
                 auto& remaining = provider.metrics[j].resetRemainingSeconds;
                 remaining = step >= remaining ? 0 : remaining - static_cast<std::uint32_t>(step);
             }
+            for (std::uint8_t j = 0; j < provider.resetCredits.creditCount; ++j) {
+                auto& remaining = provider.resetCredits.credits[j].expiresRemainingSeconds;
+                remaining = step >= remaining ? 0 : remaining - static_cast<std::uint32_t>(step);
+            }
         }
     }
     while (const auto completion =
@@ -117,6 +132,21 @@ void AiUsageService::update(std::chrono::milliseconds elapsed) {
                     timerCorrection |= resetLabelChanges(oldSeconds, metric.resetRemainingSeconds);
                 } else {
                     newReset = true;
+                }
+            }
+            for (std::uint8_t j = 0; j < provider.resetCredits.creditCount; ++j) {
+                auto& credit = provider.resetCredits.credits[j];
+                if (credit.expiresAt == 0) {
+                    credit.expiresRemainingSeconds = 0;
+                    continue;
+                }
+                if (i < snapshot_.providerCount &&
+                    provider.provider == snapshot_.providers[i].provider &&
+                    j < snapshot_.providers[i].resetCredits.creditCount &&
+                    credit.expiresAt == snapshot_.providers[i].resetCredits.credits[j].expiresAt) {
+                    credit.expiresRemainingSeconds = std::min(
+                        credit.expiresRemainingSeconds,
+                        snapshot_.providers[i].resetCredits.credits[j].expiresRemainingSeconds);
                 }
             }
         }

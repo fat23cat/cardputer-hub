@@ -550,6 +550,16 @@ overview uses two four-row zones when two metrics are present, with two purple
 boundary pixels and 30 quota pixels per zone. It runs at Idle priority and does
 not wake the LCD. Unchanged display
 state does not continuously redraw.
+For Codex Plus on protocol v4, the main provider row adds a compact `R×N`
+badge when the reset-credit count is known, including zero. Enter opens two
+read-only detail pages: LIMITS shows used, left and reset for both rolling
+windows; RESETS shows the known count and up to two entries at once. Known
+expiry uses whole days, hours, or minutes; an elapsed expiry shows `EXP NOW`
+and an unknown expiry shows `EXP --`. Left/Right
+switches detail pages, Up/Down scrolls the RESETS list, and Enter returns to
+the dashboard. Both detail pages show `STALE` when the provider data is stale.
+Escape remains the shared Mini App exit. Business and Cursor
+screens retain their existing layout and behavior.
 Idle dimming, the final off fade and wake-input consumption are implemented for
 every screen and Mini App from the shared runtime input path; physical
 acceptance on Cardputer-Adv is pending. Remaining semantic

@@ -49,12 +49,61 @@ public enum AiUsageNormalization {
         }
     }
 
+    private static func creditTitle(_ value: Any?) -> String {
+        guard let supplied = (value as? String)?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !supplied.isEmpty else { return "RESET CREDIT" }
+        let title = supplied.uppercased()
+        if title.utf8.count <= 24 { return title }
+        var prefix = ""
+        for scalar in title.unicodeScalars {
+            let bytes = String(scalar).utf8.count
+            if prefix.utf8.count + bytes > 21 { break }
+            prefix.append(String(scalar))
+        }
+        return prefix.isEmpty ? "RESET CREDIT" : prefix + "..."
+    }
+
+    private static func resetCredits(_ value: Any?, now: Date) -> AiResetCredits? {
+        guard let data = dictionary(value), let countValue = number(data["availableCount"]),
+              countValue.rounded(.down) == countValue, countValue <= 255 else { return nil }
+        let availableCount = UInt8(countValue)
+        let raw: [Any]
+        if data["credits"] == nil || data["credits"] is NSNull {
+            raw = []
+        } else if let entries = data["credits"] as? [Any] {
+            raw = entries
+        } else {
+            return nil
+        }
+        var credits: [(Int, AiResetCredit)] = []
+        for (index, item) in raw.enumerated() {
+            guard let entry = dictionary(item), let status = entry["status"] as? String else {
+                return nil
+            }
+            guard status == "available" || status == "usable" else { continue }
+            if let type = entry["resetType"] as? String, type != "codexRateLimits" {
+                continue
+            }
+            let title = creditTitle(entry["title"])
+            let (expiresAt, remaining) = reset(entry["expiresAt"], now: now)
+            credits.append((index, AiResetCredit(title: title, expiresAt: expiresAt,
+                                                 expiresRemainingSeconds: remaining)))
+        }
+        credits.sort {
+            let left = $0.1.expiresAt == 0 ? UInt32.max : $0.1.expiresAt
+            let right = $1.1.expiresAt == 0 ? UInt32.max : $1.1.expiresAt
+            return left == right ? $0.0 < $1.0 : left < right
+        }
+        return AiResetCredits(availableCount: availableCount,
+                              credits: Array(credits.prefix(min(Int(availableCount), 4))).map(\.1))
+    }
+
     public static func codex(_ result: [String: Any], accountPlan: String? = nil,
                              now: Date = Date()) -> AiUsageProviderSnapshot? {
         let limits = dictionary(result["rateLimitsByLimitId"]).flatMap { dictionary($0["codex"]) }
             ?? dictionary(result["rateLimits"]) ?? result
         let detectedPlan = plan(limits["planType"] as? String ?? accountPlan)
-        if let credits = dictionary(limits["individualLimit"]) ??
+        if detectedPlan != .plus, let credits = dictionary(limits["individualLimit"]) ??
                 dictionary(dictionary(result["rateLimits"])?["individualLimit"]) ??
                 dictionary(result["individualLimit"]),
            let limit = whole(credits["limit"]), let used = whole(credits["used"]),
@@ -83,9 +132,12 @@ public enum AiUsageNormalization {
         }
         guard !metrics.isEmpty else { return nil }
         metrics.sort { $0.kind.rawValue < $1.kind.rawValue }
-        return AiUsageProviderSnapshot(provider: .codex,
-                                       plan: detectedPlan == .unknown ? .plus : detectedPlan,
-                                       metrics: Array(metrics.prefix(2)))
+        let normalizedPlan = detectedPlan == .unknown ? AiPlan.plus : detectedPlan
+        let resetValue = limits["rateLimitResetCredits"] ?? result["rateLimitResetCredits"]
+        return AiUsageProviderSnapshot(provider: .codex, plan: normalizedPlan,
+                                       metrics: Array(metrics.prefix(2)),
+                                       resetCredits: normalizedPlan == .plus
+                                           ? resetCredits(resetValue, now: now) : nil)
     }
 
     public static func cursor(_ response: [String: Any], now: Date = Date())

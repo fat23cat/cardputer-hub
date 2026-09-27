@@ -9,7 +9,7 @@
 namespace cardputer_hub::connectivity {
 
 inline constexpr std::uint8_t companionProtocolVersion = 1;
-inline constexpr std::uint8_t companionLatestProtocolVersion = 3;
+inline constexpr std::uint8_t companionLatestProtocolVersion = 4;
 inline constexpr std::size_t companionMetricsPayloadSize = 24;
 inline constexpr std::size_t companionMaxMessageSize = 256;
 inline constexpr std::size_t companionEnvelopeSize = 8;
@@ -92,15 +92,30 @@ struct AiUsageMetric {
     std::uint32_t resetRemainingSeconds = 0;
 };
 
+struct AiResetCredit {
+    std::array<char, 25> title{};
+    std::uint32_t expiresAt = 0;
+    std::uint32_t expiresRemainingSeconds = 0;
+};
+
+struct AiResetCredits {
+    bool known = false;
+    std::uint8_t availableCount = 0;
+    std::uint8_t creditCount = 0;
+    std::array<AiResetCredit, 4> credits{};
+};
+
 struct AiUsageProvider {
     AiProvider provider = AiProvider::Codex;
     AiPlan plan = AiPlan::Unknown;
     AiFreshness freshness = AiFreshness::Fresh;
     std::uint8_t metricCount = 0;
     std::array<AiUsageMetric, 2> metrics{};
+    AiResetCredits resetCredits{};
 };
 
 struct CompanionAiUsage {
+    std::uint8_t schemaVersion = 1;
     std::uint32_t generation = 0;
     AiUsageState state = AiUsageState::Discovering;
     std::uint8_t providerCount = 0;

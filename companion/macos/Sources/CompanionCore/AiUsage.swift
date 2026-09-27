@@ -31,16 +31,35 @@ public struct AiUsageMetric: Equatable {
     }
 }
 
+public struct AiResetCredit: Equatable {
+    public var title: String
+    public var expiresAt: UInt32
+    public var expiresRemainingSeconds: UInt32
+    public init(title: String, expiresAt: UInt32 = 0, expiresRemainingSeconds: UInt32 = 0) {
+        self.title = title; self.expiresAt = expiresAt
+        self.expiresRemainingSeconds = expiresRemainingSeconds
+    }
+}
+
+public struct AiResetCredits: Equatable {
+    public var availableCount: UInt8
+    public var credits: [AiResetCredit]
+    public init(availableCount: UInt8, credits: [AiResetCredit]) {
+        self.availableCount = availableCount; self.credits = credits
+    }
+}
+
 public struct AiUsageProviderSnapshot: Equatable {
     public var provider: AiProviderId
     public var plan: AiPlan
     public var freshness: AiFreshness
     public var metrics: [AiUsageMetric]
+    public var resetCredits: AiResetCredits?
 
     public init(provider: AiProviderId, plan: AiPlan, freshness: AiFreshness = .fresh,
-                metrics: [AiUsageMetric]) {
+                metrics: [AiUsageMetric], resetCredits: AiResetCredits? = nil) {
         self.provider = provider; self.plan = plan; self.freshness = freshness
-        self.metrics = metrics
+        self.metrics = metrics; self.resetCredits = resetCredits
     }
 }
 
@@ -54,9 +73,10 @@ public struct AiUsageSnapshot: Equatable {
         self.generation = generation; self.state = state; self.providers = providers
     }
 
-    public func encode() -> [UInt8]? {
+    public func encode(protocolVersion: UInt8 = 3) -> [UInt8]? {
+        guard protocolVersion == 3 || protocolVersion == 4 else { return nil }
         guard providers.count <= 2, Set(providers.map(\.provider)).count == providers.count else { return nil }
-        var bytes: [UInt8] = [1, state.rawValue, UInt8(providers.count)]
+        var bytes: [UInt8] = [protocolVersion == 4 ? 2 : 1, state.rawValue, UInt8(providers.count)]
         Self.put(generation, into: &bytes)
         for provider in providers {
             guard (1...2).contains(provider.metrics.count) else { return nil }
@@ -74,12 +94,29 @@ public struct AiUsageSnapshot: Equatable {
                 Self.put(metric.resetAt, into: &bytes)
                 Self.put(metric.resetRemainingSeconds, into: &bytes)
             }
+            if protocolVersion == 4 {
+                guard provider.resetCredits == nil ||
+                    (provider.provider == .codex && provider.plan == .plus) else { return nil }
+                if let resets = provider.resetCredits {
+                    guard resets.credits.count <= 4,
+                          resets.credits.count <= Int(resets.availableCount) else { return nil }
+                    bytes += [1, resets.availableCount, UInt8(resets.credits.count)]
+                    for credit in resets.credits {
+                        let title = Array(credit.title.utf8)
+                        guard !title.isEmpty, title.count <= 24 else { return nil }
+                        bytes.append(UInt8(title.count))
+                        bytes += title
+                        Self.put(credit.expiresAt, into: &bytes)
+                        Self.put(credit.expiresRemainingSeconds, into: &bytes)
+                    }
+                } else { bytes.append(0) }
+            }
         }
         return bytes.count <= CompanionConstants.maxPayloadSize ? bytes : nil
     }
 
     public static func decode(_ bytes: [UInt8]) -> AiUsageSnapshot? {
-        guard bytes.count >= 7, bytes[0] == 1,
+        guard bytes.count >= 7, (bytes[0] == 1 || bytes[0] == 2),
               let state = AiUsageState(rawValue: bytes[1]), bytes[2] <= 2
         else { return nil }
         var pos = 7
@@ -112,8 +149,34 @@ public struct AiUsageSnapshot: Equatable {
                                              remaining: remaining, remainingPercent: percent,
                                              resetAt: resetAt, resetRemainingSeconds: resetRemaining))
             }
+            var resets: AiResetCredits?
+            if bytes[0] == 2 {
+                guard pos < bytes.count, bytes[pos] <= 1 else { return nil }
+                let known = bytes[pos] == 1; pos += 1
+                if known {
+                    guard provider == .codex, plan == .plus, pos + 2 <= bytes.count,
+                          bytes[pos + 1] <= 4,
+                          bytes[pos + 1] <= bytes[pos] else { return nil }
+                    let available = bytes[pos], count = Int(bytes[pos + 1]); pos += 2
+                    var credits: [AiResetCredit] = []
+                    for _ in 0..<count {
+                        guard pos < bytes.count, (1...24).contains(bytes[pos]) else { return nil }
+                        let length = Int(bytes[pos]); pos += 1
+                        guard pos + length + 8 <= bytes.count,
+                              let title = String(bytes: bytes[pos..<(pos + length)], encoding: .utf8)
+                        else { return nil }
+                        pos += length
+                        let expiresAt = get(bytes, at: pos); pos += 4
+                        let remaining = get(bytes, at: pos); pos += 4
+                        credits.append(AiResetCredit(title: title, expiresAt: expiresAt,
+                                                     expiresRemainingSeconds: remaining))
+                    }
+                    resets = AiResetCredits(availableCount: available, credits: credits)
+                }
+            }
             providers.append(AiUsageProviderSnapshot(provider: provider, plan: plan,
-                                                     freshness: freshness, metrics: metrics))
+                                                     freshness: freshness, metrics: metrics,
+                                                     resetCredits: resets))
         }
         guard pos == bytes.count else { return nil }
         return AiUsageSnapshot(generation: get(bytes, at: 3), state: state, providers: providers)

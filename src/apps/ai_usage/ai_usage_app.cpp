@@ -55,6 +55,22 @@ void providerTitle(IDisplayAdapter& display, int x, int y,
                           palette::ink);
     label(display, x + width + 18 * scale, y, planName(provider.plan), palette::ink, scale);
 }
+void resetBadge(IDisplayAdapter& display, int y, const connectivity::AiUsageProvider& provider) {
+    if (provider.provider != connectivity::AiProvider::Codex ||
+        provider.plan != connectivity::AiPlan::Plus || !provider.resetCredits.known)
+        return;
+    char count[8]{};
+    std::snprintf(count, sizeof(count), "%u",
+                  static_cast<unsigned>(provider.resetCredits.availableCount));
+    const int right = provider.freshness == connectivity::AiFreshness::Stale ? 188 : 232;
+    const int x = right - static_cast<int>(std::strlen(count)) * 6 - 14;
+    label(display, x, y, "R", palette::blue);
+    for (int i = 0; i < 5; ++i) {
+        display.fillRectangle({x + 7 + i, y + 2 + i}, 1, 1, palette::blue);
+        display.fillRectangle({x + 11 - i, y + 2 + i}, 1, 1, palette::blue);
+    }
+    label(display, x + 14, y, count, palette::blue);
+}
 void number(char* out, std::size_t size, std::uint32_t value) {
     std::snprintf(out, size, "%lu", static_cast<unsigned long>(value));
 }
@@ -103,6 +119,23 @@ void resetText(char* out, std::size_t size, std::uint32_t resetAt, std::uint32_t
         std::snprintf(out, size, "RESET %luH %luM", static_cast<unsigned long>(seconds / 3600),
                       static_cast<unsigned long>((seconds % 3600) / 60));
 }
+void expiryText(char* out, std::size_t size, std::uint32_t expiresAt,
+                std::uint32_t remainingSeconds) {
+    if (expiresAt == 0)
+        std::snprintf(out, size, "EXP --");
+    else if (remainingSeconds >= 86400)
+        std::snprintf(out, size, "EXP IN %luD",
+                      static_cast<unsigned long>(remainingSeconds / 86400));
+    else if (remainingSeconds >= 3600)
+        std::snprintf(out, size, "EXP IN %luH",
+                      static_cast<unsigned long>(remainingSeconds / 3600));
+    else if (remainingSeconds >= 60)
+        std::snprintf(out, size, "EXP IN %luM", static_cast<unsigned long>(remainingSeconds / 60));
+    else if (remainingSeconds > 0)
+        std::snprintf(out, size, "EXP IN 1M");
+    else
+        std::snprintf(out, size, "EXP NOW");
+}
 } // namespace
 
 void AiUsageApp::onActivate() {
@@ -110,12 +143,85 @@ void AiUsageApp::onActivate() {
     selected_ = false;
     selectionRemaining_ = {};
     countdownElapsed_ = {};
+    view_ = View::Main;
+    resetScroll_ = 0;
 }
 
 void AiUsageApp::onDeactivate() {
     indicator_.clearFocus();
     rendered_ = false;
     selected_ = false;
+    view_ = View::Main;
+    resetScroll_ = 0;
+}
+
+const connectivity::AiUsageProvider* AiUsageApp::plusProvider() const {
+    const auto& snapshot = usage_.snapshot();
+    if (snapshot.schemaVersion < 2)
+        return nullptr;
+    for (std::uint8_t i = 0; i < snapshot.providerCount; ++i) {
+        const auto& provider = snapshot.providers[i];
+        if (provider.provider == connectivity::AiProvider::Codex &&
+            provider.plan == connectivity::AiPlan::Plus && provider.metricCount == 2)
+            return &provider;
+    }
+    return nullptr;
+}
+
+void AiUsageApp::drawExpanded(const connectivity::AiUsageProvider& provider) {
+    char text[72]{};
+    if (view_ == View::Limits) {
+        providerTitle(display_, 8, 6, provider);
+        for (std::uint8_t i = 0; i < 2; ++i) {
+            const auto& metric = provider.metrics[i];
+            const int top = i == 0 ? 26 : 68;
+            label(display_, 8, top, metricName(metric.kind), core::palette::blue);
+            label(display_, 8, top + 11, "USED");
+            std::snprintf(text, sizeof(text), "%u%%",
+                          static_cast<unsigned>(100 - metric.remainingPercent));
+            label(display_, core::rightAlignedTextX(text, 232), top + 11, text);
+            label(display_, 8, top + 22, "LEFT");
+            std::snprintf(text, sizeof(text), "%u%%", metric.remainingPercent);
+            label(display_, core::rightAlignedTextX(text, 232), top + 22, text);
+            resetText(text, sizeof(text), metric.resetAt, metric.resetRemainingSeconds);
+            label(display_, 8, top + 33, "RESET");
+            label(display_, core::rightAlignedTextX(text + 6, 232), top + 33, text + 6);
+        }
+    } else {
+        label(display_, 8, 6, "RESET CREDITS");
+        label(display_, 8, 23, "AVAILABLE");
+        const auto& resets = provider.resetCredits;
+        if (resets.known)
+            number(text, sizeof(text), resets.availableCount);
+        else
+            std::snprintf(text, sizeof(text), "--");
+        label(display_, core::rightAlignedTextX(text, 232), 23, text, core::palette::blue);
+        if (!resets.known) {
+            label(display_, 8, 62, "DETAILS UNAVAILABLE", core::palette::ordinal);
+        } else if (resets.availableCount == 0) {
+            label(display_, 8, 62, "NO RESETS AVAILABLE", core::palette::ordinal);
+        } else if (resets.creditCount == 0) {
+            label(display_, 8, 62, "DETAILS UNAVAILABLE", core::palette::ordinal);
+        } else {
+            for (std::uint8_t row = 0; row < 2 && resetScroll_ + row < resets.creditCount; ++row) {
+                const auto index = static_cast<std::uint8_t>(resetScroll_ + row);
+                const auto& credit = resets.credits[index];
+                std::snprintf(text, sizeof(text), "#%u  %s", static_cast<unsigned>(index + 1),
+                              credit.title.data());
+                label(display_, 8, 44 + row * 32, text);
+                expiryText(text, sizeof(text), credit.expiresAt, credit.expiresRemainingSeconds);
+                label(display_, 8, 57 + row * 32, text, core::palette::ordinal);
+            }
+        }
+    }
+    if (provider.freshness == connectivity::AiFreshness::Stale)
+        label(display_, 199, 6, "STALE", core::palette::vermilion);
+    display_.fillRectangle({8, 112}, 224, 1, core::palette::pale);
+    label(display_, 38, 120, "LIMITS",
+          view_ == View::Limits ? core::palette::blue : core::palette::ordinal);
+    label(display_, 116, 120, "|", core::palette::ordinal);
+    label(display_, 151, 120, "RESETS",
+          view_ == View::Resets ? core::palette::blue : core::palette::ordinal);
 }
 
 void AiUsageApp::drawMetric(const connectivity::AiUsageMetric& metric, int top, bool compact) {
@@ -146,7 +252,9 @@ void AiUsageApp::draw() {
     const auto& snapshot = usage_.snapshot();
     display_.beginFrame();
     display_.clear(core::palette::bone);
-    if (!usage_.available() || snapshot.state == connectivity::AiUsageState::Discovering) {
+    if (view_ != View::Main && plusProvider() != nullptr) {
+        drawExpanded(*plusProvider());
+    } else if (!usage_.available() || snapshot.state == connectivity::AiUsageState::Discovering) {
         label(display_, 71, 58, "CHECKING AI", core::palette::ink, 2);
     } else if (snapshot.providerCount == 0) {
         label(display_, 44, 48, "NO AI ACCOUNTS", core::palette::ink, 2);
@@ -154,6 +262,7 @@ void AiUsageApp::draw() {
     } else if (snapshot.providerCount == 1 && snapshot.providers[0].metricCount == 2) {
         const auto& provider = snapshot.providers[0];
         providerTitle(display_, 8, 6, provider);
+        resetBadge(display_, 6, provider);
         if (provider.freshness == connectivity::AiFreshness::Stale)
             label(display_, 199, 6, "STALE", core::palette::vermilion);
         drawMetric(provider.metrics[0], 28, false);
@@ -172,6 +281,7 @@ void AiUsageApp::draw() {
             const auto& provider = snapshot.providers[i];
             const auto top = i ? 68 : 0;
             providerTitle(display_, 8, top + 6, provider);
+            resetBadge(display_, top + 6, provider);
             if (provider.freshness == connectivity::AiFreshness::Stale)
                 label(display_, 198, top + 6, "STALE", core::palette::vermilion);
             if (provider.metricCount > 0)
@@ -188,15 +298,60 @@ void AiUsageApp::update(const core::InputEvents& input, std::chrono::millisecond
     if (usage_.session() != renderedSession_) {
         renderedSession_ = usage_.session();
         selected_ = false;
+        view_ = View::Main;
+        resetScroll_ = 0;
         indicator_.clearFocus();
         rendered_ = false;
     }
     const auto& snapshot = usage_.snapshot();
+    if (view_ != View::Main && plusProvider() == nullptr) {
+        view_ = View::Main;
+        resetScroll_ = 0;
+        rendered_ = false;
+    }
+    if (view_ == View::Resets && plusProvider() != nullptr) {
+        const auto count = plusProvider()->resetCredits.creditCount;
+        const auto maximum = count > 2 ? static_cast<std::uint8_t>(count - 2) : 0;
+        if (resetScroll_ > maximum) {
+            resetScroll_ = maximum;
+            rendered_ = false;
+        }
+    }
     const auto visible = snapshot.providerCount == 2   ? 2
                          : snapshot.providerCount == 1 ? snapshot.providers[0].metricCount
                                                        : 0;
     for (const auto& event : input) {
-        if (event.type != core::InputEventType::NamedKey || visible == 0)
+        if (event.type != core::InputEventType::NamedKey)
+            continue;
+        if (event.namedKey == core::NamedKey::Enter) {
+            if (view_ == View::Main && plusProvider() != nullptr) {
+                view_ = View::Limits;
+                resetScroll_ = 0;
+                rendered_ = false;
+            } else if (view_ != View::Main) {
+                view_ = View::Main;
+                rendered_ = false;
+            }
+            continue;
+        }
+        if (view_ != View::Main) {
+            if (event.namedKey == core::NamedKey::Left || event.namedKey == core::NamedKey::Right) {
+                view_ = view_ == View::Limits ? View::Resets : View::Limits;
+                resetScroll_ = 0;
+                rendered_ = false;
+            } else if (view_ == View::Resets && plusProvider() != nullptr) {
+                const auto count = plusProvider()->resetCredits.creditCount;
+                if (event.namedKey == core::NamedKey::Down && resetScroll_ + 2 < count) {
+                    ++resetScroll_;
+                    rendered_ = false;
+                } else if (event.namedKey == core::NamedKey::Up && resetScroll_ > 0) {
+                    --resetScroll_;
+                    rendered_ = false;
+                }
+            }
+            continue;
+        }
+        if (visible == 0)
             continue;
         if (event.namedKey != core::NamedKey::Up && event.namedKey != core::NamedKey::Down)
             continue;

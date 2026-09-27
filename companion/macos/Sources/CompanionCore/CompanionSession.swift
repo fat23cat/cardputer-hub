@@ -28,7 +28,7 @@ public final class CompanionSession {
     }
 
     public func startHandshake() {
-        guard let bytes = CompanionCodec.encode(CompanionCodec.hello(versions: [3, 2, 1])) else { return }
+        guard let bytes = CompanionCodec.encode(CompanionCodec.hello(versions: [4, 3, 2, 1])) else { return }
         awaitingHelloAck = true
         self.outgoing(bytes)
     }
@@ -111,7 +111,7 @@ public final class CompanionSession {
             response.session = message.session
             response.requestId = message.requestId
             response.operation = .aiUsage
-            if let payload = aiUsage?.snapshot()?.encode() {
+            if let payload = aiUsage?.snapshot()?.encode(protocolVersion: selectedProtocolVersion) {
                 response.payload = payload
             } else {
                 response.status = .notAvailable

@@ -1802,12 +1802,18 @@ hardware, host selection, UI, or macOS-specific behavior. The companion is a
 separate program and shares a versioned wire contract and conformance fixtures
 with firmware, not a cross-platform C++ implementation library.
 
-The Mac offers protocol versions 3, 2 and 1 in a v1-framed HELLO; Cardputer
+The Mac offers protocol versions 4, 3, 2 and 1 in a v1-framed HELLO; Cardputer
 selects the highest shared version. Protocol v2 adds `SYSTEM_METRICS` with a
 fixed 24-byte payload. A v1 session retains its original capability list and
 cannot use telemetry. Protocol v3 adds `AI_USAGE`, a bounded normalized
 provider snapshot. The capability describes Companion support and remains
 advertised during discovery or when no provider is installed.
+Protocol v4 adds bounded optional Codex Plus reset-credit details to AI_USAGE
+schema 2; v3 continues to use the original schema 1. The Companion normalizes
+count, usable titles and expiry from the existing Codex refresh. The Mac sends
+no more detail rows than the available count, and both codecs reject snapshots
+that violate this bound. Firmware keeps at most four detail rows per provider
+and clears them with the session.
 `CompanionService` exposes operation-filtered completions:
 `HostControlService` consumes APP_ACTIVATE, while `MacStatusService` consumes
 SYSTEM_METRICS and `AiUsageService` consumes AI_USAGE. Internal handshake and
