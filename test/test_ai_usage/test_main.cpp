@@ -191,7 +191,7 @@ void test_service_polls_cached_snapshot_and_clears_on_session_change() {
     TEST_ASSERT_FALSE(f.indicator.resolved().hasFrame);
 }
 
-void test_split_gauge_preserves_31_quota_pixels_per_half() {
+void test_split_gauge_marks_both_ends_with_purple_and_30_quota_pixels_per_half() {
     CompanionAiUsage value{};
     value.providers[0].metrics[0].remainingPercent = 100;
     value.providers[1].metrics[0].remainingPercent = 100;
@@ -199,11 +199,26 @@ void test_split_gauge_preserves_31_quota_pixels_per_half() {
         services::aiUsageGauge(&value.providers[0].metrics[0], &value.providers[1].metrics[0]);
     TEST_ASSERT_EQUAL_INT(32, lit(frame, 0, 32));
     TEST_ASSERT_EQUAL_INT(32, lit(frame, 32, 64));
-    TEST_ASSERT_EQUAL_UINT8(core::palette::ordinal.red, frame.pixels[0].red);
-    TEST_ASSERT_EQUAL_UINT8(core::palette::ordinal.red, frame.pixels[63].red);
+    for (const int marker : {0, 31, 32, 63}) {
+        TEST_ASSERT_EQUAL_UINT8(0xA0, frame.pixels[marker].red);
+        TEST_ASSERT_EQUAL_UINT8(0x50, frame.pixels[marker].green);
+        TEST_ASSERT_EQUAL_UINT8(0xD0, frame.pixels[marker].blue);
+    }
+    value.providers[0].metrics[0].remainingPercent = 50;
+    value.providers[1].metrics[0].remainingPercent = 0;
+    const auto partial =
+        services::aiUsageGauge(&value.providers[0].metrics[0], &value.providers[1].metrics[0]);
+    TEST_ASSERT_EQUAL_INT(17, lit(partial, 0, 32)); // 2 markers + 15 quota pixels.
+    TEST_ASSERT_EQUAL_INT(2, lit(partial, 32, 64)); // Markers remain at zero.
+    TEST_ASSERT_EQUAL_UINT8(core::palette::blue.red, partial.pixels[1].red);
+    TEST_ASSERT_EQUAL_UINT8(0, partial.pixels[30].red);
     value.providers[0].metrics[0].remainingPercent = 0;
     const auto empty = services::aiUsageGauge(&value.providers[0].metrics[0], nullptr);
     TEST_ASSERT_EQUAL_INT(0, lit(empty, 0, 64));
+    value.providers[0].metrics[0].remainingPercent = 100;
+    const auto focused = services::aiUsageGauge(&value.providers[0].metrics[0], nullptr);
+    TEST_ASSERT_EQUAL_UINT8(core::palette::leaf.red, focused.pixels[0].red);
+    TEST_ASSERT_EQUAL_UINT8(core::palette::leaf.red, focused.pixels[63].red);
 }
 
 void test_app_draws_remaining_quota_only_on_change() {
@@ -660,7 +675,7 @@ void test_work_usage_renders_business_credits_and_cursor_spend() {
 int main() {
     UNITY_BEGIN();
     RUN_TEST(test_service_polls_cached_snapshot_and_clears_on_session_change);
-    RUN_TEST(test_split_gauge_preserves_31_quota_pixels_per_half);
+    RUN_TEST(test_split_gauge_marks_both_ends_with_purple_and_30_quota_pixels_per_half);
     RUN_TEST(test_app_draws_remaining_quota_only_on_change);
     RUN_TEST(test_provider_title_uses_font_safe_text_and_drawn_dot);
     RUN_TEST(test_malformed_ai_response_retains_previous_snapshot);

@@ -6,6 +6,8 @@
 
 namespace cardputer_hub::services {
 namespace {
+constexpr core::RgbColor boundaryPurple{0xA0, 0x50, 0xD0};
+
 core::RgbColor colorFor(std::uint8_t percent) noexcept {
     if (percent >= 51)
         return core::palette::leaf;
@@ -20,12 +22,13 @@ std::uint8_t lit(std::uint8_t percent, std::uint8_t capacity) noexcept {
 }
 void fillHalf(IndicatorFrame& frame, const connectivity::AiUsageMetric& metric,
               bool bottom) noexcept {
-    const auto marker = bottom ? 63 : 0;
-    frame.pixels[marker] = core::palette::ordinal;
-    auto remaining = lit(metric.remainingPercent, 31);
     const auto begin = bottom ? 32 : 0;
+    const auto end = begin + 31;
+    frame.pixels[begin] = boundaryPurple;
+    frame.pixels[end] = boundaryPurple;
+    auto remaining = lit(metric.remainingPercent, 30);
     for (std::uint8_t i = begin; i < begin + 32 && remaining; ++i) {
-        if (i == marker)
+        if (i == begin || i == end)
             continue;
         frame.pixels[i] = colorFor(metric.remainingPercent);
         --remaining;

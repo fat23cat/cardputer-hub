@@ -1519,7 +1519,7 @@ Mini App / presentation helper
 
 `AiUsageIndicatorController` consumes the session-scoped `AiUsageService`
 snapshot. Its Idle claim shows remaining quota on the full 8×8 matrix or in
-two four-row zones with one neutral marker and 31 quota pixels per zone.
+two four-row zones with purple markers at both ends and 30 quota pixels per zone.
 Temporary focus uses ForegroundApplication; threshold and reset feedback use a
 bounded Warning claim. All claims pass through the shared brightness limit.
 Pomodoro and LED Gallery outrank the resting AI gauge.

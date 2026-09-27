@@ -154,6 +154,8 @@ An unavailable reset time appears as `RESET --`.
 during discovery; `NO AI ACCOUNTS` appears if none can be read. Up/Down selects
 a visible metric for roughly three seconds and expands its gauge on Unit
 Puzzle. Otherwise Puzzle shows one full 8×8 gauge or two four-row gauges.
+Each four-row gauge has purple dots at both ends; its other 30 dots show the
+remaining limit. The dots stay visible when the limit reaches zero.
 Pomodoro and LED Gallery take priority over the resting AI gauge. Companion
 loss clears the gauge and account values; the next Mac supplies its own data.
 

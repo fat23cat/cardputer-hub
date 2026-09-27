@@ -546,7 +546,9 @@ labels the value `LEFT`, and marks 0–4% remaining with `!`. A stale provider
 has a visible `STALE` label. Initial discovery shows `CHECKING AI`; completed
 discovery with no usable account shows `NO AI ACCOUNTS`. Up/Down temporarily
 selects a visible metric for a full-matrix Puzzle gauge. The resting Puzzle
-overview runs at Idle priority and does not wake the LCD. Unchanged display
+overview uses two four-row zones when two metrics are present, with two purple
+boundary pixels and 30 quota pixels per zone. It runs at Idle priority and does
+not wake the LCD. Unchanged display
 state does not continuously redraw.
 Idle dimming, the final off fade and wake-input consumption are implemented for
 every screen and Mini App from the shared runtime input path; physical

@@ -29,7 +29,9 @@ firmware service, Mini App, Puzzle gauge, shared fixtures and host-side tests
 are implemented. Independent review fixes cover real Business numeric strings,
 Cursor's derived session cookie, bounded Codex discovery and process recovery,
 and stable firmware UI revisions. Provider transports and credentials now have
-fake-backed checks. Live Codex/Cursor account discovery, CI and physical
+fake-backed checks. The reset countdown now advances in the firmware service;
+the split Puzzle gauge uses two purple boundary pixels per half and 30 quota
+pixels per half. Live Codex/Cursor account discovery, CI and physical
 Cardputer-Adv acceptance remain to be verified on the target machines and device.
 The baseline description below records the state when this plan was written.
 
@@ -1504,26 +1506,26 @@ A divider row wastes 12.5% of the entire matrix.
 
 The two halves need visible identity beyond their position.
 
-Reserve exactly one neutral marker pixel per half:
+Reserve two purple boundary pixels per half:
 
 ```text
-top metric marker
-→ top-left pixel
+top metric markers
+→ top-left and bottom-right pixels of the top four rows
 
-bottom metric marker
-→ bottom-right pixel
+bottom metric markers
+→ top-left and bottom-right pixels of the bottom four rows
 ```
 
 Marker color:
 
 ```text
-Ordinal / quiet neutral
+Purple, distinct from the quota colors
 ```
 
 The remaining:
 
 ```text
-31 pixels per half
+30 pixels per half
 ```
 
 represent quota.
@@ -1537,16 +1539,16 @@ top half
 M███████
 ████████
 ████□□□□
-□□□□□□□□
+□□□□□□□M
 
 bottom half
-████████
+M███████
 ████████
 ██████□□
 □□□□□□□M
 ```
 
-`M` is a dim neutral marker, not a colored quota pixel.
+`M` is a purple boundary marker, not a quota pixel.
 
 This creates separation without sacrificing an entire row.
 
@@ -1563,7 +1565,7 @@ remainingPercent
 For a split half:
 
 ```text
-lit quota pixels = round(31 × remainingPercent / 100)
+lit quota pixels = round(30 × remainingPercent / 100)
 ```
 
 For full 8×8:
@@ -1669,7 +1671,7 @@ selected metric
 → full 8×8 gauge
 ```
 
-This provides higher resolution than the 31-pixel split gauge.
+This provides higher resolution than the 30-pixel split gauge.
 
 Example:
 
@@ -2126,9 +2128,8 @@ Scenario: Two metrics are shown on Puzzle
   Then the first metric uses the top four rows
   And the second metric uses the bottom four rows
   And no full divider row is reserved
-  And the top-left marker identifies the top zone
-  And the bottom-right marker identifies the bottom zone
-  And each zone has 31 quota pixels
+  And purple markers identify both ends of each zone
+  And each zone has 30 quota pixels
 ```
 
 ---
@@ -2361,9 +2362,9 @@ Required cases:
 single metric full 8×8
 
 two-metric split
-top marker reserved
-bottom marker reserved
-31-pixel quota capacity per half
+two top markers reserved
+two bottom markers reserved
+30-pixel quota capacity per half
 
 stable ordering
 same color still visually separated
@@ -2765,7 +2766,7 @@ Plan 038 is complete when:
 [ ] one metric uses full 8×8
 [ ] two metrics use 4+4 split
 [ ] split uses marker pixels rather than a divider row
-[ ] top and bottom zones each retain 31 quota pixels
+[ ] top and bottom zones each retain 30 quota pixels and two purple boundary markers
 [ ] quota fill represents remaining capacity
 [ ] semantic colors match LCD meaning
 [ ] normal gauge is static
