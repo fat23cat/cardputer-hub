@@ -1,3 +1,4 @@
+#include "apps/ai_usage/ai_usage_app.h"
 #include "apps/hosts/host_settings.h"
 #include "apps/led_gallery/led_gallery_app.h"
 #include "apps/mac_control/mac_control_app.h"
@@ -17,6 +18,8 @@
 #include "hardware/esp32/bluetooth/esp32_bluetooth_adapter.h"
 #include "hardware/esp32/esp32_nvs_storage_adapter.h"
 #include "hardware/esp32/wifi/esp32_wifi_adapter.h"
+#include "services/ai_usage/ai_usage_indicator_controller.h"
+#include "services/ai_usage/ai_usage_service.h"
 #include "services/audio/audio_service.h"
 #include "services/battery/battery_service.h"
 #include "services/companion/companion_service.h"
@@ -77,11 +80,14 @@ cardputer_hub::services::CompanionService companion(bluetooth.companionTransport
                                                     &logger);
 cardputer_hub::services::HostControlService hostControl(hosts, companion, capabilities);
 cardputer_hub::services::MacStatusService macStatus(companion);
+cardputer_hub::services::AiUsageService aiUsage(companion);
 cardputer_hub::apps::MacControlApp macControl(actions, hostControl, display);
 cardputer_hub::apps::MacStatusApp macStatusApp(macStatus, display);
 cardputer_hub::hardware::EspPuzzleLedBackend puzzleLedBackend;
 cardputer_hub::hardware::PuzzleWs2812Adapter puzzleLeds(puzzleLedBackend);
 cardputer_hub::services::IndicatorService indicator(puzzleLeds);
+cardputer_hub::services::AiUsageIndicatorController aiUsageIndicator(aiUsage, indicator);
+cardputer_hub::apps::AiUsageApp aiUsageApp(aiUsage, aiUsageIndicator, display);
 cardputer_hub::services::DeviceSettingsService deviceSettings(configuration, displayPower,
                                                               indicator);
 cardputer_hub::apps::ApplicationShell applicationShell(hosts, network, actions, display,
@@ -134,6 +140,12 @@ extern "C" void app_main(void) {
          "mac-status",
          {cardputer_hub::connectivity::companionSystemMetricsCapabilityId}});
     (void)miniApps.registerInstance("mac-status", macStatusApp);
+    (void)appRegistry.registerApp({"ai-usage",
+                                   "AI USAGE",
+                                   "ai-usage",
+                                   "ai-usage",
+                                   {cardputer_hub::connectivity::companionAiUsageCapabilityId}});
+    (void)miniApps.registerInstance("ai-usage", aiUsageApp);
     (void)appRegistry.registerApp({"pomodoro", "POMODORO", "pomodoro", "pomodoro", {}});
     (void)miniApps.registerInstance("pomodoro", pomodoroApp);
     (void)appRegistry.registerApp({"led-gallery", "LED GALLERY", "led-gallery", "led-gallery", {}});
@@ -150,10 +162,12 @@ extern "C" void app_main(void) {
         companion.update(elapsed);
         hostControl.update();
         macStatus.update(elapsed);
+        aiUsage.update(elapsed);
         network.update(elapsed);
         battery.update(elapsed);
         pomodoro.update(elapsed);
         pomodoroLed.update(elapsed);
+        aiUsageIndicator.update(elapsed);
         indicator.update();
         if (!homeVisible) {
             if (runtime.splashFinished()) {

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Write committed Companion protocol v1/v2 fixtures. Run from the repository root."""
+"""Write committed Companion protocol v1/v2/v3 fixtures. Run from the repository root."""
 
 from __future__ import annotations
 
@@ -8,6 +8,7 @@ from pathlib import Path
 HELLO, HELLO_ACK, REQUEST, RESPONSE, EVENT = 1, 2, 3, 4, 5
 PING, CAPABILITIES, APP_ACTIVE, APP_ACTIVATE, APP_ACTIVE_CHANGED = 1, 2, 3, 4, 5
 SYSTEM_METRICS = 6
+AI_USAGE = 7
 SESSION = 42
 
 
@@ -75,6 +76,20 @@ def main() -> None:
             bytes([1, 0x7f, 0, 34]) + (11500).to_bytes(4, "little") +
             (16384).to_bytes(4, "little") + bytes([1, 63, 82, 2]) +
             (12698).to_bytes(4, "little") + (1843).to_bytes(4, "little"), 2
+        ),
+        "hello-v3.bin": envelope(HELLO, 0, 0, 0, 0, bytes([3, 3, 2, 1])),
+        "hello-ack-v3.bin": envelope(HELLO_ACK, SESSION, 0, 0, 0, bytes([3])),
+        "capabilities-response-v3.bin": envelope(
+            RESPONSE, SESSION, 2, CAPABILITIES, 0, bytes([5, 1, 2, 3, 4, 5]), 3
+        ),
+        "ai-usage-request-v3.bin": envelope(REQUEST, SESSION, 7, AI_USAGE, 0, b"", 3),
+        "ai-usage-response-v3.bin": envelope(
+            RESPONSE, SESSION, 7, AI_USAGE, 0,
+            bytes([1, 2, 1]) + (9).to_bytes(4, "little") +
+            bytes([1, 1, 1, 1, 1, 1]) +
+            (37).to_bytes(4, "little") + (100).to_bytes(4, "little") +
+            (63).to_bytes(4, "little") + bytes([63]) +
+            (1780000000).to_bytes(4, "little") + (3600).to_bytes(4, "little"), 3
         ),
         "malformed-length.bin": bytes([1, REQUEST, SESSION, 0, 1, PING, 0, 10, 0x01, 0x02]),
         "unsupported-version.bin": bytes([99, REQUEST, SESSION, 0, 1, PING, 0, 4]) + token,

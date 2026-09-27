@@ -539,6 +539,15 @@ connection label, connection dot, or navigation chrome. Missing metrics and
 stale snapshots show `--` in their own fields. It repaints changed metric
 regions only. Escape uses the shared Mini App exit path; other keys have no
 dashboard action. Capability loss closes it through MiniAppRuntime.
+AI USAGE requires the live v3 `AI_USAGE` capability. It uses the full 240×135
+display without an internal title, host label, connection chrome, cards, or
+footer. It shows only discovered providers, presents bars as remaining quota,
+labels the value `LEFT`, and marks 0–4% remaining with `!`. A stale provider
+has a visible `STALE` label. Initial discovery shows `CHECKING AI`; completed
+discovery with no usable account shows `NO AI ACCOUNTS`. Up/Down temporarily
+selects a visible metric for a full-matrix Puzzle gauge. The resting Puzzle
+overview runs at Idle priority and does not wake the LCD. Unchanged display
+state does not continuously redraw.
 Idle dimming, the final off fade and wake-input consumption are implemented for
 every screen and Mini App from the shared runtime input path; physical
 acceptance on Cardputer-Adv is pending. Remaining semantic

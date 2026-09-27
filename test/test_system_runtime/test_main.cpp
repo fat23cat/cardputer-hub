@@ -226,6 +226,8 @@ void test_startup_draws_branded_splash_with_visible_version() {
     assertColor({0x17, 0x15, 0x0F}, fixture.display.texts[1].style.foreground);
     assertColor({0xF4, 0xF2, 0xEC}, fixture.display.texts[1].style.background);
     TEST_ASSERT_EQUAL_UINT8(2, fixture.display.texts[1].style.scale);
+    for (const auto& rectangle : fixture.display.rectangles)
+        TEST_ASSERT_FALSE(rectangle.position.x >= 219 && rectangle.position.y <= 23);
     TEST_ASSERT_FALSE(fixture.runtime.splashFinished());
 }
 
