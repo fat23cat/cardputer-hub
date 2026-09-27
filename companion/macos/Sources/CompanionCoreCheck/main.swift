@@ -524,6 +524,11 @@ enum CompanionCoreCheck {
         expect(AiUsageNormalization.codex(plusWithResets)?.resetCredits?.credits.first?.title ==
                "FULL RESET", "short title normalized on Mac")
         plusWithResets["rateLimitResetCredits"] = ["availableCount": 1, "credits": [
+            ["status": "available", "title": "Full reset (Weekly + 5 hr)",
+             "expiresAt": 100]]]
+        expect(AiUsageNormalization.codex(plusWithResets)?.resetCredits?.credits.first?.title ==
+               "FULL RESET", "reset detail uses a concise title")
+        plusWithResets["rateLimitResetCredits"] = ["availableCount": 1, "credits": [
             ["status": "available", "title": "Additional Codex Rate Limit Reset",
              "expiresAt": 100]]]
         let longTitle = AiUsageNormalization.codex(plusWithResets)?

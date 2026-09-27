@@ -67,6 +67,7 @@ need updating if Cursor changes its service.
 
 With v4, Codex Plus also sends its known reset-credit count and up to four
 available detail rows from the same rate-limits refresh, never more than the
-available count. Titles are uppercased and safely truncated to the wire limit
-on the Mac. The v3 AI_USAGE
+available count. Titles are uppercased and shortened to a compact display label
+on the Mac. A single failed refresh keeps the most recent sample fresh for up
+to 90 seconds; a longer gap marks it stale. The v3 AI_USAGE
 payload remains unchanged for older firmware. Reset details are read-only.

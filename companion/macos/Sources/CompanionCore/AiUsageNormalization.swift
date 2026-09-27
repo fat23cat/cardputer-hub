@@ -53,11 +53,13 @@ public enum AiUsageNormalization {
         guard let supplied = (value as? String)?.trimmingCharacters(in: .whitespacesAndNewlines),
               !supplied.isEmpty else { return "RESET CREDIT" }
         let title = supplied.uppercased()
-        if title.utf8.count <= 24 { return title }
+        if title == "FULL RESET" || title.hasPrefix("FULL RESET ") ||
+            title.hasPrefix("FULL RESET(") { return "FULL RESET" }
+        if title.utf8.count <= 16 { return title }
         var prefix = ""
         for scalar in title.unicodeScalars {
             let bytes = String(scalar).utf8.count
-            if prefix.utf8.count + bytes > 21 { break }
+            if prefix.utf8.count + bytes > 13 { break }
             prefix.append(String(scalar))
         }
         return prefix.isEmpty ? "RESET CREDIT" : prefix + "..."

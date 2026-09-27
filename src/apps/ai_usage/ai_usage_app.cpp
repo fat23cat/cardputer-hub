@@ -172,20 +172,24 @@ void AiUsageApp::drawExpanded(const connectivity::AiUsageProvider& provider) {
     char text[72]{};
     if (view_ == View::Limits) {
         providerTitle(display_, 8, 6, provider);
+        display_.fillRectangle({120, 26}, 1, 81, core::palette::pale);
         for (std::uint8_t i = 0; i < 2; ++i) {
             const auto& metric = provider.metrics[i];
-            const int top = i == 0 ? 26 : 68;
-            label(display_, 8, top, metricName(metric.kind), core::palette::blue);
-            label(display_, 8, top + 11, "USED");
+            const int left = i == 0 ? 8 : 128;
+            label(display_, left, 26, metricName(metric.kind), core::palette::blue);
             std::snprintf(text, sizeof(text), "%u%%",
                           static_cast<unsigned>(100 - metric.remainingPercent));
-            label(display_, core::rightAlignedTextX(text, 232), top + 11, text);
-            label(display_, 8, top + 22, "LEFT");
+            label(display_, left, 40, text, core::palette::ink, 2);
+            label(display_, left, 61, "USED", core::palette::ordinal);
+            display_.fillRectangle({left, 74}, 104, 5, core::palette::pale);
+            display_.fillRectangle({left, 74}, 104 * metric.remainingPercent / 100, 5,
+                                   quotaColor(metric.remainingPercent));
+            label(display_, left, 84, "LEFT");
             std::snprintf(text, sizeof(text), "%u%%", metric.remainingPercent);
-            label(display_, core::rightAlignedTextX(text, 232), top + 22, text);
+            label(display_, core::rightAlignedTextX(text, left + 104), 84, text,
+                  quotaColor(metric.remainingPercent));
             resetText(text, sizeof(text), metric.resetAt, metric.resetRemainingSeconds);
-            label(display_, 8, top + 33, "RESET");
-            label(display_, core::rightAlignedTextX(text + 6, 232), top + 33, text + 6);
+            label(display_, left, 98, text, core::palette::ordinal);
         }
     } else {
         label(display_, 8, 6, "RESET CREDITS");
@@ -321,9 +325,12 @@ void AiUsageApp::update(const core::InputEvents& input, std::chrono::millisecond
                          : snapshot.providerCount == 1 ? snapshot.providers[0].metricCount
                                                        : 0;
     for (const auto& event : input) {
-        if (event.type != core::InputEventType::NamedKey)
+        if (event.type == core::InputEventType::PrintableCharacter &&
+            (event.modifiers.ctrl || event.modifiers.alt || event.modifiers.option ||
+             event.modifiers.shift))
             continue;
-        if (event.namedKey == core::NamedKey::Enter) {
+        if (event.type == core::InputEventType::NamedKey &&
+            event.namedKey == core::NamedKey::Enter) {
             if (view_ == View::Main && plusProvider() != nullptr) {
                 view_ = View::Limits;
                 resetScroll_ = 0;
@@ -335,22 +342,38 @@ void AiUsageApp::update(const core::InputEvents& input, std::chrono::millisecond
             continue;
         }
         if (view_ != View::Main) {
-            if (event.namedKey == core::NamedKey::Left || event.namedKey == core::NamedKey::Right) {
+            const bool horizontal =
+                (event.type == core::InputEventType::NamedKey &&
+                 (event.namedKey == core::NamedKey::Left ||
+                  event.namedKey == core::NamedKey::Right)) ||
+                (event.type == core::InputEventType::PrintableCharacter && !event.modifiers.fn &&
+                 (event.character == ',' || event.character == '/'));
+            if (horizontal) {
                 view_ = view_ == View::Limits ? View::Resets : View::Limits;
                 resetScroll_ = 0;
                 rendered_ = false;
             } else if (view_ == View::Resets && plusProvider() != nullptr) {
                 const auto count = plusProvider()->resetCredits.creditCount;
-                if (event.namedKey == core::NamedKey::Down && resetScroll_ + 2 < count) {
+                const bool down = (event.type == core::InputEventType::NamedKey &&
+                                   event.namedKey == core::NamedKey::Down) ||
+                                  (event.type == core::InputEventType::PrintableCharacter &&
+                                   !event.modifiers.fn && event.character == '.');
+                const bool up = (event.type == core::InputEventType::NamedKey &&
+                                 event.namedKey == core::NamedKey::Up) ||
+                                (event.type == core::InputEventType::PrintableCharacter &&
+                                 !event.modifiers.fn && event.character == ';');
+                if (down && resetScroll_ + 2 < count) {
                     ++resetScroll_;
                     rendered_ = false;
-                } else if (event.namedKey == core::NamedKey::Up && resetScroll_ > 0) {
+                } else if (up && resetScroll_ > 0) {
                     --resetScroll_;
                     rendered_ = false;
                 }
             }
             continue;
         }
+        if (event.type != core::InputEventType::NamedKey)
+            continue;
         if (visible == 0)
             continue;
         if (event.namedKey != core::NamedKey::Up && event.namedKey != core::NamedKey::Down)

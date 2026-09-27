@@ -458,9 +458,15 @@ func collectorPublishesHomeAndWorkProviderSets() {
 func cursorUnauthorizedRefreshKeepsPreviousSampleStale() {
     let codex = FakeUsageProvider()
     let http = FakeCursorHTTP()
+    let timeLock = NSLock()
+    var clockNow = Date(timeIntervalSince1970: 1000)
+    let clock = { () -> Date in
+        timeLock.lock(); defer { timeLock.unlock() }
+        return clockNow
+    }
     let cursor = CursorUsageProvider(credentials: FakeCursorCredentials(.value(
         fakeJWT(sub: "auth0|user_123"))), http: http)
-    let collector = AiUsageCollector(codex: codex, cursor: cursor)
+    let collector = AiUsageCollector(codex: codex, cursor: cursor, now: clock)
     collector.start()
     expect(waitUntil { codex.pending == 1 && http.requests.count == 1 })
     codex.complete(nil, absent: true)
@@ -473,8 +479,21 @@ func cursorUnauthorizedRefreshKeepsPreviousSampleStale() {
     expect(waitUntil { codex.pending == 1 && http.requests.count == 2 })
     codex.complete(nil, absent: true)
     http.respond(status: 401)
+    collector.refresh()
+    expect(waitUntil { codex.pending == 1 && http.requests.count == 3 })
+    expect(collector.snapshot()?.providers.first?.freshness == .fresh)
+    timeLock.lock(); clockNow = Date(timeIntervalSince1970: 1091); timeLock.unlock()
+    codex.complete(nil, absent: true)
+    http.respond(status: 401)
     expect(waitUntil { collector.snapshot()?.providers.first?.freshness == .stale })
     expect(collector.snapshot()?.providers.first?.provider == .cursor)
+    collector.refresh()
+    expect(waitUntil { codex.pending == 1 && http.requests.count == 4 })
+    codex.complete(nil, absent: true)
+    http.respond(status: 200, object: ["membershipType": "enterprise",
+        "individualUsage": ["overall": ["enabled": true, "used": 9458,
+                                          "limit": 255000, "remaining": 245542]]])
+    expect(waitUntil { collector.snapshot()?.providers.first?.freshness == .fresh })
     collector.stop()
 }
 

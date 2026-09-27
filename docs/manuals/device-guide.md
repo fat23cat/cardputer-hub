@@ -164,10 +164,11 @@ the next Mac supplies its own data.
 With a current Companion and Codex Plus, the small `R×N` mark on the main
 screen shows the number of available reset credits. Its absence means that
 the count is unavailable; `R×0` means none remain. Press Enter for LIMITS
-(used, left and reset timing), then Left or Right for RESETS (count, titles
+(two separate columns for used, left and reset timing). Press the `,` / `/`
+keys marked Left / Right without Fn to switch to RESETS (count, short titles
 and expiry). Expiry appears in days, hours, or minutes; `EXP NOW` means it has
 elapsed, and `EXP --` means its timing is unknown. Up/Down scrolls when there
-are more than two detail rows. Enter
+are more than two detail rows; the `;` / `.` keys work without Fn. Enter
 returns to the main dashboard; Escape closes AI USAGE. These details are
 read-only and appear only for Codex Plus.
 

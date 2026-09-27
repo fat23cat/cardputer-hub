@@ -776,9 +776,17 @@ void test_plus_reset_details_navigation_and_session_clear() {
     const core::InputEvent right{core::InputEventType::NamedKey, 0, core::NamedKey::Right, {}};
     const core::InputEvent down{core::InputEventType::NamedKey, 0, core::NamedKey::Down, {}};
     display.labels.clear();
+    display.positions.clear();
     app.update({enter}, {});
     TEST_ASSERT_TRUE(std::find(display.labels.begin(), display.labels.end(), "USED") !=
                      display.labels.end());
+    const auto fiveHour = std::find(display.labels.begin(), display.labels.end(), "5 HOUR");
+    const auto week = std::find(display.labels.begin(), display.labels.end(), "WEEK");
+    TEST_ASSERT_TRUE(fiveHour != display.labels.end());
+    TEST_ASSERT_TRUE(week != display.labels.end());
+    TEST_ASSERT_TRUE(
+        display.positions[static_cast<std::size_t>(week - display.labels.begin())].x >
+        display.positions[static_cast<std::size_t>(fiveHour - display.labels.begin())].x + 80);
     TEST_ASSERT_TRUE(std::find(display.labels.begin(), display.labels.end(), "STALE") ==
                      display.labels.end());
     f.usage.update(std::chrono::seconds(30));
@@ -794,8 +802,32 @@ void test_plus_reset_details_navigation_and_session_clear() {
                      display.labels.end());
     TEST_ASSERT_TRUE(std::find(display.labels.begin(), display.labels.end(), "STALE") !=
                      display.labels.end());
+    const core::InputEvent comma{
+        core::InputEventType::PrintableCharacter, ',', core::NamedKey::Tab, {}};
+    const core::InputEvent slash{
+        core::InputEventType::PrintableCharacter, '/', core::NamedKey::Tab, {}};
+    display.labels.clear();
+    app.update({comma}, {});
+    TEST_ASSERT_TRUE(std::find(display.labels.begin(), display.labels.end(), "5 HOUR") !=
+                     display.labels.end());
+    display.labels.clear();
+    app.update({slash}, {});
+    TEST_ASSERT_TRUE(std::find(display.labels.begin(), display.labels.end(), "RESET CREDITS") !=
+                     display.labels.end());
     display.labels.clear();
     app.update({down}, {});
+    TEST_ASSERT_TRUE(std::find(display.labels.begin(), display.labels.end(), "#3  CREDIT 3") !=
+                     display.labels.end());
+    const core::InputEvent semicolon{
+        core::InputEventType::PrintableCharacter, ';', core::NamedKey::Tab, {}};
+    const core::InputEvent period{
+        core::InputEventType::PrintableCharacter, '.', core::NamedKey::Tab, {}};
+    display.labels.clear();
+    app.update({semicolon}, {});
+    TEST_ASSERT_TRUE(std::find(display.labels.begin(), display.labels.end(), "#1  CREDIT 1") !=
+                     display.labels.end());
+    display.labels.clear();
+    app.update({period}, {});
     TEST_ASSERT_TRUE(std::find(display.labels.begin(), display.labels.end(), "#3  CREDIT 3") !=
                      display.labels.end());
     display.labels.clear();

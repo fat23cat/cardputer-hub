@@ -515,7 +515,8 @@ Normalize title on the Mac for the display:
 
 ```text
 uppercase presentation
-truncate at a UTF-8 code-point boundary if needed
+prefer FULL RESET when it identifies a longer full-reset title
+otherwise shorten to 16 UTF-8 bytes at a code-point boundary if needed
 ```
 
 Example:
@@ -715,17 +716,17 @@ Target:
 240 × 135
 ```
 
-Recommended structure:
+Delivered structure:
 
 ```text
-provider row
-y = 5..16
+provider row at y = 6
 
-5-hour block
-y = 23..57
+5-hour column at x = 8..112
+week column at x = 128..232
 
-week block
-y = 63..97
+each column:
+window name, large USED percentage, remaining bar,
+LEFT percentage, reset timing
 
 footer separator
 y ≈ 112
@@ -734,25 +735,8 @@ footer
 y = 118..132
 ```
 
-Example field alignment:
-
-```text
-section name
-x = 8
-
-value labels:
-USED
-LEFT
-RESET
-x = 8
-
-values:
-right aligned to x = 232
-```
-
-No progress bars are required inside the expanded LIMITS page.
-
-The main dashboard already provides the visual bars.
+The physical arrow-marked `,` / `/` keys switch the pages without Fn.
+The physical `;` / `.` keys scroll RESETS without Fn. Logical arrows work too.
 
 Expanded mode prioritizes exact textual details.
 

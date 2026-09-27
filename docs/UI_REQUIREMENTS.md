@@ -552,11 +552,13 @@ not wake the LCD. Unchanged display
 state does not continuously redraw.
 For Codex Plus on protocol v4, the main provider row adds a compact `R×N`
 badge when the reset-credit count is known, including zero. Enter opens two
-read-only detail pages: LIMITS shows used, left and reset for both rolling
-windows; RESETS shows the known count and up to two entries at once. Known
+read-only detail pages: LIMITS shows the two rolling windows in separate
+side-by-side columns, each with used, left and reset; RESETS shows the known
+count and up to two entries at once, with concise titles. Known
 expiry uses whole days, hours, or minutes; an elapsed expiry shows `EXP NOW`
-and an unknown expiry shows `EXP --`. Left/Right
-switches detail pages, Up/Down scrolls the RESETS list, and Enter returns to
+and an unknown expiry shows `EXP --`. The physical `,` / `/` keys switch
+detail pages without Fn; the physical `;` / `.` keys scroll RESETS without Fn.
+Logical arrow keys also work. Enter returns to
 the dashboard. Both detail pages show `STALE` when the provider data is stale.
 Escape remains the shared Mini App exit. Business and Cursor
 screens retain their existing layout and behavior.
