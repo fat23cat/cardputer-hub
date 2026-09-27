@@ -1,5 +1,7 @@
 #include "services/ai_usage/ai_usage_service.h"
 
+#include <algorithm>
+
 namespace cardputer_hub::services {
 namespace {
 bool sameMetric(const connectivity::AiUsageMetric& left,
@@ -25,6 +27,13 @@ bool samePresentation(const connectivity::CompanionAiUsage& left,
     }
     return true;
 }
+
+bool resetLabelChanges(std::uint32_t oldSeconds, std::uint32_t newSeconds) noexcept {
+    if (oldSeconds >= 86400 || newSeconds >= 86400)
+        return (oldSeconds >= 86400) != (newSeconds >= 86400) ||
+               oldSeconds / 3600 != newSeconds / 3600;
+    return oldSeconds / 60 != newSeconds / 60;
+}
 } // namespace
 
 void AiUsageService::clear() {
@@ -33,6 +42,7 @@ void AiUsageService::clear() {
     requestId_ = 0;
     sincePoll_ = {};
     sinceSample_ = {};
+    countdownElapsed_ = {};
     ++revision_;
 }
 
@@ -61,6 +71,20 @@ void AiUsageService::update(std::chrono::milliseconds elapsed) {
         clear();
         request();
     }
+    countdownElapsed_ += elapsed;
+    const auto passedSeconds =
+        std::chrono::duration_cast<std::chrono::seconds>(countdownElapsed_).count();
+    if (passedSeconds > 0) {
+        countdownElapsed_ -= std::chrono::seconds(passedSeconds);
+        const auto step = static_cast<std::uint64_t>(passedSeconds);
+        for (std::uint8_t i = 0; i < snapshot_.providerCount; ++i) {
+            auto& provider = snapshot_.providers[i];
+            for (std::uint8_t j = 0; j < provider.metricCount; ++j) {
+                auto& remaining = provider.metrics[j].resetRemainingSeconds;
+                remaining = step >= remaining ? 0 : remaining - static_cast<std::uint32_t>(step);
+            }
+        }
+    }
     while (const auto completion =
                companion_.takeCompletedRequest(connectivity::CompanionOperation::AiUsage)) {
         if (!available_ || !inFlight_ || completion->requestId != requestId_)
@@ -72,10 +96,36 @@ void AiUsageService::update(std::chrono::milliseconds elapsed) {
         if (!connectivity::readAiUsage(completion->message, next))
             continue;
         sinceSample_ = {};
-        if (!samePresentation(snapshot_, next)) {
-            snapshot_ = next;
-            ++revision_;
+        bool timerCorrection = false;
+        bool newReset = false;
+        for (std::uint8_t i = 0; i < next.providerCount; ++i) {
+            auto& provider = next.providers[i];
+            for (std::uint8_t j = 0; j < provider.metricCount; ++j) {
+                auto& metric = provider.metrics[j];
+                if (metric.resetAt == 0) {
+                    metric.resetRemainingSeconds = 0;
+                    continue;
+                }
+                if (i < snapshot_.providerCount &&
+                    provider.provider == snapshot_.providers[i].provider &&
+                    j < snapshot_.providers[i].metricCount &&
+                    metric.kind == snapshot_.providers[i].metrics[j].kind &&
+                    metric.resetAt == snapshot_.providers[i].metrics[j].resetAt) {
+                    const auto oldSeconds = snapshot_.providers[i].metrics[j].resetRemainingSeconds;
+                    metric.resetRemainingSeconds =
+                        std::min(oldSeconds, metric.resetRemainingSeconds);
+                    timerCorrection |= resetLabelChanges(oldSeconds, metric.resetRemainingSeconds);
+                } else {
+                    newReset = true;
+                }
+            }
         }
+        const bool presentationChanged = !samePresentation(snapshot_, next);
+        snapshot_ = next;
+        if (newReset)
+            countdownElapsed_ = {};
+        if (presentationChanged || timerCorrection)
+            ++revision_;
     }
     if (!available_)
         return;

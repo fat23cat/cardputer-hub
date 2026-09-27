@@ -110,7 +110,6 @@ void AiUsageApp::onActivate() {
     selected_ = false;
     selectionRemaining_ = {};
     countdownElapsed_ = {};
-    countdownSeconds_ = 0;
 }
 
 void AiUsageApp::onDeactivate() {
@@ -130,10 +129,7 @@ void AiUsageApp::drawMetric(const connectivity::AiUsageMetric& metric, int top, 
         label(display_, core::rightAlignedTextX(text, 232), top + 24, text, color);
         display_.fillRectangle({8, top + 40}, 224, 7, core::palette::pale);
         display_.fillRectangle({8, top + 40}, 224 * percent / 100, 7, color);
-        resetText(text, sizeof(text), metric.resetAt,
-                  metric.resetRemainingSeconds > countdownSeconds_
-                      ? metric.resetRemainingSeconds - countdownSeconds_
-                      : 0);
+        resetText(text, sizeof(text), metric.resetAt, metric.resetRemainingSeconds);
         label(display_, 8, top + 53, text, core::palette::ordinal);
     } else {
         label(display_, 8, top, metricName(metric.kind));
@@ -141,10 +137,7 @@ void AiUsageApp::drawMetric(const connectivity::AiUsageMetric& metric, int top, 
         label(display_, core::rightAlignedTextX(text, 232), top, text, color);
         display_.fillRectangle({8, top + 15}, 224, 7, core::palette::pale);
         display_.fillRectangle({8, top + 15}, 224 * percent / 100, 7, color);
-        resetText(text, sizeof(text), metric.resetAt,
-                  metric.resetRemainingSeconds > countdownSeconds_
-                      ? metric.resetRemainingSeconds - countdownSeconds_
-                      : 0);
+        resetText(text, sizeof(text), metric.resetAt, metric.resetRemainingSeconds);
         label(display_, 8, top + 27, text, core::palette::ordinal);
     }
 }
@@ -228,14 +221,11 @@ void AiUsageApp::update(const core::InputEvents& input, std::chrono::millisecond
     }
     if (usage_.revision() != renderedRevision_) {
         renderedRevision_ = usage_.revision();
-        countdownElapsed_ = {};
-        countdownSeconds_ = 0;
         rendered_ = false;
     }
     countdownElapsed_ += elapsed;
     if (countdownElapsed_ >= std::chrono::seconds(60)) {
         countdownElapsed_ %= std::chrono::seconds(60);
-        countdownSeconds_ += 60;
         rendered_ = false;
     }
     if (!rendered_) {

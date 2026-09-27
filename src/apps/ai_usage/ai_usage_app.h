@@ -30,7 +30,6 @@ class AiUsageApp final : public IMiniApp {
     bool selected_ = false;
     std::chrono::milliseconds selectionRemaining_{0};
     std::chrono::milliseconds countdownElapsed_{0};
-    std::uint32_t countdownSeconds_ = 0;
 };
 
 } // namespace cardputer_hub::apps

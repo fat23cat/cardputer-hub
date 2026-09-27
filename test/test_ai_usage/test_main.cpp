@@ -410,6 +410,7 @@ void test_identical_poll_keeps_revision_freshness_and_countdown() {
     app.update({}, {});
     TEST_ASSERT_EQUAL_INT(draws, display.draws);
     display.labels.clear();
+    f.usage.update(std::chrono::seconds(60));
     app.update({}, std::chrono::seconds(60));
     TEST_ASSERT_TRUE(std::find(display.labels.begin(), display.labels.end(), "RESET 0H 58M") !=
                      display.labels.end());
@@ -430,6 +431,71 @@ void test_identical_poll_keeps_revision_freshness_and_countdown() {
     TEST_ASSERT_TRUE(f.usage.revision() > staleRevision);
     TEST_ASSERT_EQUAL_UINT8(static_cast<unsigned>(AiFreshness::Fresh),
                             static_cast<unsigned>(f.usage.snapshot().providers[0].freshness));
+}
+
+void test_reset_countdown_does_not_rewind_on_cached_poll_or_percent_change() {
+    Fixture f;
+    f.ready();
+    f.respond(1);
+    auto value = f.usage.snapshot();
+    value.providers[0].metrics[0].resetAt = 12345;
+    value.providers[0].metrics[0].resetRemainingSeconds = 51 * 60;
+    f.usage.update(std::chrono::seconds(30));
+    f.respondValue(value);
+
+    Display display;
+    apps::AiUsageApp app(f.usage, f.gauge, display);
+    app.onActivate();
+    app.update({}, {});
+    const auto unchangedRevision = f.usage.revision();
+    for (int i = 0; i < 4; ++i) {
+        f.usage.update(std::chrono::seconds(30));
+        f.respondValue(value); // Companion can return the same cached sample.
+        app.update({}, std::chrono::seconds(30));
+    }
+    TEST_ASSERT_EQUAL_UINT32(49 * 60,
+                             f.usage.snapshot().providers[0].metrics[0].resetRemainingSeconds);
+    TEST_ASSERT_EQUAL_UINT32(unchangedRevision, f.usage.revision());
+    TEST_ASSERT_TRUE(std::find(display.labels.begin(), display.labels.end(), "RESET 0H 49M") !=
+                     display.labels.end());
+
+    value.providers[0].metrics[0].remainingPercent = 0;
+    value.providers[0].metrics[0].remaining = 0;
+    value.providers[0].metrics[0].used = 100;
+    f.usage.update(std::chrono::seconds(30));
+    f.respondValue(value); // Percent changed, but reset data is still cached.
+    display.labels.clear();
+    app.update({}, std::chrono::seconds(30));
+    TEST_ASSERT_EQUAL_UINT32(48 * 60 + 30,
+                             f.usage.snapshot().providers[0].metrics[0].resetRemainingSeconds);
+    TEST_ASSERT_TRUE(std::find(display.labels.begin(), display.labels.end(), "RESET 0H 48M") !=
+                     display.labels.end());
+
+    app.onDeactivate();
+    app.onActivate();
+    display.labels.clear();
+    app.update({}, {});
+    TEST_ASSERT_TRUE(std::find(display.labels.begin(), display.labels.end(), "RESET 0H 48M") !=
+                     display.labels.end());
+
+    value.providers[0].metrics[0].resetRemainingSeconds = 44 * 60;
+    f.usage.update(std::chrono::seconds(30));
+    const auto beforeCorrection = f.usage.revision();
+    f.respondValue(value);
+    TEST_ASSERT_EQUAL_UINT32(44 * 60,
+                             f.usage.snapshot().providers[0].metrics[0].resetRemainingSeconds);
+    TEST_ASSERT_TRUE(f.usage.revision() > beforeCorrection);
+    display.labels.clear();
+    app.update({}, {});
+    TEST_ASSERT_TRUE(std::find(display.labels.begin(), display.labels.end(), "RESET 0H 44M") !=
+                     display.labels.end());
+
+    value.providers[0].metrics[0].resetAt = 12346;
+    value.providers[0].metrics[0].resetRemainingSeconds = 5 * 3600;
+    f.usage.update(std::chrono::seconds(30));
+    f.respondValue(value);
+    TEST_ASSERT_EQUAL_UINT32(5 * 3600,
+                             f.usage.snapshot().providers[0].metrics[0].resetRemainingSeconds);
 }
 
 void test_reset_text_distinguishes_unknown_from_known_zero() {
@@ -604,6 +670,7 @@ int main() {
     RUN_TEST(test_gauge_does_not_warn_when_second_metric_changes_provider);
     RUN_TEST(test_gauge_warns_when_same_metric_crosses_critical_threshold);
     RUN_TEST(test_identical_poll_keeps_revision_freshness_and_countdown);
+    RUN_TEST(test_reset_countdown_does_not_rewind_on_cached_poll_or_percent_change);
     RUN_TEST(test_reset_text_distinguishes_unknown_from_known_zero);
     RUN_TEST(test_remaining_percent_is_right_aligned_in_all_layouts);
     RUN_TEST(test_home_then_work_replaces_provider_set_and_puzzle);

@@ -29,6 +29,7 @@ class AiUsageService {
     std::uint8_t requestId_ = 0;
     std::chrono::milliseconds sincePoll_{0};
     std::chrono::milliseconds sinceSample_{0};
+    std::chrono::milliseconds countdownElapsed_{0};
 };
 
 } // namespace cardputer_hub::services

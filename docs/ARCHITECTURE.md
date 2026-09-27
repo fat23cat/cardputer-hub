@@ -1830,8 +1830,12 @@ retains the previous provider as stale. Firmware `AiUsageService` polls the
 cached result every 30 seconds, keeps at most one request outstanding, and
 clears its data as soon as the active Companion session changes. It changes
 its UI revision only when presentation values change; repeated identical polls
-still refresh the freshness timer. `AiUsageApp` and the Puzzle controller consume
-only its bounded snapshot; neither parses provider JSON or BLE envelopes.
+still refresh the freshness timer. The service advances reset countdowns while
+the Mini App is closed and reconciles each response against the current countdown:
+cached samples cannot increase the time remaining, while a lower reported
+remaining time corrects it promptly. A new reset identity starts a new countdown.
+`AiUsageApp` and the Puzzle controller consume only the bounded snapshot; neither
+parses provider JSON or BLE envelopes.
 
 On macOS, `CompanionCentral` owns CoreBluetooth attach and reconnect decisions.
 `CompanionSession` owns negotiated protocol state, the last valid message time,
