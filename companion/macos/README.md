@@ -38,7 +38,7 @@ forgetting the bond. **Start at Login** changes the actual macOS login-item
 registration; it is not enabled automatically. Diagnostics shows session and
 capability state, and Quit stops the Companion without changing the login setting.
 
-The Companion offers protocol v3 with v2 and v1 fallback. With v2 it advertises
+The Companion offers protocol v4 with v3, v2 and v1 fallback. With v2 it advertises
 `SYSTEM_METRICS` and answers foreground polling from MAC STATUS. Sampling uses
 native macOS APIs for CPU, physical memory usage estimate, memory pressure,
 root-volume usage, battery, primary-interface network rates, and thermal state.
@@ -64,3 +64,10 @@ Absent providers are omitted; a previously working provider with a failed
 refresh is marked stale. Provider tokens remain on the Mac and never enter
 BLE messages or logs. Cursor usage uses a private provider adapter that may
 need updating if Cursor changes its service.
+
+With v4, Codex Plus also sends its known reset-credit count and up to four
+available detail rows from the same rate-limits refresh, never more than the
+available count. Titles are uppercased and shortened to a compact display label
+on the Mac. A single failed refresh keeps the most recent sample fresh for up
+to 90 seconds; a longer gap marks it stale. The v3 AI_USAGE
+payload remains unchanged for older firmware. Reset details are read-only.

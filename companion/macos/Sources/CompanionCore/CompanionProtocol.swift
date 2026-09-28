@@ -37,7 +37,7 @@ public enum CompanionCapability: UInt8 {
 
 public struct CompanionConstants {
     public static let protocolVersion: UInt8 = 1
-    public static let latestProtocolVersion: UInt8 = 3
+    public static let latestProtocolVersion: UInt8 = 4
     public static let maxMessageSize = 256
     public static let envelopeSize = 8
     public static let maxPayloadSize = maxMessageSize - envelopeSize
@@ -236,7 +236,8 @@ public enum CompanionCodec {
         case .aiUsage:
             guard message.version >= 3 else { return false }
             if message.kind == .request || message.status != .ok { return message.payload.isEmpty }
-            return AiUsageSnapshot.decode(message.payload) != nil
+            return message.payload.first == (message.version >= 4 ? 2 : 1) &&
+                AiUsageSnapshot.decode(message.payload) != nil
         }
     }
 }

@@ -524,7 +524,7 @@ bool setAiUsage(CompanionEnvelope& message, const CompanionAiUsage& usage) {
         return false;
     std::size_t pos = 0;
     auto* p = message.payload.data();
-    p[pos++] = 1;
+    p[pos++] = message.version >= 4 ? 2 : 1;
     p[pos++] = static_cast<std::uint8_t>(usage.state);
     p[pos++] = usage.providerCount;
     write32(p + pos, usage.generation);
@@ -539,6 +539,8 @@ bool setAiUsage(CompanionEnvelope& message, const CompanionAiUsage& usage) {
         p[pos++] = static_cast<std::uint8_t>(provider.freshness);
         p[pos++] = provider.metricCount;
         for (std::uint8_t j = 0; j < provider.metricCount; ++j) {
+            if (pos + 23 > companionMaxPayloadSize)
+                return false;
             const auto& metric = provider.metrics[j];
             p[pos++] = static_cast<std::uint8_t>(metric.kind);
             p[pos++] = static_cast<std::uint8_t>(metric.unit);
@@ -554,6 +556,35 @@ bool setAiUsage(CompanionEnvelope& message, const CompanionAiUsage& usage) {
             write32(p + pos, metric.resetRemainingSeconds);
             pos += 4;
         }
+        if (message.version >= 4) {
+            const auto& resets = provider.resetCredits;
+            if (resets.known &&
+                (provider.provider != AiProvider::Codex || provider.plan != AiPlan::Plus ||
+                 resets.creditCount > 4 || resets.creditCount > resets.availableCount))
+                return false;
+            if (pos + (resets.known ? 3U : 1U) > companionMaxPayloadSize)
+                return false;
+            p[pos++] = resets.known ? 1 : 0;
+            if (resets.known) {
+                p[pos++] = resets.availableCount;
+                p[pos++] = resets.creditCount;
+                for (std::uint8_t j = 0; j < resets.creditCount; ++j) {
+                    const auto& credit = resets.credits[j];
+                    const auto length = strnlen(credit.title.data(), credit.title.size());
+                    if (length == 0 || length > 24 ||
+                        !isUtf8BundleIdentifier({credit.title.data(), length}) ||
+                        pos + 1 + length + 8 > companionMaxPayloadSize)
+                        return false;
+                    p[pos++] = static_cast<std::uint8_t>(length);
+                    std::memcpy(p + pos, credit.title.data(), length);
+                    pos += length;
+                    write32(p + pos, credit.expiresAt);
+                    pos += 4;
+                    write32(p + pos, credit.expiresRemainingSeconds);
+                    pos += 4;
+                }
+            }
+        }
     }
     message.payloadSize = static_cast<std::uint8_t>(pos);
     return true;
@@ -562,11 +593,13 @@ bool setAiUsage(CompanionEnvelope& message, const CompanionAiUsage& usage) {
 bool readAiUsage(const CompanionEnvelope& message, CompanionAiUsage& usage) {
     if (message.operation != CompanionOperation::AiUsage ||
         message.kind != CompanionKind::Response || message.status != CompanionStatus::Ok ||
-        message.version < 3 || message.payloadSize < 7 || message.payload[0] != 1 ||
-        message.payload[1] < 1 || message.payload[1] > 2 || message.payload[2] > 2)
+        message.version < 3 || message.payloadSize < 7 ||
+        message.payload[0] != (message.version >= 4 ? 2 : 1) || message.payload[1] < 1 ||
+        message.payload[1] > 2 || message.payload[2] > 2)
         return false;
     CompanionAiUsage result{};
     const auto* p = message.payload.data();
+    result.schemaVersion = p[0];
     result.state = static_cast<AiUsageState>(p[1]);
     result.providerCount = p[2];
     result.generation = read32(p + 3);
@@ -602,6 +635,34 @@ bool readAiUsage(const CompanionEnvelope& message, CompanionAiUsage& usage) {
         }
         if (!validAiProvider(provider))
             return false;
+        if (message.version >= 4) {
+            if (pos >= message.payloadSize || p[pos] > 1)
+                return false;
+            auto& resets = provider.resetCredits;
+            resets.known = p[pos++] == 1;
+            if (resets.known) {
+                if (provider.provider != AiProvider::Codex || provider.plan != AiPlan::Plus ||
+                    pos + 2 > message.payloadSize || p[pos + 1] > 4 || p[pos + 1] > p[pos])
+                    return false;
+                resets.availableCount = p[pos++];
+                resets.creditCount = p[pos++];
+                for (std::uint8_t j = 0; j < resets.creditCount; ++j) {
+                    if (pos >= message.payloadSize || p[pos] == 0 || p[pos] > 24)
+                        return false;
+                    const auto length = p[pos++];
+                    if (pos + length + 8 > message.payloadSize ||
+                        !isUtf8BundleIdentifier({reinterpret_cast<const char*>(p + pos), length}))
+                        return false;
+                    auto& credit = resets.credits[j];
+                    std::memcpy(credit.title.data(), p + pos, length);
+                    pos += length;
+                    credit.expiresAt = read32(p + pos);
+                    pos += 4;
+                    credit.expiresRemainingSeconds = read32(p + pos);
+                    pos += 4;
+                }
+            }
+        }
     }
     if (pos != message.payloadSize)
         return false;

@@ -49,6 +49,7 @@ ownership matrix with invariants. Do not rewrite older plans into that format.
 | [037](037-mac-status-telemetry.md) | MAC STATUS and macOS system telemetry | Software implemented; automated gates passed; physical Cardputer-Adv acceptance pending |
 | [037/2](037-2-mac-status-telemetry.md) | macOS Companion menu-bar UI | Implemented; appearance validation pending |
 | [038](038-ai-usage.md) | AI usage monitor and Puzzle quota gauge | Software implemented; physical acceptance pending |
+| [038/2](038-2-codex-plus-reset-details.md) | Codex Plus reset credits and expanded details | Software implemented; physical acceptance pending |
 | [036](036-ambient-home-redesign.md) | Device-centric ambient Home | Software implemented; physical Cardputer-Adv visual acceptance pending |
 | [036/2](036-2-home-actions-and-connected-device-context.md) | Home actions and connected device context | Software implemented; physical Cardputer-Adv visual acceptance pending |
 

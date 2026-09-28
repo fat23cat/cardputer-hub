@@ -1148,6 +1148,19 @@ bool quiesceStack() {
         }
     }
     if (context.hostInitialized) {
+        // The notification event owns a block from NimBLE's NPL event pool.
+        // Release it while that pool is still alive; otherwise re-enable would
+        // reuse its dangling pointer and corrupt the new pool's free list.
+        if (context.notifyEvent.event != nullptr) {
+            if (ble_npl_event_is_queued(&context.notifyEvent)) {
+                ble_npl_eventq_remove(nimble_port_get_dflt_eventq(), &context.notifyEvent);
+            }
+            ble_npl_event_deinit(&context.notifyEvent);
+        }
+        if (context.notifyRequest.payload != nullptr) {
+            os_mbuf_free_chain(context.notifyRequest.payload);
+        }
+        context.notifyRequest = {};
         if (esp_nimble_deinit() != ESP_OK) {
             return false;
         }

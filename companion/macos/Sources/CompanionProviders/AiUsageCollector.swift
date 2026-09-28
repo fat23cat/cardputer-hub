@@ -7,12 +7,14 @@ public final class AiUsageCollector: AiUsageCollecting {
     private let codex: AiUsageProviderRefreshing
     private let cursor: AiUsageProviderRefreshing
     private let scheduleRetry: (TimeInterval, @escaping () -> Void) -> Void
+    private let now: () -> Date
     private var cached = AiUsageSnapshot()
     private var timer: Timer?
     private var wakeObserver: NSObjectProtocol?
     private var refreshSerial = DispatchQueue(label: "org.cardputer.companion.ai-collector")
     private var pending = 0
     private var samples: [AiProviderId: AiUsageProviderSnapshot] = [:]
+    private var freshAt: [AiProviderId: Date] = [:]
     private var refreshId: UInt64 = 0
     private var retryId: UInt64 = 0
     private var retryDelay: TimeInterval = 1
@@ -25,12 +27,14 @@ public final class AiUsageCollector: AiUsageCollecting {
     }
 
     init(codex: AiUsageProviderRefreshing, cursor: AiUsageProviderRefreshing,
+         now: @escaping () -> Date = Date.init,
          scheduleRetry: @escaping (TimeInterval, @escaping () -> Void) -> Void = { delay, work in
              DispatchQueue.global(qos: .utility).asyncAfter(deadline: .now() + delay,
                                                              execute: work)
          }) {
         self.codex = codex
         self.cursor = cursor
+        self.now = now
         self.scheduleRetry = scheduleRetry
         codex.setRecoveryHandler { [weak self] in self?.providerExited(.codex) }
     }
@@ -56,7 +60,7 @@ public final class AiUsageCollector: AiUsageCollecting {
         if let wakeObserver { NSWorkspace.shared.notificationCenter.removeObserver(wakeObserver) }
         wakeObserver = nil
         refreshSerial.sync {
-            running = false; samples.removeAll(); pending = 0
+            running = false; samples.removeAll(); freshAt.removeAll(); pending = 0
             refreshRequested = false; cycleFailed = false; retryDelay = 1
             refreshId &+= 1; retryId &+= 1
         }
@@ -149,10 +153,15 @@ public final class AiUsageCollector: AiUsageCollecting {
             guard self.running, self.refreshId == id else { return }
             if absent {
                 self.samples.removeValue(forKey: provider)
+                self.freshAt.removeValue(forKey: provider)
             } else if let sample {
                 self.samples[provider] = sample
+                self.freshAt[provider] = self.now()
             } else if var prior = self.samples[provider] {
-                prior.freshness = .stale
+                let age = self.freshAt[provider].map { self.now().timeIntervalSince($0) }
+                if prior.freshness != .stale {
+                    prior.freshness = age.map { $0 < 90 } == true ? .fresh : .stale
+                }
                 self.samples[provider] = prior
             }
             if sample == nil && !absent { self.cycleFailed = true }

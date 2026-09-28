@@ -24,7 +24,7 @@ list currently contains **SYSTEM**, a read-only status screen for battery,
 Bluetooth, the selected host, Wi-Fi, and firmware version; **POMODORO**, a
 background focus timer; **LED GALLERY**, an 8×8 matrix animation app; and **MAC CONTROL** when a live Cardputer Companion
 session is ready. **MAC STATUS** appears when that Companion supports system
-metrics. **AI USAGE** appears with a v3 Companion and shows automatically
+metrics. **AI USAGE** appears with a v3 or newer Companion and shows automatically
 discovered Codex and Cursor account quota. MAC CONTROL is a full-screen
 3×2 grid. Press the matching number to launch or focus that Mac app; production
 firmware binds **1** to Telegram. Empty numbered tiles do nothing. Left and
@@ -150,8 +150,9 @@ Cursor Agent sign-in on that Mac; an absent provider is omitted. Plus accounts
 show 5-hour and weekly limits, Business shows credits, and Cursor Enterprise
 shows personal spend. Bars and `LEFT` percentages show remaining capacity.
 An unavailable reset time appears as `RESET --`.
-`STALE` marks a provider whose latest refresh failed; on a single-metric screen
-it appears below the provider name. `CHECKING AI` appears during discovery;
+`STALE` marks provider data that is no longer fresh; on a single-metric screen
+it appears below the provider name. `CHECKING AI` appears during discovery and
+checks again every two seconds until the Mac finishes;
 `NO AI ACCOUNTS` appears if none can be read. Up/Down selects
 a visible metric for roughly three seconds and expands its gauge on Unit
 Puzzle. Otherwise Puzzle shows one full 8×8 gauge or two four-row gauges.
@@ -160,6 +161,19 @@ remaining limit. The dots stay visible when the limit reaches zero.
 Pomodoro and LED Gallery take priority over the resting AI gauge and ordinary
 low-quota or reset feedback. Companion loss clears the gauge and account values;
 the next Mac supplies its own data.
+
+With a current Companion and Codex Plus, the small `R×N` mark on the main
+screen shows the number of available reset credits. Its absence means that
+the count is unavailable; `R×0` means none remain. Press Enter for LIMITS
+(two separate columns for used, left and reset timing). Press the `,` / `/`
+keys marked Left / Right without Fn to switch to RESETS (count, short titles
+and expiry). Expiry appears in days, hours, or minutes; `EXP NOW` means it has
+elapsed, and `EXP --` means its timing is unknown. Up/Down scrolls when there
+are more than two detail rows; the `;` / `.` keys work without Fn. Enter
+returns to the main dashboard; Escape closes AI USAGE. These details are
+read-only and appear only for Codex Plus. If one rolling window is unavailable,
+its LIMITS column shows `--` while RESETS remains accessible. Titles that the
+Cardputer font cannot show appear as `RESET CREDIT`.
 
 ## Wi-Fi
 
@@ -200,7 +214,10 @@ instead of moving a list.
 | Escape in SYSTEM | Return to Apps |
 | Escape in POMODORO | Return to Apps; the timer keeps running |
 | Escape in LED GALLERY | Return to Apps; Pomodoro LED progress returns if active |
-| Up/Down in AI USAGE | Temporarily expand a quota metric on Unit Puzzle |
+| Up/Down on the AI USAGE dashboard | Temporarily expand a quota metric on Unit Puzzle |
+| Enter in Codex Plus AI USAGE | Open LIMITS details; from details return to the dashboard |
+| Left/Right in Codex Plus details | Switch LIMITS and RESETS |
+| Up/Down on the RESETS page | Scroll available reset-credit details |
 | Left/Right, 1–0, Fn+1–0 in LED GALLERY | Select one of twenty effects |
 | Space in LED GALLERY | Trigger the current effect's primary action shown on the LCD |
 | Space in POMODORO | Start, pause, or resume |
@@ -344,7 +361,7 @@ Off, report/interruption and USB hotplug acceptance remains tracked in
 [plan 017](../plans/017-hid-transport-arbitration.md#0-current-closeout-status).
 The current firmware includes Apps, SYSTEM, POMODORO, LED GALLERY, MAC CONTROL when
 Companion is ready, MAC STATUS when system telemetry is available, and AI USAGE
-with a v3 Companion. It does not include profile-metadata editing or template
+with a v3 or newer Companion. It does not include profile-metadata editing or template
 resolution, Action-to-HID mappings, a Mac companion CLI/control protocol,
 Wi-Fi network scanning, or weather/VPS/Telegram features. Boot/status sound
 cues from the broader UI requirements remain planned. Unit Puzzle LED Gallery

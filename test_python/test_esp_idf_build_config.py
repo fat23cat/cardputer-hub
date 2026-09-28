@@ -505,6 +505,18 @@ class EspIdfBuildConfigurationTests(unittest.TestCase):
         self.assertNotIn("esp_bt_main.h", adapter)
         self.assertNotIn("esp_bluedroid_", adapter)
 
+    def test_hid_event_is_released_before_nimble_pool_deinit(self) -> None:
+        adapter = self.read("src/hardware/esp32/bluetooth/esp32_bluetooth_adapter.cpp")
+        shutdown = adapter[
+            adapter.index("bool quiesceStack()") : adapter.index(
+                "void suppressIdentityBearingBluetoothLogTags()"
+            )
+        ]
+
+        release = shutdown.index("ble_npl_event_deinit(&context.notifyEvent);")
+        host_deinit = shutdown.index("esp_nimble_deinit()")
+        self.assertLess(release, host_deinit)
+
     def test_controller_identity_log_is_suppressed_before_bluetooth_init(self) -> None:
         adapter = self.read("src/hardware/esp32/bluetooth/esp32_bluetooth_adapter.cpp")
 

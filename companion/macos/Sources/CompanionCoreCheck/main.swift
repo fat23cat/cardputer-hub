@@ -296,7 +296,7 @@ enum CompanionCoreCheck {
         session.handle(zeroSession)
         expect(session.session == 0, "zero session hello-ack ignored")
         var wrongVersion = CompanionCodec.encode(validAck)!
-        wrongVersion[wrongVersion.count - 1] = 4
+        wrongVersion[wrongVersion.count - 1] = 5
         session.handle(wrongVersion)
         expect(session.session == 0, "wrong version hello-ack ignored")
         session.handle(CompanionCodec.encode(validAck)!)
@@ -368,7 +368,8 @@ enum CompanionCoreCheck {
         var v2Sent: [[UInt8]] = []
         v2.outgoing = { v2Sent.append($0) }
         v2.startHandshake()
-        expect(CompanionCodec.decode(v2Sent[0])?.payload == [3, 3, 2, 1], "v3 hello offers fallback")
+        expect(CompanionCodec.decode(v2Sent[0])?.payload == [4, 4, 3, 2, 1],
+               "v4 hello offers fallback")
         var v2Ack = CompanionEnvelope()
         v2Ack.kind = .helloAck
         v2Ack.session = 21
@@ -439,6 +440,117 @@ enum CompanionCoreCheck {
         expect(plusSample?.metrics.map(\.kind) == [.fiveHour, .week],
                "Codex windows identified by duration")
         expect(plusSample?.metrics.first?.remainingPercent == 63, "Codex shows remaining quota")
+        var plusWithSpend = plus
+        var plusLimits = plusWithSpend["rateLimits"] as! [String: Any]
+        plusLimits["individualLimit"] = ["limit": 100, "used": 1,
+                                         "remainingPercent": 99]
+        plusWithSpend["rateLimits"] = plusLimits
+        expect(AiUsageNormalization.codex(plusWithSpend)?.metrics.map(\.kind) ==
+               [.fiveHour, .week], "Plus rolling limits win over optional spend limit")
+        var plusWithResets = plus
+        plusWithResets["rateLimitResetCredits"] = ["availableCount": 2, "credits": [
+            ["status": "available", "title": "Full reset", "expiresAt": 90000],
+            ["status": "used", "title": "Old reset", "expiresAt": 80000],
+            ["status": "available", "title": "Later reset", "expiresAt": 120000]]]
+        let resetSample = AiUsageNormalization.codex(plusWithResets, now: displayNow)
+        expect(resetSample?.resetCredits?.availableCount == 2, "Plus reset count")
+        expect(resetSample?.resetCredits?.credits.map(\.title) == ["FULL RESET", "LATER RESET"],
+               "Only usable credits, sorted by expiry")
+        let resetUsage = AiUsageSnapshot(generation: 10, state: .ready,
+                                         providers: [resetSample!])
+        let v4Payload = resetUsage.encode(protocolVersion: 4)
+        expect(v4Payload?.first == 2 && AiUsageSnapshot.decode(v4Payload ?? []) == resetUsage,
+               "v4 reset credits round trip")
+        let fixtureCredit = AiResetCredit(title: "A", expiresAt: 1,
+                                           expiresRemainingSeconds: 60)
+        func resetPayload(available: UInt8, credits: [AiResetCredit],
+                          provider: AiProviderId = .codex, plan: AiPlan = .plus) -> [UInt8]? {
+            AiUsageSnapshot(state: .ready, providers: [
+                AiUsageProviderSnapshot(provider: provider, plan: plan,
+                    metrics: [resetSample!.metrics[0]],
+                    resetCredits: AiResetCredits(availableCount: available, credits: credits))
+            ]).encode(protocolVersion: 4)
+        }
+        expect(resetPayload(available: 0, credits: [fixtureCredit]) == nil,
+               "v4 rejects zero available with a detail")
+        expect(resetPayload(available: 1, credits: [fixtureCredit, fixtureCredit]) == nil,
+               "v4 rejects more details than available")
+        expect(resetPayload(available: 4, credits: Array(repeating: fixtureCredit, count: 4)) != nil &&
+               resetPayload(available: 7, credits: Array(repeating: fixtureCredit, count: 4)) != nil,
+               "v4 accepts bounded detail lists")
+        expect(resetPayload(available: 0, credits: []) != nil,
+               "v4 known zero is encodable")
+        expect(resetPayload(available: 1, credits: [fixtureCredit], provider: .cursor) == nil &&
+               resetPayload(available: 1, credits: [fixtureCredit], plan: .business) == nil,
+               "v4 reset details are Plus only")
+        if var invalid = resetPayload(available: 1, credits: [fixtureCredit]) {
+            let availableOffset = 7 + 4 + 23 + 1
+            let countOffset = availableOffset + 1
+            let titleLengthOffset = countOffset + 1
+            invalid[availableOffset] = 0
+            expect(AiUsageSnapshot.decode(invalid) == nil, "v4 invalid available count")
+            invalid[availableOffset] = 1
+            invalid[countOffset] = 2
+            expect(AiUsageSnapshot.decode(invalid) == nil, "v4 invalid detail count")
+            invalid[countOffset] = 1
+            invalid[titleLengthOffset + 1] = 0xff
+            expect(AiUsageSnapshot.decode(invalid) == nil, "v4 invalid UTF-8 title")
+            invalid[titleLengthOffset + 1] = 65
+            invalid[titleLengthOffset] = 24
+            expect(AiUsageSnapshot.decode(invalid) == nil, "v4 truncated title")
+            invalid[titleLengthOffset] = 1
+            expect(AiUsageSnapshot.decode(Array(invalid.dropLast())) == nil,
+                   "v4 truncated expiry")
+            expect(AiUsageSnapshot.decode(invalid + [0]) == nil, "v4 trailing byte")
+            invalid[7] = AiProviderId.cursor.rawValue
+            expect(AiUsageSnapshot.decode(invalid) == nil, "v4 Cursor reset payload")
+            invalid[7] = AiProviderId.codex.rawValue
+            invalid[8] = AiPlan.business.rawValue
+            expect(AiUsageSnapshot.decode(invalid) == nil, "v4 Business reset payload")
+        }
+        expect(resetUsage.encode(protocolVersion: 3)?.first == 1,
+               "v3 keeps original schema")
+        plusWithResets["rateLimitResetCredits"] = ["availableCount": 0,
+                                                     "credits": []]
+        expect(AiUsageNormalization.codex(plusWithResets)?.resetCredits?.availableCount == 0,
+               "known zero remains known")
+        plusWithResets["rateLimitResetCredits"] = ["availableCount": 1, "credits": [
+            ["status": "available", "title": "First reset", "expiresAt": 100],
+            ["status": "available", "title": "Second reset", "expiresAt": 200]]]
+        expect(AiUsageNormalization.codex(plusWithResets)?.resetCredits?.credits.count == 1,
+               "details never exceed available count")
+        plusWithResets["rateLimitResetCredits"] = ["availableCount": 1, "credits": [
+            ["status": "available", "title": "Full reset", "expiresAt": 100]]]
+        expect(AiUsageNormalization.codex(plusWithResets)?.resetCredits?.credits.first?.title ==
+               "FULL RESET", "short title normalized on Mac")
+        plusWithResets["rateLimitResetCredits"] = ["availableCount": 1, "credits": [
+            ["status": "available", "title": "Full reset (Weekly + 5 hr)",
+             "expiresAt": 100]]]
+        expect(AiUsageNormalization.codex(plusWithResets)?.resetCredits?.credits.first?.title ==
+               "FULL RESET", "reset detail uses a concise title")
+        plusWithResets["rateLimitResetCredits"] = ["availableCount": 1, "credits": [
+            ["status": "available", "title": "Additional Codex Rate Limit Reset",
+             "expiresAt": 100]]]
+        let longTitle = AiUsageNormalization.codex(plusWithResets)?
+            .resetCredits?.credits.first?.title
+        expect(longTitle?.hasPrefix("ADDITIONAL") == true &&
+               longTitle?.hasSuffix("...") == true && (longTitle?.utf8.count ?? 25) <= 24,
+               "long ASCII title keeps a bounded prefix")
+        plusWithResets["rateLimitResetCredits"] = ["availableCount": 1, "credits": [
+            ["status": "available", "title": String(repeating: "é", count: 20),
+             "expiresAt": 100]]]
+        let unicodeTitle = AiUsageNormalization.codex(plusWithResets)?
+            .resetCredits?.credits.first?.title
+        expect(unicodeTitle == "RESET CREDIT",
+               "title outside the Cardputer font falls back")
+        plusWithResets["rateLimitResetCredits"] = ["availableCount": 1, "credits": [
+            ["status": "available", "title": "Reset\ncredit", "expiresAt": 100]]]
+        expect(AiUsageNormalization.codex(plusWithResets)?.resetCredits?.credits.first?.title ==
+               "RESET CREDIT", "control characters in title fall back")
+        plusWithResets["rateLimitResetCredits"] = ["availableCount": "bad"]
+        let malformedResets = AiUsageNormalization.codex(plusWithResets)
+        expect(malformedResets?.metrics.count == 2 && malformedResets?.resetCredits == nil,
+               "bad optional reset data keeps Plus limits")
         let business: [String: Any] = ["planType": "business",
             "individualLimit": ["limit": "20000", "used": "19765.35930800438",
                                 "remainingPercent": 1, "resetsAt": 1790812800]]
@@ -496,11 +608,21 @@ enum CompanionCoreCheck {
                                                 metrics: [fixtureMetric])]).encode()!
         expect(CompanionCodec.encode(fixtureEnvelope) == fixture("ai-usage-response-v3.bin"),
                "v3 AI usage fixture")
+        var v4Fixture = fixtureEnvelope
+        v4Fixture.version = 4
+        v4Fixture.payload = AiUsageSnapshot(generation: 9, state: .ready,
+            providers: [AiUsageProviderSnapshot(provider: .codex, plan: .plus,
+                metrics: [fixtureMetric], resetCredits: AiResetCredits(availableCount: 2,
+                    credits: [AiResetCredit(title: "Full reset", expiresAt: 1790000000,
+                                            expiresRemainingSeconds: 86400)]))])
+            .encode(protocolVersion: 4)!
+        expect(CompanionCodec.encode(v4Fixture) == fixture("ai-usage-response-v4.bin"),
+               "v4 reset-credit fixture")
         let v3 = CompanionSession(applications: FakeApplications(), aiUsage: FakeAiUsage(usage))
         var v3Sent: [[UInt8]] = []
         v3.outgoing = { v3Sent.append($0) }
         v3.startHandshake()
-        expect(v3Sent[0] == fixture("hello-v3.bin"), "v3 hello fixture")
+        expect(v3Sent[0] == fixture("hello-v4.bin"), "v4 hello advertises fallbacks")
         var v3Ack = CompanionEnvelope()
         v3Ack.kind = .helloAck; v3Ack.session = 31; v3Ack.payload = [3]
         v3.handle(CompanionCodec.encode(v3Ack)!)
@@ -516,6 +638,19 @@ enum CompanionCoreCheck {
         v3.handle(CompanionCodec.encode(aiRequest)!)
         expect(CompanionCodec.decode(v3Sent.last!)?.payload == payload,
                "v3 AI request reads cached snapshot")
+        let v4 = CompanionSession(applications: FakeApplications(), aiUsage: FakeAiUsage(resetUsage))
+        var v4Sent: [[UInt8]] = []
+        v4.outgoing = { v4Sent.append($0) }
+        v4.startHandshake()
+        var v4Ack = CompanionEnvelope()
+        v4Ack.kind = .helloAck; v4Ack.session = 32; v4Ack.payload = [4]
+        v4.handle(CompanionCodec.encode(v4Ack)!)
+        var v4Request = CompanionEnvelope()
+        v4Request.version = 4; v4Request.kind = .request; v4Request.session = 32
+        v4Request.requestId = 8; v4Request.operation = .aiUsage
+        v4.handle(CompanionCodec.encode(v4Request)!)
+        expect(CompanionCodec.decode(v4Sent.last!)?.payload == v4Payload,
+               "v4 session sends reset details")
 
         if failed > 0 {
             fputs("\(failed) checks failed\n", stderr)

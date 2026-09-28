@@ -725,7 +725,9 @@ also closes connections whose callbacks are still queued. The adapter retains
 exclusive ownership of the initialized controller: logical disable stops and
 deinitializes the ESP-NimBLE host and disables the controller, while leaving
 the controller initialized for repeatable re-enable. Re-enable creates a fresh
-NimBLE host lifecycle. A
+NimBLE host lifecycle. The adapter removes and deinitializes its HID notification
+event before deinitializing the NimBLE host, so the next lifecycle cannot reuse
+a pointer into the previous NPL event pool. A
 stop, disconnect, or shutdown failure is reported rather than claiming
 successful disablement, and cleanup ownership is retained so a later disable
 or enable can retry it. Calls are synchronous and single-threaded from the
@@ -1802,12 +1804,18 @@ hardware, host selection, UI, or macOS-specific behavior. The companion is a
 separate program and shares a versioned wire contract and conformance fixtures
 with firmware, not a cross-platform C++ implementation library.
 
-The Mac offers protocol versions 3, 2 and 1 in a v1-framed HELLO; Cardputer
+The Mac offers protocol versions 4, 3, 2 and 1 in a v1-framed HELLO; Cardputer
 selects the highest shared version. Protocol v2 adds `SYSTEM_METRICS` with a
 fixed 24-byte payload. A v1 session retains its original capability list and
 cannot use telemetry. Protocol v3 adds `AI_USAGE`, a bounded normalized
 provider snapshot. The capability describes Companion support and remains
 advertised during discovery or when no provider is installed.
+Protocol v4 adds bounded optional Codex Plus reset-credit details to AI_USAGE
+schema 2; v3 continues to use the original schema 1. The Companion normalizes
+count, usable titles and expiry from the existing Codex refresh. The Mac sends
+no more detail rows than the available count, and both codecs reject snapshots
+that violate this bound. Firmware keeps at most four detail rows per provider
+and clears them with the session.
 `CompanionService` exposes operation-filtered completions:
 `HostControlService` consumes APP_ACTIVATE, while `MacStatusService` consumes
 SYSTEM_METRICS and `AiUsageService` consumes AI_USAGE. Internal handshake and
@@ -1828,12 +1836,14 @@ discovery cycle, then uses a local app-server process. Cursor reads the existing
 Agent token through Keychain, derives its request cookie in memory, and calls
 the usage adapter over HTTPS.
 Authentication stays on the Mac. Absent providers are omitted; a failed refresh
-retains the previous provider as stale. A refresh requested during an active cycle
-runs once after that cycle. Provider failures retry after 1, 2, 4, 8, 16, then
-at most 30 seconds; a successful cycle resets the delay. An idle Codex process
-exit marks its cached sample stale and schedules recovery. Firmware
-`AiUsageService` polls the cached result every 30 seconds and keeps at most one
-request outstanding. It clears its data as soon as the active Companion session
+retains the previous provider and marks it stale after 90 seconds without a
+successful sample. A refresh requested during an active cycle runs once after
+that cycle. Provider failures retry after 1, 2, 4, 8, 16, then at most 30
+seconds; a successful cycle resets the delay. An idle Codex process exit marks
+its cached sample stale immediately and schedules recovery. Firmware
+`AiUsageService` polls the cached result every two seconds during initial
+discovery and every 30 seconds after discovery completes. It keeps at most one
+request outstanding and clears its data when the active Companion session
 changes. Its UI revision changes only when presentation values change; repeated
 identical polls still refresh the freshness timer. The service advances reset
 countdowns while the Mini App is closed and reconciles each response against
