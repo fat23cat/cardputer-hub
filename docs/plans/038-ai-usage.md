@@ -31,7 +31,10 @@ Cursor's derived session cookie, bounded Codex discovery and process recovery,
 and stable firmware UI revisions. Provider transports and credentials now have
 fake-backed checks. The reset countdown now advances in the firmware service;
 the split Puzzle gauge uses two purple boundary pixels per half and 30 quota
-pixels per half. Live Codex/Cursor account discovery, CI and physical
+pixels per half. Review fixes restore negative login-shell discovery, coalesce
+wake refreshes, retry provider failures and idle Codex exits with bounded
+backoff, keep ordinary Puzzle feedback below active apps, and separate `STALE`
+from long single-metric titles. Live Codex/Cursor account discovery and physical
 Cardputer-Adv acceptance remain to be verified on the target machines and device.
 The baseline description below records the state when this plan was written.
 

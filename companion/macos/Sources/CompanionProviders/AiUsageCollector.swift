@@ -6,6 +6,7 @@ public final class AiUsageCollector: AiUsageCollecting {
     private let lock = NSLock()
     private let codex: AiUsageProviderRefreshing
     private let cursor: AiUsageProviderRefreshing
+    private let scheduleRetry: (TimeInterval, @escaping () -> Void) -> Void
     private var cached = AiUsageSnapshot()
     private var timer: Timer?
     private var wakeObserver: NSObjectProtocol?
@@ -13,15 +14,25 @@ public final class AiUsageCollector: AiUsageCollecting {
     private var pending = 0
     private var samples: [AiProviderId: AiUsageProviderSnapshot] = [:]
     private var refreshId: UInt64 = 0
+    private var retryId: UInt64 = 0
+    private var retryDelay: TimeInterval = 1
+    private var refreshRequested = false
+    private var cycleFailed = false
     private var running = false
 
     public convenience init() {
         self.init(codex: CodexUsageProvider(), cursor: CursorUsageProvider())
     }
 
-    init(codex: AiUsageProviderRefreshing, cursor: AiUsageProviderRefreshing) {
+    init(codex: AiUsageProviderRefreshing, cursor: AiUsageProviderRefreshing,
+         scheduleRetry: @escaping (TimeInterval, @escaping () -> Void) -> Void = { delay, work in
+             DispatchQueue.global(qos: .utility).asyncAfter(deadline: .now() + delay,
+                                                             execute: work)
+         }) {
         self.codex = codex
         self.cursor = cursor
+        self.scheduleRetry = scheduleRetry
+        codex.setRecoveryHandler { [weak self] in self?.providerExited(.codex) }
     }
 
     public func start() {
@@ -44,7 +55,11 @@ public final class AiUsageCollector: AiUsageCollecting {
         timer?.invalidate(); timer = nil
         if let wakeObserver { NSWorkspace.shared.notificationCenter.removeObserver(wakeObserver) }
         wakeObserver = nil
-        refreshSerial.sync { running = false; samples.removeAll(); pending = 0 }
+        refreshSerial.sync {
+            running = false; samples.removeAll(); pending = 0
+            refreshRequested = false; cycleFailed = false; retryDelay = 1
+            refreshId &+= 1; retryId &+= 1
+        }
         codex.stop(); cursor.stop()
         lock.lock(); cached = AiUsageSnapshot(); lock.unlock()
     }
@@ -57,16 +72,74 @@ public final class AiUsageCollector: AiUsageCollecting {
     func refresh() {
         refreshSerial.async { [weak self] in
             guard let self else { return }
-            guard self.running, self.pending == 0 else { return }
-            self.refreshId += 1
-            let id = self.refreshId
-            self.pending = 2
-            self.codex.refresh { [weak self] sample, absent in
-                self?.accept(.codex, sample: sample, absent: absent, id: id)
+            guard self.running else { return }
+            if self.pending != 0 { self.refreshRequested = true; return }
+            self.startRefresh()
+        }
+    }
+
+    private func startRefresh() {
+        retryId &+= 1
+        refreshId &+= 1
+        let id = refreshId
+        pending = 2
+        cycleFailed = false
+        codex.refresh { [weak self] sample, absent in
+            self?.accept(.codex, sample: sample, absent: absent, id: id)
+        }
+        cursor.refresh { [weak self] sample, absent in
+            self?.accept(.cursor, sample: sample, absent: absent, id: id)
+        }
+    }
+
+    private func scheduleFailureRetry() {
+        let delay = retryDelay
+        retryDelay = min(retryDelay * 2, 30)
+        let id = retryId
+        scheduleRetry(delay) { [weak self] in
+            self?.refreshSerial.async { [weak self] in
+                guard let self, self.running, self.retryId == id else { return }
+                if self.pending != 0 { self.refreshRequested = true; return }
+                self.startRefresh()
             }
-            self.cursor.refresh { [weak self] sample, absent in
-                self?.accept(.cursor, sample: sample, absent: absent, id: id)
+        }
+    }
+
+    private func providerExited(_ provider: AiProviderId) {
+        refreshSerial.async { [weak self] in
+            guard let self, self.running else { return }
+            if var prior = self.samples[provider], prior.freshness != .stale {
+                prior.freshness = .stale
+                self.samples[provider] = prior
+                self.publishCache()
             }
+            if self.pending != 0 { self.refreshRequested = true; return }
+            self.scheduleFailureRetry()
+        }
+    }
+
+    private func publishCache() {
+        let providers = [AiProviderId.codex, .cursor].compactMap { samples[$0] }
+        lock.lock()
+        let next = AiUsageSnapshot(generation: cached.generation &+ 1,
+                                   state: .forCache(pending: pending,
+                                                    hasUsableProvider: !providers.isEmpty),
+                                   providers: providers)
+        if cached.state != next.state || cached.providers != next.providers {
+            cached = next
+        }
+        lock.unlock()
+    }
+
+    private func finishRefresh() {
+        if cycleFailed {
+            if !refreshRequested { scheduleFailureRetry() }
+        } else {
+            retryDelay = 1
+        }
+        if refreshRequested {
+            refreshRequested = false
+            startRefresh()
         }
     }
 
@@ -82,17 +155,10 @@ public final class AiUsageCollector: AiUsageCollecting {
                 prior.freshness = .stale
                 self.samples[provider] = prior
             }
+            if sample == nil && !absent { self.cycleFailed = true }
             self.pending -= 1
-            let providers = [AiProviderId.codex, .cursor].compactMap { self.samples[$0] }
-            self.lock.lock()
-            let next = AiUsageSnapshot(generation: self.cached.generation &+ 1,
-                                       state: .forCache(pending: self.pending,
-                                                        hasUsableProvider: !providers.isEmpty),
-                                       providers: providers)
-            if self.cached.state != next.state || self.cached.providers != next.providers {
-                self.cached = next
-            }
-            self.lock.unlock()
+            self.publishCache()
+            if self.pending == 0 { self.finishRefresh() }
         }
     }
 }

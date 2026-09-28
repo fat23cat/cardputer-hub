@@ -54,7 +54,10 @@ does not contain it, and reads rate limits from Codex app-server. It checks the
 existing Cursor Agent Keychain session for personal usage and derives the
 request cookie in memory from the token's user ID. It refreshes these
 sources in the background about once a minute; Cardputer requests read the
-cached snapshot immediately. Codex Plus rolling windows, Business credits,
+cached snapshot immediately. Wake requests coalesce with an active refresh;
+provider failures retry with a capped 30-second backoff, and Codex process exits
+between refreshes trigger recovery. Failed login-shell discovery is retried on
+the next discovery cycle. Codex Plus rolling windows, Business credits,
 and Cursor Enterprise personal spend are detected from provider data. No
 account type, provider, limit or host role is configured in Companion.
 Absent providers are omitted; a previously working provider with a failed

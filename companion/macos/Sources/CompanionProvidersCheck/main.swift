@@ -114,7 +114,7 @@ func codexExecutableDiscoveryChecksDirectPathsBeforeLoginShell() {
     }
 }
 
-func codexExecutableDiscoveryQueriesLoginShellOnceAndCachesValidResult() {
+func codexExecutableDiscoveryCachesSuccessAndRetriesNegativeLoginShellResult() {
     var shellCalls = 0
     let locator = CodexExecutableLocator(environment: { ["PATH": "/missing"] },
         home: "/Users/test", isExecutable: { $0 == "/login/bin/codex" },
@@ -124,12 +124,14 @@ func codexExecutableDiscoveryQueriesLoginShellOnceAndCachesValidResult() {
     expect(shellCalls == 1)
 
     var absentCalls = 0
+    var installed = false
     let absent = CodexExecutableLocator(environment: { [:] }, home: "/Users/test",
-        isExecutable: { _ in false },
-        loginShellPath: { absentCalls += 1; return nil })
+        isExecutable: { installed && $0 == "/login/bin/codex" },
+        loginShellPath: { absentCalls += 1; return installed ? "/login/bin/codex" : nil })
     expect(absent.find() == nil)
-    expect(absent.find() == nil)
-    expect(absentCalls == 1)
+    installed = true
+    expect(absent.find() == "/login/bin/codex")
+    expect(absentCalls == 2)
 }
 
 private final class FakeCodexTransport: CodexJSONLTransport {
@@ -312,6 +314,108 @@ private final class FakeUsageProvider: AiUsageProviderRefreshing {
     }
 }
 
+private final class FakeRetryScheduler {
+    private let lock = NSLock()
+    private var actions: [() -> Void] = []
+    private var intervals: [TimeInterval] = []
+    var delays: [TimeInterval] {
+        lock.lock(); defer { lock.unlock() }
+        return intervals
+    }
+    func schedule(_ delay: TimeInterval, _ action: @escaping () -> Void) {
+        lock.lock(); intervals.append(delay); actions.append(action); lock.unlock()
+    }
+    func fireNext() {
+        lock.lock()
+        let action = actions.removeFirst()
+        lock.unlock()
+        action()
+    }
+}
+
+func collectorCoalescesRefreshRequestedDuringAnActiveCycle() {
+    let codex = FakeUsageProvider()
+    let cursor = FakeUsageProvider()
+    let collector = AiUsageCollector(codex: codex, cursor: cursor)
+    collector.start()
+    expect(waitUntil { codex.pending == 1 && cursor.pending == 1 })
+    collector.refresh()
+    collector.refresh()
+    codex.complete(nil, absent: true)
+    cursor.complete(nil, absent: true)
+    expect(waitUntil { codex.pending == 1 && cursor.pending == 1 })
+    codex.complete(nil, absent: true)
+    cursor.complete(nil, absent: true)
+    expect(waitUntil { collector.snapshot()?.state == .ready })
+    expect(codex.pending == 0 && cursor.pending == 0)
+    collector.stop()
+}
+
+func collectorRetriesProviderFailuresWithBoundedBackoff() {
+    let codex = FakeUsageProvider()
+    let cursor = FakeUsageProvider()
+    let scheduler = FakeRetryScheduler()
+    let collector = AiUsageCollector(codex: codex, cursor: cursor,
+                                     scheduleRetry: scheduler.schedule)
+    collector.start()
+    expect(waitUntil { codex.pending == 1 && cursor.pending == 1 })
+    for (index, delay) in [1.0, 2, 4, 8, 16, 30, 30].enumerated() {
+        codex.complete(nil)
+        cursor.complete(nil, absent: true)
+        expect(waitUntil { scheduler.delays.count == index + 1 })
+        expect(scheduler.delays.last == delay)
+        scheduler.fireNext()
+        expect(waitUntil { codex.pending == 1 && cursor.pending == 1 })
+    }
+    let recovered = AiUsageNormalization.codex(["planType": "plus",
+        "primary": ["usedPercent": 37, "windowDurationMins": 300]])!
+    codex.complete(recovered)
+    cursor.complete(nil, absent: true)
+    expect(waitUntil { collector.snapshot()?.providers.first?.freshness == .fresh })
+    collector.refresh()
+    expect(waitUntil { codex.pending == 1 && cursor.pending == 1 })
+    codex.complete(nil)
+    cursor.complete(nil, absent: true)
+    expect(waitUntil { scheduler.delays.count == 8 })
+    expect(scheduler.delays.last == 1)
+    collector.stop()
+    scheduler.fireNext()
+    Thread.sleep(forTimeInterval: 0.02)
+    expect(codex.pending == 0 && cursor.pending == 0)
+}
+
+func collectorRetriesCodexProcessExitBetweenNormalRefreshes() {
+    let locator = CodexExecutableLocator(environment: { ["PATH": "/fake"] }, home: "/none",
+        isExecutable: { $0 == "/fake/codex" }, loginShellPath: { nil })
+    let factory = FakeCodexFactory()
+    let codex = CodexUsageProvider(locator: locator, transportFactory: { factory.make() })
+    let cursor = FakeUsageProvider()
+    let scheduler = FakeRetryScheduler()
+    let collector = AiUsageCollector(codex: codex, cursor: cursor,
+                                     scheduleRetry: scheduler.schedule)
+    collector.start()
+    expect(waitUntil { factory.at(0)?.latest("initialize") != nil && cursor.pending == 1 })
+    guard let first = factory.at(0) else { collector.stop(); return }
+    first.emit(["id": 1, "result": [:]])
+    expect(waitUntil { first.latest("account/read") != nil })
+    first.emit(["id": 2, "result": ["account": ["planType": "plus"]]])
+    expect(waitUntil { first.latest("account/rateLimits/read") != nil })
+    guard let requestId = first.latest("account/rateLimits/read")?["id"] as? Int else {
+        collector.stop(); return
+    }
+    first.emit(["id": requestId, "result": ["rateLimits": ["planType": "plus",
+        "primary": ["usedPercent": 37, "windowDurationMins": 300]]]])
+    cursor.complete(nil, absent: true)
+    expect(waitUntil { collector.snapshot()?.providers.first?.freshness == .fresh })
+    first.exit()
+    expect(waitUntil { scheduler.delays == [1] })
+    expect(collector.snapshot()?.providers.first?.freshness == .stale)
+    guard scheduler.delays == [1] else { collector.stop(); return }
+    scheduler.fireNext()
+    expect(waitUntil { factory.at(1)?.latest("initialize") != nil })
+    collector.stop()
+}
+
 func collectorPublishesHomeAndWorkProviderSets() {
     let business = AiUsageNormalization.codex(["planType": "business",
         "individualLimit": ["limit": "20000", "used": "19765.35930800438",
@@ -380,10 +484,13 @@ func cursorUnauthorizedRefreshKeepsPreviousSampleStale() {
         cursorBuildsVerifiedEnterpriseCookie()
         cursorOmitsAbsentCredentialAndRejectsMalformedJWT()
         codexExecutableDiscoveryChecksDirectPathsBeforeLoginShell()
-        codexExecutableDiscoveryQueriesLoginShellOnceAndCachesValidResult()
+        codexExecutableDiscoveryCachesSuccessAndRetriesNegativeLoginShellResult()
         codexRestartsAfterExitAndIgnoresOldProcessOutput()
         codexProviderHandlesAbsenceAndRealBusinessLimits()
         collectorPublishesHomeAndWorkProviderSets()
+        collectorCoalescesRefreshRequestedDuringAnActiveCycle()
+        collectorRetriesProviderFailuresWithBoundedBackoff()
+        collectorRetriesCodexProcessExitBetweenNormalRefreshes()
         cursorUnauthorizedRefreshKeepsPreviousSampleStale()
         if failures > 0 { exit(1) }
         print("companion provider checks passed")

@@ -400,6 +400,70 @@ void test_gauge_warns_when_same_metric_crosses_critical_threshold() {
                             static_cast<unsigned>(f.indicator.resolved().priority));
 }
 
+void test_low_and_reset_feedback_respect_pomodoro_and_gallery_priority() {
+    Fixture f;
+    f.ready();
+    f.respond(30);
+    services::IndicatorFrame frame{};
+    frame.pixels[0] = {1, 2, 3};
+    auto pomodoro =
+        f.indicator.acquire("pomodoro", services::IndicatorPriority::BackgroundApplication);
+    auto gallery =
+        f.indicator.acquire("led-gallery", services::IndicatorPriority::ForegroundApplication);
+    pomodoro.setFrame(frame);
+    gallery.setFrame(frame);
+    f.indicator.update();
+
+    f.usage.update(std::chrono::seconds(30));
+    f.respond(15);
+    TEST_ASSERT_EQUAL_STRING("led-gallery", f.indicator.resolved().owner.c_str());
+    f.gauge.update(std::chrono::milliseconds(300));
+    auto value = f.usage.snapshot();
+    value.providers[0].metrics[0].resetAt = 123;
+    f.usage.update(std::chrono::seconds(30));
+    f.respondValue(value);
+    value.providers[0].metrics[0].resetAt = 456;
+    value.providers[0].metrics[0].remaining = 70;
+    value.providers[0].metrics[0].used = 30;
+    value.providers[0].metrics[0].remainingPercent = 70;
+    f.usage.update(std::chrono::seconds(30));
+    f.respondValue(value);
+    TEST_ASSERT_EQUAL_STRING("led-gallery", f.indicator.resolved().owner.c_str());
+    gallery.release();
+    f.indicator.update();
+    TEST_ASSERT_EQUAL_STRING("pomodoro", f.indicator.resolved().owner.c_str());
+}
+
+void test_stale_label_does_not_overlap_single_metric_provider_titles() {
+    for (const auto provider : {AiProvider::Codex, AiProvider::Cursor}) {
+        Fixture f;
+        f.ready();
+        CompanionAiUsage value{};
+        value.state = AiUsageState::Ready;
+        value.providerCount = 1;
+        auto& row = value.providers[0];
+        row.provider = provider;
+        row.plan = provider == AiProvider::Codex ? AiPlan::Business : AiPlan::Enterprise;
+        row.freshness = AiFreshness::Stale;
+        row.metricCount = 1;
+        row.metrics[0].kind =
+            provider == AiProvider::Codex ? AiMetricKind::Credits : AiMetricKind::Money;
+        row.metrics[0].limit = 100;
+        row.metrics[0].remaining = 63;
+        row.metrics[0].remainingPercent = 63;
+        f.respondValue(value);
+        Display display;
+        apps::AiUsageApp app(f.usage, f.gauge, display);
+        app.onActivate();
+        app.update({}, {});
+        const auto marker = std::find(display.labels.begin(), display.labels.end(), "STALE");
+        TEST_ASSERT_TRUE(marker != display.labels.end());
+        const auto markerIndex = static_cast<std::size_t>(marker - display.labels.begin());
+        TEST_ASSERT_GREATER_THAN_INT(28, display.positions[markerIndex].y);
+        TEST_ASSERT_LESS_THAN_INT(47, display.positions[markerIndex].y + 8);
+    }
+}
+
 void test_identical_poll_keeps_revision_freshness_and_countdown() {
     Fixture f;
     f.ready();
@@ -684,6 +748,8 @@ int main() {
     RUN_TEST(test_new_host_replaces_old_provider_set);
     RUN_TEST(test_gauge_does_not_warn_when_second_metric_changes_provider);
     RUN_TEST(test_gauge_warns_when_same_metric_crosses_critical_threshold);
+    RUN_TEST(test_low_and_reset_feedback_respect_pomodoro_and_gallery_priority);
+    RUN_TEST(test_stale_label_does_not_overlap_single_metric_provider_titles);
     RUN_TEST(test_identical_poll_keeps_revision_freshness_and_countdown);
     RUN_TEST(test_reset_countdown_does_not_rewind_on_cached_poll_or_percent_change);
     RUN_TEST(test_reset_text_distinguishes_unknown_from_known_zero);

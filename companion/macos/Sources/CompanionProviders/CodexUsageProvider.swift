@@ -15,6 +15,7 @@ final class CodexUsageProvider: AiUsageProviderRefreshing {
     private var initialized = false
     private var timeout: DispatchWorkItem?
     private var watchdogId: UInt64 = 0
+    private var recoveryHandler: (() -> Void)?
 
     init(locator: CodexExecutableLocator = CodexExecutableLocator(),
          transportFactory: @escaping () -> CodexJSONLTransport = {
@@ -41,6 +42,10 @@ final class CodexUsageProvider: AiUsageProviderRefreshing {
             self.resetTransport()
             self.completion = nil
         }
+    }
+
+    func setRecoveryHandler(_ handler: @escaping () -> Void) {
+        queue.async { self.recoveryHandler = handler }
     }
 
     private func start() {
@@ -140,8 +145,10 @@ final class CodexUsageProvider: AiUsageProviderRefreshing {
     }
 
     private func recover() {
+        let wasRefreshing = completion != nil
         resetTransport()
         finish(nil)
+        if !wasRefreshing { recoveryHandler?() }
     }
 
     private func finish(_ result: AiUsageProviderSnapshot?, absent: Bool = false) {

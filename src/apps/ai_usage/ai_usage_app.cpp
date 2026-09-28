@@ -164,7 +164,7 @@ void AiUsageApp::draw() {
         const auto& provider = snapshot.providers[0];
         providerTitle(display_, 8, 12, provider, 2);
         if (provider.freshness == connectivity::AiFreshness::Stale)
-            label(display_, 196, 12, "STALE", core::palette::vermilion);
+            label(display_, 196, 33, "STALE", core::palette::vermilion);
         if (provider.metricCount > 0)
             drawMetric(provider.metrics[0], 47, false);
     } else {

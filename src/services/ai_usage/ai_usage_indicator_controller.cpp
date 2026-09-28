@@ -157,9 +157,10 @@ void AiUsageIndicatorController::update(std::chrono::milliseconds elapsed) {
             const bool resetCycle = previousReset_[i] != 0 && reset != 0 &&
                                     previousReset_[i] != reset && percent > previousPercent_[i];
             if (critical || low || resetCycle) {
-                if (!feedback_.valid())
-                    feedback_ =
-                        indicator_.acquire(aiUsageIndicatorOwner, IndicatorPriority::Warning);
+                feedback_.release();
+                feedback_ =
+                    indicator_.acquire(aiUsageIndicatorOwner, critical ? IndicatorPriority::Warning
+                                                                       : IndicatorPriority::Idle);
                 feedbackMetric_ = *metrics[i];
                 feedbackKind_ = resetCycle ? Feedback::Reset
                                 : critical ? Feedback::Critical

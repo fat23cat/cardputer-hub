@@ -7,7 +7,6 @@ final class CodexExecutableLocator {
     private let isExecutable: (String) -> Bool
     private let loginShellPath: () -> String?
     private var cached: String?
-    private var queriedLoginShell = false
 
     init(environment: @escaping () -> [String: String] = { ProcessInfo.processInfo.environment },
          home: String = NSHomeDirectory(),
@@ -34,8 +33,6 @@ final class CodexExecutableLocator {
             cached = found
             return found
         }
-        guard !queriedLoginShell else { return nil }
-        queriedLoginShell = true
         if let found = loginShellPath(), found.hasPrefix("/"), isExecutable(found) {
             cached = found
             return found

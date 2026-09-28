@@ -1520,9 +1520,10 @@ Mini App / presentation helper
 `AiUsageIndicatorController` consumes the session-scoped `AiUsageService`
 snapshot. Its Idle claim shows remaining quota on the full 8×8 matrix or in
 two four-row zones with purple markers at both ends and 30 quota pixels per zone.
-Temporary focus uses ForegroundApplication; threshold and reset feedback use a
-bounded Warning claim. All claims pass through the shared brightness limit.
-Pomodoro and LED Gallery outrank the resting AI gauge.
+Temporary focus uses ForegroundApplication. Ordinary low-quota and reset feedback
+use Idle priority, so Pomodoro and LED Gallery retain the Puzzle; critical quota
+feedback briefly uses Warning. All claims pass through the shared brightness
+limit.
 
 `LedGalleryApp` is a Mini App with twenty fixed-ID effects. Its engine owns
 fixed simulation buffers and deterministic randomness; the app owns selection,
@@ -1822,16 +1823,21 @@ On macOS, `AiUsageCollector` refreshes Codex and Cursor independently in the
 background and answers BLE requests from a lock-protected cache. The macOS
 `CompanionProviders` target owns the collector and replaceable Codex JSONL,
 Cursor credential, and Cursor HTTP boundaries. Codex finds its executable in
-direct locations or through one bounded login-shell lookup, then uses a local
-app-server process. Cursor reads the existing Agent token through Keychain,
-derives its request cookie in memory, and calls the usage adapter over HTTPS.
+direct locations or through a bounded login-shell lookup on each unsuccessful
+discovery cycle, then uses a local app-server process. Cursor reads the existing
+Agent token through Keychain, derives its request cookie in memory, and calls
+the usage adapter over HTTPS.
 Authentication stays on the Mac. Absent providers are omitted; a failed refresh
-retains the previous provider as stale. Firmware `AiUsageService` polls the
-cached result every 30 seconds, keeps at most one request outstanding, and
-clears its data as soon as the active Companion session changes. It changes
-its UI revision only when presentation values change; repeated identical polls
-still refresh the freshness timer. The service advances reset countdowns while
-the Mini App is closed and reconciles each response against the current countdown:
+retains the previous provider as stale. A refresh requested during an active cycle
+runs once after that cycle. Provider failures retry after 1, 2, 4, 8, 16, then
+at most 30 seconds; a successful cycle resets the delay. An idle Codex process
+exit marks its cached sample stale and schedules recovery. Firmware
+`AiUsageService` polls the cached result every 30 seconds and keeps at most one
+request outstanding. It clears its data as soon as the active Companion session
+changes. Its UI revision changes only when presentation values change; repeated
+identical polls still refresh the freshness timer. The service advances reset
+countdowns while the Mini App is closed and reconciles each response against
+the current countdown:
 cached samples cannot increase the time remaining, while a lower reported
 remaining time corrects it promptly. A new reset identity starts a new countdown.
 `AiUsageApp` and the Puzzle controller consume only the bounded snapshot; neither
