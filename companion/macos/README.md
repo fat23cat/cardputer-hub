@@ -31,12 +31,15 @@ The Companion looks up already-connected Cardputer peripherals. It does not
 scan or create a second pairing. When Start at Login is enabled, macOS launches
 it through `SMAppService` at the next login.
 
-Click the keyboard-shaped menu-bar icon to open the Companion popover. It shows
+Click the computer-shaped menu-bar icon to open the Companion menu. It shows
 the Cardputer connection, negotiated protocol, and last valid message. Use
 **Reconnect** to restart the existing BLE attach flow without
 forgetting the bond. **Start at Login** changes the actual macOS login-item
-registration; it is not enabled automatically. Diagnostics shows session and
-capability state, and Quit stops the Companion without changing the login setting.
+registration; it is not enabled automatically. The Diagnostics submenu shows
+session and capability state, About opens the standard macOS About window with
+the version and build, and Quit stops the Companion without changing the login
+setting. The menu uses standard AppKit menu items and a system switch, so it
+follows the current macOS appearance.
 
 The Companion offers protocol v4 with v3, v2 and v1 fallback. With v2 it advertises
 `SYSTEM_METRICS` and answers foreground polling from MAC STATUS. Sampling uses

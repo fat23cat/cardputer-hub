@@ -2,12 +2,6 @@ import Combine
 import CompanionCore
 import Foundation
 
-enum CompanionPopoverPage: Equatable {
-    case main
-    case diagnostics
-    case about
-}
-
 final class CompanionStatusStore: ObservableObject {
     @Published private(set) var connection: CompanionConnectionPresentationState = .disconnected
     @Published private(set) var protocolVersion: UInt8?
@@ -20,8 +14,6 @@ final class CompanionStatusStore: ObservableObject {
     @Published private(set) var startAtLoginError = false
     @Published private(set) var now = Date()
     @Published private(set) var aiUsage = AiUsageSnapshot()
-    @Published var page: CompanionPopoverPage = .main
-
     var onReconnect: (() -> Void)?
     var onQuit: (() -> Void)?
     var readAiUsage: (() -> AiUsageSnapshot?)?
