@@ -47,6 +47,14 @@ bool resetLabelChanges(std::uint32_t oldSeconds, std::uint32_t newSeconds) noexc
 }
 } // namespace
 
+AiUsageVisibleMetrics aiUsageVisibleMetrics(const connectivity::CompanionAiUsage& usage) noexcept {
+    AiUsageVisibleMetrics result{};
+    for (std::uint8_t i = 0; i < usage.providerCount && i < usage.providers.size(); ++i)
+        for (std::uint8_t j = 0; j < usage.providers[i].metricCount && j < 2; ++j)
+            result.items[result.count++] = {i, j};
+    return result;
+}
+
 void AiUsageService::clear() {
     snapshot_ = {};
     inFlight_ = false;

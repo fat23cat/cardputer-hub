@@ -10,7 +10,7 @@ final class CodexUsageProvider: AiUsageProviderRefreshing {
     private var buffer = Data()
     private var nextId = 3
     private var activeId: Int?
-    private var completion: ((AiUsageProviderSnapshot?, Bool) -> Void)?
+    private var completion: ((AiUsageRefreshOutcome) -> Void)?
     private var accountPlan: String?
     private var initialized = false
     private var timeout: DispatchWorkItem?
@@ -25,7 +25,7 @@ final class CodexUsageProvider: AiUsageProviderRefreshing {
         self.transportFactory = transportFactory
     }
 
-    func refresh(_ done: @escaping (AiUsageProviderSnapshot?, Bool) -> Void) {
+    func refresh(_ done: @escaping (AiUsageRefreshOutcome) -> Void) {
         queue.async {
             guard self.completion == nil else { return }
             self.completion = done
@@ -155,6 +155,6 @@ final class CodexUsageProvider: AiUsageProviderRefreshing {
         timeout?.cancel(); timeout = nil
         watchdogId &+= 1
         let done = completion; completion = nil
-        done?(result, absent)
+        done?(absent ? .absent : result.map { .sample($0) } ?? .failed)
     }
 }

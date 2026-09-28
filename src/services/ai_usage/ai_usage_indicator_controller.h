@@ -10,6 +10,10 @@ namespace cardputer_hub::services {
 
 inline constexpr char aiUsageIndicatorOwner[] = "ai-usage";
 
+using AiUsageGaugeMetrics = std::array<const connectivity::AiUsageMetric*, 4>;
+
+// One metric fills 8×8, two use four-row halves, three or four use two-row bands.
+IndicatorFrame aiUsageGauge(const AiUsageGaugeMetrics& metrics) noexcept;
 IndicatorFrame aiUsageGauge(const connectivity::AiUsageMetric* first,
                             const connectivity::AiUsageMetric* second = nullptr) noexcept;
 
@@ -23,7 +27,7 @@ class AiUsageIndicatorController {
     bool focused() const noexcept { return focus_.valid(); }
 
   private:
-    std::array<const connectivity::AiUsageMetric*, 2> overview() const noexcept;
+    AiUsageGaugeMetrics overview() const noexcept;
     AiUsageService& usage_;
     IndicatorService& indicator_;
     IndicatorClaim background_;
@@ -34,11 +38,11 @@ class AiUsageIndicatorController {
     std::uint8_t selected_ = 0;
     std::chrono::milliseconds focusRemaining_{0};
     std::chrono::milliseconds feedbackRemaining_{0};
-    std::array<std::uint8_t, 2> previousPercent_{};
-    std::array<std::uint32_t, 2> previousReset_{};
-    std::array<connectivity::AiProvider, 2> previousProvider_{};
-    std::array<connectivity::AiMetricKind, 2> previousKind_{};
-    std::array<bool, 2> previousValid_{};
+    std::array<std::uint8_t, 4> previousPercent_{};
+    std::array<std::uint32_t, 4> previousReset_{};
+    std::array<connectivity::AiProvider, 4> previousProvider_{};
+    std::array<connectivity::AiMetricKind, 4> previousKind_{};
+    std::array<bool, 4> previousValid_{};
     enum class Feedback : std::uint8_t {
         None,
         Low,

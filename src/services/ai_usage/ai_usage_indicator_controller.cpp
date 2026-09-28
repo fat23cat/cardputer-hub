@@ -20,52 +20,46 @@ std::uint8_t lit(std::uint8_t percent, std::uint8_t capacity) noexcept {
         return 0;
     return std::max<std::uint8_t>(1, (capacity * percent + 50) / 100);
 }
-void fillHalf(IndicatorFrame& frame, const connectivity::AiUsageMetric& metric,
-              bool bottom) noexcept {
-    const auto begin = bottom ? 32 : 0;
-    const auto end = begin + 31;
+// Purple pixels mark both ends of a band and are not quota.
+void fillBand(IndicatorFrame& frame, const connectivity::AiUsageMetric& metric, std::uint8_t begin,
+              std::uint8_t size) noexcept {
+    const auto end = static_cast<std::uint8_t>(begin + size - 1);
     frame.pixels[begin] = boundaryPurple;
     frame.pixels[end] = boundaryPurple;
-    auto remaining = lit(metric.remainingPercent, 30);
-    for (std::uint8_t i = begin; i < begin + 32 && remaining; ++i) {
-        if (i == begin || i == end)
-            continue;
+    auto remaining = lit(metric.remainingPercent, static_cast<std::uint8_t>(size - 2));
+    for (std::uint8_t i = begin + 1; i < end && remaining; ++i, --remaining)
         frame.pixels[i] = colorFor(metric.remainingPercent);
-        --remaining;
-    }
 }
 } // namespace
 
-IndicatorFrame aiUsageGauge(const connectivity::AiUsageMetric* first,
-                            const connectivity::AiUsageMetric* second) noexcept {
+IndicatorFrame aiUsageGauge(const AiUsageGaugeMetrics& metrics) noexcept {
     IndicatorFrame frame{};
-    if (first == nullptr)
-        return frame;
-    if (second != nullptr) {
-        fillHalf(frame, *first, false);
-        fillHalf(frame, *second, true);
-    } else {
-        const auto count = lit(first->remainingPercent, 64);
+    std::uint8_t count = 0;
+    while (count < metrics.size() && metrics[count] != nullptr)
+        ++count;
+    if (count == 1) {
+        const auto pixels = lit(metrics[0]->remainingPercent, 64);
+        for (std::uint8_t i = 0; i < pixels; ++i)
+            frame.pixels[i] = colorFor(metrics[0]->remainingPercent);
+    } else if (count > 1) {
+        const std::uint8_t size = count == 2 ? 32 : 16;
         for (std::uint8_t i = 0; i < count; ++i)
-            frame.pixels[i] = colorFor(first->remainingPercent);
+            fillBand(frame, *metrics[i], static_cast<std::uint8_t>(i * size), size);
     }
     return frame;
 }
 
-std::array<const connectivity::AiUsageMetric*, 2>
-AiUsageIndicatorController::overview() const noexcept {
-    std::array<const connectivity::AiUsageMetric*, 2> result{};
+IndicatorFrame aiUsageGauge(const connectivity::AiUsageMetric* first,
+                            const connectivity::AiUsageMetric* second) noexcept {
+    return aiUsageGauge(AiUsageGaugeMetrics{first, first != nullptr ? second : nullptr});
+}
+
+AiUsageGaugeMetrics AiUsageIndicatorController::overview() const noexcept {
+    AiUsageGaugeMetrics result{};
     const auto& snapshot = usage_.snapshot();
-    if (snapshot.providerCount == 0)
-        return result;
-    const auto& first = snapshot.providers[0];
-    if (first.metricCount > 0)
-        result[0] = &first.metrics[0];
-    if (snapshot.providerCount > 1) {
-        if (snapshot.providers[1].metricCount > 0)
-            result[1] = &snapshot.providers[1].metrics[0];
-    } else if (first.metricCount > 1)
-        result[1] = &first.metrics[1];
+    const auto visible = aiUsageVisibleMetrics(snapshot);
+    for (std::uint8_t i = 0; i < visible.count; ++i)
+        result[i] = &snapshot.providers[visible.items[i].provider].metrics[visible.items[i].metric];
     return result;
 }
 
@@ -138,16 +132,16 @@ void AiUsageIndicatorController::update(std::chrono::milliseconds elapsed) {
         return;
     if (!background_.valid())
         background_ = indicator_.acquire(aiUsageIndicatorOwner, IndicatorPriority::Idle);
-    background_.setFrame(aiUsageGauge(metrics[0], metrics[1]));
+    background_.setFrame(aiUsageGauge(metrics));
     if (focus_.valid())
         focus_.setFrame(aiUsageGauge(metrics[selected_]));
-    for (std::uint8_t i = 0; i < 2; ++i) {
+    const auto visible = aiUsageVisibleMetrics(snapshot);
+    for (std::uint8_t i = 0; i < metrics.size(); ++i) {
         if (metrics[i] == nullptr) {
             previousValid_[i] = false;
             continue;
         }
-        const auto provider =
-            snapshot.providers[i == 1 && snapshot.providerCount > 1 ? 1 : 0].provider;
+        const auto provider = snapshot.providers[visible.items[i].provider].provider;
         const auto kind = metrics[i]->kind;
         const auto percent = metrics[i]->remainingPercent;
         const auto reset = metrics[i]->resetAt;

@@ -144,6 +144,41 @@ public enum AiUsageNormalization {
                                            ? resetCredits(resetValue, now: now) : nil)
     }
 
+    public static func claude(_ response: [String: Any], subscriptionType: String?,
+                              now: Date = Date()) -> AiUsageProviderSnapshot? {
+        func metric(_ kind: AiMetricKind, used value: Any?, resetsAt: Any?) -> AiUsageMetric? {
+            guard let value = number(value) else { return nil }
+            let used = UInt8(min(value, 100).rounded())
+            let (resetAt, remainingSeconds) = reset(resetsAt, now: now)
+            return AiUsageMetric(kind: kind, unit: .percent, used: UInt32(used), limit: 100,
+                                 remaining: UInt32(100 - used), remainingPercent: 100 - used,
+                                 resetAt: resetAt, resetRemainingSeconds: remainingSeconds)
+        }
+        // `limits` is the current shape; the per-window objects are the older one.
+        // Scoped (model-specific) limits are not the plan-wide rolling windows.
+        let limits = (response["limits"] as? [Any] ?? []).compactMap(dictionary)
+        let windows: [(AiMetricKind, String, String)] = [(.fiveHour, "session", "five_hour"),
+                                                          (.week, "weekly_all", "seven_day")]
+        let metrics = windows.compactMap { kind, limitKind, legacyField -> AiUsageMetric? in
+            if let entry = limits.first(where: {
+                   $0["kind"] as? String == limitKind && ($0["scope"] == nil || $0["scope"] is NSNull)
+               }), let value = metric(kind, used: entry["percent"], resetsAt: entry["resets_at"]) {
+                return value
+            }
+            guard let window = dictionary(response[legacyField]) else { return nil }
+            return metric(kind, used: window["utilization"], resetsAt: window["resets_at"])
+        }
+        guard !metrics.isEmpty else { return nil }
+        let plan: AiPlan
+        switch subscriptionType?.lowercased() {
+        case "pro": plan = .pro
+        case "max": plan = .max
+        case "enterprise": plan = .enterprise
+        default: plan = .unknown
+        }
+        return AiUsageProviderSnapshot(provider: .claude, plan: plan, metrics: metrics)
+    }
+
     public static func cursor(_ response: [String: Any], now: Date = Date())
         -> AiUsageProviderSnapshot? {
         guard let individual = dictionary(response["individualUsage"]),

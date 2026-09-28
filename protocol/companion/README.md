@@ -1,4 +1,4 @@
-# Companion Protocol v1, v2, v3 and v4
+# Companion Protocol v1–v5
 
 Firmware and the macOS Companion share this wire contract and the binary
 fixtures in `fixtures/`. They do not share implementation code.
@@ -35,7 +35,7 @@ Partial payloads never reach `CompanionService`.
 
 | Offset | Size | Field |
 | --- | --- | --- |
-| 0 | 1 | version (`1`, `2`, `3` or `4`) |
+| 0 | 1 | version (`1`–`5`) |
 | 1 | 1 | kind |
 | 2 | 2 | session generation |
 | 4 | 1 | request ID (`0` if unused) |
@@ -52,7 +52,7 @@ with a non-zero session or request ID, REQUEST/RESPONSE with session or
 request ID `0`, EVENT with a non-zero request ID, PING payloads other than
 4 bytes, non-empty CAPABILITIES/APP_ACTIVE requests, and APP_ACTIVATE
 requests without a valid bundle identifier.
-SYSTEM_METRICS is valid in v2/v3/v4; its request payload is empty and an OK
+SYSTEM_METRICS is valid in v2 and later; its request payload is empty and an OK
 response has exactly 24 bytes. Normal session messages must match the selected
 protocol version.
 
@@ -76,8 +76,8 @@ protocol version.
 | 3 | APP_ACTIVE | REQUEST, RESPONSE |
 | 4 | APP_ACTIVATE | REQUEST, RESPONSE |
 | 5 | APP_ACTIVE_CHANGED | EVENT |
-| 6 | SYSTEM_METRICS | REQUEST, RESPONSE (v2/v3/v4) |
-| 7 | AI_USAGE | REQUEST, RESPONSE (v3/v4) |
+| 6 | SYSTEM_METRICS | REQUEST, RESPONSE (v2+) |
+| 7 | AI_USAGE | REQUEST, RESPONSE (v3+) |
 
 ### Status
 
@@ -92,7 +92,7 @@ protocol version.
 ### Payloads
 
 * HELLO: `count` then up to 4 supported protocol versions.
-* HELLO_ACK: selected protocol version (`1`, `2`, `3` or `4`). Session generation is in the envelope.
+* HELLO_ACK: selected protocol version (`1`–`5`). Session generation is in the envelope.
 * PING: 4-byte token, echoed by the response.
 * CAPABILITIES request: empty. Response: `count` then capability IDs `1=APP_ACTIVE`, `2=APP_ACTIVATE`, `3=APP_ACTIVE_EVENTS`. Version 2 adds `4=SYSTEM_METRICS`; version 3 adds `5=AI_USAGE`. Older versions must not advertise later capabilities.
 * APP_ACTIVE / APP_ACTIVATE / APP_ACTIVE_CHANGED: `length` then UTF-8 bundle identifier, 1–128 bytes. APP_ACTIVE may return `NOT_AVAILABLE` with an empty payload. APP_ACTIVATE may return `NOT_FOUND`. APP_ACTIVE_CHANGED with an empty payload and status `OK` means there is no active bundle.
@@ -150,9 +150,17 @@ Invalid or truncated
 sections invalidate the response. Version 3 always uses schema `1` and does
 not contain reset data. No identifiers or credentials cross BLE.
 
-The Mac sends a v1-framed HELLO offering `[4, 3, 2, 1]`. Cardputer selects the
-highest common version and replies with a v1-framed HELLO_ACK. An older peer
-selects v1, retaining its original three capabilities and operations. Cardputer
+Protocol v5 uses AI_USAGE schema `3`. It is byte-for-byte schema `2` except
+for the schema byte and two added enum ranges: provider `3=Claude` and plans
+`4=Pro`, `5=Max`. Schemas `1` and `2` reject provider `3` and plans `4`–`5`,
+so the Mac omits Claude from v3/v4 responses. Reset data remains Codex Plus
+only. The provider and metric bounds are unchanged; a Mac that detects more
+than two providers sends the first two in the order Codex, Cursor, Claude.
+
+The Mac sends a v1-framed HELLO offering `[5, 4, 3, 2]`. HELLO carries at most
+four versions, so v1 is no longer offered; a v4 Cardputer still selects v4.
+Cardputer selects the highest common version and replies with a v1-framed
+HELLO_ACK. A peer that shares only v2 retains the v2 capabilities. Cardputer
 replies HELLO_ACK with a new session generation,
 then requests capabilities and the current active application. Cardputer sends
 PING heartbeats. The Mac sends APP_ACTIVE_CHANGED events.

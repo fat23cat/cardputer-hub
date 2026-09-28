@@ -296,7 +296,7 @@ enum CompanionCoreCheck {
         session.handle(zeroSession)
         expect(session.session == 0, "zero session hello-ack ignored")
         var wrongVersion = CompanionCodec.encode(validAck)!
-        wrongVersion[wrongVersion.count - 1] = 5
+        wrongVersion[wrongVersion.count - 1] = 6
         session.handle(wrongVersion)
         expect(session.session == 0, "wrong version hello-ack ignored")
         session.handle(CompanionCodec.encode(validAck)!)
@@ -368,8 +368,8 @@ enum CompanionCoreCheck {
         var v2Sent: [[UInt8]] = []
         v2.outgoing = { v2Sent.append($0) }
         v2.startHandshake()
-        expect(CompanionCodec.decode(v2Sent[0])?.payload == [4, 4, 3, 2, 1],
-               "v4 hello offers fallback")
+        expect(CompanionCodec.decode(v2Sent[0])?.payload == [4, 5, 4, 3, 2],
+               "v5 hello offers fallback")
         var v2Ack = CompanionEnvelope()
         v2Ack.kind = .helloAck
         v2Ack.session = 21
@@ -579,6 +579,84 @@ enum CompanionCoreCheck {
         fractionalCursor["billingCycleEnd"] = "2026-10-01T00:00:00.000Z"
         expect(AiUsageNormalization.cursor(fractionalCursor, now: displayNow)?
             .metrics.first?.resetAt != 0, "Cursor fractional reset timestamp")
+
+        let claude: [String: Any] = [
+            "five_hour": ["utilization": 99.0, "resets_at": "1970-01-01T03:00:00.284624+00:00"],
+            "seven_day": ["utilization": 99.0, "resets_at": "1970-01-02T00:00:00+00:00"],
+            "seven_day_opus": NSNull(),
+            "iguana_necktie": ["utilization": 0.0, "limit_dollars": 100],
+            "limits": [
+                ["kind": "session", "percent": 8, "resets_at": "1970-01-01T03:00:00.284624+00:00",
+                 "scope": NSNull()],
+                ["kind": "weekly_opus", "percent": 50, "resets_at": "1970-01-03T00:00:00Z",
+                 "scope": "opus"],
+                ["kind": "weekly_all", "percent": 1, "resets_at": "1970-01-02T00:00:00+00:00",
+                 "scope": NSNull()],
+            ]]
+        let claudeSample = AiUsageNormalization.claude(claude, subscriptionType: "pro",
+                                                       now: displayNow)
+        expect(claudeSample?.provider == .claude && claudeSample?.plan == .pro,
+               "Claude provider and plan")
+        expect(claudeSample?.metrics.map(\.kind) == [.fiveHour, .week] &&
+               claudeSample?.metrics.map(\.remainingPercent) == [92, 99],
+               "Claude limits list wins over legacy windows")
+        expect(claudeSample?.metrics.first?.resetAt == 10_800 &&
+               claudeSample?.metrics.first?.resetRemainingSeconds == 800,
+               "Claude fractional reset timestamp")
+        var legacyClaude = claude
+        legacyClaude["limits"] = nil
+        legacyClaude["five_hour"] = ["utilization": 37.4, "resets_at": "1970-01-01T03:00:00Z"]
+        legacyClaude["seven_day"] = NSNull()
+        let legacySample = AiUsageNormalization.claude(legacyClaude, subscriptionType: "max",
+                                                       now: displayNow)
+        expect(legacySample?.plan == .max && legacySample?.metrics.map(\.kind) == [.fiveHour] &&
+               legacySample?.metrics.first?.remainingPercent == 63,
+               "Claude legacy five-hour fallback")
+        expect(AiUsageNormalization.claude(["limits": []], subscriptionType: "pro") == nil,
+               "Claude without rolling windows is not a sample")
+        expect(AiUsageNormalization.claude(claude, subscriptionType: "team")?.plan == .unknown,
+               "Claude unknown subscription keeps the account")
+        let personal = AiUsageSnapshot(generation: 11, state: .ready,
+                                       providers: [plusSample!, claudeSample!])
+        let v5Payload = personal.encode(protocolVersion: 5)
+        expect(v5Payload?.first == 3 && AiUsageSnapshot.decode(v5Payload ?? []) == personal,
+               "v5 schema 3 carries Claude")
+        let v4Personal = personal.encode(protocolVersion: 4)
+        expect(v4Personal.flatMap(AiUsageSnapshot.decode)?.providers.map(\.provider) == [.codex],
+               "v4 omits Claude for older firmware")
+        expect(personal.encode(protocolVersion: 3).flatMap(AiUsageSnapshot.decode)?
+            .providers.map(\.provider) == [.codex], "v3 omits Claude for older firmware")
+        let cursorForCap = AiUsageNormalization.cursor(["membershipType": "enterprise",
+            "individualUsage": ["overall": ["enabled": true, "used": 1, "limit": 100]]])!
+        let three = AiUsageSnapshot(state: .ready,
+                                    providers: [plusSample!, cursorForCap, claudeSample!])
+        expect(three.encode(protocolVersion: 5).flatMap(AiUsageSnapshot.decode)?
+            .providers.map(\.provider) == [.codex, .cursor], "v5 sends the first two providers")
+        let cursorAndClaude = AiUsageSnapshot(state: .ready, providers: [cursorForCap, claudeSample!])
+        expect(cursorAndClaude.encode(protocolVersion: 4).flatMap(AiUsageSnapshot.decode)?
+            .providers.map(\.provider) == [.cursor], "v4 caps after omitting Claude")
+        var elapsed = claudeSample!
+        elapsed.freshness = .stale
+        let reset = elapsed.aged(now: Date(timeIntervalSince1970: 20_000))
+        expect(reset.metrics.first?.remainingPercent == 100 && reset.metrics.first?.used == 0 &&
+               reset.metrics.first?.resetAt == 0, "elapsed window shows as reset")
+        expect(reset.metrics.last?.remainingPercent == elapsed.metrics.last?.remainingPercent &&
+               reset.metrics.last?.resetRemainingSeconds == 86_400 - 20_000,
+               "pending window keeps usage and recounts its reset")
+        let agedCursor = cursorSample!.aged(now: Date(timeIntervalSince1970: 4_000_000_000))
+        expect(agedCursor.metrics.first?.remainingPercent == 96 &&
+               agedCursor.metrics.first?.resetRemainingSeconds == 0,
+               "spend metrics are not rolling windows")
+        let agedResets = resetSample!.aged(now: Date(timeIntervalSince1970: 30_000))
+        expect(agedResets.resetCredits?.credits.first?.expiresRemainingSeconds == 60_000,
+               "reset-credit expiry recounts")
+        expect(three.sentProviders(protocolVersion: 4).map(\.provider) == [.codex, .cursor] &&
+               cursorAndClaude.sentProviders(protocolVersion: 5).map(\.provider) == [.cursor, .claude],
+               "sent providers follow version and cap")
+        if var schemaTwoClaude = v5Payload {
+            schemaTwoClaude[0] = 2
+            expect(AiUsageSnapshot.decode(schemaTwoClaude) == nil, "schema 2 rejects Claude")
+        }
         let usage = AiUsageSnapshot(generation: 9, state: .ready,
             providers: [plusSample!, cursorSample!])
         expect(AiUsageState.forCache(pending: 1, hasUsableProvider: true) == .ready,
@@ -618,11 +696,24 @@ enum CompanionCoreCheck {
             .encode(protocolVersion: 4)!
         expect(CompanionCodec.encode(v4Fixture) == fixture("ai-usage-response-v4.bin"),
                "v4 reset-credit fixture")
+        var v5Fixture = fixtureEnvelope
+        v5Fixture.version = 5
+        v5Fixture.payload = AiUsageSnapshot(generation: 9, state: .ready,
+            providers: [AiUsageProviderSnapshot(provider: .claude, plan: .pro,
+                metrics: [AiUsageMetric(kind: .fiveHour, unit: .percent, used: 8, limit: 100,
+                                        remaining: 92, remainingPercent: 92,
+                                        resetAt: 1780000000, resetRemainingSeconds: 3600)])])
+            .encode(protocolVersion: 5)!
+        expect(CompanionCodec.encode(v5Fixture) == fixture("ai-usage-response-v5.bin"),
+               "v5 Claude fixture")
+        var v5Ack = CompanionEnvelope()
+        v5Ack.kind = .helloAck; v5Ack.session = 42; v5Ack.payload = [5]
+        expect(CompanionCodec.encode(v5Ack) == fixture("hello-ack-v5.bin"), "v5 ack fixture")
         let v3 = CompanionSession(applications: FakeApplications(), aiUsage: FakeAiUsage(usage))
         var v3Sent: [[UInt8]] = []
         v3.outgoing = { v3Sent.append($0) }
         v3.startHandshake()
-        expect(v3Sent[0] == fixture("hello-v4.bin"), "v4 hello advertises fallbacks")
+        expect(v3Sent[0] == fixture("hello-v5.bin"), "v5 hello advertises fallbacks")
         var v3Ack = CompanionEnvelope()
         v3Ack.kind = .helloAck; v3Ack.session = 31; v3Ack.payload = [3]
         v3.handle(CompanionCodec.encode(v3Ack)!)

@@ -52,7 +52,7 @@ final class CompanionMenuBarController: NSObject, NSMenuDelegate {
         let diagnosticsItem = NSMenuItem(title: "Diagnostics", action: nil, keyEquivalent: "")
         diagnosticsItem.submenu = diagnosticsMenu
         menu.addItem(diagnosticsItem)
-        let aboutItem = NSMenuItem(title: "About Cardputer Companion", action: #selector(about),
+        let aboutItem = NSMenuItem(title: "About", action: #selector(about),
                                    keyEquivalent: "")
         aboutItem.target = self
         menu.addItem(aboutItem)
@@ -162,6 +162,7 @@ final class CompanionMenuBarController: NSObject, NSMenuDelegate {
         addSection("AI Usage Cache on Mac")
         addInfo("Codex: \(aiProviderState(.codex))")
         addInfo("Cursor: \(aiProviderState(.cursor))")
+        addInfo("Claude: \(aiProviderState(.claude))")
     }
 
     // Read-only values use disabled items, as in the system Battery and
@@ -188,7 +189,12 @@ final class CompanionMenuBarController: NSObject, NSMenuDelegate {
     private func aiProviderState(_ provider: AiProviderId) -> String {
         guard let sample = status.aiUsage.providers.first(where: { $0.provider == provider })
         else { return status.aiUsage.state == .discovering ? "Checking" : "No sample" }
-        return sample.freshness == .fresh ? "Fresh" : "Stale"
+        let state = sample.freshness == .fresh ? "Fresh" : "Stale"
+        // Older firmware and the two-account limit keep some providers off the Cardputer.
+        let version = status.protocolVersion ?? CompanionConstants.latestProtocolVersion
+        let sent = status.aiUsage.sentProviders(protocolVersion: version)
+            .contains { $0.provider == provider }
+        return sent ? state : "\(state), not sent to Cardputer"
     }
 
     private var stateTitle: String {

@@ -4,8 +4,8 @@ import Foundation
 
 public final class AiUsageCollector: AiUsageCollecting {
     private let lock = NSLock()
-    private let codex: AiUsageProviderRefreshing
-    private let cursor: AiUsageProviderRefreshing
+    // Snapshot order; the wire encoding sends at most the first two providers.
+    private let providers: [(AiProviderId, AiUsageProviderRefreshing)]
     private let scheduleRetry: (TimeInterval, @escaping () -> Void) -> Void
     private let schedulePeriodic: (TimeInterval, @escaping () -> Void) -> (() -> Void)
     private let now: () -> Date
@@ -16,6 +16,7 @@ public final class AiUsageCollector: AiUsageCollecting {
     private var refreshSerial = DispatchQueue(label: "org.cardputer.companion.ai-collector")
     private var pending = 0
     private var samples: [AiProviderId: AiUsageProviderSnapshot] = [:]
+    private var waiting: Set<AiProviderId> = []
     private var freshAt: [AiProviderId: Date] = [:]
     private var refreshId: UInt64 = 0
     private var retryId: UInt64 = 0
@@ -25,10 +26,12 @@ public final class AiUsageCollector: AiUsageCollecting {
     private var running = false
 
     public convenience init() {
-        self.init(codex: CodexUsageProvider(), cursor: CursorUsageProvider())
+        self.init(codex: CodexUsageProvider(), cursor: CursorUsageProvider(),
+                  claude: ClaudeUsageProvider())
     }
 
     init(codex: AiUsageProviderRefreshing, cursor: AiUsageProviderRefreshing,
+         claude: AiUsageProviderRefreshing = AbsentUsageProvider(),
          now: @escaping () -> Date = Date.init,
          scheduleRetry: @escaping (TimeInterval, @escaping () -> Void) -> Void = { delay, work in
              DispatchQueue.global(qos: .utility).asyncAfter(deadline: .now() + delay,
@@ -42,8 +45,7 @@ public final class AiUsageCollector: AiUsageCollecting {
              timer.resume()
              return { timer.cancel() }
          }) {
-        self.codex = codex
-        self.cursor = cursor
+        providers = [(.codex, codex), (.cursor, cursor), (.claude, claude)]
         self.now = now
         self.scheduleRetry = scheduleRetry
         self.schedulePeriodic = schedulePeriodic
@@ -71,11 +73,12 @@ public final class AiUsageCollector: AiUsageCollecting {
         if let wakeObserver { NSWorkspace.shared.notificationCenter.removeObserver(wakeObserver) }
         wakeObserver = nil
         refreshSerial.sync {
-            running = false; samples.removeAll(); freshAt.removeAll(); pending = 0
+            running = false; samples.removeAll(); freshAt.removeAll(); waiting.removeAll()
+            pending = 0
             refreshRequested = false; cycleFailed = false; retryDelay = 1
             refreshId &+= 1; retryId &+= 1
         }
-        codex.stop(); cursor.stop()
+        providers.forEach { $0.1.stop() }
         lock.lock(); cached = AiUsageSnapshot(); cachedFreshAt.removeAll(); lock.unlock()
     }
 
@@ -85,11 +88,19 @@ public final class AiUsageCollector: AiUsageCollecting {
         var expired = false
         for index in cached.providers.indices {
             let provider = cached.providers[index].provider
-            guard cached.providers[index].freshness == .fresh,
-                  let sampledAt = cachedFreshAt[provider],
-                  currentTime.timeIntervalSince(sampledAt) >= 90 else { continue }
-            cached.providers[index].freshness = .stale
-            expired = true
+            if cached.providers[index].freshness == .fresh,
+               let sampledAt = cachedFreshAt[provider],
+               currentTime.timeIntervalSince(sampledAt) >= 90 {
+                cached.providers[index].freshness = .stale
+                expired = true
+            }
+            guard cached.providers[index].freshness == .stale else { continue }
+            let aged = cached.providers[index].aged(now: currentTime)
+            // Countdowns alone are not a new generation; a window that reset is.
+            if aged.metrics.map(\.resetAt) != cached.providers[index].metrics.map(\.resetAt) {
+                expired = true
+            }
+            cached.providers[index] = aged
         }
         if expired { cached.generation &+= 1 }
         return cached
@@ -108,13 +119,12 @@ public final class AiUsageCollector: AiUsageCollecting {
         retryId &+= 1
         refreshId &+= 1
         let id = refreshId
-        pending = 2
+        pending = providers.count
         cycleFailed = false
-        codex.refresh { [weak self] sample, absent in
-            self?.accept(.codex, sample: sample, absent: absent, id: id)
-        }
-        cursor.refresh { [weak self] sample, absent in
-            self?.accept(.cursor, sample: sample, absent: absent, id: id)
+        for (provider, source) in providers {
+            source.refresh { [weak self] outcome in
+                self?.accept(provider, outcome: outcome, id: id)
+            }
         }
     }
 
@@ -146,19 +156,20 @@ public final class AiUsageCollector: AiUsageCollecting {
 
     private func publishCache() {
         let currentTime = now()
-        let providers = [AiProviderId.codex, .cursor].compactMap { provider -> AiUsageProviderSnapshot? in
+        let providers = self.providers.map(\.0).compactMap { provider -> AiUsageProviderSnapshot? in
             guard var sample = samples[provider] else { return nil }
             if sample.freshness == .fresh,
                let sampledAt = freshAt[provider],
                currentTime.timeIntervalSince(sampledAt) >= 90 {
                 sample.freshness = .stale
             }
-            return sample
+            return sample.freshness == .stale
+                ? sample.aged(now: currentTime) : sample
         }
         lock.lock()
         cachedFreshAt = freshAt
         let next = AiUsageSnapshot(generation: cached.generation &+ 1,
-                                   state: .forCache(pending: pending,
+                                   state: .forCache(pending: pending + waiting.count,
                                                     hasUsableProvider: !providers.isEmpty),
                                    providers: providers)
         if cached.state != next.state || cached.providers != next.providers {
@@ -179,27 +190,35 @@ public final class AiUsageCollector: AiUsageCollecting {
         }
     }
 
-    private func accept(_ provider: AiProviderId, sample: AiUsageProviderSnapshot?,
-                        absent: Bool, id: UInt64) {
+    private func accept(_ provider: AiProviderId, outcome: AiUsageRefreshOutcome, id: UInt64) {
         refreshSerial.async {
             guard self.running, self.refreshId == id else { return }
-            if absent {
+            if outcome == .waiting { self.waiting.insert(provider) } else { self.waiting.remove(provider) }
+            switch outcome {
+            case .absent:
                 self.samples.removeValue(forKey: provider)
                 self.freshAt.removeValue(forKey: provider)
-            } else if let sample {
+            case .sample(let sample):
                 self.samples[provider] = sample
                 self.freshAt[provider] = self.now()
-            } else if var prior = self.samples[provider] {
-                let age = self.freshAt[provider].map { self.now().timeIntervalSince($0) }
-                if prior.freshness != .stale {
+            case .failed:
+                self.cycleFailed = true
+                if var prior = self.samples[provider], prior.freshness != .stale {
+                    let age = self.freshAt[provider].map { self.now().timeIntervalSince($0) }
                     prior.freshness = age.map { $0 < 90 } == true ? .fresh : .stale
+                    self.samples[provider] = prior
                 }
-                self.samples[provider] = prior
+            case .unavailable, .waiting:
+                self.samples[provider]?.freshness = .stale
             }
-            if sample == nil && !absent { self.cycleFailed = true }
             self.pending -= 1
             self.publishCache()
             if self.pending == 0 { self.finishRefresh() }
         }
     }
+}
+
+final class AbsentUsageProvider: AiUsageProviderRefreshing {
+    func refresh(_ done: @escaping (AiUsageRefreshOutcome) -> Void) { done(.absent) }
+    func stop() {}
 }

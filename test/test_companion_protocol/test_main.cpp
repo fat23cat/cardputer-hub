@@ -361,6 +361,53 @@ void test_v4_reset_credits_and_v3_compatibility() {
     TEST_ASSERT_FALSE(read.providers[0].resetCredits.known);
 }
 
+void test_v5_claude_schema_and_v4_rejects_claude() {
+    using namespace cardputer_hub::connectivity;
+    const std::uint8_t versions[] = {5, 4, 3, 2};
+    assertEncodedMatchesFixture(makeHello(versions, 4), "hello-v5.bin");
+    assertEncodedMatchesFixture(makeHelloAck(42, 5), "hello-ack-v5.bin");
+    CompanionAiUsage usage{};
+    usage.state = AiUsageState::Ready;
+    usage.generation = 9;
+    usage.providerCount = 1;
+    auto& provider = usage.providers[0];
+    provider.provider = AiProvider::Claude;
+    provider.plan = AiPlan::Pro;
+    provider.metricCount = 1;
+    auto& metric = provider.metrics[0];
+    metric.limit = 100;
+    metric.used = 8;
+    metric.remaining = 92;
+    metric.remainingPercent = 92;
+    metric.resetAt = 1780000000;
+    metric.resetRemainingSeconds = 3600;
+    auto response = makeResponse(42, 7, CompanionOperation::AiUsage, CompanionStatus::Ok);
+    response.version = 5;
+    TEST_ASSERT_TRUE(setAiUsage(response, usage));
+    assertEncodedMatchesFixture(response, "ai-usage-response-v5.bin");
+    const auto fixture = loadFixture("ai-usage-response-v5.bin");
+    const auto decoded = decodeCompanionMessage(fixture.data(), fixture.size());
+    TEST_ASSERT_TRUE(decoded.has_value());
+    CompanionAiUsage read{};
+    TEST_ASSERT_TRUE(readAiUsage(*decoded, read));
+    TEST_ASSERT_EQUAL_UINT8(3, read.schemaVersion);
+    TEST_ASSERT_EQUAL_UINT8(static_cast<unsigned>(AiProvider::Claude),
+                            static_cast<unsigned>(read.providers[0].provider));
+    TEST_ASSERT_EQUAL_UINT8(static_cast<unsigned>(AiPlan::Pro),
+                            static_cast<unsigned>(read.providers[0].plan));
+    provider.plan = AiPlan::Max;
+    TEST_ASSERT_TRUE(setAiUsage(response, usage));
+    response.version = 4;
+    TEST_ASSERT_FALSE(setAiUsage(response, usage));
+    auto schemaTwo = *decoded;
+    schemaTwo.version = 4;
+    schemaTwo.payload[0] = 2;
+    TEST_ASSERT_FALSE(readAiUsage(schemaTwo, read));
+    provider.provider = AiProvider::Codex;
+    provider.plan = AiPlan::Pro;
+    TEST_ASSERT_FALSE(setAiUsage(response, usage));
+}
+
 void test_v4_reset_credit_bounds_and_malformed_payloads() {
     using namespace cardputer_hub::connectivity;
     CompanionAiUsage usage{};
@@ -474,5 +521,6 @@ int main() {
     RUN_TEST(test_v3_ai_usage_round_trip_and_bounds);
     RUN_TEST(test_v4_reset_credits_and_v3_compatibility);
     RUN_TEST(test_v4_reset_credit_bounds_and_malformed_payloads);
+    RUN_TEST(test_v5_claude_schema_and_v4_rejects_claude);
     return UNITY_END();
 }
