@@ -6,6 +6,7 @@
 #include "core/app_registry/app_registry.h"
 #include "core/audio/audio_adapter.h"
 #include "core/capabilities/capability_registry.h"
+#include "core/display/palette.h"
 #include "core/display/text_layout.h"
 #include "services/audio/audio_service.h"
 #include "services/network/network_service.h"
@@ -83,14 +84,14 @@ class Display final : public core::IDisplayAdapter {
                          position.y < 135);
         texts.push_back(value);
         drawnTexts.push_back({position, value});
-        TEST_ASSERT_TRUE(position.x + std::string(value).size() * 6 * style.scale <= 240);
-        TEST_ASSERT_TRUE(position.y + 8 * style.scale <= 135);
+        TEST_ASSERT_TRUE_MESSAGE(position.x + core::textWidth(value, style.scale) <= 240, value);
+        TEST_ASSERT_TRUE(position.y + static_cast<int>(std::ceil(8 * style.scale)) <= 135);
         std::ostringstream line;
-        line << "T " << position.x << ' ' << position.y << ' ' << unsigned(style.scale) << ' '
-             << unsigned(style.foreground.red) << ' ' << unsigned(style.foreground.green) << ' '
-             << unsigned(style.foreground.blue) << ' ' << unsigned(style.background.red) << ' '
-             << unsigned(style.background.green) << ' ' << unsigned(style.background.blue) << ' '
-             << std::quoted(value);
+        line << "T " << position.x << ' ' << position.y << ' ' << std::fixed << std::setprecision(2)
+             << style.scale << ' ' << unsigned(style.foreground.red) << ' '
+             << unsigned(style.foreground.green) << ' ' << unsigned(style.foreground.blue) << ' '
+             << unsigned(style.background.red) << ' ' << unsigned(style.background.green) << ' '
+             << unsigned(style.background.blue) << ' ' << std::quoted(value);
         commands.push_back(line.str());
         dirty = true;
     }
@@ -119,6 +120,14 @@ class Display final : public core::IDisplayAdapter {
     };
     std::vector<DrawnText> drawnTexts;
 };
+void test_fractional_system_text_metrics_and_capture() {
+    TEST_ASSERT_EQUAL_INT32(8, core::systemTextWidth("A"));
+    TEST_ASSERT_EQUAL_INT32(10, core::systemTextHeight());
+    TEST_ASSERT_EQUAL_INT32(226, core::rightAlignedTextX("A"));
+    Display display;
+    display.drawText({0, 0}, "A", {core::palette::ink, core::palette::bone, core::systemTextScale});
+    TEST_ASSERT_TRUE(display.commands.back().find(" 1.20 ") != std::string::npos);
+}
 class Actions final : public core::IActionHandler {
   public:
     core::ActionHandlingResult handle(const core::Action& action) override {
@@ -522,8 +531,9 @@ void test_pairing_prompt_change_redraws_pairing_content_then_stays_idle() {
     f.ui.update({});
 
     TEST_ASSERT_EQUAL(waitingFrames + 1, f.display.frames);
+    f.display.capture("bluetooth-pairing");
     TEST_ASSERT_TRUE(std::find(f.display.texts.begin(), f.display.texts.end(),
-                               "Does the computer show this code?") != f.display.texts.end());
+                               "Does computer show this code?") != f.display.texts.end());
     TEST_ASSERT_TRUE(std::find(f.display.texts.begin(), f.display.texts.end(), "ESC CANCEL") !=
                      f.display.texts.end());
     TEST_ASSERT_TRUE(std::find(f.display.texts.begin(), f.display.texts.end(), "ENTER YES") !=
@@ -1014,6 +1024,7 @@ void setUp() {}
 void tearDown() {}
 int main() {
     UNITY_BEGIN();
+    RUN_TEST(test_fractional_system_text_metrics_and_capture);
     RUN_TEST(test_plain_tab_opens_settings_and_leaves_editing_intact);
     RUN_TEST(test_page_transitions_follow_navigation_and_ignore_focus_or_status_refresh);
     RUN_TEST(test_fn_tab_and_system_button_do_not_open_settings);

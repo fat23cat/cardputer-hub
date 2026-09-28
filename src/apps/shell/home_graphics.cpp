@@ -1,5 +1,6 @@
 #include "apps/shell/home_graphics.h"
 #include "core/display/palette.h"
+#include "core/display/text_layout.h"
 #include <string>
 
 namespace cardputer_hub::apps {
@@ -59,7 +60,7 @@ HomeStatusIndicator homeBluetoothIndicator(services::HostConnectionStatus status
 
 void drawHomeStatusBar(core::IDisplayAdapter& display) {
     display.fillRectangle({0, 21}, 240, 1, core::palette::ink);
-    const core::TextStyle label{core::palette::ink, core::palette::bone, 1};
+    const core::TextStyle label{core::palette::ink, core::palette::bone, core::systemTextScale};
     display.drawText({18, 6}, "WiFi", label);
     display.drawText({72, 6}, "BT", label);
 }
@@ -77,8 +78,8 @@ void drawHomeBluetooth(core::IDisplayAdapter& display, HomeStatusIndicator indic
 std::string homeConnectedDeviceName(const services::HostStatusSnapshot& status) {
     if (status.connection != services::HostConnectionStatus::Ready || status.activeHostName.empty())
         return {};
-    // The normal system font is six pixels wide. Keep the stored profile untouched.
-    constexpr std::size_t maxCharacters = (240 - 20 - 8) / 6;
+    // Keep the stored profile untouched; only shorten the displayed name.
+    const std::size_t maxCharacters = core::systemTextMaxCharacters(240 - 20 - 8);
     if (status.activeHostName.size() <= maxCharacters)
         return status.activeHostName;
     return status.activeHostName.substr(0, maxCharacters - 3) + "...";
@@ -89,7 +90,8 @@ void drawHomeConnectedDevice(core::IDisplayAdapter& display, const std::string& 
     if (name.empty())
         return;
     drawDot(display, {8, 101}, HomeStatusIndicator::FilledLeaf);
-    display.drawText({20, 100}, name.c_str(), {core::palette::ink, core::palette::bone, 1});
+    display.drawText({20, 100}, name.c_str(),
+                     {core::palette::ink, core::palette::bone, core::systemTextScale});
 }
 
 void drawHomeActions(core::IDisplayAdapter& display, std::int32_t plateX) {
@@ -100,8 +102,8 @@ void drawHomeActions(core::IDisplayAdapter& display, std::int32_t plateX) {
     const auto drawAction = [&](int x, int width, const char* label, bool onPlate) {
         const core::RgbColor background = onPlate ? core::palette::ink : core::palette::bone;
         const core::RgbColor foreground = onPlate ? core::palette::bone : core::palette::ink;
-        const int textWidth = static_cast<int>(std::string(label).size()) * 6;
-        display.drawText({x + (width - textWidth) / 2, 120}, label, {foreground, background, 1});
+        display.drawText({core::centeredTextX(label, x, width), 120}, label,
+                         {foreground, background, core::systemTextScale});
     };
     const bool settingsOnPlate = plateX >= 64;
     drawAction(0, 119, "APPS", !settingsOnPlate);
@@ -113,7 +115,7 @@ void drawHomeBattery(core::IDisplayAdapter& display, std::optional<std::uint8_t>
                            ? std::to_string(*batteryPercent) + "%"
                            : std::string("--%");
     display.fillRectangle({202, 4}, 30, 14, core::palette::bone);
-    display.drawText({232 - static_cast<int>(label.size()) * 6, 6}, label.c_str(),
-                     {core::palette::ink, core::palette::bone, 1});
+    display.drawText({core::rightAlignedTextX(label.c_str(), 232), 6}, label.c_str(),
+                     {core::palette::ink, core::palette::bone, core::systemTextScale});
 }
 } // namespace cardputer_hub::apps

@@ -1,6 +1,7 @@
 #include "apps/mac_status/mac_status_graphics.h"
 
 #include "core/display/palette.h"
+#include "core/display/text_layout.h"
 
 #include <algorithm>
 #include <cstdio>
@@ -128,7 +129,8 @@ void drawMacStatusMetric(core::IDisplayAdapter& display, const MacStatusPresenta
         else if (value.labels[index].find("NORMAL") != std::string::npos)
             color = palette::leaf;
     }
-    display.drawText({textX, y + 1}, value.labels[index].c_str(), {color, palette::bone, 1});
+    display.drawText({textX, y + 1}, value.labels[index].c_str(),
+                     {color, palette::bone, core::systemTextScale});
     if (index < 4) {
         display.fillRectangle({x, y + 22}, 100, 6, palette::pale);
         if (value.bars[index] >= 0)

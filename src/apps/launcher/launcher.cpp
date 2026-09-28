@@ -38,7 +38,7 @@ std::string ordinal(std::size_t index) {
 }
 
 std::string fitName(const std::string& name) {
-    constexpr std::size_t maximum = 22;
+    const std::size_t maximum = core::systemTextMaxCharacters(launcherDotX - 5 - launcherNameX);
     if (name.size() <= maximum)
         return name;
     return name.substr(0, maximum - 3) + "...";
@@ -46,7 +46,7 @@ std::string fitName(const std::string& name) {
 
 std::string fitOverlayReason(std::string text) {
     constexpr std::int32_t overlayTextX = 6;
-    const auto maximum = static_cast<std::size_t>((240 - overlayTextX) / core::systemGlyphWidth);
+    const auto maximum = core::systemTextMaxCharacters(240 - overlayTextX);
     if (text.size() <= maximum)
         return text;
     if (maximum <= 3)
@@ -242,9 +242,9 @@ void Launcher::render() {
     if (!listChanged && !plateChanged && !headerChanged)
         return;
 
-    const TextStyle normal{palette::ink, palette::bone, 1};
-    const TextStyle selected{palette::bone, palette::ink, 1};
-    const TextStyle quiet{palette::ordinal, palette::bone, 1};
+    const TextStyle normal{palette::ink, palette::bone, systemTextScale};
+    const TextStyle selected{palette::bone, palette::ink, systemTextScale};
+    const TextStyle quiet{palette::ordinal, palette::bone, systemTextScale};
     if (full) {
         display_.clear(palette::bone);
         display_.fillRectangle({6, 20}, 228, 1, palette::ink);

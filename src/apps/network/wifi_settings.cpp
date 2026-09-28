@@ -11,7 +11,7 @@ namespace cardputer_hub::apps {
 using namespace core;
 
 namespace {
-constexpr std::size_t editorColumns = 39;
+const std::size_t editorColumns = systemTextMaxCharacters(240 - 12);
 }
 
 bool WiFiSettings::TextDraft::append(char c) {
@@ -268,9 +268,9 @@ void WiFiSettings::update(const InputEvents& input, std::chrono::milliseconds el
 void WiFiSettings::renderStatus(const services::WifiStatusSnapshot& status, bool full) {
     const auto visible = rows(status);
     const auto focus = static_cast<std::uint8_t>(resolveFocus(visible));
-    const TextStyle normal{palette::ink, palette::bone, 1};
-    const TextStyle selected{palette::bone, palette::ink, 1};
-    const TextStyle quiet{palette::ordinal, palette::bone, 1};
+    const TextStyle normal{palette::ink, palette::bone, systemTextScale};
+    const TextStyle selected{palette::bone, palette::ink, systemTextScale};
+    const TextStyle quiet{palette::ordinal, palette::bone, systemTextScale};
     if (full) {
         display_.clear(palette::bone);
         display_.drawText({6, 6}, "WIFI", normal);
@@ -280,7 +280,7 @@ void WiFiSettings::renderStatus(const services::WifiStatusSnapshot& status, bool
     } else if (frame_ &&
                (frame_->configured != status.configured || frame_->enabled != status.enabled ||
                 frame_->connection != status.connection)) {
-        display_.fillRectangle({90, 6}, 144, 8, palette::bone);
+        display_.fillRectangle({90, 6}, 144, systemTextHeight(), palette::bone);
         const auto* label = headerStatus(status);
         display_.drawText({rightAlignedTextX(label), 6}, label, normal);
     }
@@ -315,21 +315,21 @@ void WiFiSettings::renderStatus(const services::WifiStatusSnapshot& status, bool
         display_.drawText({10, y + 3}, ordinal, focus == index ? style : quiet);
         display_.drawText({30, y + 3}, visible[index].label, style);
         if (!visible[index].value.empty())
-            display_.drawText(
-                {230 - static_cast<std::int32_t>(visible[index].value.size()) * 6, y + 3},
-                visible[index].value.c_str(), style);
+            display_.drawText({rightAlignedTextX(visible[index].value.c_str(), 230), y + 3},
+                              visible[index].value.c_str(), style);
     }
     const auto* error = errorText(status.lastResult);
     if (full || !frame_ || frame_->lastResult != status.lastResult) {
         if (!full)
-            display_.fillRectangle({6, 118}, 228, 8, palette::bone);
+            display_.fillRectangle({6, 118}, 228, systemTextHeight(), palette::bone);
         if (*error != '\0')
-            display_.drawText({6, 118}, error, {palette::vermilion, palette::bone, 1});
+            display_.drawText({6, 118}, error,
+                              {palette::vermilion, palette::bone, systemTextScale});
     }
 }
 
 void WiFiSettings::renderEditor(bool full) {
-    const TextStyle normal{palette::ink, palette::bone, 1};
+    const TextStyle normal{palette::ink, palette::bone, systemTextScale};
     if (!full && frame_ && frame_->view == view_ && frame_->ssidDraft == ssidDraft_.value &&
         frame_->passphraseLength == passphraseDraft_.value.size() &&
         frame_->passphraseRevealed == (revealRemaining_ > std::chrono::milliseconds{0}) &&
@@ -349,7 +349,7 @@ void WiFiSettings::renderEditor(bool full) {
         display_.drawText({6, 40}, shown.c_str(), normal);
         const auto* error = errorText(network_.status().lastResult);
         if (*error != '\0')
-            display_.drawText({6, 80}, error, {palette::vermilion, palette::bone, 1});
+            display_.drawText({6, 80}, error, {palette::vermilion, palette::bone, systemTextScale});
     }
     const char* confirm = view_ == View::Forget ? "ENTER FORGET"
                           : view_ == View::Ssid ? (ssidDraft_.value.empty() ? "" : "ENTER NEXT")

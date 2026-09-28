@@ -1,3 +1,5 @@
+#include "../support/ui_capture.h"
+#include "core/display/text_layout.h"
 #include <unity.h>
 
 #include <algorithm>
@@ -30,7 +32,8 @@ class Display final : public IDisplayAdapter {
         if (dirty)
             ++presentations;
     }
-    void clear(RgbColor) override {
+    void clear(RgbColor color) override {
+        capture.clear(color);
         ++frames;
         texts.clear();
         rectangles.clear();
@@ -38,24 +41,25 @@ class Display final : public IDisplayAdapter {
     }
     void fillRectangle(PixelPosition position, std::int32_t width, std::int32_t height,
                        RgbColor color) override {
+        capture.rectangle(position, width, height, color);
         TEST_ASSERT_TRUE(position.x >= 0 && position.y >= 0 && width > 0 && height > 0);
         TEST_ASSERT_TRUE(position.x + width <= 240 && position.y + height <= 135);
         rectangles.push_back({position, width, height, color});
         dirty = true;
     }
     void drawText(PixelPosition position, const char* value, TextStyle style) override {
+        capture.text(position, value, style);
         TEST_ASSERT_TRUE(position.x >= 0 && position.x < 240 && position.y >= 0 &&
                          position.y < 135);
-        TEST_ASSERT_TRUE(position.x + static_cast<std::int32_t>(std::string(value).size()) * 6 *
-                                          style.scale <=
-                         240);
-        TEST_ASSERT_TRUE(position.y + 8 * style.scale <= 135);
+        TEST_ASSERT_TRUE(position.x + core::textWidth(value, style.scale) <= 240);
+        TEST_ASSERT_TRUE(position.y + std::ceil(8 * style.scale) <= 135);
         texts.push_back(value);
         dirty = true;
     }
     bool shows(const char* value) const {
         return std::find(texts.begin(), texts.end(), value) != texts.end();
     }
+    test_support::UiCapture capture;
     struct Rectangle {
         PixelPosition position;
         std::int32_t width;
@@ -88,6 +92,7 @@ void test_initial_view_and_space_pause_resume_reset_skip() {
     PomodoroApp app(pomodoro, display);
     app.onActivate();
     app.update({}, {});
+    display.capture.save("pomodoro");
     TEST_ASSERT_TRUE(display.shows("FOCUS"));
     TEST_ASSERT_TRUE(display.shows("1 / 4"));
     TEST_ASSERT_TRUE(display.shows("SPACE  START"));

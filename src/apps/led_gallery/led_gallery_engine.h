@@ -57,7 +57,7 @@ inline constexpr std::array<LedGalleryEffectInfo, 20> ledGalleryEffects{{
     {LedGalleryEffect::Swarm, "SWARM", "WASD MOVE  SPACE SCATTER"},
     {LedGalleryEffect::FallingSand, "FALLING SAND", "A/D ROTATE  SPACE ADD"},
     {LedGalleryEffect::LangtonsAnt, "LANGTON'S ANT", "SPACE ADD ANT"},
-    {LedGalleryEffect::TetrisDream, "TETRIS DREAM", "A/D MOVE  W ROT  S SOFT  SPACE HARD"},
+    {LedGalleryEffect::TetrisDream, "TETRIS DREAM", "A/D MOVE W ROT S SOFT SPACE HARD"},
     {LedGalleryEffect::RuleMachine, "RULE MACHINE", "A/D RULE  W/S SPEED  SPACE NEW"},
     {LedGalleryEffect::ElectricStorm, "ELECTRIC STORM", "WASD MOVE  SPACE STRIKE"},
 }};

@@ -1,3 +1,4 @@
+#include "../support/ui_capture.h"
 #include "apps/hosts/host_settings.h"
 #include "apps/network/wifi_settings.h"
 #include "apps/runtime/mini_app_runtime.h"
@@ -53,12 +54,14 @@ class Display final : public core::IDisplayAdapter {
     }
     void fillRectangle(core::PixelPosition position, std::int32_t width, std::int32_t height,
                        core::RgbColor color) override {
+        capture.rectangle(position, width, height, color);
         TEST_ASSERT_TRUE(position.x >= 0 && position.y >= 0 && width > 0 && height > 0);
         TEST_ASSERT_TRUE(position.x + width <= 240 && position.y + height <= 135);
         rectangles.push_back({position, width, height, color});
         dirty = true;
     }
-    void clear(core::RgbColor) override {
+    void clear(core::RgbColor color) override {
+        capture.clear(color);
         ++frames;
         texts.clear();
         drawnTexts.clear();
@@ -66,10 +69,11 @@ class Display final : public core::IDisplayAdapter {
         dirty = true;
     }
     void drawText(core::PixelPosition position, const char* value, core::TextStyle style) override {
+        capture.text(position, value, style);
         TEST_ASSERT_TRUE(position.x >= 0 && position.x < 240 && position.y >= 0 &&
                          position.y < 135);
-        TEST_ASSERT_TRUE(position.x + std::string(value).size() * 6 * style.scale <= 240);
-        TEST_ASSERT_TRUE(position.y + 8 * style.scale <= 135);
+        TEST_ASSERT_TRUE(position.x + core::textWidth(value, style.scale) <= 240);
+        TEST_ASSERT_TRUE(position.y + std::ceil(8 * style.scale) <= 135);
         texts.push_back(value);
         drawnTexts.push_back({position, value});
         dirty = true;
@@ -77,6 +81,7 @@ class Display final : public core::IDisplayAdapter {
     bool shows(const char* value) const {
         return std::find(texts.begin(), texts.end(), value) != texts.end();
     }
+    cardputer_hub::test_support::UiCapture capture;
     bool hasColor(core::RgbColor color) const {
         return std::any_of(rectangles.begin(), rectangles.end(), [&](const Rectangle& rectangle) {
             return rectangle.color.red == color.red && rectangle.color.green == color.green &&
@@ -415,6 +420,7 @@ void test_wifi_settings_shows_connected_status_and_rssi() {
     f.reachWifi(connectivity::WifiAdapterState::Connected, -54);
     f.wifiSettings.activate();
     f.wifiSettings.update({});
+    f.display.capture.save("wifi");
     TEST_ASSERT_TRUE(f.display.shows("WIFI"));
     TEST_ASSERT_TRUE(f.display.shows("CONNECTED"));
     TEST_ASSERT_TRUE(f.display.shows("ON"));
@@ -488,20 +494,20 @@ void test_editor_keeps_long_credentials_on_screen() {
     f.wifiSettings.update({enter});
     const std::string ssid(services::NetworkService::maximumSsidLength, 'A');
     type(f.wifiSettings, ssid + "Z");
-    TEST_ASSERT_TRUE(f.display.shows((ssid + "_").c_str()));
+    TEST_ASSERT_TRUE(f.display.shows((std::string(30, 'A') + "_").c_str()));
     f.wifiSettings.update({backspace});
-    TEST_ASSERT_TRUE(f.display.shows((std::string(31, 'A') + "_").c_str()));
+    TEST_ASSERT_TRUE(f.display.shows((std::string(30, 'A') + "_").c_str()));
     type(f.wifiSettings, "A");
     f.wifiSettings.update({enter});
 
     type(f.wifiSettings, std::string(63, 'b'));
-    TEST_ASSERT_TRUE(f.display.shows((std::string(37, '*') + "b_").c_str()));
+    TEST_ASSERT_TRUE(f.display.shows((std::string(29, '*') + "b_").c_str()));
     f.wifiSettings.update({}, apps::WiFiSettings::passphraseRevealDuration);
-    TEST_ASSERT_TRUE(f.display.shows((std::string(38, '*') + "_").c_str()));
+    TEST_ASSERT_TRUE(f.display.shows((std::string(30, '*') + "_").c_str()));
     f.wifiSettings.update({backspace});
-    TEST_ASSERT_TRUE(f.display.shows((std::string(38, '*') + "_").c_str()));
+    TEST_ASSERT_TRUE(f.display.shows((std::string(30, '*') + "_").c_str()));
     type(f.wifiSettings, "b");
-    TEST_ASSERT_TRUE(f.display.shows((std::string(37, '*') + "b_").c_str()));
+    TEST_ASSERT_TRUE(f.display.shows((std::string(29, '*') + "b_").c_str()));
     TEST_ASSERT_FALSE(
         f.display.shows("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"));
     f.wifiSettings.update({enter});
@@ -513,9 +519,9 @@ void test_editor_keeps_long_credentials_on_screen() {
     type(psk.wifiSettings, "Hidden");
     psk.wifiSettings.update({enter});
     type(psk.wifiSettings, std::string(64, 'a'));
-    TEST_ASSERT_TRUE(psk.display.shows((std::string(37, '*') + "a_").c_str()));
+    TEST_ASSERT_TRUE(psk.display.shows((std::string(29, '*') + "a_").c_str()));
     psk.wifiSettings.update({}, apps::WiFiSettings::passphraseRevealDuration);
-    TEST_ASSERT_TRUE(psk.display.shows((std::string(38, '*') + "_").c_str()));
+    TEST_ASSERT_TRUE(psk.display.shows((std::string(30, '*') + "_").c_str()));
     psk.wifiSettings.update({enter});
     TEST_ASSERT_TRUE(psk.network.status().configured);
     TEST_ASSERT_EQUAL_STRING("Hidden", psk.network.status().ssid.c_str());

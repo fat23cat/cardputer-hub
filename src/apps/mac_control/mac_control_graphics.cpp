@@ -26,9 +26,7 @@ void glyph(IDisplayAdapter& display, PixelPosition position, char digit, RgbColo
 
 void tileLabel(IDisplayAdapter& display, MacControlTileRect tile, std::int32_t y, const char* text,
                TextStyle style) {
-    const auto width =
-        static_cast<std::int32_t>(std::char_traits<char>::length(text)) * systemGlyphWidth;
-    display.drawText({tile.origin.x + (tile.width - width) / 2, y}, text, style);
+    display.drawText({centeredTextX(text, tile.origin.x, tile.width, style.scale), y}, text, style);
 }
 } // namespace
 
@@ -61,10 +59,10 @@ void drawMacControlGrid(IDisplayAdapter& display, const MacControlPage& page) {
                             static_cast<char>('0' + slot), numberColor);
         if (binding == nullptr)
             continue;
-        const auto labelWidth = static_cast<std::int32_t>(binding->label.size()) * systemGlyphWidth;
-        const auto labelX = tile.origin.x + (tile.width - labelWidth) / 2;
-        const auto labelY = tile.origin.y + (tile.height - 8) / 2 + 8;
-        display.drawText({labelX, labelY}, binding->label.data(), {palette::ink, palette::bone, 1});
+        const auto labelX = centeredTextX(binding->label.data(), tile.origin.x, tile.width);
+        const auto labelY = tile.origin.y + (tile.height - systemTextHeight()) / 2 + 8;
+        display.drawText({labelX, labelY}, binding->label.data(),
+                         {palette::ink, palette::bone, systemTextScale});
     }
 }
 
@@ -76,8 +74,8 @@ void drawMacControlTakeover(IDisplayAdapter& display, MacControlTileRect tile, R
     drawMacControlDigit(display, {tile.origin.x + 2, tile.origin.y + 1},
                         static_cast<char>('0' + slot), palette::bone);
     if (binding != nullptr)
-        tileLabel(display, tile, tile.origin.y + (tile.height - 8) / 2 + 8, binding->label.data(),
-                  {palette::bone, surface, 1});
+        tileLabel(display, tile, tile.origin.y + (tile.height - systemTextHeight()) / 2 + 8,
+                  binding->label.data(), {palette::bone, surface, systemTextScale});
 }
 
 } // namespace cardputer_hub::apps
