@@ -1780,7 +1780,7 @@ transport selected to deliver it.
 
 An optional host-side companion provides semantic integration that cannot be
 expressed reliably as keyboard HID. The macOS `Cardputer Companion.app` in
-this repository is a menu-bar utility with a native popover and remains an
+this repository is a menu-bar utility with a native AppKit menu and remains an
 optional dependency.
 
 ```text
@@ -1862,9 +1862,9 @@ parses provider JSON or BLE envelopes.
 On macOS, `CompanionCentral` owns CoreBluetooth attach and reconnect decisions.
 `CompanionSession` owns negotiated protocol state, the last valid message time,
 and the advertised capability snapshot. `CompanionStatusStore` maps those
-values into UI state for `CompanionPopoverView`; `CompanionMenuBarController`
-owns the status item and popover lifecycle. The popover does not initiate
-protocol traffic when opened. Its Reconnect action restarts the existing
+values into menu state; `CompanionMenuBarController` owns the status item and
+native menu lifecycle. Opening the menu does not initiate protocol traffic.
+Its Reconnect action restarts the existing
 attach lifecycle without changing bonds, while Start at Login reads and writes
 the actual `SMAppService` registration. Quit releases observers, timers, BLE
 session resources, and the status item without changing login registration.

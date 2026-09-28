@@ -121,9 +121,9 @@ The macOS **Cardputer Companion.app** is optional. Build and launch it from
 `companion/macos` as described in that directory's README. Grant Bluetooth
 permission on first launch. The
 Companion attaches to the already-paired Cardputer; it does not scan or create
-a second pairing. The menu-bar popover shows connection status, protocol, and
+a second pairing. The menu-bar menu shows connection status, protocol, and
 last valid message; it also provides Reconnect, Start at Login, Diagnostics,
-About, and Quit. Start at Login can be enabled or disabled in the popover.
+About, and Quit. Start at Login can be enabled or disabled in the menu.
 Closing the Mac lid, sleep,
 or a BLE drop invalidates the session; after wake and HID reconnect it attaches
 again without relaunching Companion or re-pairing.
@@ -155,7 +155,7 @@ it appears below the provider name. `CHECKING AI` appears during discovery and
 checks again every two seconds until the Mac finishes;
 `NO AI ACCOUNTS` appears if none can be read. The Mac samples accounts every
 30 seconds and the Cardputer checks the cache every 10 seconds after discovery.
-Companion's Diagnostics page shows whether its own Codex and Cursor cache is
+Companion's Diagnostics submenu shows whether its own Codex and Cursor cache is
 fresh or stale. If the Mac shows fresh while AI USAGE shows `STALE`, the issue
 is between Companion and the device; if both show stale, inspect the provider
 refresh on the Mac. Up/Down selects a visible metric for roughly three seconds
