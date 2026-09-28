@@ -162,7 +162,7 @@ const connectivity::AiUsageProvider* AiUsageApp::plusProvider() const {
     for (std::uint8_t i = 0; i < snapshot.providerCount; ++i) {
         const auto& provider = snapshot.providers[i];
         if (provider.provider == connectivity::AiProvider::Codex &&
-            provider.plan == connectivity::AiPlan::Plus && provider.metricCount == 2)
+            provider.plan == connectivity::AiPlan::Plus)
             return &provider;
     }
     return nullptr;
@@ -174,21 +174,33 @@ void AiUsageApp::drawExpanded(const connectivity::AiUsageProvider& provider) {
         providerTitle(display_, 8, 6, provider);
         display_.fillRectangle({120, 26}, 1, 81, core::palette::pale);
         for (std::uint8_t i = 0; i < 2; ++i) {
-            const auto& metric = provider.metrics[i];
             const int left = i == 0 ? 8 : 128;
-            label(display_, left, 26, metricName(metric.kind), core::palette::blue);
+            const auto kind =
+                i == 0 ? connectivity::AiMetricKind::FiveHour : connectivity::AiMetricKind::Week;
+            label(display_, left, 26, metricName(kind), core::palette::blue);
+            const connectivity::AiUsageMetric* metric = nullptr;
+            for (std::uint8_t j = 0; j < provider.metricCount; ++j)
+                if (provider.metrics[j].kind == kind)
+                    metric = &provider.metrics[j];
+            if (metric == nullptr) {
+                label(display_, left, 40, "--", core::palette::ink, 2);
+                label(display_, left, 61, "UNAVAILABLE", core::palette::ordinal);
+                label(display_, left, 84, "LEFT --", core::palette::ordinal);
+                label(display_, left, 98, "RESET --", core::palette::ordinal);
+                continue;
+            }
             std::snprintf(text, sizeof(text), "%u%%",
-                          static_cast<unsigned>(100 - metric.remainingPercent));
+                          static_cast<unsigned>(100 - metric->remainingPercent));
             label(display_, left, 40, text, core::palette::ink, 2);
             label(display_, left, 61, "USED", core::palette::ordinal);
             display_.fillRectangle({left, 74}, 104, 5, core::palette::pale);
-            display_.fillRectangle({left, 74}, 104 * metric.remainingPercent / 100, 5,
-                                   quotaColor(metric.remainingPercent));
+            display_.fillRectangle({left, 74}, 104 * metric->remainingPercent / 100, 5,
+                                   quotaColor(metric->remainingPercent));
             label(display_, left, 84, "LEFT");
-            std::snprintf(text, sizeof(text), "%u%%", metric.remainingPercent);
+            std::snprintf(text, sizeof(text), "%u%%", metric->remainingPercent);
             label(display_, core::rightAlignedTextX(text, left + 104), 84, text,
-                  quotaColor(metric.remainingPercent));
-            resetText(text, sizeof(text), metric.resetAt, metric.resetRemainingSeconds);
+                  quotaColor(metric->remainingPercent));
+            resetText(text, sizeof(text), metric->resetAt, metric->resetRemainingSeconds);
             label(display_, left, 98, text, core::palette::ordinal);
         }
     } else {
@@ -276,6 +288,7 @@ void AiUsageApp::draw() {
     } else if (snapshot.providerCount == 1) {
         const auto& provider = snapshot.providers[0];
         providerTitle(display_, 8, 12, provider, 2);
+        resetBadge(display_, 12, provider);
         if (provider.freshness == connectivity::AiFreshness::Stale)
             label(display_, 196, 33, "STALE", core::palette::vermilion);
         if (provider.metricCount > 0)

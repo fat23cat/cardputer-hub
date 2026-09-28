@@ -556,7 +556,9 @@ read-only detail pages: LIMITS shows the two rolling windows in separate
 side-by-side columns, each with used, left and reset; RESETS shows the known
 count and up to two entries at once, with concise titles. Known
 expiry uses whole days, hours, or minutes; an elapsed expiry shows `EXP NOW`
-and an unknown expiry shows `EXP --`. The physical `,` / `/` keys switch
+and an unknown expiry shows `EXP --`. A missing rolling window shows `--` in
+its LIMITS column; reset details remain available. Titles outside the display
+font use `RESET CREDIT`. The physical `,` / `/` keys switch
 detail pages without Fn; the physical `;` / `.` keys scroll RESETS without Fn.
 Logical arrow keys also work. Enter returns to
 the dashboard. Both detail pages show `STALE` when the provider data is stale.

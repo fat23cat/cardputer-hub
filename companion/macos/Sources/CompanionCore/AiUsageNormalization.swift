@@ -55,6 +55,8 @@ public enum AiUsageNormalization {
         let title = supplied.uppercased()
         if title == "FULL RESET" || title.hasPrefix("FULL RESET ") ||
             title.hasPrefix("FULL RESET(") { return "FULL RESET" }
+        guard title.unicodeScalars.allSatisfy({ (0x20...0x7e).contains($0.value) })
+        else { return "RESET CREDIT" }
         if title.utf8.count <= 16 { return title }
         var prefix = ""
         for scalar in title.unicodeScalars {

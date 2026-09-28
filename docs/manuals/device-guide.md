@@ -171,7 +171,9 @@ and expiry). Expiry appears in days, hours, or minutes; `EXP NOW` means it has
 elapsed, and `EXP --` means its timing is unknown. Up/Down scrolls when there
 are more than two detail rows; the `;` / `.` keys work without Fn. Enter
 returns to the main dashboard; Escape closes AI USAGE. These details are
-read-only and appear only for Codex Plus.
+read-only and appear only for Codex Plus. If one rolling window is unavailable,
+its LIMITS column shows `--` while RESETS remains accessible. Titles that the
+Cardputer font cannot show appear as `RESET CREDIT`.
 
 ## Wi-Fi
 

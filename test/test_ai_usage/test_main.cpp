@@ -898,6 +898,56 @@ void test_plus_reset_details_navigation_and_session_clear() {
     TEST_ASSERT_EQUAL_UINT8(0, f.usage.snapshot().providerCount);
 }
 
+void test_plus_reset_details_remain_available_with_one_window() {
+    Fixture f;
+    f.ready(4);
+    CompanionAiUsage value{};
+    value.state = AiUsageState::Ready;
+    value.providerCount = 1;
+    auto& provider = value.providers[0];
+    provider.plan = AiPlan::Plus;
+    provider.metricCount = 1;
+    provider.metrics[0].kind = AiMetricKind::Week;
+    provider.metrics[0].limit = 100;
+    provider.metrics[0].used = 30;
+    provider.metrics[0].remaining = 70;
+    provider.metrics[0].remainingPercent = 70;
+    provider.resetCredits.known = true;
+    provider.resetCredits.availableCount = 1;
+    provider.resetCredits.creditCount = 1;
+    std::memcpy(provider.resetCredits.credits[0].title.data(), "FULL RESET", 10);
+    f.respondValue(value);
+
+    Display display;
+    apps::AiUsageApp app(f.usage, f.gauge, display);
+    app.onActivate();
+    app.update({}, {});
+    TEST_ASSERT_TRUE(std::find(display.labels.begin(), display.labels.end(), "R") !=
+                     display.labels.end());
+
+    const core::InputEvent enter{core::InputEventType::NamedKey, 0, core::NamedKey::Enter, {}};
+    const core::InputEvent right{core::InputEventType::NamedKey, 0, core::NamedKey::Right, {}};
+    display.labels.clear();
+    display.positions.clear();
+    app.update({enter}, {});
+    TEST_ASSERT_TRUE(std::find(display.labels.begin(), display.labels.end(), "WEEK") !=
+                     display.labels.end());
+    TEST_ASSERT_TRUE(std::find(display.labels.begin(), display.labels.end(), "5 HOUR") !=
+                     display.labels.end());
+    const auto missing = std::find(display.labels.begin(), display.labels.end(), "--");
+    const auto used = std::find(display.labels.begin(), display.labels.end(), "30%");
+    TEST_ASSERT_TRUE(missing != display.labels.end());
+    TEST_ASSERT_TRUE(used != display.labels.end());
+    TEST_ASSERT_EQUAL_INT(
+        8, display.positions[static_cast<std::size_t>(missing - display.labels.begin())].x);
+    TEST_ASSERT_EQUAL_INT(
+        128, display.positions[static_cast<std::size_t>(used - display.labels.begin())].x);
+    display.labels.clear();
+    app.update({right}, {});
+    TEST_ASSERT_TRUE(std::find(display.labels.begin(), display.labels.end(), "#1  FULL RESET") !=
+                     display.labels.end());
+}
+
 void test_plus_reset_expiry_formats_short_intervals() {
     struct Case {
         std::uint32_t expiresAt;
@@ -1049,6 +1099,7 @@ int main() {
     RUN_TEST(test_home_then_work_replaces_provider_set_and_puzzle);
     RUN_TEST(test_work_usage_renders_business_credits_and_cursor_spend);
     RUN_TEST(test_plus_reset_details_navigation_and_session_clear);
+    RUN_TEST(test_plus_reset_details_remain_available_with_one_window);
     RUN_TEST(test_plus_reset_expiry_formats_short_intervals);
     RUN_TEST(test_expanded_resets_clear_on_real_session_switch);
     return UNITY_END();

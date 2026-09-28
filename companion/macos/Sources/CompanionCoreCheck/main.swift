@@ -541,11 +541,12 @@ enum CompanionCoreCheck {
              "expiresAt": 100]]]
         let unicodeTitle = AiUsageNormalization.codex(plusWithResets)?
             .resetCredits?.credits.first?.title
-        expect(unicodeTitle?.hasPrefix("É") == true &&
-               unicodeTitle?.hasSuffix("...") == true &&
-               (unicodeTitle?.utf8.count ?? 25) <= 24 &&
-               String(bytes: unicodeTitle?.utf8 ?? "".utf8, encoding: .utf8) == unicodeTitle,
-               "multibyte title truncates at a valid UTF-8 boundary")
+        expect(unicodeTitle == "RESET CREDIT",
+               "title outside the Cardputer font falls back")
+        plusWithResets["rateLimitResetCredits"] = ["availableCount": 1, "credits": [
+            ["status": "available", "title": "Reset\ncredit", "expiresAt": 100]]]
+        expect(AiUsageNormalization.codex(plusWithResets)?.resetCredits?.credits.first?.title ==
+               "RESET CREDIT", "control characters in title fall back")
         plusWithResets["rateLimitResetCredits"] = ["availableCount": "bad"]
         let malformedResets = AiUsageNormalization.codex(plusWithResets)
         expect(malformedResets?.metrics.count == 2 && malformedResets?.resetCredits == nil,
