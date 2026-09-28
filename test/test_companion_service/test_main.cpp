@@ -94,11 +94,11 @@ CompanionEnvelope sentAt(const FakeTransport& transport, std::size_t index) {
 }
 
 void completeHandshake(FakeTransport& transport, CompanionService& service,
-                       CapabilityRegistry& capabilities) {
+                       CapabilityRegistry& capabilities, std::uint8_t version = 1) {
     transport.transportState = CompanionTransportState::Ready;
     const auto sentBefore = transport.sent.size();
-    const std::uint8_t versions[] = {1};
-    transport.incoming.push_back(encode(makeHello(versions, 1)));
+    const std::uint8_t versions[] = {1, 2, 3, 4};
+    transport.incoming.push_back(encode(makeHello(versions, version)));
     service.update(std::chrono::milliseconds::zero());
     TEST_ASSERT_EQUAL_UINT8(static_cast<unsigned>(CompanionServiceState::Handshaking),
                             static_cast<unsigned>(service.state()));
@@ -111,15 +111,17 @@ void completeHandshake(FakeTransport& transport, CompanionService& service,
                             static_cast<unsigned>(capsRequest.operation));
     auto capabilitiesResponse = makeResponse(ack.session, capsRequest.requestId,
                                              CompanionOperation::Capabilities, CompanionStatus::Ok);
-    const CompanionCapability ids[] = {CompanionCapability::AppActive,
-                                       CompanionCapability::AppActivate,
-                                       CompanionCapability::AppActiveEvents};
-    TEST_ASSERT_TRUE(setCapabilityList(capabilitiesResponse, ids, 3));
+    capabilitiesResponse.version = version;
+    const CompanionCapability ids[] = {
+        CompanionCapability::AppActive, CompanionCapability::AppActivate,
+        CompanionCapability::AppActiveEvents, CompanionCapability::AiUsage};
+    TEST_ASSERT_TRUE(setCapabilityList(capabilitiesResponse, ids, version >= 3 ? 4 : 3));
     transport.incoming.push_back(encode(capabilitiesResponse));
     service.update(std::chrono::milliseconds::zero());
     const auto activeRequest = lastSent(transport);
     auto activeResponse = makeResponse(ack.session, activeRequest.requestId,
                                        CompanionOperation::AppActive, CompanionStatus::Ok);
+    activeResponse.version = version;
     TEST_ASSERT_TRUE(setBundleIdentifier(activeResponse, "dev.zed.Zed"));
     transport.incoming.push_back(encode(activeResponse));
     service.update(std::chrono::milliseconds::zero());
@@ -129,6 +131,28 @@ void completeHandshake(FakeTransport& transport, CompanionService& service,
     TEST_ASSERT_TRUE(capabilities.isAvailable(companionAppActiveCapabilityId));
     while (service.takeCompletedRequest().has_value()) {
     }
+}
+
+void test_ai_usage_request_allows_fragmented_response_after_two_seconds() {
+    FakeTransport transport;
+    CapabilityRegistry capabilities;
+    CompanionService service(transport, capabilities);
+    completeHandshake(transport, service, capabilities, 4);
+    TEST_ASSERT_EQUAL_UINT8(static_cast<unsigned>(CompanionSubmitResult::Submitted),
+                            static_cast<unsigned>(service.requestAiUsage()));
+    const auto request = lastSent(transport);
+    service.update(std::chrono::milliseconds(2500));
+    TEST_ASSERT_TRUE(service.hasPendingRequest(CompanionOperation::AiUsage));
+    TEST_ASSERT_FALSE(service.takeCompletedRequest(CompanionOperation::AiUsage).has_value());
+    auto response = makeResponse(service.session(), request.requestId, CompanionOperation::AiUsage,
+                                 CompanionStatus::NotAvailable);
+    response.version = 4;
+    transport.incoming.push_back(encode(response));
+    service.update(std::chrono::milliseconds::zero());
+    const auto completed = service.takeCompletedRequest(CompanionOperation::AiUsage);
+    TEST_ASSERT_TRUE(completed.has_value());
+    TEST_ASSERT_EQUAL_UINT8(static_cast<unsigned>(CompanionStatus::NotAvailable),
+                            static_cast<unsigned>(completed->status));
 }
 
 void test_handshake_reaches_ready_and_registers_capabilities() {
@@ -504,6 +528,7 @@ int main() {
     RUN_TEST(test_stale_response_and_event_are_ignored);
     RUN_TEST(test_stale_v1_response_does_not_break_new_v2_handshake);
     RUN_TEST(test_request_timeout_and_duplicate_response_do_not_disable_transport);
+    RUN_TEST(test_ai_usage_request_allows_fragmented_response_after_two_seconds);
     RUN_TEST(test_heartbeat_success_and_expiry_remove_capability);
     RUN_TEST(test_transport_drop_invalidates_session_immediately);
     RUN_TEST(test_outstanding_request_limit_returns_busy);

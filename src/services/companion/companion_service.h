@@ -32,6 +32,7 @@ struct CompanionCompletedRequest {
 class CompanionService {
   public:
     static constexpr auto requestTimeout = std::chrono::seconds(2);
+    static constexpr auto aiUsageRequestTimeout = std::chrono::seconds(6);
     static constexpr auto heartbeatInterval = std::chrono::seconds(3);
     static constexpr auto livenessTimeout = std::chrono::seconds(9);
 

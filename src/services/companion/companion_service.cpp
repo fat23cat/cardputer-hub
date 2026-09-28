@@ -493,7 +493,10 @@ void CompanionService::tickPending(std::chrono::milliseconds elapsed) {
         if (!pending.used) {
             continue;
         }
-        if (elapsed >= requestTimeout - pending.elapsed) {
+        const auto timeout = pending.operation == CompanionOperation::AiUsage
+                                 ? aiUsageRequestTimeout
+                                 : requestTimeout;
+        if (elapsed >= timeout - pending.elapsed) {
             const auto handshake =
                 state_ == CompanionServiceState::Handshaking && !pending.heartbeat;
             completePending(pending,

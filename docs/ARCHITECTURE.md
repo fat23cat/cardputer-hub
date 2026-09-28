@@ -1820,6 +1820,9 @@ and clears them with the session.
 `HostControlService` consumes APP_ACTIVATE, while `MacStatusService` consumes
 SYSTEM_METRICS and `AiUsageService` consumes AI_USAGE. Internal handshake and
 heartbeat responses stay private.
+AI_USAGE can span all 16 BLE fragments, so firmware allows six seconds to
+assemble a message and six seconds for an AI_USAGE response; short operations
+retain their two-second request timeout.
 `MacStatusService` owns one-second foreground polling, one outstanding metrics
 request, normalized snapshots, and a three-second freshness threshold. The
 MAC STATUS Mini App starts and stops monitoring with its lifecycle and renders
