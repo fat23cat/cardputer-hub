@@ -11,6 +11,7 @@
 #include "connectivity/companion/companion_protocol.h"
 #include "core/capabilities/capability_registry.h"
 #include "core/display/palette.h"
+#include "core/display/text_layout.h"
 #include "services/ai_usage/ai_usage_indicator_controller.h"
 
 namespace {
@@ -662,7 +663,7 @@ void test_remaining_percent_is_right_aligned_in_all_layouts() {
     for (std::size_t i = 0; i < display.labels.size(); ++i) {
         if (display.labels[i].find("% LEFT") != std::string::npos)
             TEST_ASSERT_EQUAL_INT(232, display.positions[i].x +
-                                           static_cast<int>(display.labels[i].size()) * 6);
+                                           core::systemTextWidth(display.labels[i].c_str()));
     }
 
     f.usage.update(std::chrono::seconds(30));
@@ -688,7 +689,7 @@ void test_remaining_percent_is_right_aligned_in_all_layouts() {
     for (std::size_t i = 0; i < display.labels.size(); ++i) {
         if (display.labels[i].find("% LEFT") != std::string::npos) {
             TEST_ASSERT_EQUAL_INT(232, display.positions[i].x +
-                                           static_cast<int>(display.labels[i].size()) * 6);
+                                           core::systemTextWidth(display.labels[i].c_str()));
             ++count;
         }
     }
@@ -710,7 +711,7 @@ void test_remaining_percent_is_right_aligned_in_all_layouts() {
     for (std::size_t i = 0; i < display.labels.size(); ++i) {
         if (display.labels[i].find("% LEFT") != std::string::npos) {
             TEST_ASSERT_EQUAL_INT(232, display.positions[i].x +
-                                           static_cast<int>(display.labels[i].size()) * 6);
+                                           core::systemTextWidth(display.labels[i].c_str()));
             ++count;
         }
     }

@@ -1,5 +1,7 @@
+#include "../support/ui_capture.h"
 #include "apps/led_gallery/led_gallery_app.h"
 #include "apps/led_gallery/led_gallery_engine.h"
+#include "core/display/text_layout.h"
 #include <algorithm>
 #include <array>
 #include <cmath>
@@ -93,18 +95,25 @@ class FakeLed : public ILEDAdapter {
 };
 class FakeDisplay : public IDisplayAdapter {
   public:
-    void clear(RgbColor) override {
+    void clear(RgbColor color) override {
+        capture.clear(color);
         ++clears;
         texts.clear();
         textPositions.clear();
         arrowPositions.clear();
         arrows = 0;
     }
-    void fillRectangle(PixelPosition position, std::int32_t, std::int32_t, RgbColor) override {
+    void fillRectangle(PixelPosition position, std::int32_t width, std::int32_t height,
+                       RgbColor color) override {
+        capture.rectangle(position, width, height, color);
         ++arrows;
         arrowPositions.push_back(position);
     }
-    void drawText(PixelPosition position, const char* value, TextStyle) override {
+    void drawText(PixelPosition position, const char* value, TextStyle style) override {
+        TEST_ASSERT_TRUE(position.x >= 0 && position.y >= 0);
+        TEST_ASSERT_TRUE_MESSAGE(position.x + textWidth(value, style.scale) <= 240, value);
+        TEST_ASSERT_TRUE(position.y + std::ceil(8 * style.scale) <= 135);
+        capture.text(position, value, style);
         texts.emplace_back(value);
         textPositions.push_back(position);
     }
@@ -114,6 +123,7 @@ class FakeDisplay : public IDisplayAdapter {
                 return true;
         return false;
     }
+    cardputer_hub::test_support::UiCapture capture;
     PixelPosition positionOf(const char* text) const {
         for (std::size_t i = 0; i < texts.size(); ++i)
             if (texts[i] == text)
@@ -353,6 +363,7 @@ void test_contextual_lcd_hints_and_no_r_reset() {
     app.onActivate();
     reference.onActivate();
     app.update({}, 80ms);
+    display.capture.save("led-gallery");
     reference.update({}, 80ms);
     TEST_ASSERT_TRUE(display.shows("01/20"));
     TEST_ASSERT_TRUE(display.shows("< > EFFECT"));
@@ -373,7 +384,7 @@ void test_contextual_lcd_hints_and_no_r_reset() {
     TEST_ASSERT_TRUE(display.positionOf("KEY BURST  SPACE BURST").y <
                      display.positionOf("1-0 / FN+1-0").y);
     app.update({fnDigit(8)}, 0ms);
-    TEST_ASSERT_TRUE(display.shows("A/D MOVE  W ROT  S SOFT  SPACE HARD"));
+    TEST_ASSERT_TRUE(display.shows("A/D MOVE W ROT S SOFT SPACE HARD"));
     app.update({key('3')}, 0ms);
     reference.update({key('3')}, 0ms);
     indicator.update();

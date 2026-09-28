@@ -44,12 +44,14 @@ RgbColor quotaColor(std::uint8_t percent) {
 }
 void label(IDisplayAdapter& display, int x, int y, const char* text, RgbColor color = palette::ink,
            std::uint8_t scale = 1) {
-    display.drawText({x, y}, text, {color, palette::bone, scale});
+    display.drawText(
+        {x, y}, text,
+        {color, palette::bone, scale == 1 ? systemTextScale : static_cast<float>(scale)});
 }
 void providerTitle(IDisplayAdapter& display, int x, int y,
                    const connectivity::AiUsageProvider& provider, std::uint8_t scale = 1) {
     const char* name = provider.provider == connectivity::AiProvider::Codex ? "CODEX" : "CURSOR";
-    const auto width = static_cast<int>(std::strlen(name)) * 6 * scale;
+    const auto width = textWidth(name, scale == 1 ? systemTextScale : static_cast<float>(scale));
     label(display, x, y, name, palette::ink, scale);
     display.fillRectangle({x + width + 8 * scale, y + 3 * scale}, 2 * scale, 2 * scale,
                           palette::ink);
@@ -63,7 +65,7 @@ void resetBadge(IDisplayAdapter& display, int y, const connectivity::AiUsageProv
     std::snprintf(count, sizeof(count), "%u",
                   static_cast<unsigned>(provider.resetCredits.availableCount));
     const int right = provider.freshness == connectivity::AiFreshness::Stale ? 188 : 232;
-    const int x = right - static_cast<int>(std::strlen(count)) * 6 - 14;
+    const int x = right - systemTextWidth(count) - 14;
     label(display, x, y, "R", palette::blue);
     for (int i = 0; i < 5; ++i) {
         display.fillRectangle({x + 7 + i, y + 2 + i}, 1, 1, palette::blue);

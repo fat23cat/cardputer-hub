@@ -3,6 +3,7 @@
 #include "apps/shell/home_ambient.h"
 #include "apps/shell/home_graphics.h"
 #include "core/display/palette.h"
+#include "core/display/text_layout.h"
 #include <algorithm>
 #include <cmath>
 #include <variant>
@@ -342,8 +343,8 @@ void ApplicationShell::renderSettings() {
         settingsFrame_->ledBrightness == next.ledBrightness)
         return;
     const bool full = !settingsFrame_;
-    const TextStyle normal{palette::ink, palette::bone, 1};
-    const TextStyle selected{palette::bone, palette::ink, 1};
+    const TextStyle normal{palette::ink, palette::bone, systemTextScale};
+    const TextStyle selected{palette::bone, palette::ink, systemTextScale};
     if (full) {
         display_.clear(palette::bone);
         display_.drawText({6, 6}, "SETTINGS", normal);
@@ -368,8 +369,7 @@ void ApplicationShell::renderSettings() {
         display_.drawText({10, y + 3}, ordinal, style);
         display_.drawText({30, y + 3}, label, style);
         if (!value.empty())
-            display_.drawText({230 - static_cast<std::int32_t>(value.size()) * 6, y + 3},
-                              value.c_str(), style);
+            display_.drawText({rightAlignedTextX(value.c_str(), 230), y + 3}, value.c_str(), style);
     };
     drawRow(0, 24, "01", "Bluetooth", {});
     drawRow(1, 42, "02", "Wi-Fi", {});

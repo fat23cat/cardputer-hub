@@ -1,3 +1,5 @@
+#include "../support/ui_capture.h"
+#include "core/display/text_layout.h"
 #include <unity.h>
 
 #include <algorithm>
@@ -85,7 +87,8 @@ class Display final : public IDisplayAdapter {
             ++presentations;
     }
     void beginTransition(SlideDirection direction) override { transitions.push_back(direction); }
-    void clear(RgbColor) override {
+    void clear(RgbColor color) override {
+        capture.clear(color);
         ++frames;
         texts.clear();
         rectangles.clear();
@@ -93,24 +96,25 @@ class Display final : public IDisplayAdapter {
     }
     void fillRectangle(PixelPosition position, std::int32_t width, std::int32_t height,
                        RgbColor color) override {
+        capture.rectangle(position, width, height, color);
         TEST_ASSERT_TRUE(position.x >= 0 && position.y >= 0 && width > 0 && height > 0);
         TEST_ASSERT_TRUE(position.x + width <= 240 && position.y + height <= 135);
         rectangles.push_back({position, width, height, color});
         dirty = true;
     }
     void drawText(PixelPosition position, const char* value, TextStyle style) override {
+        capture.text(position, value, style);
         TEST_ASSERT_TRUE(position.x >= 0 && position.x < 240 && position.y >= 0 &&
                          position.y < 135);
-        TEST_ASSERT_TRUE(position.x + static_cast<std::int32_t>(std::string(value).size()) * 6 *
-                                          style.scale <=
-                         240);
-        TEST_ASSERT_TRUE(position.y + 8 * style.scale <= 135);
+        TEST_ASSERT_TRUE(position.x + core::textWidth(value, style.scale) <= 240);
+        TEST_ASSERT_TRUE(position.y + std::ceil(8 * style.scale) <= 135);
         texts.push_back(value);
         dirty = true;
     }
     bool shows(const char* value) const {
         return std::find(texts.begin(), texts.end(), value) != texts.end();
     }
+    test_support::UiCapture capture;
     bool hasColor(RgbColor color) const {
         return std::any_of(rectangles.begin(), rectangles.end(), [&](const Rectangle& rectangle) {
             return rectangle.color.red == color.red && rectangle.color.green == color.green &&
@@ -453,6 +457,7 @@ void test_registry_requires_companion_and_renders_grid() {
     TEST_ASSERT_EQUAL_UINT8(static_cast<unsigned>(MiniAppActivationResult::Activated),
                             static_cast<unsigned>(runtime.activate(macControlAppId)));
     f.app.update({}, {});
+    f.display.capture.save("mac-control");
     TEST_ASSERT_TRUE(f.display.shows("TELEGRAM"));
     TEST_ASSERT_FALSE(f.display.shows("EMPTY"));
     TEST_ASSERT_FALSE(f.display.shows("MAC CONTROL"));

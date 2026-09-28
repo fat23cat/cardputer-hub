@@ -1,3 +1,4 @@
+#include "../support/ui_capture.h"
 #include "apps/launcher/assets/app_icons.h"
 #include "apps/launcher/launcher.h"
 #include "apps/launcher/launcher_graphics.h"
@@ -5,6 +6,7 @@
 #include "core/app_registry/app_registry.h"
 #include "core/capabilities/capability_registry.h"
 #include "core/display/palette.h"
+#include "core/display/text_layout.h"
 
 #include <algorithm>
 #include <chrono>
@@ -25,7 +27,8 @@ class Display final : public core::IDisplayAdapter {
         if (dirty)
             ++presentations;
     }
-    void clear(core::RgbColor) override {
+    void clear(core::RgbColor color) override {
+        capture.clear(color);
         ++frames;
         texts.clear();
         drawnTexts.clear();
@@ -34,6 +37,7 @@ class Display final : public core::IDisplayAdapter {
     }
     void fillRectangle(core::PixelPosition position, std::int32_t width, std::int32_t height,
                        core::RgbColor color) override {
+        capture.rectangle(position, width, height, color);
         TEST_ASSERT_TRUE(position.x >= 0 && position.y >= 0 && width > 0 && height > 0);
         TEST_ASSERT_TRUE(position.x + width <= 240 && position.y + height <= 135);
         if ((position.x == 0 && position.y == 0 && width == 240 && height == 20) ||
@@ -54,10 +58,11 @@ class Display final : public core::IDisplayAdapter {
         dirty = true;
     }
     void drawText(core::PixelPosition position, const char* value, core::TextStyle style) override {
+        capture.text(position, value, style);
         TEST_ASSERT_TRUE(position.x >= 0 && position.x < 240 && position.y >= 0 &&
                          position.y < 135);
-        TEST_ASSERT_TRUE(position.x + std::string(value).size() * 6 * style.scale <= 240);
-        TEST_ASSERT_TRUE(position.y + 8 * style.scale <= 135);
+        TEST_ASSERT_TRUE(position.x + core::textWidth(value, style.scale) <= 240);
+        TEST_ASSERT_TRUE(position.y + std::ceil(8 * style.scale) <= 135);
         texts.push_back(value);
         drawnTexts.push_back({position, value, style});
         dirty = true;
@@ -65,6 +70,7 @@ class Display final : public core::IDisplayAdapter {
     bool shows(const char* value) const {
         return std::find(texts.begin(), texts.end(), value) != texts.end();
     }
+    cardputer_hub::test_support::UiCapture capture;
     bool hasColor(core::RgbColor color) const {
         return std::any_of(rectangles.begin(), rectangles.end(), [&](const Rectangle& rectangle) {
             return rectangle.color.red == color.red && rectangle.color.green == color.green &&
@@ -194,6 +200,7 @@ void test_apps_appear_in_registration_order() {
     f.bind("system", f.second);
     f.launcher.activate();
     f.tick();
+    f.display.capture.save("launcher");
     TEST_ASSERT_TRUE(f.display.shows("01"));
     TEST_ASSERT_TRUE(f.display.shows("WEATHER"));
     TEST_ASSERT_TRUE(f.display.shows("02"));
@@ -384,7 +391,7 @@ void test_long_capability_overlay_reason_is_truncated_to_display_width() {
         if (text.rfind("REQUIRES ", 0) == 0 && text.size() >= 3 &&
             text.compare(text.size() - 3, 3, "...") == 0) {
             truncated = true;
-            TEST_ASSERT_TRUE(6 + static_cast<int>(text.size()) * 6 <= 240);
+            TEST_ASSERT_TRUE(6 + core::systemTextWidth(text.c_str()) <= 240);
         }
     }
     TEST_ASSERT_TRUE(truncated);

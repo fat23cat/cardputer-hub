@@ -8,6 +8,7 @@
 #include "core/audio/audio_adapter.h"
 #include "core/capabilities/capability_registry.h"
 #include "core/display/palette.h"
+#include "core/display/text_layout.h"
 #include "core/lifecycle/system_runtime.h"
 #include "services/audio/audio_service.h"
 #include "services/network/network_service.h"
@@ -120,8 +121,8 @@ class Display final : public core::IDisplayAdapter {
     void drawText(core::PixelPosition position, const char* value, core::TextStyle style) override {
         TEST_ASSERT_TRUE(position.x >= 0 && position.x < 240 && position.y >= 0 &&
                          position.y < 135);
-        TEST_ASSERT_TRUE(position.x + std::string(value).size() * 6 * style.scale <= 240);
-        TEST_ASSERT_TRUE(position.y + 8 * style.scale <= 135);
+        TEST_ASSERT_TRUE(position.x + core::textWidth(value, style.scale) <= 240);
+        TEST_ASSERT_TRUE(position.y + std::ceil(8 * style.scale) <= 135);
         texts.push_back(value);
         dirty = true;
     }
