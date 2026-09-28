@@ -272,6 +272,49 @@ void test_v2_metrics_round_trip_and_v1_rejection() {
     TEST_ASSERT_FALSE(encodeCompanionMessage(capabilities).has_value());
 }
 
+void test_v3_ai_usage_round_trip_and_bounds() {
+    using namespace cardputer_hub::connectivity;
+    const std::uint8_t versions[] = {3, 2, 1};
+    TEST_ASSERT_TRUE(encodeCompanionMessage(makeHello(versions, 3)).has_value());
+    assertEncodedMatchesFixture(makeHello(versions, 3), "hello-v3.bin");
+    assertEncodedMatchesFixture(makeHelloAck(42, 3), "hello-ack-v3.bin");
+    auto request = makeRequest(42, 7, CompanionOperation::AiUsage);
+    TEST_ASSERT_FALSE(encodeCompanionMessage(request).has_value());
+    request.version = 3;
+    TEST_ASSERT_TRUE(encodeCompanionMessage(request).has_value());
+    assertEncodedMatchesFixture(request, "ai-usage-request-v3.bin");
+    CompanionAiUsage usage{};
+    usage.state = AiUsageState::Ready;
+    usage.providerCount = 1;
+    usage.providers[0].provider = AiProvider::Codex;
+    usage.providers[0].plan = AiPlan::Plus;
+    usage.providers[0].metricCount = 1;
+    auto& metric = usage.providers[0].metrics[0];
+    metric.kind = AiMetricKind::FiveHour;
+    metric.unit = AiMetricUnit::Percent;
+    metric.limit = 100;
+    metric.remaining = 63;
+    metric.used = 37;
+    metric.remainingPercent = 63;
+    metric.resetAt = 1780000000;
+    metric.resetRemainingSeconds = 3600;
+    usage.generation = 9;
+    auto response = makeResponse(42, 7, CompanionOperation::AiUsage, CompanionStatus::Ok);
+    response.version = 3;
+    TEST_ASSERT_TRUE(setAiUsage(response, usage));
+    assertEncodedMatchesFixture(response, "ai-usage-response-v3.bin");
+    const auto encoded = encodeCompanionMessage(response);
+    TEST_ASSERT_TRUE(encoded.has_value());
+    const auto decoded = decodeCompanionMessage(encoded->bytes.data(), encoded->size);
+    TEST_ASSERT_TRUE(decoded.has_value());
+    CompanionAiUsage read{};
+    TEST_ASSERT_TRUE(readAiUsage(*decoded, read));
+    TEST_ASSERT_EQUAL_UINT8(63, read.providers[0].metrics[0].remainingPercent);
+    auto damaged = *encoded;
+    damaged.bytes[8 + 7 + 4 + 14] = 101;
+    TEST_ASSERT_FALSE(decodeCompanionMessage(damaged.bytes.data(), damaged.size).has_value());
+}
+
 } // namespace
 
 int main() {
@@ -286,5 +329,6 @@ int main() {
     RUN_TEST(test_oversized_and_invalid_bundle_identifiers_are_rejected);
     RUN_TEST(test_capabilities_round_trip_rejects_unknown_ids);
     RUN_TEST(test_v2_metrics_round_trip_and_v1_rejection);
+    RUN_TEST(test_v3_ai_usage_round_trip_and_bounds);
     return UNITY_END();
 }

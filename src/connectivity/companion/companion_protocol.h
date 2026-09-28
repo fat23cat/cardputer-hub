@@ -9,7 +9,7 @@
 namespace cardputer_hub::connectivity {
 
 inline constexpr std::uint8_t companionProtocolVersion = 1;
-inline constexpr std::uint8_t companionLatestProtocolVersion = 2;
+inline constexpr std::uint8_t companionLatestProtocolVersion = 3;
 inline constexpr std::size_t companionMetricsPayloadSize = 24;
 inline constexpr std::size_t companionMaxMessageSize = 256;
 inline constexpr std::size_t companionEnvelopeSize = 8;
@@ -37,6 +37,7 @@ inline constexpr char companionAppActiveCapabilityId[] = "APP_ACTIVE";
 inline constexpr char companionAppActivateCapabilityId[] = "APP_ACTIVATE";
 inline constexpr char companionAppActiveEventsCapabilityId[] = "APP_ACTIVE_EVENTS";
 inline constexpr char companionSystemMetricsCapabilityId[] = "SYSTEM_METRICS";
+inline constexpr char companionAiUsageCapabilityId[] = "AI_USAGE";
 
 enum class CompanionKind : std::uint8_t {
     Hello = 1,
@@ -54,6 +55,7 @@ enum class CompanionOperation : std::uint8_t {
     AppActivate = 4,
     AppActiveChanged = 5,
     SystemMetrics = 6,
+    AiUsage = 7,
 };
 
 enum class CompanionStatus : std::uint8_t {
@@ -69,6 +71,40 @@ enum class CompanionCapability : std::uint8_t {
     AppActivate = 2,
     AppActiveEvents = 3,
     SystemMetrics = 4,
+    AiUsage = 5,
+};
+
+enum class AiUsageState : std::uint8_t { Discovering = 1, Ready = 2 };
+enum class AiProvider : std::uint8_t { Codex = 1, Cursor = 2 };
+enum class AiPlan : std::uint8_t { Unknown = 0, Plus = 1, Business = 2, Enterprise = 3 };
+enum class AiFreshness : std::uint8_t { Fresh = 1, Stale = 2 };
+enum class AiMetricKind : std::uint8_t { FiveHour = 1, Week = 2, Credits = 3, Money = 4 };
+enum class AiMetricUnit : std::uint8_t { Percent = 1, Credits = 2, Cents = 3 };
+
+struct AiUsageMetric {
+    AiMetricKind kind = AiMetricKind::FiveHour;
+    AiMetricUnit unit = AiMetricUnit::Percent;
+    std::uint32_t used = 0;
+    std::uint32_t limit = 0;
+    std::uint32_t remaining = 0;
+    std::uint8_t remainingPercent = 0;
+    std::uint32_t resetAt = 0;
+    std::uint32_t resetRemainingSeconds = 0;
+};
+
+struct AiUsageProvider {
+    AiProvider provider = AiProvider::Codex;
+    AiPlan plan = AiPlan::Unknown;
+    AiFreshness freshness = AiFreshness::Fresh;
+    std::uint8_t metricCount = 0;
+    std::array<AiUsageMetric, 2> metrics{};
+};
+
+struct CompanionAiUsage {
+    std::uint32_t generation = 0;
+    AiUsageState state = AiUsageState::Discovering;
+    std::uint8_t providerCount = 0;
+    std::array<AiUsageProvider, 2> providers{};
 };
 
 struct CompanionSystemMetrics {
@@ -130,5 +166,7 @@ bool readBundleIdentifier(const CompanionEnvelope& message, char* destination, s
                           std::uint8_t& length);
 bool setSystemMetrics(CompanionEnvelope& message, const CompanionSystemMetrics& metrics);
 bool readSystemMetrics(const CompanionEnvelope& message, CompanionSystemMetrics& metrics);
+bool setAiUsage(CompanionEnvelope& message, const CompanionAiUsage& usage);
+bool readAiUsage(const CompanionEnvelope& message, CompanionAiUsage& usage);
 
 } // namespace cardputer_hub::connectivity

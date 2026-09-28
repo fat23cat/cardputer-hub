@@ -16,6 +16,7 @@ public enum CompanionOperation: UInt8 {
     case appActivate = 4
     case appActiveChanged = 5
     case systemMetrics = 6
+    case aiUsage = 7
 }
 
 public enum CompanionStatus: UInt8 {
@@ -31,11 +32,12 @@ public enum CompanionCapability: UInt8 {
     case appActivate = 2
     case appActiveEvents = 3
     case systemMetrics = 4
+    case aiUsage = 5
 }
 
 public struct CompanionConstants {
     public static let protocolVersion: UInt8 = 1
-    public static let latestProtocolVersion: UInt8 = 2
+    public static let latestProtocolVersion: UInt8 = 3
     public static let maxMessageSize = 256
     public static let envelopeSize = 8
     public static let maxPayloadSize = maxMessageSize - envelopeSize
@@ -137,9 +139,13 @@ public enum CompanionCodec {
         message.payload = [3, CompanionCapability.appActive.rawValue,
                            CompanionCapability.appActivate.rawValue,
                            CompanionCapability.appActiveEvents.rawValue]
-        if version >= CompanionConstants.latestProtocolVersion {
+        if version >= 2 {
             message.payload[0] = 4
             message.payload.append(CompanionCapability.systemMetrics.rawValue)
+        }
+        if version >= 3 {
+            message.payload[0] = 5
+            message.payload.append(CompanionCapability.aiUsage.rawValue)
         }
         return message
     }
@@ -165,7 +171,8 @@ public enum CompanionCodec {
             return operation == .none
         case .request, .response:
             return operation == .ping || operation == .capabilities ||
-                operation == .appActive || operation == .appActivate || operation == .systemMetrics
+                operation == .appActive || operation == .appActivate ||
+                operation == .systemMetrics || operation == .aiUsage
         case .event:
             return operation == .appActiveChanged
         }
@@ -210,7 +217,8 @@ public enum CompanionCodec {
             else { return false }
             return message.payload.dropFirst().allSatisfy {
                 guard let capability = CompanionCapability(rawValue: $0) else { return false }
-                return capability != .systemMetrics || message.version >= 2
+                return (capability != .systemMetrics || message.version >= 2) &&
+                    (capability != .aiUsage || message.version >= 3)
             }
         case .appActive:
             if message.kind == .request { return message.payload.isEmpty }
@@ -225,6 +233,10 @@ public enum CompanionCodec {
             guard message.version >= 2 else { return false }
             if message.kind == .request || message.status != .ok { return message.payload.isEmpty }
             return SystemMetricsSample.decode(message.payload) != nil
+        case .aiUsage:
+            guard message.version >= 3 else { return false }
+            if message.kind == .request || message.status != .ok { return message.payload.isEmpty }
+            return AiUsageSnapshot.decode(message.payload) != nil
         }
     }
 }

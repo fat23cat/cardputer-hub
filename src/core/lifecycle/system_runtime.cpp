@@ -54,13 +54,11 @@ void SystemRuntime::drawSplash() {
     display_.beginFrame();
     display_.clear(palette::bone);
 
-    // The blue rail and restrained registration marks frame this sparse
-    // full-screen state without carrying decorative chrome into normal views.
+    // The blue rail and left registration mark frame this sparse full-screen
+    // state without carrying decorative chrome into normal views.
     display_.fillRectangle({0, 0}, 6, 135, palette::blue);
     display_.fillRectangle({18, 15}, 12, 1, palette::ink);
     display_.fillRectangle({18, 15}, 1, 8, palette::ink);
-    display_.fillRectangle({219, 15}, 3, 3, palette::blue);
-    display_.fillRectangle({219, 18}, 1, 5, palette::ink);
 
     display_.drawText({18, 24}, "SYSTEM STARTUP", quietStyle);
     display_.drawText({18, 43}, buildInfo_.name, productNameStyle);

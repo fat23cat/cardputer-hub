@@ -10,14 +10,17 @@ public final class CompanionSession {
     private var lastEventBundle: String?
     private let applications: ApplicationControlling
     private let metrics: SystemMetricsCollecting?
+    private let aiUsage: AiUsageCollecting?
     private let now: () -> Date
     public var outgoing: ([UInt8]) -> Void = { _ in }
     private var awaitingHelloAck = false
 
     public init(applications: ApplicationControlling, metrics: SystemMetricsCollecting? = nil,
+                aiUsage: AiUsageCollecting? = nil,
                 now: @escaping () -> Date = Date.init) {
         self.applications = applications
         self.metrics = metrics
+        self.aiUsage = aiUsage
         self.now = now
         applications.observeActiveApplication { [weak self] bundle in
             self?.handleForegroundChange(bundle)
@@ -25,7 +28,7 @@ public final class CompanionSession {
     }
 
     public func startHandshake() {
-        guard let bytes = CompanionCodec.encode(CompanionCodec.hello(versions: [2, 1])) else { return }
+        guard let bytes = CompanionCodec.encode(CompanionCodec.hello(versions: [3, 2, 1])) else { return }
         awaitingHelloAck = true
         self.outgoing(bytes)
     }
@@ -96,6 +99,19 @@ public final class CompanionSession {
             response.requestId = message.requestId
             response.operation = .systemMetrics
             if let sample = metrics?.collect(), let payload = sample.encode() {
+                response.payload = payload
+            } else {
+                response.status = .notAvailable
+            }
+            send(response)
+        case .aiUsage:
+            guard selectedProtocolVersion >= 3 else { return }
+            var response = CompanionEnvelope()
+            response.kind = .response
+            response.session = message.session
+            response.requestId = message.requestId
+            response.operation = .aiUsage
+            if let payload = aiUsage?.snapshot()?.encode() {
                 response.payload = payload
             } else {
                 response.status = .notAvailable

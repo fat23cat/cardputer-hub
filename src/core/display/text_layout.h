@@ -8,8 +8,9 @@ namespace cardputer_hub::core {
 constexpr std::int32_t headerStatusRight = 234;
 constexpr std::int32_t systemGlyphWidth = 6;
 
-inline std::int32_t rightAlignedTextX(const char* text) {
-    return headerStatusRight -
+inline std::int32_t rightAlignedTextX(const char* text,
+                                      std::int32_t rightEdge = headerStatusRight) {
+    return rightEdge -
            static_cast<std::int32_t>(std::char_traits<char>::length(text)) * systemGlyphWidth;
 }
 

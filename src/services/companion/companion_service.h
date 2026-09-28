@@ -44,9 +44,14 @@ class CompanionService {
     std::uint8_t selectedProtocolVersion() const noexcept { return selectedProtocolVersion_; }
     std::uint8_t lastSubmittedRequestId() const noexcept { return lastSubmittedRequestId_; }
     bool hasLiveCompanion() const noexcept { return state_ == CompanionServiceState::Ready; }
+    bool supportsAiUsage() const noexcept {
+        return hasLiveCompanion() && selectedProtocolVersion_ >= 3 &&
+               capabilities_.isAvailable(connectivity::companionAiUsageCapabilityId);
+    }
     CompanionSubmitResult requestActiveApplication();
     CompanionSubmitResult activateApplication(std::string_view bundleId);
     CompanionSubmitResult requestSystemMetrics();
+    CompanionSubmitResult requestAiUsage();
     bool hasPendingRequest(connectivity::CompanionOperation operation) const noexcept;
     std::optional<CompanionCompletedRequest> takeCompletedRequest();
     std::optional<CompanionCompletedRequest>

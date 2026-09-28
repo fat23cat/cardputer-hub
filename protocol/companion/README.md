@@ -1,4 +1,4 @@
-# Companion Protocol v1 and v2
+# Companion Protocol v1, v2 and v3
 
 Firmware and the macOS Companion share this wire contract and the binary
 fixtures in `fixtures/`. They do not share implementation code.
@@ -35,7 +35,7 @@ Partial payloads never reach `CompanionService`.
 
 | Offset | Size | Field |
 | --- | --- | --- |
-| 0 | 1 | version (`1` or `2`) |
+| 0 | 1 | version (`1`, `2` or `3`) |
 | 1 | 1 | kind |
 | 2 | 2 | session generation |
 | 4 | 1 | request ID (`0` if unused) |
@@ -52,7 +52,7 @@ with a non-zero session or request ID, REQUEST/RESPONSE with session or
 request ID `0`, EVENT with a non-zero request ID, PING payloads other than
 4 bytes, non-empty CAPABILITIES/APP_ACTIVE requests, and APP_ACTIVATE
 requests without a valid bundle identifier.
-SYSTEM_METRICS is valid only in v2; its request payload is empty and an OK
+SYSTEM_METRICS is valid in v2/v3; its request payload is empty and an OK
 response has exactly 24 bytes. Normal session messages must match the selected
 protocol version.
 
@@ -76,7 +76,8 @@ protocol version.
 | 3 | APP_ACTIVE | REQUEST, RESPONSE |
 | 4 | APP_ACTIVATE | REQUEST, RESPONSE |
 | 5 | APP_ACTIVE_CHANGED | EVENT |
-| 6 | SYSTEM_METRICS | REQUEST, RESPONSE (v2) |
+| 6 | SYSTEM_METRICS | REQUEST, RESPONSE (v2/v3) |
+| 7 | AI_USAGE | REQUEST, RESPONSE (v3) |
 
 ### Status
 
@@ -91,9 +92,9 @@ protocol version.
 ### Payloads
 
 * HELLO: `count` then up to 4 supported protocol versions.
-* HELLO_ACK: selected protocol version (`1` or `2`). Session generation is in the envelope.
+* HELLO_ACK: selected protocol version (`1`, `2` or `3`). Session generation is in the envelope.
 * PING: 4-byte token, echoed by the response.
-* CAPABILITIES request: empty. Response: `count` then capability IDs `1=APP_ACTIVE`, `2=APP_ACTIVATE`, `3=APP_ACTIVE_EVENTS`. Version 2 may additionally advertise `4=SYSTEM_METRICS`; v1 must not include it.
+* CAPABILITIES request: empty. Response: `count` then capability IDs `1=APP_ACTIVE`, `2=APP_ACTIVATE`, `3=APP_ACTIVE_EVENTS`. Version 2 adds `4=SYSTEM_METRICS`; version 3 adds `5=AI_USAGE`. Older versions must not advertise later capabilities.
 * APP_ACTIVE / APP_ACTIVATE / APP_ACTIVE_CHANGED: `length` then UTF-8 bundle identifier, 1–128 bytes. APP_ACTIVE may return `NOT_AVAILABLE` with an empty payload. APP_ACTIVATE may return `NOT_FOUND`. APP_ACTIVE_CHANGED with an empty payload and status `OK` means there is no active bundle.
 * SYSTEM_METRICS request: empty. `OK` response: the fixed payload below. `NOT_AVAILABLE` or `MALFORMED`: empty response. Individual unavailable fields are represented by clear validity bits, not a failed response.
 
@@ -115,7 +116,28 @@ Values with clear validity bits are ignored. Percentages must be 0–100 when
 valid. Unknown pressure or thermal state uses a clear validity bit. The first
 CPU and network samples may be unavailable while their rate baselines form.
 
-The Mac sends a v1-framed HELLO offering `[2, 1]`. Cardputer selects the
+* AI_USAGE request: empty. `OK` response: bounded schema below. `NOT_AVAILABLE` or `MALFORMED`: empty response. Zero providers is a valid response and does not remove the AI_USAGE capability.
+
+| Field | Size | Values |
+| --- | --- | --- |
+| Schema version | 1 | `1` |
+| Snapshot state | 1 | `1=discovering`, `2=ready` |
+| Provider count | 1 | `0..2` |
+| Generation | 4 | unsigned counter |
+| Each provider: ID, plan, freshness, metric count | 4 | ID `1=Codex`, `2=Cursor`; plan `0=unknown`, `1=Plus`, `2=Business`, `3=Enterprise`; freshness `1=fresh`, `2=stale`; metric count `1..2` |
+| Each metric: kind, unit | 2 | kind `1=5 hour`, `2=week`, `3=credits`, `4=money`; unit `1=percent`, `2=credits`, `3=cents` |
+| Each metric: used, limit, remaining | 12 | three unsigned 32-bit values |
+| Each metric: remaining percent | 1 | `0..100` |
+| Each metric: reset epoch, reset remaining seconds | 8 | two unsigned 32-bit values |
+
+All multi-byte fields are little-endian. A response has at most two providers
+and two metrics per provider, and must contain exactly the declared data. The
+Companion sends normalized numbers and enums only; provider credentials never
+cross BLE. Invalid AI usage response content is discarded without replacing
+the previous firmware snapshot. A new Companion session clears that snapshot
+immediately.
+
+The Mac sends a v1-framed HELLO offering `[3, 2, 1]`. Cardputer selects the
 highest common version and replies with a v1-framed HELLO_ACK. An older peer
 selects v1, retaining its original three capabilities and operations. Cardputer
 replies HELLO_ACK with a new session generation,

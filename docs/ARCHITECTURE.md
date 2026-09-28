@@ -1517,6 +1517,14 @@ Mini App / presentation helper
  PuzzleWs2812Adapter
 ```
 
+`AiUsageIndicatorController` consumes the session-scoped `AiUsageService`
+snapshot. Its Idle claim shows remaining quota on the full 8×8 matrix or in
+two four-row zones with purple markers at both ends and 30 quota pixels per zone.
+Temporary focus uses ForegroundApplication. Ordinary low-quota and reset feedback
+use Idle priority, so Pomodoro and LED Gallery retain the Puzzle; critical quota
+feedback briefly uses Warning. All claims pass through the shared brightness
+limit.
+
 `LedGalleryApp` is a Mini App with twenty fixed-ID effects. Its engine owns
 fixed simulation buffers and deterministic randomness; the app owns selection,
 keyboard interaction, LCD labels, and one `ForegroundApplication` claim. The
@@ -1794,18 +1802,46 @@ hardware, host selection, UI, or macOS-specific behavior. The companion is a
 separate program and shares a versioned wire contract and conformance fixtures
 with firmware, not a cross-platform C++ implementation library.
 
-The Mac offers protocol versions 2 and 1 in a v1-framed HELLO; Cardputer
+The Mac offers protocol versions 3, 2 and 1 in a v1-framed HELLO; Cardputer
 selects the highest shared version. Protocol v2 adds `SYSTEM_METRICS` with a
 fixed 24-byte payload. A v1 session retains its original capability list and
-cannot use telemetry. `CompanionService` exposes operation-filtered completions:
+cannot use telemetry. Protocol v3 adds `AI_USAGE`, a bounded normalized
+provider snapshot. The capability describes Companion support and remains
+advertised during discovery or when no provider is installed.
+`CompanionService` exposes operation-filtered completions:
 `HostControlService` consumes APP_ACTIVATE, while `MacStatusService` consumes
-SYSTEM_METRICS. Internal handshake and heartbeat responses stay private.
+SYSTEM_METRICS and `AiUsageService` consumes AI_USAGE. Internal handshake and
+heartbeat responses stay private.
 `MacStatusService` owns one-second foreground polling, one outstanding metrics
 request, normalized snapshots, and a three-second freshness threshold. The
 MAC STATUS Mini App starts and stops monitoring with its lifecycle and renders
 placeholders for unavailable or stale fields. The macOS collector alone samples
 system metrics; it is injected into `CompanionSession` through a testable
 `SystemMetricsCollecting` boundary.
+
+On macOS, `AiUsageCollector` refreshes Codex and Cursor independently in the
+background and answers BLE requests from a lock-protected cache. The macOS
+`CompanionProviders` target owns the collector and replaceable Codex JSONL,
+Cursor credential, and Cursor HTTP boundaries. Codex finds its executable in
+direct locations or through a bounded login-shell lookup on each unsuccessful
+discovery cycle, then uses a local app-server process. Cursor reads the existing
+Agent token through Keychain, derives its request cookie in memory, and calls
+the usage adapter over HTTPS.
+Authentication stays on the Mac. Absent providers are omitted; a failed refresh
+retains the previous provider as stale. A refresh requested during an active cycle
+runs once after that cycle. Provider failures retry after 1, 2, 4, 8, 16, then
+at most 30 seconds; a successful cycle resets the delay. An idle Codex process
+exit marks its cached sample stale and schedules recovery. Firmware
+`AiUsageService` polls the cached result every 30 seconds and keeps at most one
+request outstanding. It clears its data as soon as the active Companion session
+changes. Its UI revision changes only when presentation values change; repeated
+identical polls still refresh the freshness timer. The service advances reset
+countdowns while the Mini App is closed and reconciles each response against
+the current countdown:
+cached samples cannot increase the time remaining, while a lower reported
+remaining time corrects it promptly. A new reset identity starts a new countdown.
+`AiUsageApp` and the Puzzle controller consume only the bounded snapshot; neither
+parses provider JSON or BLE envelopes.
 
 On macOS, `CompanionCentral` owns CoreBluetooth attach and reconnect decisions.
 `CompanionSession` owns negotiated protocol state, the last valid message time,

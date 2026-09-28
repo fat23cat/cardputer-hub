@@ -24,13 +24,14 @@ list currently contains **SYSTEM**, a read-only status screen for battery,
 Bluetooth, the selected host, Wi-Fi, and firmware version; **POMODORO**, a
 background focus timer; **LED GALLERY**, an 8×8 matrix animation app; and **MAC CONTROL** when a live Cardputer Companion
 session is ready. **MAC STATUS** appears when that Companion supports system
-metrics. MAC CONTROL is a full-screen
+metrics. **AI USAGE** appears with a v3 Companion and shows automatically
+discovered Codex and Cursor account quota. MAC CONTROL is a full-screen
 3×2 grid. Press the matching number to launch or focus that Mac app; production
 firmware binds **1** to Telegram. Empty numbered tiles do nothing. Left and
 Right move between pages when more than one page exists. A bound press expands
 that tile in blue while the Mac opens the app, then flashes green on success or
 red if the app is not found, and returns to the grid. Escape returns from
-SYSTEM, POMODORO, LED GALLERY, MAC CONTROL, or MAC STATUS to Apps and from Apps to Home. If Companion disappears
+SYSTEM, POMODORO, LED GALLERY, MAC CONTROL, MAC STATUS, or AI USAGE to Apps and from Apps to Home. If Companion disappears
 while MAC CONTROL is open, the app closes and Apps returns; reconnect does not
 reopen it or repeat the last launch. Press plain **Tab** on the main keyboard
 to open the general Settings menu. Fn+Tab is inactive, and a normal G0 press
@@ -144,6 +145,22 @@ Press Escape to leave; the other keys do not control the dashboard. A v1
 Companion still supports MAC CONTROL but does not expose MAC STATUS. Companion
 loss closes MAC STATUS and reconnect does not reopen it automatically.
 
+AI USAGE has no setup screen. The Companion checks Codex and the existing
+Cursor Agent sign-in on that Mac; an absent provider is omitted. Plus accounts
+show 5-hour and weekly limits, Business shows credits, and Cursor Enterprise
+shows personal spend. Bars and `LEFT` percentages show remaining capacity.
+An unavailable reset time appears as `RESET --`.
+`STALE` marks a provider whose latest refresh failed; on a single-metric screen
+it appears below the provider name. `CHECKING AI` appears during discovery;
+`NO AI ACCOUNTS` appears if none can be read. Up/Down selects
+a visible metric for roughly three seconds and expands its gauge on Unit
+Puzzle. Otherwise Puzzle shows one full 8×8 gauge or two four-row gauges.
+Each four-row gauge has purple dots at both ends; its other 30 dots show the
+remaining limit. The dots stay visible when the limit reaches zero.
+Pomodoro and LED Gallery take priority over the resting AI gauge and ordinary
+low-quota or reset feedback. Companion loss clears the gauge and account values;
+the next Mac supplies its own data.
+
 ## Wi-Fi
 
 Open **Wi-Fi** from Settings to see the current status, turn the saved network
@@ -183,6 +200,7 @@ instead of moving a list.
 | Escape in SYSTEM | Return to Apps |
 | Escape in POMODORO | Return to Apps; the timer keeps running |
 | Escape in LED GALLERY | Return to Apps; Pomodoro LED progress returns if active |
+| Up/Down in AI USAGE | Temporarily expand a quota metric on Unit Puzzle |
 | Left/Right, 1–0, Fn+1–0 in LED GALLERY | Select one of twenty effects |
 | Space in LED GALLERY | Trigger the current effect's primary action shown on the LCD |
 | Space in POMODORO | Start, pause, or resume |
@@ -325,7 +343,8 @@ selected host after Reset/power-on were confirmed on Cardputer-Adv. Extended
 Off, report/interruption and USB hotplug acceptance remains tracked in
 [plan 017](../plans/017-hid-transport-arbitration.md#0-current-closeout-status).
 The current firmware includes Apps, SYSTEM, POMODORO, LED GALLERY, MAC CONTROL when
-Companion is ready, and MAC STATUS when system telemetry is available. It does not include profile-metadata editing or template
+Companion is ready, MAC STATUS when system telemetry is available, and AI USAGE
+with a v3 Companion. It does not include profile-metadata editing or template
 resolution, Action-to-HID mappings, a Mac companion CLI/control protocol,
 Wi-Fi network scanning, or weather/VPS/Telegram features. Boot/status sound
 cues from the broader UI requirements remain planned. Unit Puzzle LED Gallery

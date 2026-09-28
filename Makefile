@@ -67,6 +67,7 @@ host-check: lock-check architecture-check format-check lint test
 companion-check:
 	@test "$$(uname)" = Darwin || (echo "companion-check requires macOS." >&2; exit 2)
 	cd companion/macos && swift run CompanionCoreCheck
+	cd companion/macos && swift run CompanionProvidersCheck
 	bash scripts/package_macos_companion.sh
 
 firmware-check: build

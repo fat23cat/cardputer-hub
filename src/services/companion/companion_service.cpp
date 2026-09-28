@@ -237,12 +237,19 @@ CompanionSubmitResult CompanionService::activateApplication(std::string_view bun
 }
 
 CompanionSubmitResult CompanionService::requestSystemMetrics() {
-    if (state_ != CompanionServiceState::Ready ||
-        selectedProtocolVersion_ != connectivity::companionLatestProtocolVersion ||
+    if (state_ != CompanionServiceState::Ready || selectedProtocolVersion_ < 2 ||
         !capabilities_.isAvailable(connectivity::companionSystemMetricsCapabilityId))
         return CompanionSubmitResult::NotReady;
     return submit(CompanionOperation::SystemMetrics,
                   makeRequest(session_, 0, CompanionOperation::SystemMetrics), false);
+}
+
+CompanionSubmitResult CompanionService::requestAiUsage() {
+    if (state_ != CompanionServiceState::Ready || selectedProtocolVersion_ < 3 ||
+        !capabilities_.isAvailable(connectivity::companionAiUsageCapabilityId))
+        return CompanionSubmitResult::NotReady;
+    return submit(CompanionOperation::AiUsage,
+                  makeRequest(session_, 0, CompanionOperation::AiUsage), false);
 }
 
 bool CompanionService::hasPendingRequest(CompanionOperation operation) const noexcept {
@@ -434,6 +441,20 @@ void CompanionService::handleEvent(const CompanionEnvelope& message) {
 void CompanionService::handleIncoming(const CompanionPayload& payload) {
     const auto decoded = decodeCompanionMessage(payload.bytes.data(), payload.size);
     if (!decoded.has_value()) {
+        if (payload.size >= connectivity::companionEnvelopeSize &&
+            payload.bytes[0] == selectedProtocolVersion_ &&
+            payload.bytes[1] == static_cast<std::uint8_t>(CompanionKind::Response) &&
+            payload.bytes[5] == static_cast<std::uint8_t>(CompanionOperation::AiUsage) &&
+            (std::uint16_t(payload.bytes[2]) | (std::uint16_t(payload.bytes[3]) << 8U)) ==
+                session_) {
+            if (auto* pending = findPending(payload.bytes[4]);
+                pending != nullptr && pending->operation == CompanionOperation::AiUsage) {
+                completePending(*pending,
+                                makeResponse(session_, pending->id, CompanionOperation::AiUsage,
+                                             CompanionStatus::Malformed));
+            }
+            return;
+        }
         if (state_ != CompanionServiceState::Unavailable) {
             enterProtocolError();
         }

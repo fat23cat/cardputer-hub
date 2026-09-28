@@ -1,5 +1,6 @@
 import AppKit
 import CompanionCore
+import CompanionProviders
 import CoreBluetooth
 import Foundation
 import os.log
@@ -9,6 +10,7 @@ private let log = Logger(subsystem: "org.cardputer.companion", category: "runtim
 
 final class CompanionCentral: NSObject, CBCentralManagerDelegate, CBPeripheralDelegate {
     private let session: CompanionSession
+    private let aiUsage: AiUsageCollector
     private let status: CompanionStatusStore
     private var connectionError = false
     private var stopped = false
@@ -29,14 +31,16 @@ final class CompanionCentral: NSObject, CBCentralManagerDelegate, CBPeripheralDe
     private var workspaceObservers: [NSObjectProtocol] = []
 
     init(applications: ApplicationControlling, metrics: SystemMetricsCollecting,
-         status: CompanionStatusStore) {
-        session = CompanionSession(applications: applications, metrics: metrics)
+         aiUsage: AiUsageCollector, status: CompanionStatusStore) {
+        self.aiUsage = aiUsage
+        session = CompanionSession(applications: applications, metrics: metrics, aiUsage: aiUsage)
         self.status = status
         super.init()
         session.outgoing = { [weak self] bytes in self?.send(bytes) }
     }
 
     func start() {
+        aiUsage.start()
         manager = CBCentralManager(delegate: self, queue: .main)
         refreshStatus()
         if workspaceObservers.isEmpty {
@@ -190,6 +194,7 @@ final class CompanionCentral: NSObject, CBCentralManagerDelegate, CBPeripheralDe
         retry = nil
         resetLocalConnection()
         session.stop()
+        aiUsage.stop()
         for observer in workspaceObservers {
             NSWorkspace.shared.notificationCenter.removeObserver(observer)
         }
@@ -408,7 +413,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let status = CompanionStatusStore(login: StartAtLoginModel(service: SystemLoginRegistration()))
         let menuBar = CompanionMenuBarController(status: status)
         let central = CompanionCentral(applications: WorkspaceApplicationController(),
-                                       metrics: MacSystemMetricsCollector(), status: status)
+                                       metrics: MacSystemMetricsCollector(),
+                                       aiUsage: AiUsageCollector(), status: status)
         status.onReconnect = { [weak central] in central?.reconnect() }
         status.onQuit = { [weak self] in self?.quit() }
         self.status = status

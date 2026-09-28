@@ -296,7 +296,7 @@ enum CompanionCoreCheck {
         session.handle(zeroSession)
         expect(session.session == 0, "zero session hello-ack ignored")
         var wrongVersion = CompanionCodec.encode(validAck)!
-        wrongVersion[wrongVersion.count - 1] = 3
+        wrongVersion[wrongVersion.count - 1] = 4
         session.handle(wrongVersion)
         expect(session.session == 0, "wrong version hello-ack ignored")
         session.handle(CompanionCodec.encode(validAck)!)
@@ -368,7 +368,7 @@ enum CompanionCoreCheck {
         var v2Sent: [[UInt8]] = []
         v2.outgoing = { v2Sent.append($0) }
         v2.startHandshake()
-        expect(CompanionCodec.decode(v2Sent[0])?.payload == [2, 2, 1], "v2 hello offers fallback")
+        expect(CompanionCodec.decode(v2Sent[0])?.payload == [3, 3, 2, 1], "v3 hello offers fallback")
         var v2Ack = CompanionEnvelope()
         v2Ack.kind = .helloAck
         v2Ack.session = 21
@@ -432,6 +432,91 @@ enum CompanionCoreCheck {
         badPayload = Array((metricsResponse?.payload ?? []).dropLast())
         expect(SystemMetricsSample.decode(badPayload) == nil, "truncated metrics rejected")
 
+        let plus: [String: Any] = ["rateLimits": ["planType": "plus",
+            "primary": ["usedPercent": 80, "windowDurationMins": 10080, "resetsAt": 20000],
+            "secondary": ["usedPercent": 37, "windowDurationMins": 300, "resetsAt": 12000]]]
+        let plusSample = AiUsageNormalization.codex(plus, now: displayNow)
+        expect(plusSample?.metrics.map(\.kind) == [.fiveHour, .week],
+               "Codex windows identified by duration")
+        expect(plusSample?.metrics.first?.remainingPercent == 63, "Codex shows remaining quota")
+        let business: [String: Any] = ["planType": "business",
+            "individualLimit": ["limit": "20000", "used": "19765.35930800438",
+                                "remainingPercent": 1, "resetsAt": 1790812800]]
+        let businessSample = AiUsageNormalization.codex(business, now: displayNow)
+        expect(businessSample?.provider == .codex && businessSample?.plan == .business &&
+               businessSample?.metrics.first?.kind == .credits &&
+               businessSample?.metrics.first?.limit == 20000 &&
+               businessSample?.metrics.first?.used == 19765 &&
+               businessSample?.metrics.first?.remaining == 235 &&
+               businessSample?.metrics.first?.remainingPercent == 1,
+               "real Business numeric strings and fractional credits normalized")
+        let overflowingBusiness: [String: Any] = ["planType": "business",
+            "individualLimit": ["limit": "4294967295.9", "used": "1",
+                                "remainingPercent": 1]]
+        expect(AiUsageNormalization.codex(overflowingBusiness) == nil,
+               "rounded Business credits cannot overflow UInt32")
+        let cursor: [String: Any] = ["membershipType": "enterprise",
+            "billingCycleEnd": "2026-10-01T00:00:00Z",
+            "individualUsage": ["overall": ["enabled": true, "used": 9458,
+                                              "limit": 255000, "remaining": 245542]]]
+        let cursorSample = AiUsageNormalization.cursor(cursor, now: displayNow)
+        expect(cursorSample?.metrics.first?.unit == .cents &&
+               cursorSample?.metrics.first?.remainingPercent == 96,
+               "Cursor individual cents normalized")
+        var fractionalCursor = cursor
+        fractionalCursor["billingCycleEnd"] = "2026-10-01T00:00:00.000Z"
+        expect(AiUsageNormalization.cursor(fractionalCursor, now: displayNow)?
+            .metrics.first?.resetAt != 0, "Cursor fractional reset timestamp")
+        let usage = AiUsageSnapshot(generation: 9, state: .ready,
+            providers: [plusSample!, cursorSample!])
+        expect(AiUsageState.forCache(pending: 1, hasUsableProvider: true) == .ready,
+               "cached provider remains ready while another refresh is pending")
+        expect(AiUsageState.forCache(pending: 1, hasUsableProvider: false) == .discovering,
+               "initial discovery remains visible without a provider")
+        expect(AiUsageState.forCache(pending: 0, hasUsableProvider: false) == .ready,
+               "empty discovery completes")
+        let payload = usage.encode()
+        expect(payload != nil && AiUsageSnapshot.decode(payload!) == usage,
+               "AI usage bounded payload round trip")
+        if var invalid = payload {
+            invalid[7 + 4 + 14] = 101
+            expect(AiUsageSnapshot.decode(invalid) == nil, "AI usage percent bound")
+            expect(AiUsageSnapshot.decode(Array(invalid.dropLast())) == nil,
+                   "AI usage truncation rejected")
+        }
+        let fixtureMetric = AiUsageMetric(kind: .fiveHour, unit: .percent, used: 37,
+                                          limit: 100, remaining: 63, remainingPercent: 63,
+                                          resetAt: 1780000000, resetRemainingSeconds: 3600)
+        var fixtureEnvelope = CompanionEnvelope()
+        fixtureEnvelope.version = 3; fixtureEnvelope.kind = .response
+        fixtureEnvelope.session = 42; fixtureEnvelope.requestId = 7
+        fixtureEnvelope.operation = .aiUsage
+        fixtureEnvelope.payload = AiUsageSnapshot(generation: 9, state: .ready,
+            providers: [AiUsageProviderSnapshot(provider: .codex, plan: .plus,
+                                                metrics: [fixtureMetric])]).encode()!
+        expect(CompanionCodec.encode(fixtureEnvelope) == fixture("ai-usage-response-v3.bin"),
+               "v3 AI usage fixture")
+        let v3 = CompanionSession(applications: FakeApplications(), aiUsage: FakeAiUsage(usage))
+        var v3Sent: [[UInt8]] = []
+        v3.outgoing = { v3Sent.append($0) }
+        v3.startHandshake()
+        expect(v3Sent[0] == fixture("hello-v3.bin"), "v3 hello fixture")
+        var v3Ack = CompanionEnvelope()
+        v3Ack.kind = .helloAck; v3Ack.session = 31; v3Ack.payload = [3]
+        v3.handle(CompanionCodec.encode(v3Ack)!)
+        var v3Caps = CompanionEnvelope()
+        v3Caps.version = 3; v3Caps.kind = .request; v3Caps.session = 31
+        v3Caps.requestId = 2; v3Caps.operation = .capabilities
+        v3.handle(CompanionCodec.encode(v3Caps)!)
+        expect(CompanionCodec.decode(v3Sent.last!)?.payload == [5, 1, 2, 3, 4, 5],
+               "v3 capability response")
+        var aiRequest = CompanionEnvelope()
+        aiRequest.version = 3; aiRequest.kind = .request; aiRequest.session = 31
+        aiRequest.requestId = 8; aiRequest.operation = .aiUsage
+        v3.handle(CompanionCodec.encode(aiRequest)!)
+        expect(CompanionCodec.decode(v3Sent.last!)?.payload == payload,
+               "v3 AI request reads cached snapshot")
+
         if failed > 0 {
             fputs("\(failed) checks failed\n", stderr)
             exit(1)
@@ -485,6 +570,12 @@ final class FakeMetrics: SystemMetricsCollecting {
         sample.thermalState = .fair
         return sample
     }
+}
+
+final class FakeAiUsage: AiUsageCollecting {
+    private let value: AiUsageSnapshot
+    init(_ value: AiUsageSnapshot) { self.value = value }
+    func snapshot() -> AiUsageSnapshot? { value }
 }
 
 final class FakeLoginRegistration: LoginRegistration {

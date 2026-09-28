@@ -11,7 +11,7 @@ bool isKnownKindValue(std::uint8_t kind) noexcept {
 }
 
 bool isKnownOperationValue(std::uint8_t operation) noexcept {
-    return operation <= static_cast<std::uint8_t>(CompanionOperation::SystemMetrics);
+    return operation <= static_cast<std::uint8_t>(CompanionOperation::AiUsage);
 }
 
 bool isKnownStatusValue(std::uint8_t status) noexcept {
@@ -94,13 +94,22 @@ bool operationPayloadValid(const CompanionEnvelope& message) noexcept {
         return message.payloadSize == 0;
     case CompanionOperation::AppActiveChanged:
         return message.payloadSize == 0 || bundlePayloadValid(message);
-    case CompanionOperation::SystemMetrics:
-        if (message.version < companionLatestProtocolVersion)
+    case CompanionOperation::SystemMetrics: {
+        if (message.version < 2)
             return false;
         if (message.kind == CompanionKind::Request || message.status != CompanionStatus::Ok)
             return message.payloadSize == 0;
         CompanionSystemMetrics metrics{};
         return readSystemMetrics(message, metrics);
+    }
+    case CompanionOperation::AiUsage: {
+        if (message.version < 3)
+            return false;
+        if (message.kind == CompanionKind::Request || message.status != CompanionStatus::Ok)
+            return message.payloadSize == 0;
+        CompanionAiUsage usage{};
+        return readAiUsage(message, usage);
+    }
     }
     return false;
 }
@@ -125,13 +134,15 @@ bool operationAllowedForKind(CompanionKind kind, CompanionOperation operation) n
                operation == CompanionOperation::Capabilities ||
                operation == CompanionOperation::AppActive ||
                operation == CompanionOperation::AppActivate ||
-               operation == CompanionOperation::SystemMetrics;
+               operation == CompanionOperation::SystemMetrics ||
+               operation == CompanionOperation::AiUsage;
     case CompanionKind::Response:
         return operation == CompanionOperation::Ping ||
                operation == CompanionOperation::Capabilities ||
                operation == CompanionOperation::AppActive ||
                operation == CompanionOperation::AppActivate ||
-               operation == CompanionOperation::SystemMetrics;
+               operation == CompanionOperation::SystemMetrics ||
+               operation == CompanionOperation::AiUsage;
     case CompanionKind::Event:
         return operation == CompanionOperation::AppActiveChanged;
     }
@@ -206,6 +217,8 @@ const char* companionCapabilityName(CompanionCapability capability) noexcept {
         return companionAppActiveEventsCapabilityId;
     case CompanionCapability::SystemMetrics:
         return companionSystemMetricsCapabilityId;
+    case CompanionCapability::AiUsage:
+        return companionAiUsageCapabilityId;
     }
     return nullptr;
 }
@@ -243,7 +256,7 @@ std::optional<CompanionEnvelope> decodeCompanionMessage(const std::uint8_t* data
     if (size != companionEnvelopeSize + payloadSize) {
         return std::nullopt;
     }
-    if ((data[0] != companionProtocolVersion && data[0] != companionLatestProtocolVersion) ||
+    if ((data[0] < companionProtocolVersion || data[0] > companionLatestProtocolVersion) ||
         !isKnownKindValue(data[1]) || !isKnownOperationValue(data[5]) ||
         !isKnownStatusValue(data[6])) {
         return std::nullopt;
@@ -344,8 +357,9 @@ bool setCapabilityList(CompanionEnvelope& message, const CompanionCapability* ca
     }
     message.payload[0] = count;
     for (std::uint8_t index = 0; index < count; ++index) {
-        if (capabilities[index] == CompanionCapability::SystemMetrics &&
-            message.version != companionLatestProtocolVersion)
+        if (capabilities[index] == CompanionCapability::SystemMetrics && message.version < 2)
+            return false;
+        if (capabilities[index] == CompanionCapability::AiUsage && message.version < 3)
             return false;
         message.payload[index + 1] = static_cast<std::uint8_t>(capabilities[index]);
     }
@@ -364,10 +378,11 @@ bool readCapabilityList(const CompanionEnvelope& message, CompanionCapability* c
     }
     for (std::uint8_t index = 0; index < message.payload[0]; ++index) {
         const auto value = message.payload[index + 1];
+        const auto maximum = message.version >= 3   ? CompanionCapability::AiUsage
+                             : message.version >= 2 ? CompanionCapability::SystemMetrics
+                                                    : CompanionCapability::AppActiveEvents;
         if (value < static_cast<std::uint8_t>(CompanionCapability::AppActive) ||
-            value > static_cast<std::uint8_t>(message.version == companionProtocolVersion
-                                                  ? CompanionCapability::AppActiveEvents
-                                                  : CompanionCapability::SystemMetrics)) {
+            value > static_cast<std::uint8_t>(maximum)) {
             count = 0;
             return false;
         }
@@ -435,7 +450,7 @@ bool validMetrics(const CompanionSystemMetrics& value) {
 bool setSystemMetrics(CompanionEnvelope& message, const CompanionSystemMetrics& metrics) {
     if (message.operation != CompanionOperation::SystemMetrics ||
         message.kind != CompanionKind::Response || message.status != CompanionStatus::Ok ||
-        message.version != companionLatestProtocolVersion || !validMetrics(metrics))
+        message.version < 2 || !validMetrics(metrics))
         return false;
     auto* p = message.payload.data();
     p[0] = 1;
@@ -457,8 +472,8 @@ bool setSystemMetrics(CompanionEnvelope& message, const CompanionSystemMetrics& 
 bool readSystemMetrics(const CompanionEnvelope& message, CompanionSystemMetrics& metrics) {
     if (message.operation != CompanionOperation::SystemMetrics ||
         message.kind != CompanionKind::Response || message.status != CompanionStatus::Ok ||
-        message.version != companionLatestProtocolVersion ||
-        message.payloadSize != companionMetricsPayloadSize || message.payload[0] != 1)
+        message.version < 2 || message.payloadSize != companionMetricsPayloadSize ||
+        message.payload[0] != 1)
         return false;
     const auto* p = message.payload.data();
     CompanionSystemMetrics result{};
@@ -475,6 +490,122 @@ bool readSystemMetrics(const CompanionEnvelope& message, CompanionSystemMetrics&
     if (!validMetrics(result))
         return false;
     metrics = result;
+    return true;
+}
+
+namespace {
+bool validAiMetric(const AiUsageMetric& metric) {
+    return static_cast<std::uint8_t>(metric.kind) >= 1 &&
+           static_cast<std::uint8_t>(metric.kind) <= 4 &&
+           static_cast<std::uint8_t>(metric.unit) >= 1 &&
+           static_cast<std::uint8_t>(metric.unit) <= 3 && metric.remainingPercent <= 100 &&
+           (metric.limit == 0 || (metric.used <= metric.limit && metric.remaining <= metric.limit));
+}
+bool validAiProvider(const AiUsageProvider& provider) {
+    if (static_cast<std::uint8_t>(provider.provider) < 1 ||
+        static_cast<std::uint8_t>(provider.provider) > 2 ||
+        static_cast<std::uint8_t>(provider.plan) > 3 ||
+        static_cast<std::uint8_t>(provider.freshness) < 1 ||
+        static_cast<std::uint8_t>(provider.freshness) > 2 || provider.metricCount == 0 ||
+        provider.metricCount > 2)
+        return false;
+    for (std::uint8_t i = 0; i < provider.metricCount; ++i)
+        if (!validAiMetric(provider.metrics[i]))
+            return false;
+    return true;
+}
+} // namespace
+
+bool setAiUsage(CompanionEnvelope& message, const CompanionAiUsage& usage) {
+    if (message.operation != CompanionOperation::AiUsage ||
+        message.kind != CompanionKind::Response || message.status != CompanionStatus::Ok ||
+        message.version < 3 || usage.providerCount > 2 ||
+        (usage.state != AiUsageState::Discovering && usage.state != AiUsageState::Ready))
+        return false;
+    std::size_t pos = 0;
+    auto* p = message.payload.data();
+    p[pos++] = 1;
+    p[pos++] = static_cast<std::uint8_t>(usage.state);
+    p[pos++] = usage.providerCount;
+    write32(p + pos, usage.generation);
+    pos += 4;
+    for (std::uint8_t i = 0; i < usage.providerCount; ++i) {
+        const auto& provider = usage.providers[i];
+        if (!validAiProvider(provider) ||
+            (i == 1 && provider.provider == usage.providers[0].provider))
+            return false;
+        p[pos++] = static_cast<std::uint8_t>(provider.provider);
+        p[pos++] = static_cast<std::uint8_t>(provider.plan);
+        p[pos++] = static_cast<std::uint8_t>(provider.freshness);
+        p[pos++] = provider.metricCount;
+        for (std::uint8_t j = 0; j < provider.metricCount; ++j) {
+            const auto& metric = provider.metrics[j];
+            p[pos++] = static_cast<std::uint8_t>(metric.kind);
+            p[pos++] = static_cast<std::uint8_t>(metric.unit);
+            write32(p + pos, metric.used);
+            pos += 4;
+            write32(p + pos, metric.limit);
+            pos += 4;
+            write32(p + pos, metric.remaining);
+            pos += 4;
+            p[pos++] = metric.remainingPercent;
+            write32(p + pos, metric.resetAt);
+            pos += 4;
+            write32(p + pos, metric.resetRemainingSeconds);
+            pos += 4;
+        }
+    }
+    message.payloadSize = static_cast<std::uint8_t>(pos);
+    return true;
+}
+
+bool readAiUsage(const CompanionEnvelope& message, CompanionAiUsage& usage) {
+    if (message.operation != CompanionOperation::AiUsage ||
+        message.kind != CompanionKind::Response || message.status != CompanionStatus::Ok ||
+        message.version < 3 || message.payloadSize < 7 || message.payload[0] != 1 ||
+        message.payload[1] < 1 || message.payload[1] > 2 || message.payload[2] > 2)
+        return false;
+    CompanionAiUsage result{};
+    const auto* p = message.payload.data();
+    result.state = static_cast<AiUsageState>(p[1]);
+    result.providerCount = p[2];
+    result.generation = read32(p + 3);
+    std::size_t pos = 7;
+    for (std::uint8_t i = 0; i < result.providerCount; ++i) {
+        if (pos + 4 > message.payloadSize)
+            return false;
+        auto& provider = result.providers[i];
+        provider.provider = static_cast<AiProvider>(p[pos++]);
+        provider.plan = static_cast<AiPlan>(p[pos++]);
+        provider.freshness = static_cast<AiFreshness>(p[pos++]);
+        provider.metricCount = p[pos++];
+        if (provider.metricCount == 0 || provider.metricCount > 2 ||
+            (i == 1 && provider.provider == result.providers[0].provider))
+            return false;
+        for (std::uint8_t j = 0; j < provider.metricCount; ++j) {
+            if (pos + 23 > message.payloadSize)
+                return false;
+            auto& metric = provider.metrics[j];
+            metric.kind = static_cast<AiMetricKind>(p[pos++]);
+            metric.unit = static_cast<AiMetricUnit>(p[pos++]);
+            metric.used = read32(p + pos);
+            pos += 4;
+            metric.limit = read32(p + pos);
+            pos += 4;
+            metric.remaining = read32(p + pos);
+            pos += 4;
+            metric.remainingPercent = p[pos++];
+            metric.resetAt = read32(p + pos);
+            pos += 4;
+            metric.resetRemainingSeconds = read32(p + pos);
+            pos += 4;
+        }
+        if (!validAiProvider(provider))
+            return false;
+    }
+    if (pos != message.payloadSize)
+        return false;
+    usage = result;
     return true;
 }
 
