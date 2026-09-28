@@ -346,8 +346,10 @@ supplies monotonic elapsed time each frame. UI navigation semantics remain in
 the shell/HostSettings, and LCD snapshot memory and presentation remain in the
 adapter. A transient second RGB565 buffer starts with the outgoing pixels and is
 advanced into one complete composed frame per animation step. It is freed when
-the slide finishes; allocation failure falls back to immediate completed
-presentation. Each step is transferred once as a full frame instead of relying
+the slide finishes; allocation failure or insufficient internal memory reserve
+falls back to immediate completed presentation. The adapter retains at least
+64 KiB of internal heap after snapshot allocation to leave headroom for BLE host
+reconnection. Each step is transferred once as a full frame instead of relying
 on consecutive cropped DMA transfers. New navigation during a slide reuses that
 currently visible composition, keeping input responsive without jumping to a
 hidden destination.

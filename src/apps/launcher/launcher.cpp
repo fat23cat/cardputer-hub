@@ -193,14 +193,6 @@ MiniAppAvailability Launcher::selectedAvailability() const {
     return runtime_.availability(apps_.apps()[selected_].id);
 }
 
-std::vector<MiniAppEligibility> Launcher::currentEligibility() const {
-    std::vector<MiniAppEligibility> values;
-    values.reserve(apps_.apps().size());
-    for (const auto& app : apps_.apps())
-        values.push_back(runtime_.eligibility(app.id));
-    return values;
-}
-
 std::string Launcher::overlayReasonFor(const MiniAppAvailability& availability) const {
     switch (availability.eligibility) {
     case MiniAppEligibility::MissingInstance:
@@ -223,17 +215,23 @@ void Launcher::render() {
     next.count = registered.size();
     next.selected = selected_;
     next.windowStart = windowStart_;
-    next.eligibility = currentEligibility();
     next.overlay = overlay_;
     next.overlayY = static_cast<int>(std::lround(overlayY_));
     next.overlayReason = overlayReason_;
     next.plateY = launcherRowTop + static_cast<int>((selected_ - windowStart_) * launcherRowHeight);
     next.empty = registered.empty();
 
+    bool eligibilityChanged = eligibility_.size() != registered.size();
+    eligibility_.resize(registered.size());
+    for (std::size_t i = 0; i < registered.size(); ++i) {
+        const auto current = runtime_.eligibility(registered[i].id);
+        eligibilityChanged |= eligibility_[i] != current;
+        eligibility_[i] = current;
+    }
     const bool full = !frame_;
     const bool listChanged = full || frame_->count != next.count ||
-                             frame_->windowStart != next.windowStart ||
-                             frame_->eligibility != next.eligibility || frame_->empty != next.empty;
+                             frame_->windowStart != next.windowStart || eligibilityChanged ||
+                             frame_->empty != next.empty;
     const bool plateChanged =
         full || frame_->plateY != next.plateY || frame_->selected != next.selected;
     const bool overlayChanged = full || frame_->overlay != next.overlay ||
@@ -297,7 +295,7 @@ void Launcher::render() {
                 display_.drawText({launcherNameX, contentY}, fitName(app.displayName).c_str(),
                                   style);
                 drawAvailabilityDot(display_, {launcherDotX, rowY + 16},
-                                    next.eligibility[index] == MiniAppEligibility::Eligible);
+                                    eligibility_[index] == MiniAppEligibility::Eligible);
             }
         }
     }

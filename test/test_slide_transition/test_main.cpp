@@ -1,4 +1,5 @@
 #include "core/display/slide_transition.h"
+#include "hardware/cardputer/transition_memory_budget.h"
 #include <algorithm>
 #include <array>
 #include <unity.h>
@@ -89,6 +90,13 @@ void test_incremental_snapshot_advances_as_one_complete_frame_and_refreshes_inco
     advanceSlideSnapshot(frame.data(), to.data(), 4, 1, 3, 4, SlideDirection::Backward);
     TEST_ASSERT_EQUAL_UINT16_ARRAY(to.data(), frame.data(), 4);
 }
+void test_transition_snapshot_keeps_internal_memory_for_bluetooth_reconnection() {
+    using namespace cardputer_hub::hardware;
+    const auto needed = transitionSnapshotBytes + transitionInternalReserveBytes;
+    TEST_ASSERT_FALSE(canAllocateTransitionSnapshot(needed - 1, transitionSnapshotBytes));
+    TEST_ASSERT_FALSE(canAllocateTransitionSnapshot(needed, transitionSnapshotBytes - 1));
+    TEST_ASSERT_TRUE(canAllocateTransitionSnapshot(needed, transitionSnapshotBytes));
+}
 } // namespace
 void setUp() {}
 void tearDown() {}
@@ -99,5 +107,6 @@ int main() {
     RUN_TEST(test_interruption_snapshot_preserves_every_pixel_without_gaps_in_both_directions);
     RUN_TEST(
         test_incremental_snapshot_advances_as_one_complete_frame_and_refreshes_incoming_pixels);
+    RUN_TEST(test_transition_snapshot_keeps_internal_memory_for_bluetooth_reconnection);
     return UNITY_END();
 }

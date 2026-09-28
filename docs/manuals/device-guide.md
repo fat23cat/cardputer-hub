@@ -271,6 +271,7 @@ The Living Orb pauses while Settings, Bluetooth, Wi-Fi, Apps,
 or SYSTEM is open and during screen transitions. Screens slide in from the right when opening and
 from the left when returning, taking about 220 ms. You can keep pressing keys
 during a transition; navigation does not wait for the animation to finish.
+When internal memory is tight, a page may appear immediately without a slide.
 Moving between rows and live Bluetooth status updates do not slide the screen.
 
 These keys operate Cardputer locally. The current settings screen does not

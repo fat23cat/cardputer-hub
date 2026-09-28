@@ -464,6 +464,8 @@ right, Back from left. Home, Settings, Bluetooth, host actions, rename/delete,
 and pairing participate; focus moves, typed characters, and status updates do
 not restart transitions. The Home Living Orb pauses during a slide. Input remains
 live; a newer navigation transition starts from the currently presented pixels.
+If the second frame buffer would leave too little internal memory for BLE,
+the page changes immediately and input remains live.
 No event is queued for later host replay. Animation positions update at most
 once per 16 ms and stop at completion. The Home bottom action plate moves
 horizontally. Vertical focus in Launcher, Settings, Bluetooth, and Wi-Fi lists

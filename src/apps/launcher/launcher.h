@@ -38,7 +38,6 @@ class Launcher {
         std::size_t count = 0;
         std::size_t selected = 0;
         std::size_t windowStart = 0;
-        std::vector<MiniAppEligibility> eligibility;
         OverlayPhase overlay = OverlayPhase::Hidden;
         int overlayY = -21;
         std::string overlayReason;
@@ -55,7 +54,6 @@ class Launcher {
     void render();
     std::string overlayReasonFor(const MiniAppAvailability& availability) const;
     MiniAppAvailability selectedAvailability() const;
-    std::vector<MiniAppEligibility> currentEligibility() const;
 
     const core::AppRegistry& apps_;
     MiniAppRuntime& runtime_;
@@ -67,6 +65,7 @@ class Launcher {
     float overlayY_ = -21;
     std::chrono::milliseconds holdElapsed_{0};
     std::string overlayReason_;
+    std::vector<MiniAppEligibility> eligibility_;
     std::optional<Frame> frame_;
 };
 
