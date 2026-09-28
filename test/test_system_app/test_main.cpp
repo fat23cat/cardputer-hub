@@ -1,8 +1,10 @@
+#include "../support/ui_capture.h"
 #include "apps/runtime/mini_app_runtime.h"
 #include "apps/system/system_app.h"
 #include "core/app_registry/app_registry.h"
 #include "core/audio/audio_adapter.h"
 #include "core/capabilities/capability_registry.h"
+#include "core/display/text_layout.h"
 #include "core/lifecycle/build_info.h"
 #include "core/power/battery_adapter.h"
 #include "services/network/network_service.h"
@@ -40,28 +42,32 @@ class Display final : public core::IDisplayAdapter {
         if (dirty)
             ++presentations;
     }
-    void clear(core::RgbColor) override {
+    void clear(core::RgbColor color) override {
+        capture.clear(color);
         ++frames;
         texts.clear();
         dirty = true;
     }
     void fillRectangle(core::PixelPosition position, std::int32_t width, std::int32_t height,
-                       core::RgbColor) override {
+                       core::RgbColor color) override {
+        capture.rectangle(position, width, height, color);
         TEST_ASSERT_TRUE(position.x >= 0 && position.y >= 0 && width > 0 && height > 0);
         TEST_ASSERT_TRUE(position.x + width <= 240 && position.y + height <= 135);
         dirty = true;
     }
     void drawText(core::PixelPosition position, const char* value, core::TextStyle style) override {
+        capture.text(position, value, style);
         TEST_ASSERT_TRUE(position.x >= 0 && position.x < 240 && position.y >= 0 &&
                          position.y < 135);
-        TEST_ASSERT_TRUE(position.x + std::string(value).size() * 6 * style.scale <= 240);
-        TEST_ASSERT_TRUE(position.y + 8 * style.scale <= 135);
+        TEST_ASSERT_TRUE(position.x + core::textWidth(value, style.scale) <= 240);
+        TEST_ASSERT_TRUE(position.y + std::ceil(8 * style.scale) <= 135);
         texts.push_back(value);
         dirty = true;
     }
     bool shows(const char* value) const {
         return std::find(texts.begin(), texts.end(), value) != texts.end();
     }
+    cardputer_hub::test_support::UiCapture capture;
     std::vector<std::string> texts;
     int frames = 0;
     int presentations = 0;
@@ -205,6 +211,7 @@ void test_battery_values() {
     Fixture f;
     f.app.onActivate();
     f.app.update({}, {});
+    f.display.capture.save("system");
     TEST_ASSERT_TRUE(f.display.shows("--%"));
     f.batteryAdapter.value = 81;
     f.battery.update(std::chrono::milliseconds(0));

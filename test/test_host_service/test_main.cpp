@@ -6,6 +6,7 @@
 #include "core/app_registry/app_registry.h"
 #include "core/capabilities/capability_registry.h"
 #include "core/display/palette.h"
+#include "core/display/text_layout.h"
 #include "services/hosts/host_service.h"
 #include "services/network/network_service.h"
 #include <algorithm>
@@ -801,8 +802,8 @@ class Display final : public core::IDisplayAdapter {
     }
     void drawText(core::PixelPosition position, const char* value, core::TextStyle style) override {
         TEST_ASSERT_TRUE(position.x >= 0 && position.y >= 0);
-        TEST_ASSERT_TRUE(position.x + std::string(value).size() * 6 * style.scale <= 240);
-        TEST_ASSERT_TRUE(position.y + 8 * style.scale <= 135);
+        TEST_ASSERT_TRUE(position.x + core::textWidth(value, style.scale) <= 240);
+        TEST_ASSERT_TRUE(position.y + std::ceil(8 * style.scale) <= 135);
         texts.emplace_back(value);
     }
     std::vector<std::string> texts;

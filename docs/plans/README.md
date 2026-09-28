@@ -52,6 +52,8 @@ ownership matrix with invariants. Do not rewrite older plans into that format.
 | [038/2](038-2-codex-plus-reset-details.md) | Codex Plus reset credits and expanded details | Software implemented; physical acceptance pending |
 | [036](036-ambient-home-redesign.md) | Device-centric ambient Home | Software implemented; physical Cardputer-Adv visual acceptance pending |
 | [036/2](036-2-home-actions-and-connected-device-context.md) | Home actions and connected device context | Software implemented; physical Cardputer-Adv visual acceptance pending |
+| [039](039-system-font-scayle.md) | 1.10× system font infrastructure and captures | Software implemented; superseded by 040 after visual review |
+| [040](040-system-font-scale-120.md) | 1.20× system font visual trial | Software implemented; physical Cardputer-Adv readability review pending |
 
 The work referred to historically as 013 is the approved
 [UI requirements](../UI_REQUIREMENTS.md); there is no separate plan-013 file.

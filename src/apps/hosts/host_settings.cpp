@@ -286,7 +286,7 @@ void HostSettings::renderList() {
             next.caption = host->name;
     }
     const bool full = !listFrame_;
-    const TextStyle normal{palette::ink, palette::bone, 1};
+    const TextStyle normal{palette::ink, palette::bone, systemTextScale};
     if (full) {
         display_.clear(palette::bone);
         display_.drawText({6, 6}, detailHost_ ? "HOST" : "BLUETOOTH", normal);
@@ -294,7 +294,7 @@ void HostSettings::renderList() {
     }
     if (full || next.status != listFrame_->status) {
         if (!full)
-            display_.fillRectangle({174, 6}, 60, 8, palette::bone);
+            display_.fillRectangle({174, 6}, 60, systemTextHeight(), palette::bone);
         display_.drawText({rightAlignedTextX(next.status.c_str()), 6}, next.status.c_str(), normal);
     }
     for (std::size_t slot = 0; slot < next.labels.size(); ++slot) {
@@ -309,25 +309,31 @@ void HostSettings::renderList() {
         const auto background = focused ? palette::ink : palette::bone;
         display_.fillRectangle({6, y - 3}, 228, 16, background);
         if (!next.labels[slot].empty()) {
-            const auto style = focused ? TextStyle{palette::bone, palette::ink, 1} : normal;
-            display_.drawText({10, y}, next.ordinals[slot].c_str(),
-                              focused ? style : TextStyle{palette::ordinal, palette::bone, 1});
-            display_.drawText({30, y}, next.labels[slot].c_str(), style);
+            const auto style =
+                focused ? TextStyle{palette::bone, palette::ink, systemTextScale} : normal;
+            display_.drawText(
+                {10, y}, next.ordinals[slot].c_str(),
+                focused ? style : TextStyle{palette::ordinal, palette::bone, systemTextScale});
+            const auto labelWidth =
+                next.values[slot].empty() ? 204 : rightAlignedTextX(next.values[slot].c_str()) - 36;
+            const auto fitted = fitSystemText(next.labels[slot], labelWidth);
+            display_.drawText({30, y}, fitted.c_str(), style);
             if (!next.values[slot].empty()) {
-                display_.drawText({234 - static_cast<int>(next.values[slot].size()) * 6, y},
+                display_.drawText({rightAlignedTextX(next.values[slot].c_str()), y},
                                   next.values[slot].c_str(), style);
             }
         }
     }
     if (full || next.caption != listFrame_->caption) {
         if (!full)
-            display_.fillRectangle({6, 95}, 228, 8, palette::bone);
+            display_.fillRectangle({6, 95}, 228, systemTextHeight(), palette::bone);
         display_.drawText({6, 95}, next.caption.c_str(), normal);
     }
     if (full || next.error != listFrame_->error) {
         if (!full)
-            display_.fillRectangle({6, 105}, 228, 8, palette::bone);
-        display_.drawText({6, 105}, next.error.c_str(), {palette::vermilion, palette::bone, 1});
+            display_.fillRectangle({6, 105}, 228, systemTextHeight(), palette::bone);
+        display_.drawText({6, 105}, next.error.c_str(),
+                          {palette::vermilion, palette::bone, systemTextScale});
     }
     listFrame_ = std::move(next);
 }
@@ -413,7 +419,7 @@ void HostSettings::render() {
     modalRenderState_ = std::move(next);
     listFrame_.reset();
     display_.clear(palette::bone);
-    const TextStyle normal{palette::ink, palette::bone, 1};
+    const TextStyle normal{palette::ink, palette::bone, systemTextScale};
     display_.drawText({6, 6},
                       deleting_            ? "DELETE HOST"
                       : hostStatus.pairing ? "ADD DEVICE"
@@ -424,12 +430,12 @@ void HostSettings::render() {
                       label(hostStatus.connection), normal);
     display_.fillRectangle({6, 20}, 228, 1, palette::ink);
     if (deleting_) {
-        display_.drawText({6, 35}, "Delete this host and its pairing?", normal);
+        display_.drawText({6, 35}, "Delete host and its pairing?", normal);
         display_.drawText({6, 53}, hosts_.settings().hosts[focus_ - 2].name.c_str(), normal);
     } else if (hostStatus.pairing) {
         if (!challenge && hostStatus.pairingPhase == services::HostPairingPhase::Securing) {
             display_.drawText({6, 35}, "Securing connection", normal);
-            display_.drawText({6, 51}, "Please wait for the code or READY", normal);
+            display_.drawText({6, 51}, "Please wait for code or READY", normal);
         } else if (!challenge) {
             display_.drawText({6, 35}, "Choose Cardputer Hub", normal);
             display_.drawText({6, 51}, "in computer Bluetooth settings", normal);
@@ -438,7 +444,7 @@ void HostSettings::render() {
             display_.drawText({6, 32}, "Enter this code on the computer", normal);
             digits(code(challenge->value.value_or(0)));
         } else if (challenge->type == services::HostPairingPromptType::ConfirmComparison) {
-            display_.drawText({6, 32}, "Does the computer show this code?", normal);
+            display_.drawText({6, 32}, "Does computer show this code?", normal);
             digits(code(challenge->value.value_or(0)));
         } else {
             display_.drawText({6, 32}, "Type the code from the computer", normal);
@@ -449,7 +455,7 @@ void HostSettings::render() {
         display_.drawText({6, 61}, entry_.c_str(), normal);
     }
     display_.drawText({6, 105}, error(hostStatus.lastResult),
-                      {palette::vermilion, palette::bone, 1});
+                      {palette::vermilion, palette::bone, systemTextScale});
     if (deleting_)
         drawContextualFooter(display_, "ESC CANCEL", "ENTER DELETE");
     else if (renaming_)

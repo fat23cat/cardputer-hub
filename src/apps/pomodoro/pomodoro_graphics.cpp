@@ -41,9 +41,7 @@ void drawGlyph(IDisplayAdapter& display, PixelPosition position, char digit, Rgb
 }
 
 void drawCentered(IDisplayAdapter& display, std::int32_t y, const char* text, TextStyle style) {
-    const auto width =
-        static_cast<std::int32_t>(std::char_traits<char>::length(text)) * systemGlyphWidth;
-    display.drawText({(240 - width) / 2, y}, text, style);
+    display.drawText({centeredTextX(text, 0, 240, style.scale), y}, text, style);
 }
 } // namespace
 
@@ -97,8 +95,8 @@ void formatPomodoroRemaining(const PomodoroSnapshot& snapshot, char (&text)[6]) 
 
 void drawPomodoroScreen(IDisplayAdapter& display, const PomodoroSnapshot& snapshot) {
     display.clear(palette::bone);
-    const TextStyle ink{palette::ink, palette::bone, 1};
-    const TextStyle ordinal{palette::ordinal, palette::bone, 1};
+    const TextStyle ink{palette::ink, palette::bone, systemTextScale};
+    const TextStyle ordinal{palette::ordinal, palette::bone, systemTextScale};
     display.drawText({6, 6}, pomodoroPhaseLabel(snapshot.phase), ink);
     char cycle[8] = {};
     std::snprintf(cycle, sizeof(cycle), "%u / 4",

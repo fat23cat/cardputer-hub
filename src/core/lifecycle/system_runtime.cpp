@@ -3,13 +3,18 @@
 #include <algorithm>
 
 #include "core/display/palette.h"
+#include "core/display/text_layout.h"
 
 namespace cardputer_hub::core {
 namespace {
 
 constexpr TextStyle productNameStyle{palette::ink, palette::bone, 2};
-constexpr TextStyle quietStyle{palette::ordinal, palette::bone, 1};
-constexpr TextStyle versionStyle{palette::ink, palette::bone, 1};
+constexpr TextStyle quietStyle{palette::ordinal, palette::bone, systemTextScale};
+constexpr TextStyle versionStyle{palette::ink, palette::bone, systemTextScale};
+constexpr std::int32_t splashVersionLeft = 18;
+constexpr std::int32_t splashVersionRight = 234;
+constexpr std::int32_t splashVersionFirstLineY = 87;
+constexpr std::int32_t splashVersionSecondLineY = 99;
 
 constexpr PixelPosition progressOrigin{18, 112};
 constexpr std::int32_t progressSegmentWidth = 14;
@@ -63,7 +68,17 @@ void SystemRuntime::drawSplash() {
     display_.drawText({18, 24}, "SYSTEM STARTUP", quietStyle);
     display_.drawText({18, 43}, buildInfo_.name, productNameStyle);
     display_.drawText({18, 75}, "VERSION", quietStyle);
-    display_.drawText({66, 75}, buildInfo_.version, versionStyle);
+    const std::string version{buildInfo_.version};
+    const auto lineCapacity = systemTextMaxCharacters(splashVersionRight - splashVersionLeft);
+    const auto firstLine = version.substr(0, lineCapacity);
+    display_.drawText({splashVersionLeft, splashVersionFirstLineY}, firstLine.c_str(),
+                      versionStyle);
+    if (version.size() > lineCapacity) {
+        const auto secondLine =
+            fitSystemText(version.substr(lineCapacity), splashVersionRight - splashVersionLeft);
+        display_.drawText({splashVersionLeft, splashVersionSecondLineY}, secondLine.c_str(),
+                          versionStyle);
+    }
 
     for (std::size_t index = 0; index < splashSegmentCount; ++index) {
         display_.fillRectangle(progressSegmentPosition(index), progressSegmentWidth,

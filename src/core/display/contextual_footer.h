@@ -8,7 +8,7 @@ namespace cardputer_hub::core {
 
 inline void drawContextualFooter(IDisplayAdapter& display, const char* cancel,
                                  const char* confirm = "") {
-    const TextStyle quiet{palette::ordinal, palette::bone, 1};
+    const TextStyle quiet{palette::ordinal, palette::bone, systemTextScale};
     if (cancel != nullptr && *cancel != '\0')
         display.drawText({6, 123}, cancel, quiet);
     if (confirm != nullptr && *confirm != '\0')

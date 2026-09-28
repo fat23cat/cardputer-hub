@@ -94,7 +94,7 @@ SystemApp::Frame SystemApp::capture() const {
 }
 
 void SystemApp::render(const Frame& next) {
-    const TextStyle normal{palette::ink, palette::bone, 1};
+    const TextStyle normal{palette::ink, palette::bone, systemTextScale};
     const bool full = !frame_;
     if (full) {
         display_.clear(palette::bone);

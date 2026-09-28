@@ -7,6 +7,7 @@
 #include <utility>
 #include <vector>
 
+#include "core/display/text_layout.h"
 #include "core/lifecycle/system_runtime.h"
 
 namespace {
@@ -137,9 +138,9 @@ class FakeLogSink final : public ILogSink {
 };
 
 struct RuntimeFixture {
-    RuntimeFixture()
+    explicit RuntimeFixture(const char* version = "9.8.7")
         : platform(trace), keyboard(trace), display(trace), logSink(trace),
-          logger(logSink, LogLevel::Info),
+          logger(logSink, LogLevel::Info), buildInfo{"Test Hub", version, "abc123", "test"},
           runtime(platform, keyboard, display, displayPower, logger, buildInfo) {}
 
     void startAndFinishSplash() {
@@ -175,7 +176,7 @@ struct RuntimeFixture {
     FakeBacklight backlight;
     DisplayPowerController displayPower{backlight};
     Logger logger;
-    const BuildInfo buildInfo{"Test Hub", "9.8.7", "abc123", "test"};
+    const BuildInfo buildInfo;
     SystemRuntime runtime;
 };
 
@@ -229,6 +230,28 @@ void test_startup_draws_branded_splash_with_visible_version() {
     for (const auto& rectangle : fixture.display.rectangles)
         TEST_ASSERT_FALSE(rectangle.position.x >= 219 && rectangle.position.y <= 23);
     TEST_ASSERT_FALSE(fixture.runtime.splashFinished());
+}
+
+void test_long_splash_version_wraps_without_clipping_or_covering_progress() {
+    constexpr const char* version = "12.34.56-feature-build+20260928-1234-extra";
+    RuntimeFixture fixture(version);
+
+    fixture.runtime.start();
+
+    TEST_ASSERT_EQUAL_UINT(5, fixture.display.texts.size());
+    const auto& firstLine = fixture.display.texts[3];
+    const auto& secondLine = fixture.display.texts[4];
+    TEST_ASSERT_EQUAL_STRING(version, (firstLine.text + secondLine.text).c_str());
+    TEST_ASSERT_EQUAL_INT32(18, firstLine.position.x);
+    TEST_ASSERT_EQUAL_INT32(18, secondLine.position.x);
+    TEST_ASSERT_TRUE(firstLine.position.y > fixture.display.texts[2].position.y);
+    TEST_ASSERT_TRUE(secondLine.position.y > firstLine.position.y);
+    for (const auto& line : {firstLine, secondLine}) {
+        TEST_ASSERT_TRUE(line.position.x +
+                             cardputer_hub::core::textWidth(line.text.c_str(), line.style.scale) <=
+                         234);
+        TEST_ASSERT_TRUE(line.position.y + cardputer_hub::core::systemTextHeight() < 112);
+    }
 }
 
 void test_splash_progresses_in_segments_and_finishes_after_two_seconds() {
@@ -442,6 +465,7 @@ void test_input_during_waking_is_consumed_without_restarting_ramp() {
 int main() {
     UNITY_BEGIN();
     RUN_TEST(test_startup_draws_branded_splash_with_visible_version);
+    RUN_TEST(test_long_splash_version_wraps_without_clipping_or_covering_progress);
     RUN_TEST(test_splash_progresses_in_segments_and_finishes_after_two_seconds);
     RUN_TEST(test_repeated_startup_is_idempotent);
     RUN_TEST(test_prepare_captures_baseline_without_drawing_splash);

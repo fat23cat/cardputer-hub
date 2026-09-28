@@ -5,10 +5,12 @@
 #include <string>
 #include <vector>
 
+#include "../support/ui_capture.h"
 #include "apps/mac_status/mac_status_app.h"
 #include "apps/runtime/mini_app_runtime.h"
 #include "connectivity/companion/companion_protocol.h"
 #include "core/capabilities/capability_registry.h"
+#include "core/display/text_layout.h"
 
 namespace {
 using namespace cardputer_hub;
@@ -93,15 +95,27 @@ struct Fixture {
 
 class Display : public core::IDisplayAdapter {
   public:
-    void clear(core::RgbColor) override { ++draws; }
-    void fillRectangle(core::PixelPosition, std::int32_t, std::int32_t, core::RgbColor) override {
+    void clear(core::RgbColor color) override {
+        capture.clear(color);
         ++draws;
     }
-    void drawText(core::PixelPosition, const char* text, core::TextStyle) override {
+    void fillRectangle(core::PixelPosition position, std::int32_t width, std::int32_t height,
+                       core::RgbColor color) override {
+        TEST_ASSERT_TRUE(position.x >= 0 && position.y >= 0);
+        TEST_ASSERT_TRUE(position.x + width <= 240 && position.y + height <= 135);
+        capture.rectangle(position, width, height, color);
+        ++draws;
+    }
+    void drawText(core::PixelPosition position, const char* text, core::TextStyle style) override {
+        TEST_ASSERT_TRUE(position.x >= 0 && position.y >= 0);
+        TEST_ASSERT_TRUE(position.x + core::textWidth(text, style.scale) <= 240);
+        TEST_ASSERT_TRUE(position.y + std::ceil(8 * style.scale) <= 135);
+        capture.text(position, text, style);
         ++draws;
         labels.emplace_back(text);
     }
     int draws = 0;
+    cardputer_hub::test_support::UiCapture capture;
     std::vector<std::string> labels;
 };
 
@@ -147,6 +161,7 @@ void test_dashboard_uses_full_screen_placeholders_and_dirty_blocks() {
     apps::MacStatusApp app(f.status, display);
     app.onActivate();
     app.update({}, std::chrono::milliseconds(0));
+    display.capture.save("mac-status");
     TEST_ASSERT_EQUAL_UINT(8, display.labels.size());
     TEST_ASSERT_EQUAL_STRING("CPU --", display.labels[0].c_str());
     TEST_ASSERT_EQUAL_STRING("RAM --", display.labels[1].c_str());

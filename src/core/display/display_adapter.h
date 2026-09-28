@@ -19,7 +19,7 @@ struct PixelPosition {
 struct TextStyle {
     RgbColor foreground;
     RgbColor background;
-    std::uint8_t scale;
+    float scale;
 };
 
 class IDisplayAdapter {

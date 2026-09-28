@@ -1,6 +1,7 @@
 #include "apps/led_gallery/led_gallery_app.h"
 
 #include "core/display/palette.h"
+#include "core/display/text_layout.h"
 
 #include <cctype>
 #include <cstdio>
@@ -62,8 +63,8 @@ void LedGalleryApp::select(LedGalleryEffect effect) {
 }
 void LedGalleryApp::draw() {
     display_.clear(core::palette::bone);
-    const core::TextStyle ink{core::palette::ink, core::palette::bone, 1};
-    const core::TextStyle muted{core::palette::ordinal, core::palette::bone, 1};
+    const core::TextStyle ink{core::palette::ink, core::palette::bone, core::systemTextScale};
+    const core::TextStyle muted{core::palette::ordinal, core::palette::bone, core::systemTextScale};
     display_.drawText({6, 6}, "LED GALLERY", ink);
     char number[8];
     const auto index = static_cast<unsigned>(effect_);

@@ -121,6 +121,12 @@ Small system labels should be concise, normally uppercase, and may use one
 pixel of tracking. Copy must not be shrunk merely to fit; shorten the text or
 use a deliberate second line.
 
+Normal Font0 labels and instructions use the shared 1.20× system text scale
+defined in `src/core/display/text_layout.h`. Layout and truncation use its
+rounded text metrics; intentional 2× headings and Micro 5 bitmap graphics keep
+their own sizes. The fractional Font0 raster must be reviewed on the physical
+Cardputer display before choosing any further scale change.
+
 ## 5. Layout and Components
 
 Most functional screens should use three stable horizontal zones:
@@ -524,6 +530,8 @@ the loop where it is sampled, and uses typed render-state snapshots so unchanged
 Home, host-list, and host-modal content does not redraw.
 The splash uses Bone, Ink, Blue, Pale, and Ordinal tokens, keeps the firmware
 version visible throughout, and advances without blocking background work.
+The version sits below its label and wraps onto a second line when needed, clear
+of the segmented progress indicator.
 The AppRegistry-driven Launcher, its immediate vertical list selection, the
 SYSTEM Mini App, and the MAC CONTROL 3×2 numeric grid are implemented. MAC
 CONTROL has no internal chrome: bound tiles show a number and label; unbound
