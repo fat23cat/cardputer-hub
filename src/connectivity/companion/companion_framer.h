@@ -13,7 +13,7 @@ namespace cardputer_hub::connectivity {
 inline constexpr std::size_t companionMaxChunks = 16;
 inline constexpr std::size_t companionChunkHeaderSize = 3;
 inline constexpr std::size_t companionDefaultChunkPayload = 17;
-inline constexpr auto companionReassemblyTimeout = std::chrono::seconds(2);
+inline constexpr auto companionReassemblyTimeout = std::chrono::seconds(6);
 
 struct CompanionChunk {
     std::array<std::uint8_t, companionMaxMessageSize + companionChunkHeaderSize> bytes{};

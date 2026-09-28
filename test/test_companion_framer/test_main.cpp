@@ -121,6 +121,24 @@ void test_reassembly_timeout_abandons_partial_frame() {
     TEST_ASSERT_FALSE(framer.take().has_value());
 }
 
+void test_maximum_message_can_arrive_over_three_seconds() {
+    CompanionFramer framer;
+    const auto original = messageOf(static_cast<std::uint16_t>(companionMaxMessageSize));
+    std::array<CompanionChunk, companionMaxChunks> chunks{};
+    std::uint8_t count = 0;
+    TEST_ASSERT_TRUE(framer.encode(original, companionDefaultChunkPayload, chunks.data(), count,
+                                   companionMaxChunks));
+    TEST_ASSERT_EQUAL_UINT8(companionMaxChunks, count);
+    for (std::uint8_t index = 0; index < count; ++index) {
+        TEST_ASSERT_TRUE(framer.ingest(chunks[index].bytes.data(), chunks[index].size));
+        if (index + 1 < count)
+            framer.update(std::chrono::milliseconds(200));
+    }
+    const auto assembled = framer.take();
+    TEST_ASSERT_TRUE(assembled.has_value());
+    TEST_ASSERT_EQUAL_UINT8_ARRAY(original.bytes.data(), assembled->bytes.data(), original.size);
+}
+
 void test_message_id_rollover_skips_zero() {
     CompanionFramer framer;
     const auto original = messageOf(8);
@@ -159,6 +177,7 @@ int main() {
     RUN_TEST(test_duplicate_chunk_and_invalid_index_are_rejected);
     RUN_TEST(test_inconsistent_chunk_count_and_oversized_message_are_rejected);
     RUN_TEST(test_reassembly_timeout_abandons_partial_frame);
+    RUN_TEST(test_maximum_message_can_arrive_over_three_seconds);
     RUN_TEST(test_message_id_rollover_skips_zero);
     RUN_TEST(test_missing_chunk_does_not_complete);
     return UNITY_END();

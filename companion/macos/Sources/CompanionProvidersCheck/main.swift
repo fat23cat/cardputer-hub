@@ -333,6 +333,75 @@ private final class FakeRetryScheduler {
     }
 }
 
+private final class FakePeriodicScheduler {
+    private let lock = NSLock()
+    private var action: (() -> Void)?
+    private var scheduledInterval: TimeInterval?
+    var interval: TimeInterval? {
+        lock.lock(); defer { lock.unlock() }
+        return scheduledInterval
+    }
+    func schedule(_ interval: TimeInterval, _ action: @escaping () -> Void) -> () -> Void {
+        lock.lock()
+        scheduledInterval = interval
+        self.action = action
+        lock.unlock()
+        return { [weak self] in
+            guard let self else { return }
+            self.lock.lock()
+            self.action = nil
+            self.lock.unlock()
+        }
+    }
+    func fire() {
+        lock.lock(); let action = self.action; lock.unlock()
+        action?()
+    }
+}
+
+func collectorExpiresCachedFreshnessWhileRefreshIsPending() {
+    let codex = FakeUsageProvider()
+    let cursor = FakeUsageProvider()
+    var clockNow = Date(timeIntervalSince1970: 1000)
+    let collector = AiUsageCollector(codex: codex, cursor: cursor, now: { clockNow })
+    let sample = AiUsageNormalization.codex(["planType": "plus",
+        "primary": ["usedPercent": 37, "windowDurationMins": 300]])!
+    collector.start()
+    expect(waitUntil { codex.pending == 1 && cursor.pending == 1 })
+    codex.complete(sample)
+    cursor.complete(nil, absent: true)
+    expect(waitUntil { collector.snapshot()?.providers.first?.freshness == .fresh })
+    collector.refresh()
+    expect(waitUntil { codex.pending == 1 && cursor.pending == 1 })
+    clockNow = Date(timeIntervalSince1970: 1091)
+    expect(collector.snapshot()?.providers.first?.freshness == .stale)
+    codex.complete(sample)
+    cursor.complete(nil, absent: true)
+    expect(waitUntil { collector.snapshot()?.providers.first?.freshness == .fresh })
+    collector.stop()
+}
+
+func collectorRefreshesEveryThirtySecondsOutsideMainRunLoop() {
+    let codex = FakeUsageProvider()
+    let cursor = FakeUsageProvider()
+    let scheduler = FakePeriodicScheduler()
+    let collector = AiUsageCollector(codex: codex, cursor: cursor,
+                                     schedulePeriodic: scheduler.schedule)
+    collector.start()
+    expect(waitUntil { codex.pending == 1 && cursor.pending == 1 })
+    expect(scheduler.interval == 30)
+    codex.complete(nil, absent: true)
+    cursor.complete(nil, absent: true)
+    scheduler.fire()
+    expect(waitUntil { codex.pending == 1 && cursor.pending == 1 })
+    codex.complete(nil, absent: true)
+    cursor.complete(nil, absent: true)
+    collector.stop()
+    scheduler.fire()
+    Thread.sleep(forTimeInterval: 0.02)
+    expect(codex.pending == 0 && cursor.pending == 0)
+}
+
 func collectorCoalescesRefreshRequestedDuringAnActiveCycle() {
     let codex = FakeUsageProvider()
     let cursor = FakeUsageProvider()
@@ -507,6 +576,8 @@ func cursorUnauthorizedRefreshKeepsPreviousSampleStale() {
         codexRestartsAfterExitAndIgnoresOldProcessOutput()
         codexProviderHandlesAbsenceAndRealBusinessLimits()
         collectorPublishesHomeAndWorkProviderSets()
+        collectorRefreshesEveryThirtySecondsOutsideMainRunLoop()
+        collectorExpiresCachedFreshnessWhileRefreshIsPending()
         collectorCoalescesRefreshRequestedDuringAnActiveCycle()
         collectorRetriesProviderFailuresWithBoundedBackoff()
         collectorRetriesCodexProcessExitBetweenNormalRefreshes()

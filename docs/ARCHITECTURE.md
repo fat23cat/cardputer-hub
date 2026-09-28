@@ -1820,6 +1820,9 @@ and clears them with the session.
 `HostControlService` consumes APP_ACTIVATE, while `MacStatusService` consumes
 SYSTEM_METRICS and `AiUsageService` consumes AI_USAGE. Internal handshake and
 heartbeat responses stay private.
+AI_USAGE can span all 16 BLE fragments, so firmware allows six seconds to
+assemble a message and six seconds for an AI_USAGE response; short operations
+retain their two-second request timeout.
 `MacStatusService` owns one-second foreground polling, one outstanding metrics
 request, normalized snapshots, and a three-second freshness threshold. The
 MAC STATUS Mini App starts and stops monitoring with its lifecycle and renders
@@ -1840,15 +1843,18 @@ retains the previous provider and marks it stale after 90 seconds without a
 successful sample. A refresh requested during an active cycle runs once after
 that cycle. Provider failures retry after 1, 2, 4, 8, 16, then at most 30
 seconds; a successful cycle resets the delay. An idle Codex process exit marks
-its cached sample stale immediately and schedules recovery. Firmware
-`AiUsageService` polls the cached result every two seconds during initial
-discovery and every 30 seconds after discovery completes. It keeps at most one
-request outstanding and clears its data when the active Companion session
-changes. Its UI revision changes only when presentation values change; repeated
-identical polls still refresh the freshness timer. The service advances reset
-countdowns while the Mini App is closed and reconciles each response against
-the current countdown:
-cached samples cannot increase the time remaining, while a lower reported
+its cached sample stale immediately and schedules recovery. Normal provider
+refreshes run every 30 seconds on a background dispatch timer, independent of
+the menu-bar run loop. Firmware `AiUsageService` polls the cached result every
+two seconds during initial discovery and every 10 seconds after discovery
+completes. Companion Diagnostics reads each provider's Mac-side cache freshness
+to distinguish a failed source refresh from a delivery problem. The service
+keeps at most one request outstanding and clears its data when the active
+Companion session changes. Its UI revision changes only when presentation
+values change; repeated identical polls still refresh the freshness timer. The
+service advances reset countdowns while the Mini App is closed and reconciles
+each response against the current countdown: cached samples cannot increase
+the time remaining, while a lower reported
 remaining time corrects it promptly. A new reset identity starts a new countdown.
 `AiUsageApp` and the Puzzle controller consume only the bounded snapshot; neither
 parses provider JSON or BLE envelopes.

@@ -19,10 +19,12 @@ final class CompanionStatusStore: ObservableObject {
     @Published private(set) var startAtLogin = false
     @Published private(set) var startAtLoginError = false
     @Published private(set) var now = Date()
+    @Published private(set) var aiUsage = AiUsageSnapshot()
     @Published var page: CompanionPopoverPage = .main
 
     var onReconnect: (() -> Void)?
     var onQuit: (() -> Void)?
+    var readAiUsage: (() -> AiUsageSnapshot?)?
 
     private let login: StartAtLoginModel
 
@@ -58,7 +60,10 @@ final class CompanionStatusStore: ObservableObject {
         now = Date()
     }
 
-    func tick() { now = Date() }
+    func tick() {
+        now = Date()
+        aiUsage = readAiUsage?() ?? AiUsageSnapshot()
+    }
 
     func refreshLogin() {
         login.refresh()
