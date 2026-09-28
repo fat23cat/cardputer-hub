@@ -150,8 +150,9 @@ Cursor Agent sign-in on that Mac; an absent provider is omitted. Plus accounts
 show 5-hour and weekly limits, Business shows credits, and Cursor Enterprise
 shows personal spend. Bars and `LEFT` percentages show remaining capacity.
 An unavailable reset time appears as `RESET --`.
-`STALE` marks a provider whose latest refresh failed; on a single-metric screen
-it appears below the provider name. `CHECKING AI` appears during discovery;
+`STALE` marks provider data that is no longer fresh; on a single-metric screen
+it appears below the provider name. `CHECKING AI` appears during discovery and
+checks again every two seconds until the Mac finishes;
 `NO AI ACCOUNTS` appears if none can be read. Up/Down selects
 a visible metric for roughly three seconds and expands its gauge on Unit
 Puzzle. Otherwise Puzzle shows one full 8×8 gauge or two four-row gauges.

@@ -9,6 +9,7 @@ namespace cardputer_hub::services {
 class AiUsageService {
   public:
     static constexpr auto pollInterval = std::chrono::seconds(30);
+    static constexpr auto discoveryPollInterval = std::chrono::seconds(2);
     static constexpr auto freshnessTimeout = std::chrono::seconds(90);
     explicit AiUsageService(CompanionService& companion) : companion_(companion) {}
     void update(std::chrono::milliseconds elapsed);

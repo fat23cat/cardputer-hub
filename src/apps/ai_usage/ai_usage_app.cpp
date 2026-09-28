@@ -259,7 +259,7 @@ void AiUsageApp::draw() {
     if (view_ != View::Main && plusProvider() != nullptr) {
         drawExpanded(*plusProvider());
     } else if (!usage_.available() || snapshot.state == connectivity::AiUsageState::Discovering) {
-        label(display_, 71, 58, "CHECKING AI", core::palette::ink, 2);
+        label(display_, 54, 59, "CHECKING AI", core::palette::ink, 2);
     } else if (snapshot.providerCount == 0) {
         label(display_, 44, 48, "NO AI ACCOUNTS", core::palette::ink, 2);
         label(display_, 40, 82, "CODEX / CURSOR NOT AVAILABLE", core::palette::ordinal);

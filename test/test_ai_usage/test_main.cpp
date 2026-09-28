@@ -192,6 +192,35 @@ void test_service_polls_cached_snapshot_and_clears_on_session_change() {
     TEST_ASSERT_FALSE(f.indicator.resolved().hasFrame);
 }
 
+void test_discovery_retries_without_visiting_mac_status_and_redraws_ready_usage() {
+    Fixture f;
+    f.ready();
+    CompanionAiUsage discovering{};
+    discovering.state = AiUsageState::Discovering;
+    f.respondValue(discovering);
+    Display display;
+    apps::AiUsageApp app(f.usage, f.gauge, display);
+    app.onActivate();
+    app.update({}, {});
+    const auto checking = std::find(display.labels.begin(), display.labels.end(), "CHECKING AI");
+    TEST_ASSERT_TRUE(checking != display.labels.end());
+
+    const auto sent = f.transport.sent.size();
+    f.usage.update(std::chrono::milliseconds(1999));
+    TEST_ASSERT_EQUAL_UINT(sent, f.transport.sent.size());
+    f.usage.update(std::chrono::milliseconds(1));
+    TEST_ASSERT_EQUAL_UINT(sent + 1, f.transport.sent.size());
+    TEST_ASSERT_EQUAL_UINT8(static_cast<unsigned>(CompanionOperation::AiUsage),
+                            static_cast<unsigned>(f.transport.last().operation));
+    TEST_ASSERT_EQUAL_INT(
+        54, display.positions[static_cast<std::size_t>(checking - display.labels.begin())].x);
+
+    f.respond(63);
+    app.update({}, {});
+    TEST_ASSERT_TRUE(std::find(display.labels.begin(), display.labels.end(), "CODEX") !=
+                     display.labels.end());
+}
+
 void test_split_gauge_marks_both_ends_with_purple_and_30_quota_pixels_per_half() {
     CompanionAiUsage value{};
     value.providers[0].metrics[0].remainingPercent = 100;
@@ -1001,6 +1030,7 @@ void test_expanded_resets_clear_on_real_session_switch() {
 int main() {
     UNITY_BEGIN();
     RUN_TEST(test_service_polls_cached_snapshot_and_clears_on_session_change);
+    RUN_TEST(test_discovery_retries_without_visiting_mac_status_and_redraws_ready_usage);
     RUN_TEST(test_split_gauge_marks_both_ends_with_purple_and_30_quota_pixels_per_half);
     RUN_TEST(test_app_draws_remaining_quota_only_on_change);
     RUN_TEST(test_provider_title_uses_font_safe_text_and_drawn_dot);

@@ -173,7 +173,10 @@ void AiUsageService::update(std::chrono::milliseconds elapsed) {
         if (changed)
             ++revision_;
     }
-    if (sincePoll_ >= pollInterval) {
+    const auto interval = snapshot_.state == connectivity::AiUsageState::Discovering
+                              ? discoveryPollInterval
+                              : pollInterval;
+    if (sincePoll_ >= interval) {
         sincePoll_ = {};
         request();
     }

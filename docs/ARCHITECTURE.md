@@ -1834,12 +1834,14 @@ discovery cycle, then uses a local app-server process. Cursor reads the existing
 Agent token through Keychain, derives its request cookie in memory, and calls
 the usage adapter over HTTPS.
 Authentication stays on the Mac. Absent providers are omitted; a failed refresh
-retains the previous provider as stale. A refresh requested during an active cycle
-runs once after that cycle. Provider failures retry after 1, 2, 4, 8, 16, then
-at most 30 seconds; a successful cycle resets the delay. An idle Codex process
-exit marks its cached sample stale and schedules recovery. Firmware
-`AiUsageService` polls the cached result every 30 seconds and keeps at most one
-request outstanding. It clears its data as soon as the active Companion session
+retains the previous provider and marks it stale after 90 seconds without a
+successful sample. A refresh requested during an active cycle runs once after
+that cycle. Provider failures retry after 1, 2, 4, 8, 16, then at most 30
+seconds; a successful cycle resets the delay. An idle Codex process exit marks
+its cached sample stale immediately and schedules recovery. Firmware
+`AiUsageService` polls the cached result every two seconds during initial
+discovery and every 30 seconds after discovery completes. It keeps at most one
+request outstanding and clears its data when the active Companion session
 changes. Its UI revision changes only when presentation values change; repeated
 identical polls still refresh the freshness timer. The service advances reset
 countdowns while the Mini App is closed and reconciles each response against
