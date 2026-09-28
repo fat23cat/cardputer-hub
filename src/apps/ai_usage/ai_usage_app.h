@@ -21,7 +21,8 @@ class AiUsageApp final : public IMiniApp {
     enum class View : std::uint8_t { Main, Limits, Resets };
     void draw();
     void drawMetric(const connectivity::AiUsageMetric& metric, int top, bool compact);
-    const connectivity::AiUsageProvider* plusProvider() const;
+    void drawRows(const connectivity::AiUsageProvider& provider, int top, std::uint8_t first);
+    const connectivity::AiUsageProvider* detailProvider() const;
     void drawExpanded(const connectivity::AiUsageProvider& provider);
     services::AiUsageService& usage_;
     services::AiUsageIndicatorController& indicator_;
@@ -34,6 +35,7 @@ class AiUsageApp final : public IMiniApp {
     std::chrono::milliseconds selectionRemaining_{0};
     std::chrono::milliseconds countdownElapsed_{0};
     View view_ = View::Main;
+    connectivity::AiProvider detail_ = connectivity::AiProvider::Codex;
     std::uint8_t resetScroll_ = 0;
 };
 

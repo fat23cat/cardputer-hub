@@ -501,10 +501,11 @@ bool validAiMetric(const AiUsageMetric& metric) {
            static_cast<std::uint8_t>(metric.unit) <= 3 && metric.remainingPercent <= 100 &&
            (metric.limit == 0 || (metric.used <= metric.limit && metric.remaining <= metric.limit));
 }
-bool validAiProvider(const AiUsageProvider& provider) {
+// Schema 3 (protocol v5) adds Claude and its Pro/Max plans.
+bool validAiProvider(const AiUsageProvider& provider, std::uint8_t schema) {
     if (static_cast<std::uint8_t>(provider.provider) < 1 ||
-        static_cast<std::uint8_t>(provider.provider) > 2 ||
-        static_cast<std::uint8_t>(provider.plan) > 3 ||
+        static_cast<std::uint8_t>(provider.provider) > (schema >= 3 ? 3 : 2) ||
+        static_cast<std::uint8_t>(provider.plan) > (schema >= 3 ? 5 : 3) ||
         static_cast<std::uint8_t>(provider.freshness) < 1 ||
         static_cast<std::uint8_t>(provider.freshness) > 2 || provider.metricCount == 0 ||
         provider.metricCount > 2)
@@ -524,14 +525,15 @@ bool setAiUsage(CompanionEnvelope& message, const CompanionAiUsage& usage) {
         return false;
     std::size_t pos = 0;
     auto* p = message.payload.data();
-    p[pos++] = message.version >= 4 ? 2 : 1;
+    const auto schema = static_cast<std::uint8_t>(message.version - 2);
+    p[pos++] = schema;
     p[pos++] = static_cast<std::uint8_t>(usage.state);
     p[pos++] = usage.providerCount;
     write32(p + pos, usage.generation);
     pos += 4;
     for (std::uint8_t i = 0; i < usage.providerCount; ++i) {
         const auto& provider = usage.providers[i];
-        if (!validAiProvider(provider) ||
+        if (!validAiProvider(provider, schema) ||
             (i == 1 && provider.provider == usage.providers[0].provider))
             return false;
         p[pos++] = static_cast<std::uint8_t>(provider.provider);
@@ -594,7 +596,7 @@ bool readAiUsage(const CompanionEnvelope& message, CompanionAiUsage& usage) {
     if (message.operation != CompanionOperation::AiUsage ||
         message.kind != CompanionKind::Response || message.status != CompanionStatus::Ok ||
         message.version < 3 || message.payloadSize < 7 ||
-        message.payload[0] != (message.version >= 4 ? 2 : 1) || message.payload[1] < 1 ||
+        message.payload[0] != message.version - 2 || message.payload[1] < 1 ||
         message.payload[1] > 2 || message.payload[2] > 2)
         return false;
     CompanionAiUsage result{};
@@ -633,7 +635,7 @@ bool readAiUsage(const CompanionEnvelope& message, CompanionAiUsage& usage) {
             metric.resetRemainingSeconds = read32(p + pos);
             pos += 4;
         }
-        if (!validAiProvider(provider))
+        if (!validAiProvider(provider, result.schemaVersion))
             return false;
         if (message.version >= 4) {
             if (pos >= message.payloadSize || p[pos] > 1)

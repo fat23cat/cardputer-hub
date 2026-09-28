@@ -74,3 +74,27 @@ available count. Titles are uppercased and shortened to a compact display label
 on the Mac. A single failed refresh keeps the most recent sample fresh for up
 to 90 seconds; a longer gap marks it stale. The v3 AI_USAGE
 payload remains unchanged for older firmware. Reset details are read-only.
+
+With v5, the Companion also reads Claude subscription usage. It uses the
+`Claude Code-credentials` Keychain item that Claude Code already keeps and asks
+the Claude usage service for the plan-wide 5-hour and weekly windows at most
+once a minute, because that service rate-limits frequent callers. A
+rate-limit response pauses requests for its `Retry-After` time or a pause that
+doubles from one minute up to 30 minutes; the last sample stays shown for
+about two and a half minutes, then it is marked stale. The first
+read shows a macOS Keychain prompt; choose **Always Allow**. A refresh waits
+at most five seconds for that prompt, so other providers keep updating at
+their normal rate; with no other account the Cardputer keeps showing
+`CHECKING AI` until you answer. Declining hides Claude for an hour before Companion asks
+again. The token stays in memory, and the Keychain item is checked again
+every five minutes, so signing out or switching accounts shows up within about
+that time; a failed check keeps the working token. The Companion never refreshes or
+changes that credential: while Claude Code is not running and its token has
+expired, the last sample stays visible as stale. Stale samples keep counting
+down to their reset times; a stale 5-hour or weekly window whose reset time has
+passed is shown as 100% left with an unknown next reset. Claude is omitted for
+v3/v4 firmware, and at most two providers reach the Cardputer, in the order
+Codex, Cursor, Claude; Diagnostics marks any provider the connected Cardputer
+does not receive as not sent.
+Claude usage is a private provider adapter that may need updating if the
+service changes.

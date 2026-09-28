@@ -9,7 +9,7 @@
 namespace cardputer_hub::connectivity {
 
 inline constexpr std::uint8_t companionProtocolVersion = 1;
-inline constexpr std::uint8_t companionLatestProtocolVersion = 4;
+inline constexpr std::uint8_t companionLatestProtocolVersion = 5;
 inline constexpr std::size_t companionMetricsPayloadSize = 24;
 inline constexpr std::size_t companionMaxMessageSize = 256;
 inline constexpr std::size_t companionEnvelopeSize = 8;
@@ -75,8 +75,15 @@ enum class CompanionCapability : std::uint8_t {
 };
 
 enum class AiUsageState : std::uint8_t { Discovering = 1, Ready = 2 };
-enum class AiProvider : std::uint8_t { Codex = 1, Cursor = 2 };
-enum class AiPlan : std::uint8_t { Unknown = 0, Plus = 1, Business = 2, Enterprise = 3 };
+enum class AiProvider : std::uint8_t { Codex = 1, Cursor = 2, Claude = 3 };
+enum class AiPlan : std::uint8_t {
+    Unknown = 0,
+    Plus = 1,
+    Business = 2,
+    Enterprise = 3,
+    Pro = 4,
+    Max = 5
+};
 enum class AiFreshness : std::uint8_t { Fresh = 1, Stale = 2 };
 enum class AiMetricKind : std::uint8_t { FiveHour = 1, Week = 2, Credits = 3, Money = 4 };
 enum class AiMetricUnit : std::uint8_t { Percent = 1, Credits = 2, Cents = 3 };

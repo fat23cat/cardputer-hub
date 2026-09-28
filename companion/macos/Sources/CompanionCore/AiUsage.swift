@@ -6,8 +6,10 @@ public extension AiUsageState {
         pending == 0 || hasUsableProvider ? .ready : .discovering
     }
 }
-public enum AiProviderId: UInt8 { case codex = 1, cursor = 2 }
-public enum AiPlan: UInt8 { case unknown = 0, plus = 1, business = 2, enterprise = 3 }
+public enum AiProviderId: UInt8 { case codex = 1, cursor = 2, claude = 3 }
+public enum AiPlan: UInt8 {
+    case unknown = 0, plus = 1, business = 2, enterprise = 3, pro = 4, max = 5
+}
 public enum AiFreshness: UInt8 { case fresh = 1, stale = 2 }
 public enum AiMetricKind: UInt8 { case fiveHour = 1, week = 2, credits = 3, money = 4 }
 public enum AiMetricUnit: UInt8 { case percent = 1, credits = 2, cents = 3 }
@@ -61,6 +63,38 @@ public struct AiUsageProviderSnapshot: Equatable {
         self.provider = provider; self.plan = plan; self.freshness = freshness
         self.metrics = metrics; self.resetCredits = resetCredits
     }
+
+    /// Brings a stale sample up to `now`: countdowns are recomputed from their
+    /// epochs, and a rolling window whose reset time has passed no longer holds
+    /// the sampled usage, so it shows as reset with an unknown next reset.
+    public func aged(now: Date) -> AiUsageProviderSnapshot {
+        func remaining(until epoch: UInt32) -> UInt32 {
+            UInt32(max(0, Double(epoch) - now.timeIntervalSince1970))
+        }
+        var result = self
+        for index in result.metrics.indices {
+            let metric = result.metrics[index]
+            guard metric.resetAt != 0 else { continue }
+            let seconds = remaining(until: metric.resetAt)
+            if seconds == 0, metric.kind == .fiveHour || metric.kind == .week,
+               metric.unit == .percent {
+                result.metrics[index] = AiUsageMetric(kind: metric.kind, unit: .percent, used: 0,
+                                                      limit: 100, remaining: 100,
+                                                      remainingPercent: 100, resetAt: 0,
+                                                      resetRemainingSeconds: 0)
+            } else {
+                result.metrics[index].resetRemainingSeconds = seconds
+            }
+        }
+        if var resets = result.resetCredits {
+            for index in resets.credits.indices where resets.credits[index].expiresAt != 0 {
+                resets.credits[index].expiresRemainingSeconds =
+                    remaining(until: resets.credits[index].expiresAt)
+            }
+            result.resetCredits = resets
+        }
+        return result
+    }
 }
 
 public struct AiUsageSnapshot: Equatable {
@@ -73,10 +107,20 @@ public struct AiUsageSnapshot: Equatable {
         self.generation = generation; self.state = state; self.providers = providers
     }
 
+    /// The providers a session of this version receives: firmware before schema 3
+    /// rejects the whole payload on an unknown provider, and the wire carries at
+    /// most two providers, taken in snapshot order.
+    public func sentProviders(protocolVersion: UInt8) -> [AiUsageProviderSnapshot] {
+        guard (3...5).contains(protocolVersion) else { return [] }
+        return Array(providers.filter { Self.supported($0, schema: protocolVersion - 2) }
+            .prefix(2))
+    }
+
     public func encode(protocolVersion: UInt8 = 3) -> [UInt8]? {
-        guard protocolVersion == 3 || protocolVersion == 4 else { return nil }
-        guard providers.count <= 2, Set(providers.map(\.provider)).count == providers.count else { return nil }
-        var bytes: [UInt8] = [protocolVersion == 4 ? 2 : 1, state.rawValue, UInt8(providers.count)]
+        guard (3...5).contains(protocolVersion) else { return nil }
+        let providers = sentProviders(protocolVersion: protocolVersion)
+        guard Set(providers.map(\.provider)).count == providers.count else { return nil }
+        var bytes: [UInt8] = [protocolVersion - 2, state.rawValue, UInt8(providers.count)]
         Self.put(generation, into: &bytes)
         for provider in providers {
             guard (1...2).contains(provider.metrics.count) else { return nil }
@@ -94,7 +138,8 @@ public struct AiUsageSnapshot: Equatable {
                 Self.put(metric.resetAt, into: &bytes)
                 Self.put(metric.resetRemainingSeconds, into: &bytes)
             }
-            if protocolVersion == 4 {
+            guard Self.supported(provider, schema: protocolVersion - 2) else { return nil }
+            if protocolVersion >= 4 {
                 guard provider.resetCredits == nil ||
                     (provider.provider == .codex && provider.plan == .plus) else { return nil }
                 if let resets = provider.resetCredits {
@@ -116,7 +161,7 @@ public struct AiUsageSnapshot: Equatable {
     }
 
     public static func decode(_ bytes: [UInt8]) -> AiUsageSnapshot? {
-        guard bytes.count >= 7, (bytes[0] == 1 || bytes[0] == 2),
+        guard bytes.count >= 7, (1...3).contains(bytes[0]),
               let state = AiUsageState(rawValue: bytes[1]), bytes[2] <= 2
         else { return nil }
         var pos = 7
@@ -127,7 +172,8 @@ public struct AiUsageSnapshot: Equatable {
                   let plan = AiPlan(rawValue: bytes[pos + 1]),
                   let freshness = AiFreshness(rawValue: bytes[pos + 2]),
                   (1...2).contains(bytes[pos + 3]),
-                  !providers.contains(where: { $0.provider == provider })
+                  !providers.contains(where: { $0.provider == provider }),
+                  supported(provider, plan: plan, schema: bytes[0])
             else { return nil }
             let count = Int(bytes[pos + 3]); pos += 4
             var metrics: [AiUsageMetric] = []
@@ -150,7 +196,7 @@ public struct AiUsageSnapshot: Equatable {
                                              resetAt: resetAt, resetRemainingSeconds: resetRemaining))
             }
             var resets: AiResetCredits?
-            if bytes[0] == 2 {
+            if bytes[0] >= 2 {
                 guard pos < bytes.count, bytes[pos] <= 1 else { return nil }
                 let known = bytes[pos] == 1; pos += 1
                 if known {
@@ -180,6 +226,13 @@ public struct AiUsageSnapshot: Equatable {
         }
         guard pos == bytes.count else { return nil }
         return AiUsageSnapshot(generation: get(bytes, at: 3), state: state, providers: providers)
+    }
+
+    private static func supported(_ provider: AiUsageProviderSnapshot, schema: UInt8) -> Bool {
+        supported(provider.provider, plan: provider.plan, schema: schema)
+    }
+    private static func supported(_ provider: AiProviderId, plan: AiPlan, schema: UInt8) -> Bool {
+        schema >= 3 || (provider != .claude && plan.rawValue <= AiPlan.enterprise.rawValue)
     }
 
     private static func put(_ value: UInt32, into bytes: inout [UInt8]) {

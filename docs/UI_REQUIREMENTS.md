@@ -552,7 +552,8 @@ display without an internal title, host label, connection chrome, cards, or
 footer. It shows only discovered providers, presents bars as remaining quota,
 labels the value `LEFT`, and marks 0–4% remaining with `!`. A stale provider
 has a visible `STALE` label. Initial discovery shows `CHECKING AI`; completed
-discovery with no usable account shows `NO AI ACCOUNTS`. Up/Down temporarily
+discovery with no usable account shows `NO AI ACCOUNTS`. Up/Down, including
+the physical `;` / `.` keys without Fn, temporarily
 selects a visible metric for a full-matrix Puzzle gauge. The resting Puzzle
 overview uses two four-row zones when two metrics are present, with two purple
 boundary pixels and 30 quota pixels per zone. It runs at Idle priority and does
@@ -572,6 +573,20 @@ Logical arrow keys also work. Enter returns to
 the dashboard. Both detail pages show `STALE` when the provider data is stale.
 Escape remains the shared Mini App exit. Business and Cursor
 screens retain their existing layout and behavior.
+On protocol v5, a provider with two rolling windows shown beside a second
+provider (for example Codex Plus and Claude) uses one compact row per window:
+`5H`/`WK`, bar, right-aligned remaining percent, and reset time. The provider
+row labels the columns `LEFT` and `RESET`; a stale provider replaces `RESET`
+with `STALE`, and the `R×N` badge follows the provider name. Up/Down then
+selects among up to four rows. Enter opens LIMITS for the selected provider
+when it has rolling windows and falls back to the first such provider without
+a selection; the details do not repeat the selection. Claude details have no
+RESETS page or footer. With three or four metrics, the Puzzle overview uses
+four two-row bands, each with two purple end pixels and 14 quota pixels; an
+unused band stays dark. A stale rolling window whose reset time has passed
+arrives as 100% left with an unknown reset and keeps the `STALE` mark. The
+empty state lists `CODEX / CURSOR / CLAUDE` with a schema 3 Companion and
+`CODEX / CURSOR` with an older one.
 Idle dimming, the final off fade and wake-input consumption are implemented for
 every screen and Mini App from the shared runtime input path; physical
 acceptance on Cardputer-Adv is pending. Remaining semantic

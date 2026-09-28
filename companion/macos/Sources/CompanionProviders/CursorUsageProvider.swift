@@ -12,12 +12,6 @@ protocol CursorCredentialReading {
     func read() -> CursorCredentialResult
 }
 
-protocol CursorHTTPTransport: AnyObject {
-    func get(_ request: URLRequest,
-             completion: @escaping (Data?, HTTPURLResponse?, Error?) -> Void)
-    func stop()
-}
-
 final class KeychainCursorCredentials: CursorCredentialReading {
     func read() -> CursorCredentialResult {
         let query: [String: Any] = [
@@ -39,49 +33,29 @@ final class KeychainCursorCredentials: CursorCredentialReading {
     }
 }
 
-final class URLSessionCursorHTTP: CursorHTTPTransport {
-    private let session: URLSession
-
-    init() {
-        let config = URLSessionConfiguration.ephemeral
-        config.timeoutIntervalForRequest = 10
-        config.timeoutIntervalForResource = 12
-        session = URLSession(configuration: config)
-    }
-
-    func get(_ request: URLRequest,
-             completion: @escaping (Data?, HTTPURLResponse?, Error?) -> Void) {
-        session.dataTask(with: request) { data, response, error in
-            completion(data, response as? HTTPURLResponse, error)
-        }.resume()
-    }
-
-    func stop() { session.invalidateAndCancel() }
-}
-
 final class CursorUsageProvider: AiUsageProviderRefreshing {
     private let credentials: CursorCredentialReading
-    private let http: CursorHTTPTransport
+    private let http: AiUsageHTTPTransport
 
     convenience init() {
-        self.init(credentials: KeychainCursorCredentials(), http: URLSessionCursorHTTP())
+        self.init(credentials: KeychainCursorCredentials(), http: URLSessionAiUsageHTTP())
     }
 
-    init(credentials: CursorCredentialReading, http: CursorHTTPTransport) {
+    init(credentials: CursorCredentialReading, http: AiUsageHTTPTransport) {
         self.credentials = credentials
         self.http = http
     }
 
-    func refresh(_ done: @escaping (AiUsageProviderSnapshot?, Bool) -> Void) {
+    func refresh(_ done: @escaping (AiUsageRefreshOutcome) -> Void) {
         let token: String
         switch credentials.read() {
         case .value(let value): token = value
-        case .absent: done(nil, true); return
-        case .failed: done(nil, false); return
+        case .absent: done(.absent); return
+        case .failed: done(.failed); return
         }
-        guard let cookie = Self.cookie(for: token) else { done(nil, false); return }
+        guard let cookie = Self.cookie(for: token) else { done(.failed); return }
         guard let url = URL(string: "https://cursor.com/api/usage-summary")
-        else { done(nil, false); return }
+        else { done(.failed); return }
         var request = URLRequest(url: url)
         request.httpMethod = "GET"
         request.setValue(cookie, forHTTPHeaderField: "Cookie")
@@ -90,8 +64,8 @@ final class CursorUsageProvider: AiUsageProviderRefreshing {
             guard response?.statusCode == 200,
                   let data, data.count <= 128 * 1024,
                   let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
-            else { done(nil, false); return }
-            done(AiUsageNormalization.cursor(object), false)
+            else { done(.failed); return }
+            done(AiUsageNormalization.cursor(object).map { .sample($0) } ?? .failed)
         }
     }
 

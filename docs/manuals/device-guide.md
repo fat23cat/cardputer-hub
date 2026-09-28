@@ -25,7 +25,7 @@ Bluetooth, the selected host, Wi-Fi, and firmware version; **POMODORO**, a
 background focus timer; **LED GALLERY**, an 8×8 matrix animation app; and **MAC CONTROL** when a live Cardputer Companion
 session is ready. **MAC STATUS** appears when that Companion supports system
 metrics. **AI USAGE** appears with a v3 or newer Companion and shows automatically
-discovered Codex and Cursor account quota. MAC CONTROL is a full-screen
+discovered Codex, Cursor and Claude account quota. MAC CONTROL is a full-screen
 3×2 grid. Press the matching number to launch or focus that Mac app; production
 firmware binds **1** to Telegram. Empty numbered tiles do nothing. Left and
 Right move between pages when more than one page exists. A bound press expands
@@ -145,27 +145,47 @@ Press Escape to leave; the other keys do not control the dashboard. A v1
 Companion still supports MAC CONTROL but does not expose MAC STATUS. Companion
 loss closes MAC STATUS and reconnect does not reopen it automatically.
 
-AI USAGE has no setup screen. The Companion checks Codex and the existing
-Cursor Agent sign-in on that Mac; an absent provider is omitted. Plus accounts
-show 5-hour and weekly limits, Business shows credits, and Cursor Enterprise
-shows personal spend. Bars and `LEFT` percentages show remaining capacity.
+AI USAGE has no setup screen. The Companion checks Codex, the existing
+Cursor Agent sign-in and the existing Claude Code sign-in on that Mac; an absent
+provider is omitted. Plus accounts show 5-hour and weekly limits, Business shows
+credits, Cursor Enterprise shows personal spend, and Claude Pro or Max shows its
+5-hour and weekly limits. Claude needs a Companion and firmware that both
+support protocol v5. The first time, macOS asks whether Cardputer Companion may
+use `Claude Code-credentials`; choose **Always Allow**. Until you answer,
+Claude is not shown, and with no other account AI USAGE shows `CHECKING AI`.
+Claude values update about once a minute; if the Claude service limits
+requests, they are marked `STALE` until it allows them again. If you decline, Claude
+stays hidden for an hour, then macOS asks again. At most two providers appear,
+in the order Codex, Cursor, Claude. When Claude Code has not run for several
+hours, Claude values stay visible marked `STALE` until you use it again; a
+stale window whose reset time has passed shows 100% left and `--`. Signing out
+of Claude Code or switching accounts shows up within about five minutes. Bars and `LEFT` percentages show remaining capacity.
 An unavailable reset time appears as `RESET --`.
 `STALE` marks provider data that is no longer fresh; on a single-metric screen
 it appears below the provider name. `CHECKING AI` appears during discovery and
 checks again every two seconds until the Mac finishes;
 `NO AI ACCOUNTS` appears if none can be read. The Mac samples accounts every
 30 seconds and the Cardputer checks the cache every 10 seconds after discovery.
-Companion's Diagnostics submenu shows whether its own Codex and Cursor cache is
-fresh or stale. If the Mac shows fresh while AI USAGE shows `STALE`, the issue
+Companion's Diagnostics submenu shows whether its own Codex, Cursor and Claude
+cache is fresh or stale. If the Mac shows fresh while AI USAGE shows `STALE`, the issue
 is between Companion and the device; if both show stale, inspect the provider
-refresh on the Mac. Up/Down selects a visible metric for roughly three seconds
-and expands its gauge on Unit Puzzle. Otherwise Puzzle shows one full 8×8 gauge
-or two four-row gauges.
+refresh on the Mac. Up/Down (the `;` / `.` keys, with or without Fn) selects a visible metric for roughly three seconds
+and expands its gauge on Unit Puzzle. Otherwise Puzzle shows one full 8×8 gauge,
+two four-row gauges, or, with three or four metrics, four two-row gauges.
 Each four-row gauge has purple dots at both ends; its other 30 dots show the
-remaining limit. The dots stay visible when the limit reaches zero.
+remaining limit. A two-row gauge also has purple ends and 14 limit dots; the
+gauges follow the screen order from top to bottom. The dots stay visible when
+the limit reaches zero.
 Pomodoro and LED Gallery take priority over the resting AI gauge and ordinary
 low-quota or reset feedback. Companion loss clears the gauge and account values;
 the next Mac supplies its own data.
+
+With Codex Plus and Claude together, each account shows two rows, `5H` and
+`WK`, with the remaining percentage under `LEFT` and the time until the window
+resets under `RESET`. A stale account shows `STALE` in place of `RESET`. Select
+a row with Up/Down and press Enter to open that account's LIMITS details.
+Without a selected row, Enter opens the first account with 5-hour or weekly
+limits. Claude details have LIMITS only.
 
 With a current Companion and Codex Plus, the small `R×N` mark on the main
 screen shows the number of available reset credits. Its absence means that
@@ -176,7 +196,7 @@ and expiry). Expiry appears in days, hours, or minutes; `EXP NOW` means it has
 elapsed, and `EXP --` means its timing is unknown. Up/Down scrolls when there
 are more than two detail rows; the `;` / `.` keys work without Fn. Enter
 returns to the main dashboard; Escape closes AI USAGE. These details are
-read-only and appear only for Codex Plus. If one rolling window is unavailable,
+read-only; RESETS appears only for Codex Plus. If one rolling window is unavailable,
 its LIMITS column shows `--` while RESETS remains accessible. Titles that the
 Cardputer font cannot show appear as `RESET CREDIT`.
 
@@ -219,8 +239,8 @@ instead of moving a list.
 | Escape in SYSTEM | Return to Apps |
 | Escape in POMODORO | Return to Apps; the timer keeps running |
 | Escape in LED GALLERY | Return to Apps; Pomodoro LED progress returns if active |
-| Up/Down on the AI USAGE dashboard | Temporarily expand a quota metric on Unit Puzzle |
-| Enter in Codex Plus AI USAGE | Open LIMITS details; from details return to the dashboard |
+| Up/Down on the AI USAGE dashboard (`;` / `.` without Fn also work) | Select a row and temporarily expand its quota metric on Unit Puzzle |
+| Enter in AI USAGE with Codex Plus or Claude | Open LIMITS for the selected row's account (or the first such account); from details return to the dashboard |
 | Left/Right in Codex Plus details | Switch LIMITS and RESETS |
 | Up/Down on the RESETS page | Scroll available reset-credit details |
 | Left/Right, 1–0, Fn+1–0 in LED GALLERY | Select one of twenty effects |

@@ -2,9 +2,24 @@
 
 #include "services/companion/companion_service.h"
 
+#include <array>
 #include <chrono>
 
 namespace cardputer_hub::services {
+
+struct AiUsageMetricRef {
+    std::uint8_t provider = 0;
+    std::uint8_t metric = 0;
+};
+
+// Provider metrics flattened in snapshot order. AI USAGE rows, hover and the
+// Puzzle bands share this order.
+struct AiUsageVisibleMetrics {
+    std::uint8_t count = 0;
+    std::array<AiUsageMetricRef, 4> items{};
+};
+
+AiUsageVisibleMetrics aiUsageVisibleMetrics(const connectivity::CompanionAiUsage& usage) noexcept;
 
 class AiUsageService {
   public:

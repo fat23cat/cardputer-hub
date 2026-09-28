@@ -92,8 +92,9 @@ struct Fixture {
 
     void ready(std::uint8_t version = 3) {
         transport.transportState = CompanionTransportState::Ready;
-        const std::uint8_t versions[] = {4, 3, 2, 1};
-        transport.incoming.push_back(wire(makeHello(versions + (4 - version), version)));
+        const std::uint8_t versions[] = {5, 4, 3, 2, 1};
+        transport.incoming.push_back(wire(makeHello(
+            versions + (5 - version), static_cast<std::uint8_t>(std::min<int>(version, 4)))));
         companion.update({});
         auto capsRequest = transport.last();
         TEST_ASSERT_EQUAL_UINT8(version, capsRequest.version);
@@ -162,6 +163,37 @@ struct Fixture {
     }
 };
 
+CompanionAiUsage personalUsage(std::uint8_t codexFive, std::uint8_t codexWeek,
+                               std::uint8_t claudeFive, std::uint8_t claudeWeek) {
+    CompanionAiUsage value{};
+    value.state = AiUsageState::Ready;
+    value.providerCount = 2;
+    const std::uint8_t percents[2][2] = {{codexFive, codexWeek}, {claudeFive, claudeWeek}};
+    const std::uint32_t resets[2][2] = {{2 * 3600 + 600, 4 * 86400 + 6 * 3600},
+                                        {3600 + 45 * 60, 5 * 86400 + 22 * 3600}};
+    for (int i = 0; i < 2; ++i) {
+        auto& provider = value.providers[i];
+        provider.provider = i == 0 ? AiProvider::Codex : AiProvider::Claude;
+        provider.plan = i == 0 ? AiPlan::Plus : AiPlan::Pro;
+        provider.metricCount = 2;
+        for (int j = 0; j < 2; ++j) {
+            auto& metric = provider.metrics[j];
+            metric.kind = j == 0 ? AiMetricKind::FiveHour : AiMetricKind::Week;
+            metric.limit = 100;
+            metric.remaining = percents[i][j];
+            metric.used = 100 - metric.remaining;
+            metric.remainingPercent = percents[i][j];
+            metric.resetAt = 1780000000;
+            metric.resetRemainingSeconds = resets[i][j];
+        }
+    }
+    return value;
+}
+
+int count(const std::vector<std::string>& labels, const char* text) {
+    return static_cast<int>(std::count(labels.begin(), labels.end(), text));
+}
+
 int lit(const services::IndicatorFrame& frame, int begin, int end) {
     int count = 0;
     for (int i = begin; i < end; ++i) {
@@ -170,6 +202,267 @@ int lit(const services::IndicatorFrame& frame, int begin, int end) {
             ++count;
     }
     return count;
+}
+
+void test_personal_mac_renders_codex_and_claude_rows() {
+    Fixture f;
+    f.ready(5);
+    f.respondValue(personalUsage(64, 81, 4, 88));
+    Display display;
+    apps::AiUsageApp app(f.usage, f.gauge, display);
+    app.onActivate();
+    app.update({}, {});
+    const auto& labels = display.labels;
+    TEST_ASSERT_EQUAL_INT(1, count(labels, "CODEX"));
+    TEST_ASSERT_EQUAL_INT(1, count(labels, "CLAUDE"));
+    TEST_ASSERT_EQUAL_INT(1, count(labels, "PRO"));
+    TEST_ASSERT_EQUAL_INT(2, count(labels, "5H"));
+    TEST_ASSERT_EQUAL_INT(2, count(labels, "WK"));
+    TEST_ASSERT_EQUAL_INT(2, count(labels, "LEFT"));
+    TEST_ASSERT_EQUAL_INT(2, count(labels, "RESET"));
+    for (std::size_t i = 0; i < labels.size(); ++i) {
+        const auto right = display.positions[i].x + core::systemTextWidth(labels[i].c_str());
+        if (labels[i] == "64%" || labels[i] == "4% !" || labels[i] == "LEFT")
+            TEST_ASSERT_EQUAL_INT(174, right);
+        if (labels[i] == "2H 10M" || labels[i] == "5D 22H" || labels[i] == "RESET")
+            TEST_ASSERT_EQUAL_INT(232, right);
+        TEST_ASSERT_TRUE(display.positions[i].y + core::systemTextHeight() <= 135);
+    }
+    TEST_ASSERT_EQUAL_INT(1, count(labels, "4% !"));
+    TEST_ASSERT_EQUAL_INT(1, count(labels, "4D 6H"));
+
+    // The widest values must keep a gap: "100%" beside "23H 59M".
+    auto widest = personalUsage(100, 100, 100, 100);
+    widest.providers[1].metrics[1].resetRemainingSeconds = 23 * 3600 + 59 * 60;
+    f.usage.update(std::chrono::seconds(30));
+    f.respondValue(widest);
+    display.labels.clear();
+    display.positions.clear();
+    display.rectangles.clear();
+    app.update({}, {});
+    int percentRight = 0;
+    int resetLeft = 0;
+    for (std::size_t i = 0; i < display.labels.size(); ++i) {
+        if (display.labels[i] == "23H 59M")
+            resetLeft = display.positions[i].x;
+        if (display.labels[i] == "100%" && display.positions[i].y > 100)
+            percentRight = display.positions[i].x + core::systemTextWidth("100%");
+    }
+    TEST_ASSERT_TRUE(resetLeft > 0 && percentRight > 0);
+    TEST_ASSERT_TRUE(percentRight + 6 <= resetLeft);
+    for (const auto& rectangle : display.rectangles)
+        if (rectangle.height == 6)
+            TEST_ASSERT_TRUE(rectangle.position.x + rectangle.width + 6 <=
+                             174 - core::systemTextWidth("100%"));
+}
+
+void test_four_metrics_use_two_row_bands_with_purple_ends() {
+    Fixture f;
+    f.ready(5);
+    f.respondValue(personalUsage(64, 100, 0, 35));
+    const auto& frame = f.indicator.resolved().frame;
+    for (const int marker : {0, 15, 16, 31, 32, 47, 48, 63}) {
+        TEST_ASSERT_EQUAL_UINT8(0xA0, frame.pixels[marker].red);
+        TEST_ASSERT_EQUAL_UINT8(0xD0, frame.pixels[marker].blue);
+    }
+    TEST_ASSERT_EQUAL_INT(2 + 9, lit(frame, 0, 16));
+    TEST_ASSERT_EQUAL_INT(2 + 14, lit(frame, 16, 32));
+    TEST_ASSERT_EQUAL_INT(2, lit(frame, 32, 48));
+    TEST_ASSERT_EQUAL_INT(2 + 5, lit(frame, 48, 64));
+    TEST_ASSERT_EQUAL_UINT8(core::palette::blue.red, frame.pixels[49].red);
+
+    CompanionAiUsage three{};
+    three.providers[0].metrics[0].remainingPercent = 100;
+    three.providers[0].metrics[1].remainingPercent = 100;
+    three.providers[1].metrics[0].remainingPercent = 100;
+    const auto partial =
+        services::aiUsageGauge({&three.providers[0].metrics[0], &three.providers[0].metrics[1],
+                                &three.providers[1].metrics[0], nullptr});
+    TEST_ASSERT_EQUAL_INT(48, lit(partial, 0, 48));
+    TEST_ASSERT_EQUAL_INT(0, lit(partial, 48, 64));
+}
+
+void test_hover_rows_and_open_claude_limits() {
+    Fixture f;
+    f.ready(5);
+    f.respondValue(personalUsage(64, 81, 35, 88));
+    Display display;
+    apps::AiUsageApp app(f.usage, f.gauge, display);
+    app.onActivate();
+    app.update({}, {});
+    const core::InputEvent down{core::InputEventType::NamedKey, 0, core::NamedKey::Down, {}};
+    const core::InputEvent enter{core::InputEventType::NamedKey, 0, core::NamedKey::Enter, {}};
+    const core::InputEvent right{core::InputEventType::NamedKey, 0, core::NamedKey::Right, {}};
+    app.update({down, down, down}, {});
+    f.indicator.update();
+    TEST_ASSERT_EQUAL_INT(22, lit(f.indicator.resolved().frame, 0, 64));
+    const auto tick = std::find_if(display.rectangles.begin(), display.rectangles.end(),
+                                   [](const Display::Rectangle& rectangle) {
+                                       return rectangle.position.x == 3 &&
+                                              rectangle.position.y > 67 && rectangle.width == 2;
+                                   });
+    TEST_ASSERT_TRUE(tick != display.rectangles.end());
+    display.labels.clear();
+    display.rectangles.clear();
+    app.update({enter}, {});
+    TEST_ASSERT_EQUAL_INT(1, count(display.labels, "CLAUDE"));
+    TEST_ASSERT_EQUAL_INT(0, count(display.labels, "CODEX"));
+    TEST_ASSERT_EQUAL_INT(2, count(display.labels, "USED"));
+    for (const auto& rectangle : display.rectangles)
+        TEST_ASSERT_FALSE(rectangle.width == 2 && rectangle.height == 9);
+    TEST_ASSERT_EQUAL_INT(1, count(display.labels, "65%"));
+    TEST_ASSERT_EQUAL_INT(0, count(display.labels, "RESETS"));
+    display.labels.clear();
+    app.update({right}, {});
+    TEST_ASSERT_EQUAL_INT(0, count(display.labels, "RESET CREDITS"));
+    display.labels.clear();
+    app.update({enter}, {});
+    TEST_ASSERT_EQUAL_INT(2, count(display.labels, "WK"));
+
+    app.update({}, std::chrono::seconds(4));
+    display.labels.clear();
+    app.update({enter}, {});
+    TEST_ASSERT_EQUAL_INT(1, count(display.labels, "CODEX"));
+    TEST_ASSERT_EQUAL_INT(1, count(display.labels, "RESETS"));
+}
+
+void test_plain_arrow_keys_move_hover_without_fn() {
+    Fixture f;
+    f.ready(5);
+    f.respondValue(personalUsage(64, 81, 35, 88));
+    Display display;
+    apps::AiUsageApp app(f.usage, f.gauge, display);
+    app.onActivate();
+    app.update({}, {});
+    const core::InputEvent down{
+        core::InputEventType::PrintableCharacter, '.', core::NamedKey::Tab, {}};
+    const core::InputEvent up{
+        core::InputEventType::PrintableCharacter, ';', core::NamedKey::Tab, {}};
+    app.update({down, down, down}, {});
+    f.indicator.update();
+    TEST_ASSERT_EQUAL_INT(22, lit(f.indicator.resolved().frame, 0, 64));
+    app.update({up}, {});
+    f.indicator.update();
+    TEST_ASSERT_EQUAL_INT(52, lit(f.indicator.resolved().frame, 0, 64));
+    core::InputEvent fnDown = down;
+    fnDown.modifiers.fn = true;
+    app.update({fnDown}, {});
+    f.indicator.update();
+    TEST_ASSERT_EQUAL_INT(52, lit(f.indicator.resolved().frame, 0, 64));
+}
+
+void test_hover_clears_when_visible_metrics_shrink() {
+    Fixture f;
+    f.ready(5);
+    f.respondValue(personalUsage(64, 81, 35, 88));
+    Display display;
+    apps::AiUsageApp app(f.usage, f.gauge, display);
+    app.onActivate();
+    app.update({}, {});
+    const core::InputEvent up{core::InputEventType::NamedKey, 0, core::NamedKey::Up, {}};
+    const core::InputEvent enter{core::InputEventType::NamedKey, 0, core::NamedKey::Enter, {}};
+    app.update({up}, {});
+    auto codexOnly = personalUsage(64, 81, 35, 88);
+    codexOnly.providerCount = 1;
+    f.usage.update(std::chrono::seconds(30));
+    f.respondValue(codexOnly);
+    display.rectangles.clear();
+    app.update({}, {});
+    f.indicator.update();
+    for (const auto& rectangle : display.rectangles)
+        TEST_ASSERT_FALSE(rectangle.position.x == 3 && rectangle.width == 2);
+    TEST_ASSERT_EQUAL_UINT8(0xA0, f.indicator.resolved().frame.pixels[0].red);
+    display.labels.clear();
+    app.update({enter}, {});
+    TEST_ASSERT_EQUAL_INT(1, count(display.labels, "CODEX"));
+    TEST_ASSERT_EQUAL_INT(2, count(display.labels, "USED"));
+}
+
+void test_mixed_layout_maps_hover_rows_and_stale_header() {
+    Fixture f;
+    f.ready(5);
+    auto value = personalUsage(64, 81, 35, 88);
+    auto& business = value.providers[0];
+    business.plan = AiPlan::Business;
+    business.metricCount = 1;
+    business.metrics[0].kind = AiMetricKind::Credits;
+    business.metrics[0].unit = AiMetricUnit::Credits;
+    value.providers[1].freshness = AiFreshness::Stale;
+    f.respondValue(value);
+    Display display;
+    apps::AiUsageApp app(f.usage, f.gauge, display);
+    app.onActivate();
+    app.update({}, {});
+    TEST_ASSERT_EQUAL_INT(0, count(display.labels, "RESET"));
+    TEST_ASSERT_EQUAL_INT(1, count(display.labels, "LEFT"));
+    for (std::size_t i = 0; i < display.labels.size(); ++i)
+        if (display.labels[i] == "STALE")
+            TEST_ASSERT_EQUAL_INT(232, display.positions[i].x +
+                                           core::systemTextWidth(display.labels[i].c_str()));
+    TEST_ASSERT_EQUAL_INT(1, count(display.labels, "STALE"));
+    const core::InputEvent down{core::InputEventType::NamedKey, 0, core::NamedKey::Down, {}};
+    const core::InputEvent enter{core::InputEventType::NamedKey, 0, core::NamedKey::Enter, {}};
+    display.labels.clear();
+    app.update({down, enter}, {});
+    TEST_ASSERT_EQUAL_INT(0, count(display.labels, "USED"));
+    display.rectangles.clear();
+    app.update({down}, {});
+    const auto tick = std::find_if(display.rectangles.begin(), display.rectangles.end(),
+                                   [](const Display::Rectangle& rectangle) {
+                                       return rectangle.position.x == 3 && rectangle.width == 2;
+                                   });
+    TEST_ASSERT_TRUE(tick != display.rectangles.end());
+    TEST_ASSERT_EQUAL_INT(68 + 26, tick->position.y);
+    display.labels.clear();
+    app.update({enter}, {});
+    TEST_ASSERT_EQUAL_INT(1, count(display.labels, "CLAUDE"));
+    TEST_ASSERT_EQUAL_INT(2, count(display.labels, "USED"));
+}
+
+void test_claude_alone_uses_single_provider_layout_and_details() {
+    Fixture f;
+    f.ready(5);
+    auto value = personalUsage(64, 81, 35, 88);
+    value.providerCount = 1;
+    value.providers[0] = value.providers[1];
+    f.respondValue(value);
+    Display display;
+    apps::AiUsageApp app(f.usage, f.gauge, display);
+    app.onActivate();
+    app.update({}, {});
+    TEST_ASSERT_EQUAL_INT(1, count(display.labels, "CLAUDE"));
+    TEST_ASSERT_EQUAL_INT(1, count(display.labels, "5 HOUR"));
+    TEST_ASSERT_EQUAL_INT(1, count(display.labels, "35% LEFT"));
+    TEST_ASSERT_EQUAL_INT(0, count(display.labels, "R"));
+    TEST_ASSERT_EQUAL_INT(2 + 11, lit(f.indicator.resolved().frame, 0, 32));
+    const core::InputEvent enter{core::InputEventType::NamedKey, 0, core::NamedKey::Enter, {}};
+    display.labels.clear();
+    app.update({enter}, {});
+    TEST_ASSERT_EQUAL_INT(1, count(display.labels, "CLAUDE"));
+    TEST_ASSERT_EQUAL_INT(2, count(display.labels, "USED"));
+    TEST_ASSERT_EQUAL_INT(0, count(display.labels, "RESETS"));
+}
+
+void test_no_accounts_names_every_provider() {
+    Fixture f;
+    f.ready(5);
+    CompanionAiUsage value{};
+    value.state = AiUsageState::Ready;
+    f.respondValue(value);
+    Display display;
+    apps::AiUsageApp app(f.usage, f.gauge, display);
+    app.onActivate();
+    app.update({}, {});
+    TEST_ASSERT_EQUAL_INT(1, count(display.labels, "CODEX / CURSOR / CLAUDE"));
+
+    Fixture older;
+    older.ready(4);
+    older.respondValue(value);
+    Display olderDisplay;
+    apps::AiUsageApp olderApp(older.usage, older.gauge, olderDisplay);
+    olderApp.onActivate();
+    olderApp.update({}, {});
+    TEST_ASSERT_EQUAL_INT(1, count(olderDisplay.labels, "CODEX / CURSOR"));
 }
 
 void test_service_polls_cached_snapshot_and_clears_on_session_change() {
@@ -1093,6 +1386,14 @@ void test_expanded_resets_clear_on_real_session_switch() {
 
 int main() {
     UNITY_BEGIN();
+    RUN_TEST(test_personal_mac_renders_codex_and_claude_rows);
+    RUN_TEST(test_four_metrics_use_two_row_bands_with_purple_ends);
+    RUN_TEST(test_hover_rows_and_open_claude_limits);
+    RUN_TEST(test_plain_arrow_keys_move_hover_without_fn);
+    RUN_TEST(test_hover_clears_when_visible_metrics_shrink);
+    RUN_TEST(test_mixed_layout_maps_hover_rows_and_stale_header);
+    RUN_TEST(test_claude_alone_uses_single_provider_layout_and_details);
+    RUN_TEST(test_no_accounts_names_every_provider);
     RUN_TEST(test_service_polls_cached_snapshot_and_clears_on_session_change);
     RUN_TEST(test_ready_usage_polls_cached_snapshot_after_ten_seconds);
     RUN_TEST(test_discovery_retries_without_visiting_mac_status_and_redraws_ready_usage);
