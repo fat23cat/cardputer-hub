@@ -36,6 +36,12 @@ wake refreshes, retry provider failures and idle Codex exits with bounded
 backoff, keep ordinary Puzzle feedback below active apps, and separate `STALE`
 from long single-metric titles. Live Codex/Cursor account discovery and physical
 Cardputer-Adv acceptance remain to be verified on the target machines and device.
+Follow-up (2026-09-28): physical use showed slow updates and recurring `STALE`
+with Codex Plus, Codex Business, and Cursor Enterprise while Companion and Mac
+Status stayed connected. Source refresh now uses a 30-second background timer,
+firmware reads the cache every 10 seconds, and Companion Diagnostics shows
+each provider's Mac-side cache freshness. Physical retesting is still needed
+if `STALE` persists.
 The baseline description below records the state when this plan was written.
 
 The repository already has the pieces this feature should build on:

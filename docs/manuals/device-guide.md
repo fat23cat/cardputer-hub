@@ -153,9 +153,14 @@ An unavailable reset time appears as `RESET --`.
 `STALE` marks provider data that is no longer fresh; on a single-metric screen
 it appears below the provider name. `CHECKING AI` appears during discovery and
 checks again every two seconds until the Mac finishes;
-`NO AI ACCOUNTS` appears if none can be read. Up/Down selects
-a visible metric for roughly three seconds and expands its gauge on Unit
-Puzzle. Otherwise Puzzle shows one full 8×8 gauge or two four-row gauges.
+`NO AI ACCOUNTS` appears if none can be read. The Mac samples accounts every
+30 seconds and the Cardputer checks the cache every 10 seconds after discovery.
+Companion's Diagnostics page shows whether its own Codex and Cursor cache is
+fresh or stale. If the Mac shows fresh while AI USAGE shows `STALE`, the issue
+is between Companion and the device; if both show stale, inspect the provider
+refresh on the Mac. Up/Down selects a visible metric for roughly three seconds
+and expands its gauge on Unit Puzzle. Otherwise Puzzle shows one full 8×8 gauge
+or two four-row gauges.
 Each four-row gauge has purple dots at both ends; its other 30 dots show the
 remaining limit. The dots stay visible when the limit reaches zero.
 Pomodoro and LED Gallery take priority over the resting AI gauge and ordinary

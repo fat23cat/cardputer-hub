@@ -192,6 +192,19 @@ void test_service_polls_cached_snapshot_and_clears_on_session_change() {
     TEST_ASSERT_FALSE(f.indicator.resolved().hasFrame);
 }
 
+void test_ready_usage_polls_cached_snapshot_after_ten_seconds() {
+    Fixture f;
+    f.ready();
+    f.respond(63);
+    const auto sent = f.transport.sent.size();
+    f.usage.update(std::chrono::milliseconds(9999));
+    TEST_ASSERT_EQUAL_UINT(sent, f.transport.sent.size());
+    f.usage.update(std::chrono::milliseconds(1));
+    TEST_ASSERT_EQUAL_UINT(sent + 1, f.transport.sent.size());
+    TEST_ASSERT_EQUAL_UINT8(static_cast<unsigned>(CompanionOperation::AiUsage),
+                            static_cast<unsigned>(f.transport.last().operation));
+}
+
 void test_discovery_retries_without_visiting_mac_status_and_redraws_ready_usage() {
     Fixture f;
     f.ready();
@@ -1080,6 +1093,7 @@ void test_expanded_resets_clear_on_real_session_switch() {
 int main() {
     UNITY_BEGIN();
     RUN_TEST(test_service_polls_cached_snapshot_and_clears_on_session_change);
+    RUN_TEST(test_ready_usage_polls_cached_snapshot_after_ten_seconds);
     RUN_TEST(test_discovery_retries_without_visiting_mac_status_and_redraws_ready_usage);
     RUN_TEST(test_split_gauge_marks_both_ends_with_purple_and_30_quota_pixels_per_half);
     RUN_TEST(test_app_draws_remaining_quota_only_on_change);

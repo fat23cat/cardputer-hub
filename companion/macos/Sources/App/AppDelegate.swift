@@ -37,6 +37,7 @@ final class CompanionCentral: NSObject, CBCentralManagerDelegate, CBPeripheralDe
         self.status = status
         super.init()
         session.outgoing = { [weak self] bytes in self?.send(bytes) }
+        status.readAiUsage = { [weak aiUsage] in aiUsage?.snapshot() }
     }
 
     func start() {

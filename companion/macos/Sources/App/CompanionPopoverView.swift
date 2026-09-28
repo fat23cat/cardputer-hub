@@ -11,7 +11,7 @@ enum CompanionPopoverLayout {
         case .main:
             return 228 + (connection == .connected ? 0 : -16) + (loginError ? 18 : 0)
         case .diagnostics:
-            return connection == .connected ? 320 : 224
+            return connection == .connected ? 412 : 310
         case .about:
             return 168
         }
@@ -176,6 +176,17 @@ struct CompanionPopoverView: View {
                 capabilityRow("App Events", status.capabilities.appEvents)
                 capabilityRow("System Metrics", status.capabilities.systemMetrics)
             }
+            .padding(.bottom, 11)
+            Divider()
+                .padding(.bottom, 9)
+            Text("AI Usage cache on Mac")
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(.secondary)
+                .padding(.bottom, 7)
+            VStack(alignment: .leading, spacing: 7) {
+                detailRow("Codex", aiProviderState(.codex))
+                detailRow("Cursor", aiProviderState(.cursor))
+            }
         }
     }
 
@@ -247,6 +258,12 @@ struct CompanionPopoverView: View {
 
     private func capabilityRow(_ title: String, _ available: Bool) -> some View {
         detailRow(title, available ? "Available" : "Unavailable")
+    }
+
+    private func aiProviderState(_ provider: AiProviderId) -> String {
+        guard let sample = status.aiUsage.providers.first(where: { $0.provider == provider })
+        else { return status.aiUsage.state == .discovering ? "Checking" : "No sample" }
+        return sample.freshness == .fresh ? "Fresh" : "Stale"
     }
 
     private var stateTitle: String {
