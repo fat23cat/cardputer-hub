@@ -1,9 +1,7 @@
 #include "hardware/cardputer/cardputer_display_adapter.h"
-#include "hardware/cardputer/transition_memory_budget.h"
 #include <M5Unified.hpp>
 #include <algorithm>
 #include <cstring>
-#include <esp_heap_caps.h>
 #include <new>
 
 namespace cardputer_hub::hardware {
@@ -108,18 +106,9 @@ void CardputerDisplayAdapter::beginTransition(core::SlideDirection direction) {
         return;
     if (!frame_->transitionRequested) {
         if (!frame_->snapshotUsable) {
-            if (!canAllocateTransitionSnapshot(
-                    heap_caps_get_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT),
-                    heap_caps_get_largest_free_block(MALLOC_CAP_DMA)))
-                return;
             frame_->previous.setColorDepth(16);
             if (!frame_->previous.createSprite(240, 135))
                 return;
-            if (heap_caps_get_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT) <
-                transitionInternalReserveBytes) {
-                frame_->previous.deleteSprite();
-                return;
-            }
             std::memcpy(frame_->previous.getBuffer(), frame_->canvas.getBuffer(), 240 * 135 * 2);
             frame_->snapshotUsable = true;
         }

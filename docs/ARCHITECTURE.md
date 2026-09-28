@@ -346,10 +346,8 @@ supplies monotonic elapsed time each frame. UI navigation semantics remain in
 the shell/HostSettings, and LCD snapshot memory and presentation remain in the
 adapter. A transient second RGB565 buffer starts with the outgoing pixels and is
 advanced into one complete composed frame per animation step. It is freed when
-the slide finishes; allocation failure or insufficient internal memory reserve
-falls back to immediate completed presentation. The adapter retains at least
-64 KiB of internal heap after snapshot allocation to leave headroom for BLE host
-reconnection. Each step is transferred once as a full frame instead of relying
+the slide finishes; allocation failure falls back to immediate completed
+presentation. Each step is transferred once as a full frame instead of relying
 on consecutive cropped DMA transfers. New navigation during a slide reuses that
 currently visible composition, keeping input responsive without jumping to a
 hidden destination.
@@ -727,7 +725,9 @@ also closes connections whose callbacks are still queued. The adapter retains
 exclusive ownership of the initialized controller: logical disable stops and
 deinitializes the ESP-NimBLE host and disables the controller, while leaving
 the controller initialized for repeatable re-enable. Re-enable creates a fresh
-NimBLE host lifecycle. A
+NimBLE host lifecycle. The adapter removes and deinitializes its HID notification
+event before deinitializing the NimBLE host, so the next lifecycle cannot reuse
+a pointer into the previous NPL event pool. A
 stop, disconnect, or shutdown failure is reported rather than claiming
 successful disablement, and cleanup ownership is retained so a later disable
 or enable can retry it. Calls are synchronous and single-threaded from the
