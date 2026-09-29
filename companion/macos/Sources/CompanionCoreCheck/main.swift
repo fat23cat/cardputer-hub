@@ -296,7 +296,7 @@ enum CompanionCoreCheck {
         session.handle(zeroSession)
         expect(session.session == 0, "zero session hello-ack ignored")
         var wrongVersion = CompanionCodec.encode(validAck)!
-        wrongVersion[wrongVersion.count - 1] = 6
+        wrongVersion[wrongVersion.count - 1] = 7
         session.handle(wrongVersion)
         expect(session.session == 0, "wrong version hello-ack ignored")
         session.handle(CompanionCodec.encode(validAck)!)
@@ -368,8 +368,8 @@ enum CompanionCoreCheck {
         var v2Sent: [[UInt8]] = []
         v2.outgoing = { v2Sent.append($0) }
         v2.startHandshake()
-        expect(CompanionCodec.decode(v2Sent[0])?.payload == [4, 5, 4, 3, 2],
-               "v5 hello offers fallback")
+        expect(CompanionCodec.decode(v2Sent[0])?.payload == [4, 6, 5, 4, 3],
+               "v6 hello offers fallback")
         var v2Ack = CompanionEnvelope()
         v2Ack.kind = .helloAck
         v2Ack.session = 21
@@ -432,6 +432,222 @@ enum CompanionCoreCheck {
         expect(SystemMetricsSample.decode(badPayload) == nil, "metrics schema rejected")
         badPayload = Array((metricsResponse?.payload ?? []).dropLast())
         expect(SystemMetricsSample.decode(badPayload) == nil, "truncated metrics rejected")
+
+        // Protocol v6: SYSTEM_METRICS schema 2 and SYSTEM_DETAILS.
+        var powerSample = fixtureSample
+        powerSample.powerSource = .charging
+        powerSample.batteryMinutes = 102
+        var v6Metrics = fixtureResponse
+        v6Metrics.version = 6
+        v6Metrics.payload = powerSample.encode(protocolVersion: 6)!
+        expect(CompanionCodec.encode(v6Metrics) == fixture("system-metrics-response-v6.bin"),
+               "v6 metrics fixture")
+        expect(powerSample.encode(protocolVersion: 5) == fixtureSample.encode(),
+               "v5 metrics drop power fields")
+        expect(SystemMetricsSample.decode(v6Metrics.payload, protocolVersion: 5) == nil &&
+               SystemMetricsSample.decode(v6Metrics.payload, protocolVersion: 6) == powerSample,
+               "metrics schema follows the session version")
+        var v6Caps = CompanionCodec.capabilitiesResponse(session: 42, requestId: 2, version: 6)
+        expect(CompanionCodec.encode(v6Caps) == fixture("capabilities-response-v6.bin"),
+               "v6 capabilities fixture")
+        v6Caps.version = 5
+        expect(CompanionCodec.encode(v6Caps) == nil, "v5 rejects SYSTEM_DETAILS capability")
+        var v6Ack = CompanionEnvelope()
+        v6Ack.kind = .helloAck; v6Ack.session = 42; v6Ack.payload = [6]
+        expect(CompanionCodec.encode(v6Ack) == fixture("hello-ack-v6.bin"), "v6 ack fixture")
+
+        var cpuDetails = SystemDetailsSample(group: .cpu)
+        cpuDetails.performancePercent = 61
+        cpuDetails.efficiencyPercent = 18
+        cpuDetails.gpuPercent = 27
+        cpuDetails.loadCenti = 310
+        cpuDetails.apps = [TopApp(name: "Xcode", percent: 38), TopApp(name: "Google Chrome", percent: 21)]
+        var powerDetails = SystemDetailsSample(group: .power)
+        powerDetails.systemDrawDeciwatts = 142
+        powerDetails.adapterWatts = 96
+        powerDetails.healthPercent = 91
+        powerDetails.cycleCount = 214
+        powerDetails.peripheral = PeripheralBattery(name: "Magic Mouse", percent: 12)
+        var networkDetails = SystemDetailsSample(group: .network)
+        networkDetails.internetRttMs = 18
+        networkDetails.routerRttMs = 3
+        networkDetails.wifiRssiDbm = -54
+        networkDetails.wifiLinkMbps = 866
+        networkDetails.vpnActive = true
+        var memoryDetails = SystemDetailsSample(group: .memory)
+        memoryDetails.memorySplit = MemorySplit(appMiB: 14438, wiredMiB: 3994, compressedMiB: 3482)
+        memoryDetails.swapUsedMiB = 1229
+        memoryDetails.ssd = SsdSpace(freeGB: 212, totalGB: 994)
+        memoryDetails.diskRates = DiskRates(readKiBps: 348160, writeKiBps: 59392)
+        for (sample, name) in [(cpuDetails, "cpu"), (powerDetails, "power"),
+                               (networkDetails, "network"), (memoryDetails, "memory")] {
+            var envelope = CompanionEnvelope()
+            envelope.version = 6; envelope.kind = .response; envelope.session = 42
+            envelope.requestId = 8; envelope.operation = .systemDetails
+            envelope.payload = sample.encode() ?? []
+            let wire = fixture("system-details-response-\(name)-v6.bin")
+            expect(CompanionCodec.encode(envelope) == wire, "v6 \(name) details fixture")
+            expect(CompanionCodec.decode(wire).flatMap { SystemDetailsSample.decode($0.payload) } == sample,
+                   "v6 \(name) details round trip")
+        }
+        var tooMany = cpuDetails
+        tooMany.apps = Array(repeating: TopApp(name: "A", percent: 1), count: 5)
+        expect(tooMany.encode() == nil, "at most four apps")
+        var badName = cpuDetails
+        badName.apps = [TopApp(name: "Телеграм", percent: 1)]
+        expect(badName.encode() == nil, "names must be printable ASCII")
+        var desktop = SystemDetailsSample(group: .power)
+        desktop.adapterWatts = 65
+        expect(SystemDetailsSample.decode(desktop.encode() ?? []) == desktop,
+               "partial power details round trip")
+        var detailsRequest = CompanionEnvelope()
+        detailsRequest.version = 6; detailsRequest.kind = .request; detailsRequest.session = 42
+        detailsRequest.requestId = 8; detailsRequest.operation = .systemDetails
+        detailsRequest.payload = [1]
+        expect(CompanionCodec.encode(detailsRequest) == fixture("system-details-request-v6.bin"),
+               "v6 details request fixture")
+        detailsRequest.payload = [5]
+        expect(CompanionCodec.encode(detailsRequest) == nil, "unknown detail group rejected")
+        detailsRequest.payload = [1]
+        detailsRequest.version = 5
+        expect(CompanionCodec.encode(detailsRequest) == nil, "v5 rejects SYSTEM_DETAILS")
+
+        let detailCollector = FakeDetails([.cpu: cpuDetails])
+        let v6 = CompanionSession(applications: FakeApplications(), metrics: FakeMetrics(),
+                                  details: detailCollector)
+        var v6Sent: [[UInt8]] = []
+        v6.outgoing = { v6Sent.append($0) }
+        v6.startHandshake()
+        v6Ack.session = 61
+        v6.handle(CompanionCodec.encode(v6Ack)!)
+        var v6Request = detailsRequest
+        v6Request.version = 6; v6Request.session = 61
+        v6.handle(CompanionCodec.encode(v6Request)!)
+        let v6Response = CompanionCodec.decode(v6Sent.last!)
+        expect(v6Response?.operation == .systemDetails && v6Response?.status == .ok &&
+               SystemDetailsSample.decode(v6Response?.payload ?? []) == cpuDetails,
+               "v6 session answers the requested group")
+        v6Request.requestId = 9
+        v6Request.payload = [2]
+        v6.handle(CompanionCodec.encode(v6Request)!)
+        expect(CompanionCodec.decode(v6Sent.last!)?.status == .notAvailable,
+               "uncollectable group is NOT_AVAILABLE")
+        expect(detailCollector.requested == [.cpu, .power], "collector sees each requested group")
+        var v6MetricsRequest = v6Request
+        v6MetricsRequest.requestId = 10; v6MetricsRequest.operation = .systemMetrics
+        v6MetricsRequest.payload = []
+        v6.handle(CompanionCodec.encode(v6MetricsRequest)!)
+        expect(CompanionCodec.decode(v6Sent.last!)?.payload.first == 2, "v6 session sends metrics schema 2")
+
+        expect(CompanionFramer.payloadSize(maximumWriteLength: 20) == 17 &&
+               CompanionFramer.payloadSize(maximumWriteLength: 182) == 179 &&
+               CompanionFramer.payloadSize(maximumWriteLength: 512) == 256,
+               "chunk payload follows the negotiated write length")
+        expect(CompanionFramer.encode(Array(repeating: 1, count: 106), messageId: 3,
+                                      maxPayload: CompanionFramer.payloadSize(maximumWriteLength: 182))?.count == 1,
+               "a CPU details response fits one write at a 185-byte MTU")
+        var livenessClock = Date(timeIntervalSince1970: 1_000)
+        let liveness = CompanionSession(applications: FakeApplications(), now: { livenessClock })
+        liveness.outgoing = { _ in }
+        expect(!liveness.livenessExpired(at: livenessClock), "no session is never expired")
+        liveness.startHandshake()
+        var livenessAck = CompanionEnvelope()
+        livenessAck.kind = .helloAck; livenessAck.session = 5; livenessAck.payload = [6]
+        liveness.handle(CompanionCodec.encode(livenessAck)!)
+        livenessClock = livenessClock.addingTimeInterval(12)
+        expect(!liveness.livenessExpired(at: livenessClock), "twelve silent seconds are still alive")
+        expect(liveness.livenessExpired(at: livenessClock.addingTimeInterval(1)),
+               "a silent session expires after twelve seconds")
+        var livenessPing = CompanionEnvelope()
+        livenessPing.version = 6; livenessPing.kind = .request; livenessPing.session = 5
+        livenessPing.requestId = 1; livenessPing.operation = .ping; livenessPing.payload = [1, 2, 3, 4]
+        livenessClock = livenessClock.addingTimeInterval(1)
+        liveness.handle(CompanionCodec.encode(livenessPing)!)
+        expect(!liveness.livenessExpired(at: livenessClock.addingTimeInterval(5)), "a ping keeps the session alive")
+        expect((0...6).map { AiUsageSnapshot.schema(protocolVersion: $0) } == [1, 1, 1, 1, 2, 3, 3],
+               "AI schema by version never traps")
+        expect(DisplayName.sanitize("Телеграм", limit: 20) == "Telegram", "Cyrillic is transliterated")
+        expect(DisplayName.sanitize("Café  Crème", limit: 20) == "Cafe Creme", "diacritics are stripped")
+        expect(DisplayName.sanitize("✓", limit: 20) == "APP", "empty names fall back")
+        expect(DisplayName.sanitize("An Extremely Long Application Name", limit: 20).utf8.count <= 20,
+               "names are truncated")
+        let chromeHelper = "/Applications/Google Chrome.app/Contents/Frameworks/Google Chrome Framework.framework/Versions/1/Helpers/Google Chrome Helper.app/Contents/MacOS/Google Chrome Helper"
+        expect(DisplayName.appName(forExecutable: chromeHelper) == "Google Chrome",
+               "helpers roll up into the outermost app")
+        expect(DisplayName.appName(forExecutable: "/usr/libexec/duetexpertd") == "duetexpertd",
+               "plain executables keep their name")
+
+        let tracker = TopAppsTracker(logicalCPUs: 2)
+        let chromeMain = "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
+        let first = [ProcessCPUTime(pid: 1, path: chromeMain, cpuNanoseconds: 0),
+                     ProcessCPUTime(pid: 2, path: chromeHelper, cpuNanoseconds: 0),
+                     ProcessCPUTime(pid: 3, path: "/Applications/Zed.app/Contents/MacOS/zed", cpuNanoseconds: 0)]
+        expect(tracker.sample(first, at: 100) == nil, "first process sample is only a baseline")
+        let second = [ProcessCPUTime(pid: 1, path: chromeMain, cpuNanoseconds: 300_000_000),
+                      ProcessCPUTime(pid: 2, path: chromeHelper, cpuNanoseconds: 500_000_000),
+                      ProcessCPUTime(pid: 3, path: "/Applications/Zed.app/Contents/MacOS/zed", cpuNanoseconds: 200_000_000),
+                      ProcessCPUTime(pid: 4, path: "/usr/bin/new", cpuNanoseconds: 900_000_000)]
+        expect(tracker.sample(second, at: 101) == [TopApp(name: "Google Chrome", percent: 40),
+                                                    TopApp(name: "Zed", percent: 10)],
+               "top apps roll up helpers and skip processes without a baseline")
+        expect(tracker.sample(second, at: 112) == nil, "process baseline expires after ten seconds")
+
+        // Top apps are smoothed over about ten seconds and do not reorder for
+        // small differences, so the Cardputer list does not jump every update.
+        func topAppsRun(_ percents: [[String: Double]]) -> [[TopApp]?] {
+            let smoothTracker = TopAppsTracker(logicalCPUs: 2)
+            var cumulative: [String: UInt64] = [:]
+            var names: [String] = []
+            for step in percents { for name in step.keys where !names.contains(name) { names.append(name) } }
+            func processes() -> [ProcessCPUTime] {
+                names.enumerated().map { index, name in
+                    ProcessCPUTime(pid: Int32(index + 1), path: "/Applications/\(name).app/Contents/MacOS/\(name)",
+                                   cpuNanoseconds: cumulative[name, default: 0])
+                }
+            }
+            var results: [[TopApp]?] = [smoothTracker.sample(processes(), at: 0)]
+            for (index, step) in percents.enumerated() {
+                // 1% of two CPUs over two seconds is 40 ms of CPU time.
+                for (name, percent) in step { cumulative[name, default: 0] += UInt64(percent * 40_000_000) }
+                results.append(smoothTracker.sample(processes(), at: Double(index + 1) * 2))
+            }
+            return results
+        }
+        let flapping = topAppsRun((0..<10).map { ["Steady": 20, "Flicker": $0 % 2 == 0 ? 4 : 0] })
+        expect(flapping.dropFirst(2).allSatisfy { $0?.map(\.name) == ["Steady", "Flicker"] },
+               "an app that briefly idles stays in the list")
+        let close = topAppsRun((0..<10).map { $0 % 2 == 0 ? ["Alpha": 10, "Beta": 11] : ["Alpha": 11, "Beta": 10] })
+        let closeOrders = Set(close.dropFirst().compactMap { $0?.map(\.name).joined(separator: ",") })
+        expect(closeOrders.count == 1, "near-equal apps keep their order")
+        let takeover = topAppsRun([["Old": 10, "New": 0], ["Old": 10, "New": 60], ["Old": 10, "New": 60]])
+        expect(takeover.last??.first?.name == "New", "a clearly busier app moves up within one update")
+        let spawned = topAppsRun([["Base": 5], ["Base": 5, "Burst": 30]])
+        expect(spawned.last??.first == TopApp(name: "Burst", percent: 30),
+               "a new busy app appears on its first sample")
+        let fading = topAppsRun([["Gone": 3]] + Array(repeating: [:], count: 12))
+        expect(fading.last == .some([]), "an idle app leaves the list once its average falls")
+
+        var disk = CounterRate()
+        expect(disk.sample(read: 0, write: 0, at: 10) == nil, "disk counters need a baseline")
+        expect(disk.sample(read: 2048, write: 1024, at: 12) == DiskRates(readKiBps: 1, writeKiBps: 0),
+               "disk rates in KiB/s")
+        expect(disk.sample(read: 4096, write: 4096, at: 30) == nil, "disk baseline expires")
+
+        let clusters = ClusterUsage.percents(
+            previous: [CPUTimeTicks(user: 0, system: 0, idle: 0, nice: 0),
+                       CPUTimeTicks(user: 0, system: 0, idle: 0, nice: 0)],
+            current: [CPUTimeTicks(user: 10, system: 0, idle: 90, nice: 0),
+                      CPUTimeTicks(user: 50, system: 10, idle: 40, nice: 0)],
+            clusters: ["E", "P"])
+        expect(clusters.efficiency == 10 && clusters.performance == 60, "cluster usage by type")
+
+        var probes = ProbeSchedule()
+        expect(!probes.shouldProbe(at: 0), "no probes before a network request")
+        probes.noteRequest(at: 1)
+        expect(probes.shouldProbe(at: 1) && !probes.shouldProbe(at: 3) && probes.shouldProbe(at: 6),
+               "probes run at most every five seconds")
+        expect(probes.shouldProbe(at: 11) && !probes.shouldProbe(at: 16.5),
+               "probes stop ten seconds after the last network request")
 
         let plus: [String: Any] = ["rateLimits": ["planType": "plus",
             "primary": ["usedPercent": 80, "windowDurationMins": 10080, "resetsAt": 20000],
@@ -713,7 +929,7 @@ enum CompanionCoreCheck {
         var v3Sent: [[UInt8]] = []
         v3.outgoing = { v3Sent.append($0) }
         v3.startHandshake()
-        expect(v3Sent[0] == fixture("hello-v5.bin"), "v5 hello advertises fallbacks")
+        expect(v3Sent[0] == fixture("hello-v6.bin"), "v6 hello advertises fallbacks")
         var v3Ack = CompanionEnvelope()
         v3Ack.kind = .helloAck; v3Ack.session = 31; v3Ack.payload = [3]
         v3.handle(CompanionCodec.encode(v3Ack)!)
@@ -795,6 +1011,16 @@ final class FakeMetrics: SystemMetricsCollecting {
         sample.diskUsedPercent = 63
         sample.thermalState = .fair
         return sample
+    }
+}
+
+final class FakeDetails: SystemDetailsCollecting {
+    private let samples: [SystemDetailsGroup: SystemDetailsSample]
+    var requested: [SystemDetailsGroup] = []
+    init(_ samples: [SystemDetailsGroup: SystemDetailsSample]) { self.samples = samples }
+    func collect(_ group: SystemDetailsGroup) -> SystemDetailsSample? {
+        requested.append(group)
+        return samples[group]
     }
 }
 

@@ -51,7 +51,12 @@ class CompanionService {
     }
     CompanionSubmitResult requestActiveApplication();
     CompanionSubmitResult activateApplication(std::string_view bundleId);
+    bool supportsSystemDetails() const noexcept {
+        return hasLiveCompanion() && selectedProtocolVersion_ >= 6 &&
+               capabilities_.isAvailable(connectivity::companionSystemDetailsCapabilityId);
+    }
     CompanionSubmitResult requestSystemMetrics();
+    CompanionSubmitResult requestSystemDetails(connectivity::SystemDetailsGroup group);
     CompanionSubmitResult requestAiUsage();
     bool hasPendingRequest(connectivity::CompanionOperation operation) const noexcept;
     std::optional<CompanionCompletedRequest> takeCompletedRequest();

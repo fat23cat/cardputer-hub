@@ -1048,13 +1048,16 @@ std::optional<CompanionPayload> BluetoothService::receiveCompanionPayload() {
 void BluetoothService::drainCompanion(std::chrono::milliseconds elapsed) {
     companionFramer_.update(elapsed);
     if (adapter_.takeCompanionIncomingOverflow()) {
+        // Only chunks were lost; the Mac is still subscribed. Dropping the
+        // subscription here could be undone only by a new CCCD write, which
+        // macOS does not send while the HID link stays up. Lost responses time
+        // out in CompanionService instead.
         log(core::LogLevel::Error, "companion incoming overflow");
         CompanionChunk discarded{};
         while (adapter_.receiveCompanionChunk(discarded)) {
         }
         companionFramer_.reset();
         companionIncoming_.clear();
-        companionSubscribed_ = false;
         companionBusy_ = false;
         return;
     }
@@ -1101,11 +1104,9 @@ BluetoothService::handleCompanionAdapterResult(BluetoothCompanionAdapterResult r
         companionIncoming_.clear();
         return CompanionSendResult::NotReady;
     case BluetoothCompanionAdapterResult::AdapterError:
+        // One notify failed; the subscription itself is unchanged (see overflow).
         log(core::LogLevel::Error, "companion adapter failed");
-        companionSubscribed_ = false;
         companionBusy_ = false;
-        companionFramer_.reset();
-        companionIncoming_.clear();
         return CompanionSendResult::AdapterError;
     }
     log(core::LogLevel::Error, "companion adapter returned an invalid result");

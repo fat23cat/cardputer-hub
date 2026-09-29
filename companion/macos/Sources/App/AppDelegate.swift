@@ -29,11 +29,13 @@ final class CompanionCentral: NSObject, CBCentralManagerDelegate, CBPeripheralDe
     private var pendingTarget: CBPeripheral?
     private var cancellationTick: Timer?
     private var workspaceObservers: [NSObjectProtocol] = []
+    private var livenessTick: Timer?
 
     init(applications: ApplicationControlling, metrics: SystemMetricsCollecting,
-         aiUsage: AiUsageCollector, status: CompanionStatusStore) {
+         details: SystemDetailsCollecting, aiUsage: AiUsageCollector, status: CompanionStatusStore) {
         self.aiUsage = aiUsage
-        session = CompanionSession(applications: applications, metrics: metrics, aiUsage: aiUsage)
+        session = CompanionSession(applications: applications, metrics: metrics, details: details,
+                                   aiUsage: aiUsage)
         self.status = status
         super.init()
         session.outgoing = { [weak self] bytes in self?.send(bytes) }
@@ -42,6 +44,14 @@ final class CompanionCentral: NSObject, CBCentralManagerDelegate, CBPeripheralDe
 
     func start() {
         aiUsage.start()
+        // The Cardputer drops a session it cannot keep up with; reattach instead
+        // of waiting for the user to press Reconnect.
+        livenessTick?.invalidate()
+        livenessTick = Timer.scheduledTimer(withTimeInterval: 3, repeats: true) { [weak self] _ in
+            guard let self, self.session.livenessExpired(at: Date()) else { return }
+            log.error("companion session went silent; reconnecting")
+            self.reconnect()
+        }
         manager = CBCentralManager(delegate: self, queue: .main)
         refreshStatus()
         if workspaceObservers.isEmpty {
@@ -191,6 +201,8 @@ final class CompanionCentral: NSObject, CBCentralManagerDelegate, CBPeripheralDe
     func stop() {
         guard !stopped else { return }
         stopped = true
+        livenessTick?.invalidate()
+        livenessTick = nil
         retry?.invalidate()
         retry = nil
         resetLocalConnection()
@@ -383,7 +395,10 @@ final class CompanionCentral: NSObject, CBCentralManagerDelegate, CBPeripheralDe
 
     private func send(_ bytes: [UInt8]) {
         guard let peripheral, peripheral.identifier == coordinator.currentId, let hostToDevice,
-              let framed = CompanionFramer.encode(bytes, messageId: outgoingId)
+              let framed = CompanionFramer.encode(
+                  bytes, messageId: outgoingId,
+                  maxPayload: CompanionFramer.payloadSize(
+                      maximumWriteLength: peripheral.maximumWriteValueLength(for: .withoutResponse)))
         else { return }
         outgoingId &+= 1
         if outgoingId == 0 { outgoingId = 1 }
@@ -415,6 +430,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let menuBar = CompanionMenuBarController(status: status)
         let central = CompanionCentral(applications: WorkspaceApplicationController(),
                                        metrics: MacSystemMetricsCollector(),
+                                       details: MacSystemDetailsCollector(),
                                        aiUsage: AiUsageCollector(), status: status)
         status.onReconnect = { [weak central] in central?.reconnect() }
         status.onQuit = { [weak self] in self?.quit() }

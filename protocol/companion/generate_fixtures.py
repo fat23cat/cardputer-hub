@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Write committed Companion protocol v1/v2/v3/v4/v5 fixtures. Run from the repository root."""
+"""Write committed Companion protocol v1–v6 fixtures. Run from the repository root."""
 
 from __future__ import annotations
 
@@ -9,6 +9,7 @@ HELLO, HELLO_ACK, REQUEST, RESPONSE, EVENT = 1, 2, 3, 4, 5
 PING, CAPABILITIES, APP_ACTIVE, APP_ACTIVATE, APP_ACTIVE_CHANGED = 1, 2, 3, 4, 5
 SYSTEM_METRICS = 6
 AI_USAGE = 7
+SYSTEM_DETAILS = 8
 SESSION = 42
 
 
@@ -116,6 +117,53 @@ def main() -> None:
             (92).to_bytes(4, "little") + bytes([92]) +
             (1780000000).to_bytes(4, "little") + (3600).to_bytes(4, "little") +
             bytes([0]), 5
+        ),
+        "hello-v6.bin": envelope(HELLO, 0, 0, 0, 0, bytes([4, 6, 5, 4, 3])),
+        "hello-ack-v6.bin": envelope(HELLO_ACK, SESSION, 0, 0, 0, bytes([6])),
+        "capabilities-response-v6.bin": envelope(
+            RESPONSE, SESSION, 2, CAPABILITIES, 0, bytes([6, 1, 2, 3, 4, 5, 6]), 6
+        ),
+        "system-metrics-response-v6.bin": envelope(
+            RESPONSE, SESSION, 5, SYSTEM_METRICS, 0,
+            bytes([2, 0xFF, 0x01, 34]) + (11500).to_bytes(4, "little") +
+            (16384).to_bytes(4, "little") + bytes([1, 63, 82, 2]) +
+            (12698).to_bytes(4, "little") + (1843).to_bytes(4, "little") +
+            bytes([2]) + (102).to_bytes(2, "little"), 6
+        ),
+        "ai-usage-response-v6.bin": envelope(
+            RESPONSE, SESSION, 7, AI_USAGE, 0,
+            bytes([3, 2, 1]) + (9).to_bytes(4, "little") +
+            bytes([3, 4, 1, 1, 1, 1]) +
+            (8).to_bytes(4, "little") + (100).to_bytes(4, "little") +
+            (92).to_bytes(4, "little") + bytes([92]) +
+            (1780000000).to_bytes(4, "little") + (3600).to_bytes(4, "little") +
+            bytes([0]), 6
+        ),
+        "system-details-request-v6.bin": envelope(
+            REQUEST, SESSION, 8, SYSTEM_DETAILS, 0, bytes([1]), 6
+        ),
+        "system-details-response-cpu-v6.bin": envelope(
+            RESPONSE, SESSION, 8, SYSTEM_DETAILS, 0,
+            bytes([1, 1, 0x1F, 0, 61, 18, 27]) + (310).to_bytes(2, "little") + bytes([2]) +
+            bytes([38, 5]) + b"Xcode" + bytes([21, 13]) + b"Google Chrome", 6
+        ),
+        "system-details-response-power-v6.bin": envelope(
+            RESPONSE, SESSION, 8, SYSTEM_DETAILS, 0,
+            bytes([1, 2, 0x1F, 0]) + (142).to_bytes(2, "little") + bytes([96, 91]) +
+            (214).to_bytes(2, "little") + bytes([12, 11]) + b"Magic Mouse", 6
+        ),
+        "system-details-response-network-v6.bin": envelope(
+            RESPONSE, SESSION, 8, SYSTEM_DETAILS, 0,
+            bytes([1, 3, 0x1F, 0]) + (18).to_bytes(2, "little") + (3).to_bytes(2, "little") +
+            bytes([(-54) & 0xFF]) + (866).to_bytes(2, "little") + bytes([1]), 6
+        ),
+        "system-details-response-memory-v6.bin": envelope(
+            RESPONSE, SESSION, 8, SYSTEM_DETAILS, 0,
+            bytes([1, 4, 0x0F, 0]) + (14438).to_bytes(4, "little") +
+            (3994).to_bytes(4, "little") + (3482).to_bytes(4, "little") +
+            (1229).to_bytes(4, "little") + (212).to_bytes(2, "little") +
+            (994).to_bytes(2, "little") + (348160).to_bytes(4, "little") +
+            (59392).to_bytes(4, "little"), 6
         ),
         "malformed-length.bin": bytes([1, REQUEST, SESSION, 0, 1, PING, 0, 10, 0x01, 0x02]),
         "unsupported-version.bin": bytes([99, REQUEST, SESSION, 0, 1, PING, 0, 4]) + token,

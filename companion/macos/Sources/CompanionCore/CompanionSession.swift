@@ -10,16 +10,19 @@ public final class CompanionSession {
     private var lastEventBundle: String?
     private let applications: ApplicationControlling
     private let metrics: SystemMetricsCollecting?
+    private let details: SystemDetailsCollecting?
     private let aiUsage: AiUsageCollecting?
     private let now: () -> Date
     public var outgoing: ([UInt8]) -> Void = { _ in }
     private var awaitingHelloAck = false
 
     public init(applications: ApplicationControlling, metrics: SystemMetricsCollecting? = nil,
+                details: SystemDetailsCollecting? = nil,
                 aiUsage: AiUsageCollecting? = nil,
                 now: @escaping () -> Date = Date.init) {
         self.applications = applications
         self.metrics = metrics
+        self.details = details
         self.aiUsage = aiUsage
         self.now = now
         applications.observeActiveApplication { [weak self] bundle in
@@ -27,8 +30,17 @@ public final class CompanionSession {
         }
     }
 
+    /// Cardputer sends PING every three seconds; a session with no valid
+    /// request for this long has been dropped on the Cardputer side.
+    public static let livenessTimeout: TimeInterval = 12
+
+    public func livenessExpired(at now: Date) -> Bool {
+        guard session != 0, let lastValidMessageAt else { return false }
+        return now.timeIntervalSince(lastValidMessageAt) > Self.livenessTimeout
+    }
+
     public func startHandshake() {
-        guard let bytes = CompanionCodec.encode(CompanionCodec.hello(versions: [5, 4, 3, 2])) else { return }
+        guard let bytes = CompanionCodec.encode(CompanionCodec.hello(versions: [6, 5, 4, 3])) else { return }
         awaitingHelloAck = true
         self.outgoing(bytes)
     }
@@ -98,7 +110,24 @@ public final class CompanionSession {
             response.session = message.session
             response.requestId = message.requestId
             response.operation = .systemMetrics
-            if let sample = metrics?.collect(), let payload = sample.encode() {
+            if let sample = metrics?.collect(),
+               let payload = sample.encode(protocolVersion: selectedProtocolVersion) {
+                response.payload = payload
+            } else {
+                response.status = .notAvailable
+            }
+            send(response)
+        case .systemDetails:
+            guard selectedProtocolVersion >= 6,
+                  let group = message.payload.first.flatMap(SystemDetailsGroup.init(rawValue:))
+            else { return }
+            var response = CompanionEnvelope()
+            response.kind = .response
+            response.session = message.session
+            response.requestId = message.requestId
+            response.operation = .systemDetails
+            if let sample = details?.collect(group), sample.group == group,
+               let payload = sample.encode() {
                 response.payload = payload
             } else {
                 response.status = .notAvailable

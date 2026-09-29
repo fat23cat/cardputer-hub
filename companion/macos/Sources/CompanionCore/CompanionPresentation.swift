@@ -49,10 +49,12 @@ public struct CompanionCapabilitySummary: Equatable {
     public let appControl: Bool
     public let appEvents: Bool
     public let systemMetrics: Bool
+    public let systemDetails: Bool
 
     public init(_ capabilities: [CompanionCapability]) {
         appControl = capabilities.contains(.appActive) && capabilities.contains(.appActivate)
         appEvents = capabilities.contains(.appActiveEvents)
         systemMetrics = capabilities.contains(.systemMetrics)
+        systemDetails = capabilities.contains(.systemDetails)
     }
 }

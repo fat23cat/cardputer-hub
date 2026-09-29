@@ -205,6 +205,31 @@ void test_navigation_claim_and_no_auto_switch() {
     indicator.update();
     TEST_ASSERT_EQUAL_STRING(pomodoroIndicatorOwner, indicator.resolved().owner.c_str());
 }
+// A closed gallery keeps only its selected effect and small bookkeeping; the
+// effect engine exists only while the app is open.
+static_assert(sizeof(LedGalleryApp) < sizeof(LedGalleryEngine) / 4);
+
+void test_closed_gallery_releases_engine_and_keeps_effect() {
+    FakeLed led;
+    IndicatorService indicator(led);
+    FakeDisplay display;
+    LedGalleryApp app(indicator, display, 123);
+    app.update({}, 50ms);
+    TEST_ASSERT_EQUAL_INT(0, display.clears);
+    app.onActivate();
+    app.update({key('4')}, 0ms);
+    TEST_ASSERT_EQUAL_UINT8(3, static_cast<unsigned>(app.currentEffect()));
+    app.onDeactivate();
+    const auto clears = display.clears;
+    app.update({key('5')}, 50ms);
+    TEST_ASSERT_EQUAL_INT(clears, display.clears);
+    TEST_ASSERT_EQUAL_UINT8(3, static_cast<unsigned>(app.currentEffect()));
+    app.onActivate();
+    app.update({}, 50ms);
+    TEST_ASSERT_EQUAL_UINT8(3, static_cast<unsigned>(app.currentEffect()));
+    TEST_ASSERT_TRUE(display.clears > clears);
+    app.onDeactivate();
+}
 void test_deterministic_frames_and_space() {
     LedGalleryEngine a(5), b(5);
     a.reset(LedGalleryEffect::Plasma, 5);
@@ -986,5 +1011,6 @@ int main() {
     RUN_TEST(test_swarm_uses_neighbor_alignment_and_cohesion);
     RUN_TEST(test_swarm_recovers_after_scatter);
     RUN_TEST(test_sand_ant_tetris_and_storm_controls);
+    RUN_TEST(test_closed_gallery_releases_engine_and_keeps_effect);
     return UNITY_END();
 }

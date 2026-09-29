@@ -118,9 +118,11 @@ scripts/
 The `apps`, `connectivity`, and `services` directories contain the built-in
 system UI, connectivity foundations, and host/configuration/battery/audio/companion
 Services. `companion/macos` holds the optional macOS menu-bar Cardputer Companion.app.
-`protocol/companion` holds the shared v1/v2/v3 wire contract and binary fixtures.
+`protocol/companion` holds the shared v1–v6 wire contract and binary fixtures.
 The MAC STATUS Mini App shows live Mac system metrics when a v2 Companion is
-connected; polling runs only while the app is open.
+connected; polling runs only while the app is open. A v6 Companion adds
+charging time and four detail pages (CPU and top apps, power, network,
+memory and disk).
 AI USAGE shows discovered Codex/Cursor quotas from a v3 Companion and publishes
 a remaining-quota gauge on Unit Puzzle at idle priority. Provider collection
 is automatic on the Mac; firmware receives only normalized usage numbers.

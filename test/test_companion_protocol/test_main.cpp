@@ -408,6 +408,176 @@ void test_v5_claude_schema_and_v4_rejects_claude() {
     TEST_ASSERT_FALSE(setAiUsage(response, usage));
 }
 
+void test_system_metrics_schema_matches_session_version() {
+    using namespace cardputer_hub::connectivity;
+    const std::uint8_t versions[] = {6, 5, 4, 3};
+    assertEncodedMatchesFixture(makeHello(versions, 4), "hello-v6.bin");
+    assertEncodedMatchesFixture(makeHelloAck(42, 6), "hello-ack-v6.bin");
+    CompanionSystemMetrics metrics{};
+    metrics.validity = 0x1ff;
+    metrics.cpuPercent = 34;
+    metrics.memoryUsedMiB = 11500;
+    metrics.memoryTotalMiB = 16384;
+    metrics.memoryPressure = 1;
+    metrics.diskUsedPercent = 63;
+    metrics.batteryPercent = 82;
+    metrics.thermalState = 2;
+    metrics.downloadKiBps = 12698;
+    metrics.uploadKiBps = 1843;
+    metrics.powerSource = 2;
+    metrics.batteryMinutes = 102;
+    auto response = makeResponse(42, 5, CompanionOperation::SystemMetrics, CompanionStatus::Ok);
+    response.version = 6;
+    TEST_ASSERT_TRUE(setSystemMetrics(response, metrics));
+    assertEncodedMatchesFixture(response, "system-metrics-response-v6.bin");
+    const auto fixture = loadFixture("system-metrics-response-v6.bin");
+    const auto decoded = decodeCompanionMessage(fixture.data(), fixture.size());
+    TEST_ASSERT_TRUE(decoded.has_value());
+    CompanionSystemMetrics read{};
+    TEST_ASSERT_TRUE(readSystemMetrics(*decoded, read));
+    TEST_ASSERT_EQUAL_UINT8(2, read.powerSource);
+    TEST_ASSERT_EQUAL_UINT16(102, read.batteryMinutes);
+    TEST_ASSERT_EQUAL_UINT16(0x1ff, read.validity);
+
+    // v2-v5 keep the 24-byte schema 1 and cannot carry power fields.
+    response.version = 5;
+    TEST_ASSERT_FALSE(setSystemMetrics(response, metrics));
+    metrics.validity = 0x7f;
+    TEST_ASSERT_TRUE(setSystemMetrics(response, metrics));
+    TEST_ASSERT_EQUAL_UINT8(24, response.payloadSize);
+    TEST_ASSERT_EQUAL_UINT8(1, response.payload[0]);
+    // A v6 session never accepts schema 1, and v5 never accepts schema 2.
+    auto schemaOne = response;
+    schemaOne.version = 6;
+    TEST_ASSERT_FALSE(readSystemMetrics(schemaOne, read));
+    auto schemaTwo = *decoded;
+    schemaTwo.version = 5;
+    TEST_ASSERT_FALSE(readSystemMetrics(schemaTwo, read));
+    auto badSource = *decoded;
+    badSource.payload[24] = 4;
+    TEST_ASSERT_FALSE(readSystemMetrics(badSource, read));
+
+    // AI_USAGE keeps schema 3 in v6.
+    const auto ai = loadFixture("ai-usage-response-v6.bin");
+    const auto aiDecoded = decodeCompanionMessage(ai.data(), ai.size());
+    TEST_ASSERT_TRUE(aiDecoded.has_value());
+    CompanionAiUsage usage{};
+    TEST_ASSERT_TRUE(readAiUsage(*aiDecoded, usage));
+    TEST_ASSERT_EQUAL_UINT8(3, usage.schemaVersion);
+    auto aiResponse = makeResponse(42, 7, CompanionOperation::AiUsage, CompanionStatus::Ok);
+    aiResponse.version = 6;
+    TEST_ASSERT_TRUE(setAiUsage(aiResponse, usage));
+    assertEncodedMatchesFixture(aiResponse, "ai-usage-response-v6.bin");
+
+    auto capabilities = makeResponse(42, 2, CompanionOperation::Capabilities, CompanionStatus::Ok);
+    capabilities.version = 6;
+    const CompanionCapability full[] = {
+        CompanionCapability::AppActive,       CompanionCapability::AppActivate,
+        CompanionCapability::AppActiveEvents, CompanionCapability::SystemMetrics,
+        CompanionCapability::AiUsage,         CompanionCapability::SystemDetails};
+    TEST_ASSERT_TRUE(setCapabilityList(capabilities, full, 6));
+    assertEncodedMatchesFixture(capabilities, "capabilities-response-v6.bin");
+    capabilities.version = 5;
+    TEST_ASSERT_FALSE(setCapabilityList(capabilities, full, 6));
+    auto decodedCaps = decodeCompanionMessage(loadFixture("capabilities-response-v6.bin").data(),
+                                              loadFixture("capabilities-response-v6.bin").size());
+    TEST_ASSERT_TRUE(decodedCaps.has_value());
+    decodedCaps->version = 5;
+    CompanionCapability ids[8]{};
+    std::uint8_t count = 0;
+    TEST_ASSERT_FALSE(readCapabilityList(*decodedCaps, ids, count, 8));
+}
+
+void test_system_details_groups_round_trip_and_reject_bad_names() {
+    using namespace cardputer_hub::connectivity;
+    auto request = makeRequest(42, 8, CompanionOperation::SystemDetails);
+    request.version = 6;
+    TEST_ASSERT_TRUE(setSystemDetailsRequest(request, SystemDetailsGroup::Cpu));
+    assertEncodedMatchesFixture(request, "system-details-request-v6.bin");
+    SystemDetailsGroup group{};
+    TEST_ASSERT_TRUE(readSystemDetailsRequest(request, group));
+    TEST_ASSERT_EQUAL_UINT8(1, static_cast<unsigned>(group));
+    request.payload[0] = 5;
+    TEST_ASSERT_FALSE(encodeCompanionMessage(request).has_value());
+    request.payload[0] = 1;
+    request.version = 5;
+    TEST_ASSERT_FALSE(encodeCompanionMessage(request).has_value());
+
+    const char* names[] = {
+        "system-details-response-cpu-v6.bin", "system-details-response-power-v6.bin",
+        "system-details-response-network-v6.bin", "system-details-response-memory-v6.bin"};
+    for (unsigned index = 0; index < 4; ++index) {
+        const auto fixture = loadFixture(names[index]);
+        const auto decoded = decodeCompanionMessage(fixture.data(), fixture.size());
+        TEST_ASSERT_TRUE(decoded.has_value());
+        CompanionSystemDetails details{};
+        TEST_ASSERT_TRUE(readSystemDetails(*decoded, details));
+        TEST_ASSERT_EQUAL_UINT8(index + 1, static_cast<unsigned>(details.group));
+        auto response = makeResponse(42, 8, CompanionOperation::SystemDetails, CompanionStatus::Ok);
+        response.version = 6;
+        TEST_ASSERT_TRUE(setSystemDetails(response, details));
+        assertEncodedMatchesFixture(response, names[index]);
+        if (index == 0) {
+            TEST_ASSERT_EQUAL_UINT8(61, details.performancePercent);
+            TEST_ASSERT_EQUAL_UINT16(310, details.loadCenti);
+            TEST_ASSERT_EQUAL_UINT8(2, details.processCount);
+            TEST_ASSERT_EQUAL_STRING("Google Chrome", details.processes[1].name.data());
+            TEST_ASSERT_EQUAL_UINT8(21, details.processes[1].percent);
+        } else if (index == 1) {
+            TEST_ASSERT_EQUAL_UINT16(142, details.systemDrawDeciwatts);
+            TEST_ASSERT_EQUAL_STRING("Magic Mouse", details.peripheralName.data());
+        } else if (index == 2) {
+            TEST_ASSERT_EQUAL_INT8(-54, details.wifiRssiDbm);
+            TEST_ASSERT_TRUE(details.vpnActive);
+        } else {
+            TEST_ASSERT_EQUAL_UINT32(14438, details.appMiB);
+            TEST_ASSERT_EQUAL_UINT16(994, details.ssdTotalGB);
+            TEST_ASSERT_EQUAL_UINT32(59392, details.diskWriteKiBps);
+        }
+    }
+
+    const auto cpu = loadFixture("system-details-response-cpu-v6.bin");
+    auto damaged = cpu;
+    damaged[companionEnvelopeSize + 12] = 0xC3; // non-ASCII name byte
+    TEST_ASSERT_FALSE(decodeCompanionMessage(damaged.data(), damaged.size()).has_value());
+    damaged = cpu;
+    damaged[companionEnvelopeSize + 9] = 5; // more than four processes
+    TEST_ASSERT_FALSE(decodeCompanionMessage(damaged.data(), damaged.size()).has_value());
+    damaged = cpu;
+    damaged[companionEnvelopeSize + 10] = 101; // process percent above 100
+    TEST_ASSERT_FALSE(decodeCompanionMessage(damaged.data(), damaged.size()).has_value());
+    damaged = cpu;
+    damaged[companionEnvelopeSize + 2] = 0x20; // unknown validity bit
+    TEST_ASSERT_FALSE(decodeCompanionMessage(damaged.data(), damaged.size()).has_value());
+    damaged = cpu;
+    damaged.pop_back();
+    damaged[7] = static_cast<std::uint8_t>(damaged[7] - 1);
+    TEST_ASSERT_FALSE(decodeCompanionMessage(damaged.data(), damaged.size()).has_value());
+
+    const auto memory = loadFixture("system-details-response-memory-v6.bin");
+    damaged = memory;
+    damaged[companionEnvelopeSize + 20] = 0xFF; // free above total
+    damaged[companionEnvelopeSize + 21] = 0x0F;
+    TEST_ASSERT_FALSE(decodeCompanionMessage(damaged.data(), damaged.size()).has_value());
+
+    CompanionSystemDetails details{};
+    details.group = SystemDetailsGroup::Cpu;
+    details.validity = 0x10;
+    details.processCount = 1;
+    details.processes[0].percent = 5;
+    auto response = makeResponse(42, 8, CompanionOperation::SystemDetails, CompanionStatus::Ok);
+    response.version = 6;
+    TEST_ASSERT_FALSE(setSystemDetails(response, details)); // empty name
+    std::memcpy(details.processes[0].name.data(), "Zed", 3);
+    TEST_ASSERT_TRUE(setSystemDetails(response, details));
+    response.version = 5;
+    TEST_ASSERT_FALSE(setSystemDetails(response, details));
+    auto unavailable =
+        makeResponse(42, 8, CompanionOperation::SystemDetails, CompanionStatus::NotAvailable);
+    unavailable.version = 6;
+    TEST_ASSERT_TRUE(encodeCompanionMessage(unavailable).has_value());
+}
+
 void test_v4_reset_credit_bounds_and_malformed_payloads() {
     using namespace cardputer_hub::connectivity;
     CompanionAiUsage usage{};
@@ -522,5 +692,7 @@ int main() {
     RUN_TEST(test_v4_reset_credits_and_v3_compatibility);
     RUN_TEST(test_v4_reset_credit_bounds_and_malformed_payloads);
     RUN_TEST(test_v5_claude_schema_and_v4_rejects_claude);
+    RUN_TEST(test_system_metrics_schema_matches_session_version);
+    RUN_TEST(test_system_details_groups_round_trip_and_reject_bad_names);
     return UNITY_END();
 }

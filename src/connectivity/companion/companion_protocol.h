@@ -9,8 +9,13 @@
 namespace cardputer_hub::connectivity {
 
 inline constexpr std::uint8_t companionProtocolVersion = 1;
-inline constexpr std::uint8_t companionLatestProtocolVersion = 5;
+inline constexpr std::uint8_t companionLatestProtocolVersion = 6;
 inline constexpr std::size_t companionMetricsPayloadSize = 24;
+// SYSTEM_METRICS schema 2 (protocol v6) appends power source and battery minutes.
+inline constexpr std::size_t companionMetricsV2PayloadSize = 27;
+inline constexpr std::size_t companionMaxProcessNameSize = 20;
+inline constexpr std::size_t companionMaxPeripheralNameSize = 16;
+inline constexpr std::uint8_t companionMaxDetailProcesses = 4;
 inline constexpr std::size_t companionMaxMessageSize = 256;
 inline constexpr std::size_t companionEnvelopeSize = 8;
 inline constexpr std::size_t companionMaxPayloadSize =
@@ -38,6 +43,7 @@ inline constexpr char companionAppActivateCapabilityId[] = "APP_ACTIVATE";
 inline constexpr char companionAppActiveEventsCapabilityId[] = "APP_ACTIVE_EVENTS";
 inline constexpr char companionSystemMetricsCapabilityId[] = "SYSTEM_METRICS";
 inline constexpr char companionAiUsageCapabilityId[] = "AI_USAGE";
+inline constexpr char companionSystemDetailsCapabilityId[] = "SYSTEM_DETAILS";
 
 enum class CompanionKind : std::uint8_t {
     Hello = 1,
@@ -56,6 +62,7 @@ enum class CompanionOperation : std::uint8_t {
     AppActiveChanged = 5,
     SystemMetrics = 6,
     AiUsage = 7,
+    SystemDetails = 8,
 };
 
 enum class CompanionStatus : std::uint8_t {
@@ -72,6 +79,7 @@ enum class CompanionCapability : std::uint8_t {
     AppActiveEvents = 3,
     SystemMetrics = 4,
     AiUsage = 5,
+    SystemDetails = 6,
 };
 
 enum class AiUsageState : std::uint8_t { Discovering = 1, Ready = 2 };
@@ -140,6 +148,49 @@ struct CompanionSystemMetrics {
     std::uint8_t thermalState = 0;
     std::uint32_t downloadKiBps = 0;
     std::uint32_t uploadKiBps = 0;
+    // Schema 2 only: validity bit 7 (1 battery, 2 AC charging, 3 AC not charging)
+    // and bit 8 (minutes to full while charging, to empty on battery).
+    std::uint8_t powerSource = 0;
+    std::uint16_t batteryMinutes = 0;
+};
+
+enum class SystemDetailsGroup : std::uint8_t { Cpu = 1, Power = 2, Network = 3, Memory = 4 };
+
+struct SystemDetailsProcess {
+    std::uint8_t percent = 0;
+    std::array<char, companionMaxProcessNameSize + 1> name{};
+};
+
+// One SYSTEM_DETAILS group; only the fields of `group` are meaningful, and only
+// where their validity bit is set.
+struct CompanionSystemDetails {
+    SystemDetailsGroup group = SystemDetailsGroup::Cpu;
+    std::uint16_t validity = 0;
+    std::uint8_t performancePercent = 0;
+    std::uint8_t efficiencyPercent = 0;
+    std::uint8_t gpuPercent = 0;
+    std::uint16_t loadCenti = 0;
+    std::uint8_t processCount = 0;
+    std::array<SystemDetailsProcess, companionMaxDetailProcesses> processes{};
+    std::uint16_t systemDrawDeciwatts = 0;
+    std::uint8_t adapterWatts = 0;
+    std::uint8_t healthPercent = 0;
+    std::uint16_t cycleCount = 0;
+    std::uint8_t peripheralPercent = 0;
+    std::array<char, companionMaxPeripheralNameSize + 1> peripheralName{};
+    std::uint16_t internetRttMs = 0;
+    std::uint16_t routerRttMs = 0;
+    std::int8_t wifiRssiDbm = 0;
+    std::uint16_t wifiLinkMbps = 0;
+    bool vpnActive = false;
+    std::uint32_t appMiB = 0;
+    std::uint32_t wiredMiB = 0;
+    std::uint32_t compressedMiB = 0;
+    std::uint32_t swapUsedMiB = 0;
+    std::uint16_t ssdFreeGB = 0;
+    std::uint16_t ssdTotalGB = 0;
+    std::uint32_t diskReadKiBps = 0;
+    std::uint32_t diskWriteKiBps = 0;
 };
 
 struct CompanionEncodedMessage {
@@ -158,6 +209,9 @@ struct CompanionEnvelope {
     std::uint8_t payloadSize = 0;
 };
 
+// Telemetry snapshots change no session state, so a malformed response fails
+// only its own request; any other malformed message is a protocol error.
+bool companionResponseFailureIsIsolated(CompanionOperation operation) noexcept;
 bool isKnownCompanionKind(std::uint8_t kind) noexcept;
 bool isKnownCompanionOperation(std::uint8_t operation) noexcept;
 bool isKnownCompanionStatus(std::uint8_t status) noexcept;
@@ -190,5 +244,9 @@ bool setSystemMetrics(CompanionEnvelope& message, const CompanionSystemMetrics& 
 bool readSystemMetrics(const CompanionEnvelope& message, CompanionSystemMetrics& metrics);
 bool setAiUsage(CompanionEnvelope& message, const CompanionAiUsage& usage);
 bool readAiUsage(const CompanionEnvelope& message, CompanionAiUsage& usage);
+bool setSystemDetailsRequest(CompanionEnvelope& message, SystemDetailsGroup group);
+bool readSystemDetailsRequest(const CompanionEnvelope& message, SystemDetailsGroup& group);
+bool setSystemDetails(CompanionEnvelope& message, const CompanionSystemDetails& details);
+bool readSystemDetails(const CompanionEnvelope& message, CompanionSystemDetails& details);
 
 } // namespace cardputer_hub::connectivity
