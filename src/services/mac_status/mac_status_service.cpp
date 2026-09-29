@@ -136,8 +136,7 @@ void MacStatusService::acceptDetails(const connectivity::CompanionSystemDetails&
         next.performancePercent = field(v, 0, wire.performancePercent);
         next.efficiencyPercent = field(v, 1, wire.efficiencyPercent);
         next.gpuPercent = field(v, 2, wire.gpuPercent);
-        next.loadCenti = field(v, 3, wire.loadCenti);
-        next.appsAvailable = v & 16U;
+        next.appsAvailable = v & 8U;
         next.appCount = wire.processCount;
         for (std::uint8_t i = 0; i < wire.processCount; ++i)
             next.apps[i] = {wire.processes[i].percent, wire.processes[i].name.data()};
@@ -155,7 +154,6 @@ void MacStatusService::acceptDetails(const connectivity::CompanionSystemDetails&
         next.routerRttMs = field(v, 1, wire.routerRttMs);
         next.wifiRssiDbm = field(v, 2, wire.wifiRssiDbm);
         next.wifiLinkMbps = field(v, 3, wire.wifiLinkMbps);
-        next.vpnActive = field(v, 4, wire.vpnActive);
         break;
     case SystemDetailsGroup::Memory:
         next.memorySplitAvailable = v & 1U;

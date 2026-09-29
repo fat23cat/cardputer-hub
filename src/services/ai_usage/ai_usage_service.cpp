@@ -14,8 +14,7 @@ bool sameMetric(const connectivity::AiUsageMetric& left,
 
 bool samePresentation(const connectivity::CompanionAiUsage& left,
                       const connectivity::CompanionAiUsage& right) noexcept {
-    if (left.schemaVersion != right.schemaVersion || left.state != right.state ||
-        left.providerCount != right.providerCount)
+    if (left.state != right.state || left.providerCount != right.providerCount)
         return false;
     for (std::uint8_t i = 0; i < left.providerCount; ++i) {
         const auto& a = left.providers[i];
@@ -79,11 +78,8 @@ void AiUsageService::request() {
 void AiUsageService::update(std::chrono::milliseconds elapsed) {
     if (elapsed < std::chrono::milliseconds::zero())
         elapsed = {};
-    const auto currentSession =
-        companion_.hasLiveCompanion() && companion_.selectedProtocolVersion() >= 3
-            ? companion_.session()
-            : 0;
-    const auto currentAvailable = companion_.supportsAiUsage();
+    const auto currentSession = companion_.hasLiveCompanion() ? companion_.session() : 0;
+    const auto currentAvailable = companion_.hasLiveCompanion();
     if (currentSession != session_ || currentAvailable != available_) {
         session_ = currentSession;
         available_ = currentAvailable;

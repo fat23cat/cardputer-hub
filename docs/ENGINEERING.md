@@ -653,6 +653,17 @@ Git commit SHA
 build type
 ```
 
+Implemented: every firmware build regenerates
+`cardputer_hub_build_identity.h` through `scripts/write_build_identity.cmake`
+(a custom target in `main/CMakeLists.txt`, rewritten only when its content
+changes). It defines the build date, the short commit with `+` for uncommitted
+tracked changes, and the build ID `YYYY-MM-DD <commit>[+]`;
+`CARDPUTER_HUB_BUILD_DATE` and `CARDPUTER_HUB_COMMIT` override them for
+reproducible release builds. `firmwareBuildInfo()` exposes them, SYSTEM shows
+the build ID as `BUILD`, and HELLO_ACK sends it to the Companion.
+`scripts/package_macos_companion.sh` stamps the same format into the Companion's
+Info.plist. Host builds without the generated header report `unknown` / `dev`.
+
 A future About screen may display:
 
 ```text

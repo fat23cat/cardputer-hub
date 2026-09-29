@@ -53,7 +53,6 @@ struct MacStatusDetails {
     std::optional<std::uint8_t> performancePercent;
     std::optional<std::uint8_t> efficiencyPercent;
     std::optional<std::uint8_t> gpuPercent;
-    std::optional<std::uint16_t> loadCenti;
     bool appsAvailable = false;
     std::uint8_t appCount = 0;
     std::array<MacTopApp, 4> apps{};
@@ -67,7 +66,6 @@ struct MacStatusDetails {
     std::optional<std::uint16_t> routerRttMs;
     std::optional<std::int8_t> wifiRssiDbm;
     std::optional<std::uint16_t> wifiLinkMbps;
-    std::optional<bool> vpnActive;
     bool memorySplitAvailable = false;
     std::uint32_t appMiB = 0;
     std::uint32_t wiredMiB = 0;
@@ -101,8 +99,8 @@ class MacStatusService {
     const MacStatusHistory* history() const noexcept { return state_ ? &state_->history : nullptr; }
     bool monitoring() const noexcept { return state_ != nullptr; }
 
-    // Detail pages exist only with a v6 Companion that advertises SYSTEM_DETAILS.
-    bool detailsSupported() const noexcept { return companion_.supportsSystemDetails(); }
+    // Detail pages exist whenever a Companion session is ready.
+    bool detailsSupported() const noexcept { return companion_.hasLiveCompanion(); }
     // Polls one group every two seconds while monitoring; None stops detail polling.
     void setDetailGroup(MacDetailGroup group);
     // Null while not monitoring.

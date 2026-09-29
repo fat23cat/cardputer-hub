@@ -330,7 +330,10 @@ void test_lifecycle_through_runtime() {
                             static_cast<unsigned>(runtime.update({}, {})));
     TEST_ASSERT_TRUE(f.display.shows("SYSTEM"));
     TEST_ASSERT_TRUE(f.display.shows("50%"));
-    TEST_ASSERT_TRUE(f.display.shows(core::firmwareBuildInfo().version));
+    // The build row identifies the exact firmware build, as the Companion does.
+    TEST_ASSERT_TRUE(f.display.shows("BUILD"));
+    TEST_ASSERT_TRUE(f.display.shows(core::firmwareBuildInfo().buildId));
+    TEST_ASSERT_FALSE(f.display.shows("VERSION"));
     TEST_ASSERT_EQUAL_UINT8(static_cast<unsigned>(apps::MiniAppDeactivationResult::Deactivated),
                             static_cast<unsigned>(runtime.deactivate()));
     TEST_ASSERT_FALSE(runtime.hasActiveApp());

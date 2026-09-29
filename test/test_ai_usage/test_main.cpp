@@ -1,5 +1,7 @@
 #include <unity.h>
 
+#include "../support/companion_session.h"
+
 #include <algorithm>
 #include <cstdio>
 #include <cstring>
@@ -90,30 +92,12 @@ struct Fixture {
     services::IndicatorService indicator{leds};
     services::AiUsageIndicatorController gauge{usage, indicator};
 
-    void ready(std::uint8_t version = 3) {
+    // Every Companion now speaks one protocol; the argument is kept only so the
+    // call sites read the same.
+    void ready(int = 0) {
         transport.transportState = CompanionTransportState::Ready;
-        const std::uint8_t versions[] = {5, 4, 3, 2, 1};
-        transport.incoming.push_back(wire(makeHello(
-            versions + (5 - version), static_cast<std::uint8_t>(std::min<int>(version, 4)))));
-        companion.update({});
-        auto capsRequest = transport.last();
-        TEST_ASSERT_EQUAL_UINT8(version, capsRequest.version);
-        auto caps = makeResponse(companion.session(), capsRequest.requestId,
-                                 CompanionOperation::Capabilities, CompanionStatus::Ok);
-        caps.version = version;
-        const CompanionCapability ids[] = {CompanionCapability::AppActive,
-                                           CompanionCapability::SystemMetrics,
-                                           CompanionCapability::AiUsage};
-        TEST_ASSERT_TRUE(setCapabilityList(caps, ids, 3));
-        transport.incoming.push_back(wire(caps));
-        companion.update({});
-        auto activeRequest = transport.last();
-        auto active = makeResponse(companion.session(), activeRequest.requestId,
-                                   CompanionOperation::AppActive, CompanionStatus::NotAvailable);
-        active.version = version;
-        transport.incoming.push_back(wire(active));
-        companion.update({});
-        TEST_ASSERT_TRUE(companion.supportsAiUsage());
+        test_support::completeCompanionHandshake(transport, companion);
+        TEST_ASSERT_TRUE(companion.hasLiveCompanion());
         TEST_ASSERT_EQUAL_UINT8(static_cast<unsigned>(services::CompanionSubmitResult::Submitted),
                                 static_cast<unsigned>(companion.requestSystemMetrics()));
         usage.update({});
@@ -125,7 +109,6 @@ struct Fixture {
         const auto request = transport.last();
         auto reply = makeResponse(companion.session(), request.requestId,
                                   CompanionOperation::AiUsage, CompanionStatus::Ok);
-        reply.version = companion.selectedProtocolVersion();
         TEST_ASSERT_TRUE(setAiUsage(reply, value));
         transport.incoming.push_back(wire(reply));
         companion.update({});
@@ -454,15 +437,6 @@ void test_no_accounts_names_every_provider() {
     app.onActivate();
     app.update({}, {});
     TEST_ASSERT_EQUAL_INT(1, count(display.labels, "CODEX / CURSOR / CLAUDE"));
-
-    Fixture older;
-    older.ready(4);
-    older.respondValue(value);
-    Display olderDisplay;
-    apps::AiUsageApp olderApp(older.usage, older.gauge, olderDisplay);
-    olderApp.onActivate();
-    olderApp.update({}, {});
-    TEST_ASSERT_EQUAL_INT(1, count(olderDisplay.labels, "CODEX / CURSOR"));
 }
 
 void test_service_polls_cached_snapshot_and_clears_on_session_change() {
@@ -608,14 +582,13 @@ void test_malformed_ai_response_retains_previous_snapshot() {
     f.usage.update(std::chrono::seconds(30));
     auto reply = makeResponse(f.companion.session(), f.transport.last().requestId,
                               CompanionOperation::AiUsage, CompanionStatus::Ok);
-    reply.version = 3;
     CompanionAiUsage value{};
     value.state = AiUsageState::Ready;
     value.providerCount = 1;
     value.providers[0].metricCount = 1;
     TEST_ASSERT_TRUE(setAiUsage(reply, value));
     auto damaged = wire(reply);
-    damaged.bytes[8 + 7 + 4 + 14] = 101;
+    damaged.bytes[8 + 6 + 4 + 14] = 101;
     f.transport.incoming.push_back(damaged);
     f.companion.update({});
     f.usage.update({});

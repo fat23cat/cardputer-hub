@@ -1,5 +1,7 @@
 #include <unity.h>
 
+#include "../support/companion_session.h"
+
 #include <cstring>
 #include <deque>
 #include <string>
@@ -185,29 +187,8 @@ struct Fixture {
 
     void completeHandshake() {
         transport.transportState = CompanionTransportState::Ready;
-        const auto sentBefore = transport.sent.size();
-        const std::uint8_t versions[] = {1};
-        transport.incoming.push_back(encode(makeHello(versions, 1)));
-        companion.update(std::chrono::milliseconds::zero());
-        TEST_ASSERT_TRUE(transport.sent.size() >= sentBefore + 2);
-        const auto ack = sentAt(sentBefore);
-        const auto capsRequest = sentAt(sentBefore + 1);
-        auto capabilitiesResponse =
-            makeResponse(ack.session, capsRequest.requestId, CompanionOperation::Capabilities,
-                         CompanionStatus::Ok);
-        const CompanionCapability ids[] = {CompanionCapability::AppActive,
-                                           CompanionCapability::AppActivate,
-                                           CompanionCapability::AppActiveEvents};
-        TEST_ASSERT_TRUE(setCapabilityList(capabilitiesResponse, ids, 3));
-        transport.incoming.push_back(encode(capabilitiesResponse));
-        companion.update(std::chrono::milliseconds::zero());
-        const auto activeRequest = lastSent();
-        auto activeResponse = makeResponse(ack.session, activeRequest.requestId,
-                                           CompanionOperation::AppActive, CompanionStatus::Ok);
-        TEST_ASSERT_TRUE(setBundleIdentifier(activeResponse, "dev.zed.Zed"));
-        transport.incoming.push_back(encode(activeResponse));
-        companion.update(std::chrono::milliseconds::zero());
-        TEST_ASSERT_TRUE(companion.hasLiveCompanion());
+        cardputer_hub::test_support::completeCompanionHandshake(transport, companion,
+                                                                "dev.zed.Zed");
         while (companion.takeCompletedRequest().has_value()) {
         }
     }

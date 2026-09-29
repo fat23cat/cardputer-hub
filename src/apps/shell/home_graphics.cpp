@@ -85,11 +85,25 @@ std::string homeConnectedDeviceName(const services::HostStatusSnapshot& status) 
     return status.activeHostName.substr(0, maxCharacters - 3) + "...";
 }
 
-void drawHomeConnectedDevice(core::IDisplayAdapter& display, const std::string& name) {
+std::string homeCompanionMismatchText(services::CompanionMismatchAdvice advice) {
+    switch (advice) {
+    case services::CompanionMismatchAdvice::UpdateCompanion:
+        return "UPDATE COMPANION";
+    case services::CompanionMismatchAdvice::UpdateFirmware:
+        return "UPDATE FIRMWARE";
+    case services::CompanionMismatchAdvice::RebuildBoth:
+        break;
+    }
+    return "REBUILD BOTH";
+}
+
+void drawHomeConnectedDevice(core::IDisplayAdapter& display, const std::string& name,
+                             bool warning) {
     display.fillRectangle(homeDeviceRowOrigin, 240, homeDeviceRowHeight, core::palette::bone);
     if (name.empty())
         return;
-    drawDot(display, {8, 101}, HomeStatusIndicator::FilledLeaf);
+    drawDot(display, {8, 101},
+            warning ? HomeStatusIndicator::FilledVermilion : HomeStatusIndicator::FilledLeaf);
     display.drawText({20, 100}, name.c_str(),
                      {core::palette::ink, core::palette::bone, core::systemTextScale});
 }

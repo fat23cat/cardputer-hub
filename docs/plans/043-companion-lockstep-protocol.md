@@ -2,8 +2,32 @@
 
 ## Current status
 
-Planned. Nothing is implemented. Builds on plan 042 (commit `2db2c40`),
-which leaves protocol versions 1–6 in place.
+Software implemented on branch `claude/043-companion-lockstep-protocol`
+(from plan 042). `make check` and `make companion-check` pass; physical
+acceptance (section 9) is pending.
+
+Delivered as planned: one wire format with marker `0xC7`, HELLO / HELLO_ACK
+with fingerprint and build ID, `Incompatible` firmware state with
+`UPDATE COMPANION` / `UPDATE FIRMWARE` / `REBUILD BOTH` on Home, the
+COMPANION-only capability, build identity on both sides (SYSTEM row `BUILD`,
+Companion menu **Builds**), one fixture set and rewritten documentation.
+
+Deviations:
+
+* The fingerprint hashes the generator source only. The fixtures are derived
+  from that source and `hello.bin` contains the fingerprint, so hashing them
+  would be circular; the consistency test is
+  `test_python/test_companion_fixtures.py`.
+* The build ID has no `·`: `2026-09-29 abc1234`, as in section 3.
+* No answer to HELLO does not stop the Mac: it keeps the existing reconnect
+  retries and keeps the no-answer notice until a HELLO_ACK arrives, so a
+  firmware update connects without pressing Reconnect. A mismatch does stop
+  retries (handled in `AppDelegate`'s handshake watchdog, not
+  `CompanionCentral`).
+* Beyond dropping schema bytes, the CPU details group lost its load-average
+  field and the network group its reserved VPN bit, which plan 042's polish
+  had already removed from the screens.
+* SYSTEM row 07 is `BUILD` (the build ID) instead of `VERSION`.
 
 ---
 

@@ -100,18 +100,20 @@ if(CARDPUTER_HUB_VERSION STREQUAL "")
     set(CARDPUTER_HUB_VERSION "0.1.0-dev")
 endif()
 
-set(CARDPUTER_HUB_COMMIT "$ENV{CARDPUTER_HUB_COMMIT}")
-if(CARDPUTER_HUB_COMMIT STREQUAL "")
-    execute_process(
-        COMMAND git rev-parse --short=12 HEAD
-        WORKING_DIRECTORY "${CMAKE_CURRENT_LIST_DIR}/.."
-        OUTPUT_VARIABLE CARDPUTER_HUB_COMMIT
-        OUTPUT_STRIP_TRAILING_WHITESPACE
-        ERROR_QUIET)
-endif()
-if(CARDPUTER_HUB_COMMIT STREQUAL "")
-    set(CARDPUTER_HUB_COMMIT "unknown")
-endif()
+# Commit, build date and build id are written into a header on every build, not
+# only at configure time, so they never go stale after later commits.
+set(CARDPUTER_HUB_IDENTITY_DIR "${CMAKE_CURRENT_BINARY_DIR}/generated")
+set(CARDPUTER_HUB_IDENTITY_HEADER "${CARDPUTER_HUB_IDENTITY_DIR}/cardputer_hub_build_identity.h")
+file(MAKE_DIRECTORY "${CARDPUTER_HUB_IDENTITY_DIR}")
+add_custom_target(cardputer_hub_build_identity
+    COMMAND ${CMAKE_COMMAND}
+        -D SOURCE_DIR=${CMAKE_CURRENT_LIST_DIR}/..
+        -D OUTPUT=${CARDPUTER_HUB_IDENTITY_HEADER}
+        -P ${CMAKE_CURRENT_LIST_DIR}/../scripts/write_build_identity.cmake
+    BYPRODUCTS ${CARDPUTER_HUB_IDENTITY_HEADER}
+    VERBATIM)
+add_dependencies(${COMPONENT_LIB} cardputer_hub_build_identity)
+target_include_directories(${COMPONENT_LIB} PRIVATE "${CARDPUTER_HUB_IDENTITY_DIR}")
 
 set(CARDPUTER_HUB_BUILD_TYPE "$ENV{CARDPUTER_HUB_BUILD_TYPE}")
 if(CARDPUTER_HUB_BUILD_TYPE STREQUAL "")
@@ -122,5 +124,4 @@ target_compile_definitions(
     ${COMPONENT_LIB}
     PRIVATE
         CARDPUTER_HUB_VERSION="${CARDPUTER_HUB_VERSION}"
-        CARDPUTER_HUB_COMMIT="${CARDPUTER_HUB_COMMIT}"
         CARDPUTER_HUB_BUILD_TYPE="${CARDPUTER_HUB_BUILD_TYPE}")

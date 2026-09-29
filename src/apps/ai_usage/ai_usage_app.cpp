@@ -193,8 +193,6 @@ void AiUsageApp::onDeactivate() {
 
 const connectivity::AiUsageProvider* AiUsageApp::detailProvider() const {
     const auto& snapshot = usage_.snapshot();
-    if (snapshot.schemaVersion < 2)
-        return nullptr;
     for (std::uint8_t i = 0; i < snapshot.providerCount; ++i) {
         const auto& provider = snapshot.providers[i];
         if (provider.provider == detail_ && rolling(provider))
@@ -348,9 +346,7 @@ void AiUsageApp::draw() {
         label(display_, 54, 59, "CHECKING AI", core::palette::ink, 2);
     } else if (snapshot.providerCount == 0) {
         label(display_, 44, 48, "NO AI ACCOUNTS", core::palette::ink, 2);
-        // Companions before schema 3 cannot detect Claude.
-        const char* checked =
-            snapshot.schemaVersion >= 3 ? "CODEX / CURSOR / CLAUDE" : "CODEX / CURSOR";
+        const char* checked = "CODEX / CURSOR / CLAUDE";
         label(display_, core::centeredTextX(checked, 0, 240), 82, checked, core::palette::ordinal);
     } else if (snapshot.providerCount == 1 && snapshot.providers[0].metricCount == 2) {
         const auto& provider = snapshot.providers[0];
@@ -443,7 +439,7 @@ void AiUsageApp::update(const core::InputEvents& input, std::chrono::millisecond
                     if (rolling(snapshot.providers[i]))
                         target = &snapshot.providers[i];
             }
-            if (target != nullptr && snapshot.schemaVersion >= 2) {
+            if (target != nullptr) {
                 detail_ = target->provider;
                 view_ = View::Limits;
                 resetScroll_ = 0;

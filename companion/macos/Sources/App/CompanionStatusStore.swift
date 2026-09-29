@@ -4,11 +4,12 @@ import Foundation
 
 final class CompanionStatusStore: ObservableObject {
     @Published private(set) var connection: CompanionConnectionPresentationState = .disconnected
-    @Published private(set) var protocolVersion: UInt8?
+    @Published private(set) var firmwareBuildId: String?
+    @Published private(set) var compatibility: CompanionCompatibility = .unknown
+    @Published private(set) var companionBuildId = BuildIdentity.current
     @Published private(set) var sessionId: UInt16?
     @Published private(set) var sessionStartedAt: Date?
     @Published private(set) var lastMessageAt: Date?
-    @Published private(set) var capabilities = CompanionCapabilitySummary([])
     @Published private(set) var bluetoothReady = false
     @Published private(set) var startAtLogin = false
     @Published private(set) var startAtLoginError = false
@@ -30,8 +31,12 @@ final class CompanionStatusStore: ObservableObject {
     }
 
     var statusMetadataText: String? {
-        CompanionPresentation.statusMetadata(connection: connection, protocolVersion: protocolVersion,
+        CompanionPresentation.statusMetadata(connection: connection, firmwareBuildId: firmwareBuildId,
                                              lastMessageAt: lastMessageAt, now: now)
+    }
+
+    var compatibilityNotice: String? {
+        CompanionPresentation.compatibilityNotice(compatibility, companionBuildId: companionBuildId)
     }
 
     var sessionDurationText: String? {
@@ -43,11 +48,18 @@ final class CompanionStatusStore: ObservableObject {
         connection = CompanionPresentation.connection(session: session.session, phase: phase,
                                                        error: error, waitingToConnect: waitingToConnect)
         let connected = session.session != 0
-        protocolVersion = connected ? session.selectedProtocolVersion : nil
+        compatibility = session.compatibility
+        companionBuildId = session.buildId
+        if case .matched(let firmware) = session.compatibility, connected {
+            firmwareBuildId = firmware
+        } else if case .mismatch(let firmware) = session.compatibility {
+            firmwareBuildId = firmware
+        } else {
+            firmwareBuildId = nil
+        }
         sessionId = connected ? session.session : nil
         sessionStartedAt = connected ? session.sessionStartedAt : nil
         lastMessageAt = connected ? session.lastValidMessageAt : nil
-        capabilities = CompanionCapabilitySummary(connected ? session.liveCapabilities : [])
         self.bluetoothReady = bluetoothReady
         now = Date()
     }

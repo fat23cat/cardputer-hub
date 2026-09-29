@@ -18,7 +18,18 @@ enum class CompanionServiceState : std::uint8_t {
     Handshaking,
     Ready,
     ProtocolError,
+    // The Mac was built from a different protocol definition; nothing but a
+    // new HELLO is accepted until it is updated.
+    Incompatible,
 };
+
+// Which side to update after a fingerprint mismatch, judged by build dates.
+enum class CompanionMismatchAdvice : std::uint8_t { UpdateCompanion, UpdateFirmware, RebuildBoth };
+
+// `peerBuildId` is the Companion's "YYYY-MM-DD <commit>"; a legacy peer (built
+// before plan 043) always needs a Companion update.
+CompanionMismatchAdvice companionMismatchAdvice(const char* firmwareBuildId,
+                                                const char* peerBuildId, bool peerLegacy);
 
 enum class CompanionSubmitResult : std::uint8_t { Submitted, NotReady, Busy, Invalid };
 
@@ -42,19 +53,15 @@ class CompanionService {
     void update(std::chrono::milliseconds elapsed);
     CompanionServiceState state() const noexcept { return state_; }
     std::uint16_t session() const noexcept { return session_; }
-    std::uint8_t selectedProtocolVersion() const noexcept { return selectedProtocolVersion_; }
     std::uint8_t lastSubmittedRequestId() const noexcept { return lastSubmittedRequestId_; }
     bool hasLiveCompanion() const noexcept { return state_ == CompanionServiceState::Ready; }
-    bool supportsAiUsage() const noexcept {
-        return hasLiveCompanion() && selectedProtocolVersion_ >= 3 &&
-               capabilities_.isAvailable(connectivity::companionAiUsageCapabilityId);
-    }
+    // The Companion's build id from its HELLO (empty for a legacy peer).
+    const char* peerBuildId() const noexcept { return peerBuildId_.data(); }
+    bool peerIsLegacy() const noexcept { return peerLegacy_; }
+    // Meaningful only while Incompatible.
+    CompanionMismatchAdvice mismatchAdvice() const noexcept;
     CompanionSubmitResult requestActiveApplication();
     CompanionSubmitResult activateApplication(std::string_view bundleId);
-    bool supportsSystemDetails() const noexcept {
-        return hasLiveCompanion() && selectedProtocolVersion_ >= 6 &&
-               capabilities_.isAvailable(connectivity::companionSystemDetailsCapabilityId);
-    }
     CompanionSubmitResult requestSystemMetrics();
     CompanionSubmitResult requestSystemDetails(connectivity::SystemDetailsGroup group);
     CompanionSubmitResult requestAiUsage();
@@ -78,11 +85,13 @@ class CompanionService {
     void log(core::LogLevel level, const char* message) const;
     void becomeUnavailable();
     void enterProtocolError();
+    void enterIncompatible(const char* peerBuildId, bool legacy);
     void clearLiveCapabilities();
     void publishLiveCapabilities();
     bool sendMessage(const connectivity::CompanionEnvelope& message);
     void handleIncoming(const connectivity::CompanionPayload& payload);
     void handleHello(const connectivity::CompanionEnvelope& message);
+    bool sendHelloAck(std::uint16_t session, connectivity::CompanionStatus status);
     void handleResponse(const connectivity::CompanionEnvelope& message);
     void handleEvent(const connectivity::CompanionEnvelope& message);
     bool startHandshakeRequests();
@@ -103,7 +112,8 @@ class CompanionService {
     core::Logger* logger_ = nullptr;
     CompanionServiceState state_ = CompanionServiceState::Unavailable;
     std::uint16_t session_ = 0;
-    std::uint8_t selectedProtocolVersion_ = connectivity::companionProtocolVersion;
+    std::array<char, connectivity::companionMaxBuildIdSize + 1> peerBuildId_{};
+    bool peerLegacy_ = false;
     std::uint16_t nextSession_ = 1;
     std::uint8_t nextRequestId_ = 1;
     std::uint8_t lastSubmittedRequestId_ = 0;
@@ -115,9 +125,6 @@ class CompanionService {
     std::array<char, connectivity::companionMaxBundleIdSize + 1> activeBundle_{};
     std::uint8_t activeBundleLength_ = 0;
     bool hasActiveBundle_ = false;
-    std::array<connectivity::CompanionCapability, connectivity::companionMaxCapabilities>
-        liveCapabilities_{};
-    std::uint8_t liveCapabilityCount_ = 0;
     bool companionPublished_ = false;
     std::chrono::milliseconds sinceHeartbeat_{0};
     std::chrono::milliseconds sinceHeartbeatSend_{0};

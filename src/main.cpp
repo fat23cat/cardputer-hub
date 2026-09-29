@@ -133,23 +133,23 @@ extern "C" void app_main(void) {
                                    "mac-control",
                                    {cardputer_hub::connectivity::companionCapabilityId}});
     (void)miniApps.registerInstance("mac-control", macControl);
-    (void)appRegistry.registerApp(
-        {"mac-status",
-         "MAC STATUS",
-         "mac-status",
-         "mac-status",
-         {cardputer_hub::connectivity::companionSystemMetricsCapabilityId}});
+    (void)appRegistry.registerApp({"mac-status",
+                                   "MAC STATUS",
+                                   "mac-status",
+                                   "mac-status",
+                                   {cardputer_hub::connectivity::companionCapabilityId}});
     (void)miniApps.registerInstance("mac-status", macStatusApp);
     (void)appRegistry.registerApp({"ai-usage",
                                    "AI USAGE",
                                    "ai-usage",
                                    "ai-usage",
-                                   {cardputer_hub::connectivity::companionAiUsageCapabilityId}});
+                                   {cardputer_hub::connectivity::companionCapabilityId}});
     (void)miniApps.registerInstance("ai-usage", aiUsageApp);
     (void)appRegistry.registerApp({"pomodoro", "POMODORO", "pomodoro", "pomodoro", {}});
     (void)miniApps.registerInstance("pomodoro", pomodoroApp);
     (void)appRegistry.registerApp({"led-gallery", "LED GALLERY", "led-gallery", "led-gallery", {}});
     (void)miniApps.registerInstance("led-gallery", ledGallery);
+    applicationShell.setCompanion(companion);
     battery.update(std::chrono::milliseconds(0));
     previousUpdateMilliseconds = esp_timer_get_time() / 1000;
 

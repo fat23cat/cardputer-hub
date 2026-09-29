@@ -1298,7 +1298,7 @@ void test_bluetooth_failure_leaves_wifi_and_system_core_operational() {
     IsolationDisplay display;
     CapturingLogSink logSink;
     Logger logger(logSink, LogLevel::Info);
-    const BuildInfo buildInfo{"Test Hub", "1.0.0", "test", "test"};
+    const BuildInfo buildInfo{"Test Hub", "1.0.0", "test", "test", "2026-09-29", "2026-09-29 test"};
     IsolationBacklight backlight;
     cardputer_hub::core::DisplayPowerController displayPower(backlight);
     SystemRuntime runtime(platform, keyboard, display, displayPower, logger, buildInfo);

@@ -21,11 +21,11 @@ Home has **APPS** and **SETTINGS** actions at the bottom. **APPS** is selected
 each time Home opens. Press **Left** or **Right** to select an action, then
 **Enter** to open it. Plain **Tab** opens Settings directly. The
 list currently contains **SYSTEM**, a read-only status screen for battery,
-Bluetooth, the selected host, Wi-Fi, and firmware version; **POMODORO**, a
+Bluetooth, the selected host, Wi-Fi, and the firmware build (date and
+commit, as `BUILD`); **POMODORO**, a
 background focus timer; **LED GALLERY**, an 8×8 matrix animation app; and **MAC CONTROL** when a live Cardputer Companion
-session is ready. **MAC STATUS** appears when that Companion supports system
-metrics. **AI USAGE** appears with a v3 or newer Companion and shows automatically
-discovered Codex, Cursor and Claude account quota. MAC CONTROL is a full-screen
+session is ready. **MAC STATUS** and **AI USAGE** appear with that session too;
+AI USAGE shows automatically discovered Codex, Cursor and Claude account quota. MAC CONTROL is a full-screen
 3×2 grid. Press the matching number to launch or focus that Mac app; production
 firmware binds **1** to Telegram. Empty numbered tiles do nothing. Left and
 Right move between pages when more than one page exists. A bound press expands
@@ -121,9 +121,9 @@ The macOS **Cardputer Companion.app** is optional. Build and launch it from
 `companion/macos` as described in that directory's README. Grant Bluetooth
 permission on first launch. The
 Companion attaches to the already-paired Cardputer; it does not scan or create
-a second pairing. The menu-bar menu shows connection status, protocol, and
-last valid message; it also provides Reconnect, Start at Login, Diagnostics,
-About, and Quit. Start at Login can be enabled or disabled in the menu.
+a second pairing. The menu-bar menu shows connection status, the Cardputer
+firmware build and the last valid message; it also provides Reconnect, Start at
+Login, Diagnostics, About, and Quit. Start at Login can be enabled or disabled in the menu.
 Closing the Mac lid, sleep,
 or a BLE drop invalidates the session; after wake and HID reconnect it attaches
 again without relaunching Companion or re-pairing.
@@ -132,6 +132,19 @@ if it is closed. Keyboard and consumer HID keep working if the Companion is
 missing, crashed, or disconnected.
 After Companion closes, its host-name row on Home disappears when the session
 is detected as unavailable, even if Bluetooth HID remains connected.
+
+Update the firmware and the Companion together, from the same checkout. Both
+carry a build ID — the build date and commit, for example
+`2026-09-29 abc1234` (`+` after the commit means uncommitted changes) — shown
+as `BUILD` in SYSTEM and under **Builds** in the Companion menu. When the two
+were built from different protocol definitions, they do not connect: Home
+shows a red dot with `UPDATE COMPANION`, `UPDATE FIRMWARE` or `REBUILD BOTH`,
+and the Companion menu names the side to update. The side with the older build
+date is the one to update; with equal dates, rebuild both. A Companion from
+before this change always shows `UPDATE COMPANION`. After updating, the
+Companion reconnects on its own after a relaunch; use **Reconnect** if it was
+already running. If the Cardputer does not answer at all, the menu says so and
+keeps retrying.
 
 MAC STATUS shows CPU, physical memory used/total, how much of the startup disk
 is used (`DISK 63% USED`), Mac battery, download/upload rates, whether memory
@@ -147,7 +160,7 @@ It polls roughly once per second only while open. Individual unavailable
 metrics and values older than three seconds show `--`. CPU and network rates
 may initially show `--` while the Companion establishes counter baselines.
 
-With a Companion that supports protocol v6, the battery also shows the time to
+The battery also shows the time to
 full charge while charging (with a green dot), the time left on battery, or
 `AC` when plugged in and not charging. Five dots at the bottom mean four more
 pages are available. Press Right (`/`) or Left (`,`), with or without Fn, to
@@ -186,19 +199,14 @@ A detail page updates about every two seconds; its values show `--` for the
 first two to four seconds after it opens, and again when they are more than
 six seconds old. The Mac
 measures the network only while the NETWORK page is open.
-Press Escape to leave. A v1
-Companion still supports MAC CONTROL but does not expose MAC STATUS; a Companion
-older than v6 shows only the overview. The v6 Companion offers protocols 6 to 3,
-so Cardputer firmware that supports only v1 or v2 does not connect to it;
-update the firmware together with the Companion. Companion
+Press Escape to leave. Companion
 loss closes MAC STATUS and reconnect does not reopen it automatically.
 
 AI USAGE has no setup screen. The Companion checks Codex, the existing
 Cursor Agent sign-in and the existing Claude Code sign-in on that Mac; an absent
 provider is omitted. Plus accounts show 5-hour and weekly limits, Business shows
 credits, Cursor Enterprise shows personal spend, and Claude Pro or Max shows its
-5-hour and weekly limits. Claude needs a Companion and firmware that both
-support protocol v5. The first time, macOS asks whether Cardputer Companion may
+5-hour and weekly limits. The first time, macOS asks whether Cardputer Companion may
 use `Claude Code-credentials`; choose **Always Allow**. Until you answer,
 Claude is not shown, and with no other account AI USAGE shows `CHECKING AI`.
 Claude values update about once a minute; if the Claude service limits
@@ -433,8 +441,7 @@ selected host after Reset/power-on were confirmed on Cardputer-Adv. Extended
 Off, report/interruption and USB hotplug acceptance remains tracked in
 [plan 017](../plans/017-hid-transport-arbitration.md#0-current-closeout-status).
 The current firmware includes Apps, SYSTEM, POMODORO, LED GALLERY, MAC CONTROL when
-Companion is ready, MAC STATUS when system telemetry is available, and AI USAGE
-with a v3 or newer Companion. It does not include profile-metadata editing or template
+Companion is ready, and MAC STATUS and AI USAGE with that Companion session. It does not include profile-metadata editing or template
 resolution, Action-to-HID mappings, a Mac companion CLI/control protocol,
 Wi-Fi network scanning, or weather/VPS/Telegram features. Boot/status sound
 cues from the broader UI requirements remain planned. Unit Puzzle LED Gallery

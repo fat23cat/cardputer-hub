@@ -3,6 +3,7 @@ import pathlib
 import subprocess
 import sys
 import tempfile
+import shutil
 import unittest
 
 
@@ -313,6 +314,34 @@ class EspIdfBuildConfigurationTests(unittest.TestCase):
             entrypoint.index("network.update(elapsed);"),
             entrypoint.index("uiScheduler.elapsedForUpdate"),
         )
+
+    def test_build_identity_is_regenerated_on_every_build(self) -> None:
+        # Commit and build date come from a header rewritten by a custom target on
+        # every build; a configure-time commit would go stale after later commits.
+        cmake = (ROOT / "main" / "CMakeLists.txt").read_text()
+        self.assertIn("add_custom_target(cardputer_hub_build_identity", cmake)
+        self.assertIn("add_dependencies(${COMPONENT_LIB} cardputer_hub_build_identity)", cmake)
+        self.assertIn("scripts/write_build_identity.cmake", cmake)
+        self.assertNotIn("git rev-parse", cmake)
+        self.assertNotIn('CARDPUTER_HUB_COMMIT="${CARDPUTER_HUB_COMMIT}"', cmake)
+        source = (ROOT / "src" / "core" / "lifecycle" / "build_info.cpp").read_text()
+        self.assertIn('__has_include("cardputer_hub_build_identity.h")', source)
+
+    @unittest.skipUnless(shutil.which("cmake"), "cmake is not on PATH")
+    def test_build_identity_script_writes_id_and_skips_unchanged_output(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            header = pathlib.Path(directory) / "identity.h"
+            environment = dict(os.environ, CARDPUTER_HUB_BUILD_DATE="2026-09-29",
+                               CARDPUTER_HUB_COMMIT="abc1234def")
+            command = ["cmake", f"-DSOURCE_DIR={ROOT}", f"-DOUTPUT={header}", "-P",
+                       str(ROOT / "scripts" / "write_build_identity.cmake")]
+            subprocess.run(command, check=True, env=environment)
+            text = header.read_text()
+            self.assertIn('#define CARDPUTER_HUB_BUILD_ID "2026-09-29 abc1234"', text)
+            self.assertIn('#define CARDPUTER_HUB_COMMIT "abc1234def"', text)
+            written = header.stat().st_mtime_ns
+            subprocess.run(command, check=True, env=environment)
+            self.assertEqual(written, header.stat().st_mtime_ns)
 
     def test_component_sources_are_explicitly_enumerated(self) -> None:
         application_component = self.read("main/CMakeLists.txt")
