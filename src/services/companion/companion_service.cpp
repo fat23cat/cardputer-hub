@@ -244,6 +244,17 @@ CompanionSubmitResult CompanionService::requestSystemMetrics() {
                   makeRequest(session_, 0, CompanionOperation::SystemMetrics), false);
 }
 
+CompanionSubmitResult
+CompanionService::requestSystemDetails(connectivity::SystemDetailsGroup group) {
+    if (!supportsSystemDetails())
+        return CompanionSubmitResult::NotReady;
+    auto request = makeRequest(session_, 0, CompanionOperation::SystemDetails);
+    request.version = selectedProtocolVersion_;
+    if (!connectivity::setSystemDetailsRequest(request, group))
+        return CompanionSubmitResult::Invalid;
+    return submit(CompanionOperation::SystemDetails, request, false);
+}
+
 CompanionSubmitResult CompanionService::requestAiUsage() {
     if (state_ != CompanionServiceState::Ready || selectedProtocolVersion_ < 3 ||
         !capabilities_.isAvailable(connectivity::companionAiUsageCapabilityId))
@@ -441,17 +452,21 @@ void CompanionService::handleEvent(const CompanionEnvelope& message) {
 void CompanionService::handleIncoming(const CompanionPayload& payload) {
     const auto decoded = decodeCompanionMessage(payload.bytes.data(), payload.size);
     if (!decoded.has_value()) {
-        if (payload.size >= connectivity::companionEnvelopeSize &&
-            payload.bytes[0] == selectedProtocolVersion_ &&
+        const auto operation = payload.size >= connectivity::companionEnvelopeSize
+                                   ? payload.bytes[5]
+                                   : std::uint8_t{0};
+        const bool isolated = connectivity::isKnownCompanionOperation(operation) &&
+                              connectivity::companionResponseFailureIsIsolated(
+                                  static_cast<CompanionOperation>(operation));
+        if (isolated && payload.bytes[0] == selectedProtocolVersion_ &&
             payload.bytes[1] == static_cast<std::uint8_t>(CompanionKind::Response) &&
-            payload.bytes[5] == static_cast<std::uint8_t>(CompanionOperation::AiUsage) &&
             (std::uint16_t(payload.bytes[2]) | (std::uint16_t(payload.bytes[3]) << 8U)) ==
                 session_) {
             if (auto* pending = findPending(payload.bytes[4]);
-                pending != nullptr && pending->operation == CompanionOperation::AiUsage) {
-                completePending(*pending,
-                                makeResponse(session_, pending->id, CompanionOperation::AiUsage,
-                                             CompanionStatus::Malformed));
+                pending != nullptr &&
+                pending->operation == static_cast<CompanionOperation>(operation)) {
+                completePending(*pending, makeResponse(session_, pending->id, pending->operation,
+                                                       CompanionStatus::Malformed));
             }
             return;
         }

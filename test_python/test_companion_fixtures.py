@@ -19,6 +19,16 @@ REQUIRED = (
     "unsupported-version.bin",
     "wrong-session.bin",
     "unknown-operation.bin",
+    "hello-v6.bin",
+    "hello-ack-v6.bin",
+    "capabilities-response-v6.bin",
+    "system-metrics-response-v6.bin",
+    "system-details-request-v6.bin",
+    "system-details-response-cpu-v6.bin",
+    "system-details-response-power-v6.bin",
+    "system-details-response-network-v6.bin",
+    "system-details-response-memory-v6.bin",
+    "ai-usage-response-v6.bin",
 )
 
 

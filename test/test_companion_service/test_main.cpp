@@ -519,6 +519,138 @@ void test_v2_negotiation_and_operation_owned_completions() {
     TEST_ASSERT_FALSE(capabilities.isAvailable(companionSystemMetricsCapabilityId));
 }
 
+void handshakeV6(FakeTransport& transport, CompanionService& service, bool details) {
+    transport.transportState = CompanionTransportState::Ready;
+    const std::uint8_t versions[] = {6, 5, 4, 3};
+    transport.incoming.push_back(encode(makeHello(versions, 4)));
+    service.update(std::chrono::milliseconds::zero());
+    const auto ack = sentAt(transport, 0);
+    TEST_ASSERT_EQUAL_UINT8(6, ack.payload[0]);
+    const auto capsRequest = sentAt(transport, 1);
+    auto caps = makeResponse(ack.session, capsRequest.requestId, CompanionOperation::Capabilities,
+                             CompanionStatus::Ok);
+    caps.version = 6;
+    const CompanionCapability ids[] = {CompanionCapability::AppActive,
+                                       CompanionCapability::SystemMetrics,
+                                       CompanionCapability::SystemDetails};
+    TEST_ASSERT_TRUE(setCapabilityList(caps, ids, details ? 3 : 2));
+    transport.incoming.push_back(encode(caps));
+    service.update(std::chrono::milliseconds::zero());
+    const auto activeRequest = lastSent(transport);
+    auto active = makeResponse(ack.session, activeRequest.requestId, CompanionOperation::AppActive,
+                               CompanionStatus::NotAvailable);
+    active.version = 6;
+    transport.incoming.push_back(encode(active));
+    service.update(std::chrono::milliseconds::zero());
+    TEST_ASSERT_EQUAL_UINT8(static_cast<unsigned>(CompanionServiceState::Ready),
+                            static_cast<unsigned>(service.state()));
+}
+
+void test_system_details_capability_requires_v6() {
+    using cardputer_hub::connectivity::SystemDetailsGroup;
+    {
+        FakeTransport transport;
+        CapabilityRegistry capabilities;
+        CompanionService service(transport, capabilities);
+        completeHandshake(transport, service, capabilities, 4);
+        TEST_ASSERT_FALSE(service.supportsSystemDetails());
+        TEST_ASSERT_EQUAL_UINT8(
+            static_cast<unsigned>(CompanionSubmitResult::NotReady),
+            static_cast<unsigned>(service.requestSystemDetails(SystemDetailsGroup::Cpu)));
+    }
+    {
+        FakeTransport transport;
+        CapabilityRegistry capabilities;
+        CompanionService service(transport, capabilities);
+        handshakeV6(transport, service, false);
+        TEST_ASSERT_FALSE(service.supportsSystemDetails());
+    }
+    FakeTransport transport;
+    CapabilityRegistry capabilities;
+    CompanionService service(transport, capabilities);
+    handshakeV6(transport, service, true);
+    TEST_ASSERT_TRUE(service.supportsSystemDetails());
+    TEST_ASSERT_TRUE(
+        capabilities.isAvailable(cardputer_hub::connectivity::companionSystemDetailsCapabilityId));
+    TEST_ASSERT_EQUAL_UINT8(
+        static_cast<unsigned>(CompanionSubmitResult::Submitted),
+        static_cast<unsigned>(service.requestSystemDetails(SystemDetailsGroup::Power)));
+    const auto request = lastSent(transport);
+    TEST_ASSERT_EQUAL_UINT8(6, request.version);
+    TEST_ASSERT_EQUAL_UINT8(1, request.payloadSize);
+    TEST_ASSERT_EQUAL_UINT8(2, request.payload[0]);
+    TEST_ASSERT_TRUE(service.hasPendingRequest(CompanionOperation::SystemDetails));
+
+    // A malformed details payload fails only that request, not the session.
+    auto response = makeResponse(service.session(), request.requestId,
+                                 CompanionOperation::SystemDetails, CompanionStatus::Ok);
+    response.version = 6;
+    response.payload[0] = 1;
+    response.payload[1] = 9;
+    response.payloadSize = 4;
+    const auto raw = cardputer_hub::connectivity::encodeCompanionMessage(response);
+    TEST_ASSERT_FALSE(raw.has_value());
+    CompanionPayload payload{};
+    const std::uint8_t header[] = {6,
+                                   static_cast<std::uint8_t>(CompanionKind::Response),
+                                   static_cast<std::uint8_t>(service.session() & 0xFFU),
+                                   static_cast<std::uint8_t>(service.session() >> 8U),
+                                   request.requestId,
+                                   static_cast<std::uint8_t>(CompanionOperation::SystemDetails),
+                                   0,
+                                   4,
+                                   1,
+                                   9,
+                                   0,
+                                   0};
+    std::memcpy(payload.bytes.data(), header, sizeof(header));
+    payload.size = sizeof(header);
+    transport.incoming.push_back(payload);
+    service.update(std::chrono::milliseconds::zero());
+    TEST_ASSERT_EQUAL_UINT8(static_cast<unsigned>(CompanionServiceState::Ready),
+                            static_cast<unsigned>(service.state()));
+    const auto completed = service.takeCompletedRequest(CompanionOperation::SystemDetails);
+    TEST_ASSERT_TRUE(completed.has_value());
+    TEST_ASSERT_EQUAL_UINT8(static_cast<unsigned>(CompanionStatus::Malformed),
+                            static_cast<unsigned>(completed->status));
+}
+
+void test_malformed_telemetry_fails_only_its_request() {
+    FakeTransport transport;
+    CapabilityRegistry capabilities;
+    CompanionService service(transport, capabilities);
+    handshakeV6(transport, service, true);
+    TEST_ASSERT_EQUAL_UINT8(static_cast<unsigned>(CompanionSubmitResult::Submitted),
+                            static_cast<unsigned>(service.requestSystemMetrics()));
+    const auto request = lastSent(transport);
+    // A metrics response whose schema byte does not match v6.
+    CompanionPayload payload{};
+    payload.bytes[0] = 6;
+    payload.bytes[1] = static_cast<std::uint8_t>(CompanionKind::Response);
+    payload.bytes[2] = static_cast<std::uint8_t>(service.session() & 0xFFU);
+    payload.bytes[3] = static_cast<std::uint8_t>(service.session() >> 8U);
+    payload.bytes[4] = request.requestId;
+    payload.bytes[5] = static_cast<std::uint8_t>(CompanionOperation::SystemMetrics);
+    payload.bytes[6] = 0;
+    payload.bytes[7] = 1;
+    payload.bytes[8] = 9;
+    payload.size = 9;
+    transport.incoming.push_back(payload);
+    service.update(std::chrono::milliseconds::zero());
+    TEST_ASSERT_EQUAL_UINT8(static_cast<unsigned>(CompanionServiceState::Ready),
+                            static_cast<unsigned>(service.state()));
+    const auto completed = service.takeCompletedRequest(CompanionOperation::SystemMetrics);
+    TEST_ASSERT_TRUE(completed.has_value());
+    TEST_ASSERT_EQUAL_UINT8(static_cast<unsigned>(CompanionStatus::Malformed),
+                            static_cast<unsigned>(completed->status));
+    TEST_ASSERT_TRUE(cardputer_hub::connectivity::companionResponseFailureIsIsolated(
+        CompanionOperation::AiUsage));
+    TEST_ASSERT_FALSE(cardputer_hub::connectivity::companionResponseFailureIsIsolated(
+        CompanionOperation::AppActive));
+    TEST_ASSERT_FALSE(
+        cardputer_hub::connectivity::companionResponseFailureIsIsolated(CompanionOperation::Ping));
+}
+
 } // namespace
 
 int main() {
@@ -539,5 +671,7 @@ int main() {
     RUN_TEST(test_empty_active_changed_clears_bundle_and_malformed_event_fails);
     RUN_TEST(test_active_changed_event_updates_bundle_and_logs_omit_it);
     RUN_TEST(test_v2_negotiation_and_operation_owned_completions);
+    RUN_TEST(test_system_details_capability_requires_v6);
+    RUN_TEST(test_malformed_telemetry_fails_only_its_request);
     return UNITY_END();
 }

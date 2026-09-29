@@ -55,6 +55,7 @@ ownership matrix with invariants. Do not rewrite older plans into that format.
 | [039](039-system-font-scayle.md) | 1.10× system font infrastructure and captures | Software implemented; superseded by 040 after visual review |
 | [040](040-system-font-scale-120.md) | 1.20× system font visual trial | Software implemented; physical Cardputer-Adv readability review pending |
 | [041](041-claude-usage.md) | Claude subscription usage and four-metric AI USAGE | Software implemented; physical and Keychain-prompt acceptance pending |
+| [042](042-mac-status-pages.md) | MAC STATUS pages, history and protocol v6 detailed telemetry | Software implemented; physical Cardputer-Adv acceptance pending |
 
 The work referred to historically as 013 is the approved
 [UI requirements](../UI_REQUIREMENTS.md); there is no separate plan-013 file.

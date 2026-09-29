@@ -1530,7 +1530,9 @@ limit.
 `LedGalleryApp` is a Mini App with twenty fixed-ID effects. Its engine owns
 fixed simulation buffers and deterministic randomness; the app owns selection,
 keyboard interaction, LCD labels, and one `ForegroundApplication` claim. The
-selected effect survives closing and reopening within a firmware session. LED
+engine is heap-allocated on activation and released on deactivation (about
+2 KB); only the selected effect survives closing and reopening within a
+firmware session. LED
 frames are published at roughly 20 FPS and continue while the LCD is dim or
 off. Left/Right navigate the full registry; digits 1–0 select effects 1–10 and
 Fn+digits select 11–20 (physical Fn+digits arrive as F1–F10 key events).
@@ -1804,7 +1806,7 @@ hardware, host selection, UI, or macOS-specific behavior. The companion is a
 separate program and shares a versioned wire contract and conformance fixtures
 with firmware, not a cross-platform C++ implementation library.
 
-The Mac offers protocol versions 5, 4, 3 and 2 in a v1-framed HELLO; Cardputer
+The Mac offers protocol versions 6, 5, 4 and 3 in a v1-framed HELLO; Cardputer
 selects the highest shared version. Protocol v2 adds `SYSTEM_METRICS` with a
 fixed 24-byte payload. A v1 session retains its original capability list and
 cannot use telemetry. Protocol v3 adds `AI_USAGE`, a bounded normalized
@@ -1821,19 +1823,54 @@ Pro/Max plans. The Companion omits Claude for v3/v4 sessions and still sends at
 most two providers. Firmware flattens provider metrics in snapshot order once,
 in `aiUsageVisibleMetrics`; AI USAGE rows, hover selection and Unit Puzzle
 bands all use that order.
+Protocol v6 uses SYSTEM_METRICS schema 2, which appends the power source and
+battery minutes, and adds `SYSTEM_DETAILS`: a request names one group (CPU,
+power, network, memory/disk) and the response echoes it. v2–v5 sessions keep
+schema 1 and never carry SYSTEM_DETAILS; AI_USAGE stays at schema 3.
 `CompanionService` exposes operation-filtered completions:
 `HostControlService` consumes APP_ACTIVATE, while `MacStatusService` consumes
-SYSTEM_METRICS and `AiUsageService` consumes AI_USAGE. Internal handshake and
+SYSTEM_METRICS and SYSTEM_DETAILS and `AiUsageService` consumes AI_USAGE. Internal handshake and
 heartbeat responses stay private.
 AI_USAGE can span all 16 BLE fragments, so firmware allows six seconds to
 assemble a message and six seconds for an AI_USAGE response; short operations
-retain their two-second request timeout.
+retain their two-second request timeout. Telemetry responses
+(`SYSTEM_METRICS`, `AI_USAGE`, `SYSTEM_DETAILS`) change no session state, so a
+malformed one fails only its own request; the protocol layer declares this in
+`companionResponseFailureIsIsolated`. Any other malformed message is a
+protocol error.
+The adapter's Companion receive ring (`CompanionChunkRing`) is a 1536-byte
+FIFO of variable-length records, so each chunk costs its own size plus two
+bytes: it holds two full AI_USAGE messages in 17-byte chunks or five MTU-sized
+chunks. Its overflow and a failed Companion notify lose data only: the
+BluetoothService drops the queued chunks and the partial message but keeps the
+Companion subscription, because a cleared subscription returns only with a new
+CCCD write, which macOS does not send while the HID link stays up. Lost
+responses time out in `CompanionService`; the transport becomes unavailable
+only when the adapter itself reports the peer unsubscribed or disconnected.
 `MacStatusService` owns one-second foreground polling, one outstanding metrics
-request, normalized snapshots, and a three-second freshness threshold. The
-MAC STATUS Mini App starts and stops monitoring with its lifecycle and renders
-placeholders for unavailable or stale fields. The macOS collector alone samples
-system metrics; it is injected into `CompanionSession` through a testable
-`SystemMetricsCollecting` boundary.
+request, normalized snapshots, and a three-second freshness threshold. It also
+keeps a 60-sample `MacStatusHistory` (a gap only for a failed or unsent poll,
+never for a late answer; cleared on start,
+stop and every Companion session change) and, for the visible detail page
+only, polls one SYSTEM_DETAILS group every two seconds with one outstanding
+request. A completion for a group the page no longer shows is dropped and the
+current group is requested at once; details are fresh for six seconds.
+All monitoring state (snapshot, history, details, request bookkeeping) and the
+Mini App's view state are heap-allocated when MAC STATUS opens and released
+when it closes; a closed MAC STATUS keeps only references and one pointer each.
+The MAC STATUS Mini App owns only the page index: it starts and stops monitoring
+with its lifecycle, selects the detail group, and renders placeholders for
+unavailable or stale fields. It never calls `CompanionService`. The macOS
+collectors alone sample system metrics and details; they are injected into
+`CompanionSession` through the testable `SystemMetricsCollecting` and
+`SystemDetailsCollecting` boundaries. The Mac writes MTU-sized chunks, and it
+reconnects on its own when a session has received no valid request (the
+Cardputer pings every three seconds) for twelve seconds. The details collector answers from a
+per-group cache and refreshes the requested group on a background queue, so
+BLE and the menu bar never wait for process scans. Encoding, name sanitising, app roll-up,
+counter baselines and the network probe schedule live in `CompanionCore`;
+IOKit, libproc, CoreWLAN, SystemConfiguration and socket access live in the
+App target.
 
 On macOS, `AiUsageCollector` refreshes Codex and Cursor independently in the
 background and answers BLE requests from a lock-protected cache. The macOS

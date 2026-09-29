@@ -4,6 +4,8 @@
 #include "apps/runtime/mini_app.h"
 #include "core/display/display_adapter.h"
 
+#include <memory>
+
 namespace cardputer_hub::apps {
 
 inline constexpr char ledGalleryAppId[] = "led-gallery";
@@ -23,7 +25,9 @@ class LedGalleryApp final : public IMiniApp {
     services::IndicatorService& indicator_;
     core::IDisplayAdapter& display_;
     services::IndicatorClaim claim_;
-    LedGalleryEngine engine_;
+    // Created on activation and released on deactivation; only the selected
+    // effect survives between openings.
+    std::unique_ptr<LedGalleryEngine> engine_;
     LedGalleryEffect effect_ = LedGalleryEffect::Plasma;
     const std::uint32_t seed_;
     std::chrono::milliseconds outputElapsed_{0};

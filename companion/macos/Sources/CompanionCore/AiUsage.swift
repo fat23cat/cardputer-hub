@@ -110,17 +110,24 @@ public struct AiUsageSnapshot: Equatable {
     /// The providers a session of this version receives: firmware before schema 3
     /// rejects the whole payload on an unknown provider, and the wire carries at
     /// most two providers, taken in snapshot order.
+    /// The AI_USAGE schema byte for a session (v3 → 1, v4 → 2, v5 and v6 → 3).
+    /// Sessions older than v3 have no AI_USAGE; they map to schema 1 rather than trap.
+    public static func schema(protocolVersion: UInt8) -> UInt8 {
+        max(3, min(protocolVersion, 5)) - 2
+    }
+
     public func sentProviders(protocolVersion: UInt8) -> [AiUsageProviderSnapshot] {
-        guard (3...5).contains(protocolVersion) else { return [] }
-        return Array(providers.filter { Self.supported($0, schema: protocolVersion - 2) }
+        guard (3...6).contains(protocolVersion) else { return [] }
+        return Array(providers.filter { Self.supported($0, schema: Self.schema(protocolVersion: protocolVersion)) }
             .prefix(2))
     }
 
     public func encode(protocolVersion: UInt8 = 3) -> [UInt8]? {
-        guard (3...5).contains(protocolVersion) else { return nil }
+        guard (3...6).contains(protocolVersion) else { return nil }
+        let schema = Self.schema(protocolVersion: protocolVersion)
         let providers = sentProviders(protocolVersion: protocolVersion)
         guard Set(providers.map(\.provider)).count == providers.count else { return nil }
-        var bytes: [UInt8] = [protocolVersion - 2, state.rawValue, UInt8(providers.count)]
+        var bytes: [UInt8] = [schema, state.rawValue, UInt8(providers.count)]
         Self.put(generation, into: &bytes)
         for provider in providers {
             guard (1...2).contains(provider.metrics.count) else { return nil }
@@ -138,7 +145,7 @@ public struct AiUsageSnapshot: Equatable {
                 Self.put(metric.resetAt, into: &bytes)
                 Self.put(metric.resetRemainingSeconds, into: &bytes)
             }
-            guard Self.supported(provider, schema: protocolVersion - 2) else { return nil }
+            guard Self.supported(provider, schema: schema) else { return nil }
             if protocolVersion >= 4 {
                 guard provider.resetCredits == nil ||
                     (provider.provider == .codex && provider.plan == .plus) else { return nil }

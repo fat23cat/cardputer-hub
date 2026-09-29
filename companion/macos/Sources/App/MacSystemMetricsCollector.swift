@@ -14,7 +14,10 @@ final class MacSystemMetricsCollector: SystemMetricsCollecting {
         sample.memory = memory()
         sample.memoryPressure = memoryPressure()
         sample.diskUsedPercent = disk()
-        sample.batteryPercent = battery()
+        let power = battery()
+        sample.batteryPercent = power?.percent
+        sample.powerSource = power?.source
+        sample.batteryMinutes = power?.minutes
         sample.network = network()
         switch ProcessInfo.processInfo.thermalState {
         case .nominal: sample.thermalState = .normal
@@ -44,14 +47,7 @@ final class MacSystemMetricsCollector: SystemMetricsCollecting {
     }
 
     private func memory() -> (usedMiB: UInt32, totalMiB: UInt32)? {
-        var count = mach_msg_type_number_t(MemoryLayout<vm_statistics64_data_t>.size / MemoryLayout<integer_t>.size)
-        var stats = vm_statistics64_data_t()
-        let result = withUnsafeMutablePointer(to: &stats) { pointer in
-            pointer.withMemoryRebound(to: integer_t.self, capacity: Int(count)) {
-                host_statistics64(mach_host_self(), HOST_VM_INFO64, $0, &count)
-            }
-        }
-        guard result == KERN_SUCCESS else { return nil }
+        guard let stats = MacSystemSources.vmStatistics() else { return nil }
         return SystemMemoryUsage.estimate(
             totalBytes: ProcessInfo.processInfo.physicalMemory,
             pageBytes: UInt64(vm_kernel_page_size),
@@ -79,7 +75,8 @@ final class MacSystemMetricsCollector: SystemMetricsCollecting {
         return UInt8(min(100, (total - free) * 100 / total))
     }
 
-    private func battery() -> UInt8? {
+    /// The internal battery; a Mac without one reports no power fields at all.
+    private func battery() -> (percent: UInt8, source: PowerSource?, minutes: UInt16?)? {
         guard let info = IOPSCopyPowerSourcesInfo()?.takeRetainedValue(),
               let sources = IOPSCopyPowerSourcesList(info)?.takeRetainedValue() as? [CFTypeRef] else { return nil }
         for source in sources {
@@ -90,18 +87,22 @@ final class MacSystemMetricsCollector: SystemMetricsCollecting {
                   let current = description[kIOPSCurrentCapacityKey] as? Int,
                   let maxCapacity = description[kIOPSMaxCapacityKey] as? Int,
                   maxCapacity > 0 else { continue }
-            return UInt8(max(0, min(100, current * 100 / maxCapacity)))
+            let percent = UInt8(max(0, min(100, current * 100 / maxCapacity)))
+            let state = description[kIOPSPowerSourceStateKey] as? String
+            let charging = description[kIOPSIsChargingKey] as? Bool ?? false
+            let source: PowerSource? = state == kIOPSBatteryPowerValue ? .battery
+                : state == kIOPSACPowerValue ? (charging ? .charging : .acPower) : nil
+            // macOS reports -1 while it is still estimating.
+            let key = source == .charging ? kIOPSTimeToFullChargeKey
+                : source == .battery ? kIOPSTimeToEmptyKey : nil
+            let minutes = key.flatMap { description[$0] as? Int }.flatMap { $0 > 0 ? UInt16(clamping: $0) : nil }
+            return (percent, source, minutes)
         }
         return nil
     }
 
     private func network() -> (downloadKiBps: UInt32, uploadKiBps: UInt32)? {
-        guard let store = SCDynamicStoreCreate(nil, "CardputerCompanion" as CFString, nil, nil),
-              let name = ["State:/Network/Global/IPv4", "State:/Network/Global/IPv6"]
-                .compactMap({ key -> String? in
-                    let global = SCDynamicStoreCopyValue(store, key as CFString) as? [String: Any]
-                    return global?[kSCDynamicStorePropNetPrimaryInterface as String] as? String
-                }).first else {
+        guard let name = MacSystemSources.primaryNetwork().interface else {
             networkPrevious = nil
             return nil
         }

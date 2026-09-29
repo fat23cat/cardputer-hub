@@ -34,14 +34,17 @@ it through `SMAppService` at the next login.
 Click the computer-shaped menu-bar icon to open the Companion menu. It shows
 the Cardputer connection, negotiated protocol, and last valid message. Use
 **Reconnect** to restart the existing BLE attach flow without
-forgetting the bond. **Start at Login** changes the actual macOS login-item
+forgetting the bond. The Companion also reconnects by itself when a session
+has received nothing from the Cardputer for 12 seconds (the Cardputer pings
+every three seconds). Messages to the Cardputer are split into chunks as large
+as the negotiated Bluetooth MTU allows. **Start at Login** changes the actual macOS login-item
 registration; it is not enabled automatically. The Diagnostics submenu shows
 session and capability state, About opens the standard macOS About window with
 the version and build, and Quit stops the Companion without changing the login
 setting. The menu uses standard AppKit menu items and a system switch, so it
 follows the current macOS appearance.
 
-The Companion offers protocol v4 with v3, v2 and v1 fallback. With v2 it advertises
+The Companion offers protocol v6 with v5, v4 and v3 fallback. With v2 and later it advertises
 `SYSTEM_METRICS` and answers foreground polling from MAC STATUS. Sampling uses
 native macOS APIs for CPU, physical memory usage estimate, memory pressure,
 root-volume usage, battery, primary-interface network rates, and thermal state.
@@ -98,3 +101,35 @@ Codex, Cursor, Claude; Diagnostics marks any provider the connected Cardputer
 does not receive as not sent.
 Claude usage is a private provider adapter that may need updating if the
 service changes.
+
+With v6, MAC STATUS also receives the power source and the minutes to full or
+to empty, and the Companion advertises `SYSTEM_DETAILS` for the Cardputer's
+detail pages. It reads only the group the Cardputer asks for. A request is
+answered at once from that group's cached sample while a background queue
+reads the group again, so the first request after a page opens is answered
+`NOT_AVAILABLE` and a sample older than five seconds is never sent:
+
+* CPU: per-core load split into performance and efficiency clusters (from the
+  IORegistry cluster type of each CPU), GPU utilisation from the IOAccelerator
+  statistics, the one-minute load average, and the four apps using the most
+  CPU. Process CPU time comes from `proc_pid_rusage`; processes of other users
+  are not readable without root and are skipped. Helper processes inside an
+  `.app` bundle count toward the outermost app.
+* Power: system power draw from the battery telemetry, adapter wattage,
+  battery health (nominal over design capacity), cycle count, and the
+  lowest-charged Apple Bluetooth mouse, keyboard or trackpad.
+* Network: round-trip time to `1.1.1.1` and to the router with an unprivileged
+  ICMP echo; a router that drops ICMP is timed with a TCP connection to port 80
+  or 443. Probes run on their own queue at most every five seconds and stop ten
+  seconds after the last NETWORK request. Wi-Fi signal and link rate come from
+  CoreWLAN without reading the network name, so no Location permission is
+  needed. VPN is on when the primary interface is a `utun`, `ipsec` or `ppp`
+  tunnel.
+* Memory and disk: app, wired and compressed memory, swap in use, free and
+  total space on `/` in decimal GB, and disk read/write rates from the block
+  storage counters.
+
+App and peripheral names are transliterated to plain ASCII before they are
+sent. Process CPU and disk rates need a previous sample; after ten seconds
+without a request the first answer omits them. Diagnostics shows whether
+`SYSTEM_DETAILS` is available.

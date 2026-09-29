@@ -136,13 +136,48 @@ is detected as unavailable, even if Bluetooth HID remains connected.
 MAC STATUS shows CPU, physical memory used/total, memory pressure, root-volume
 storage usage, Mac battery, download/upload rates, and thermal state. The
 memory value is an estimate that counts compressed and inactive app memory but
-excludes free memory and file-backed cache.
+excludes free memory and file-backed cache. Under the CPU value a line shows
+the last 60 seconds; it grows from the right after you open the app and breaks
+only where the Mac did not answer.
 The dashboard occupies the full screen without a title or connection indicator.
 It polls roughly once per second only while open. Individual unavailable
 metrics and values older than three seconds show `--`. CPU and network rates
 may initially show `--` while the Companion establishes counter baselines.
-Press Escape to leave; the other keys do not control the dashboard. A v1
-Companion still supports MAC CONTROL but does not expose MAC STATUS. Companion
+
+With a Companion that supports protocol v6, the battery also shows the time to
+full charge while charging (with a blue bolt), the time left on battery, or
+`AC` when plugged in and not charging. Five dots at the bottom mean four more
+pages are available. Press Right (`/`) or Left (`,`), with or without Fn, to
+move between them; the pages wrap around, and MAC STATUS always opens on the
+overview:
+
+* **CPU / TOP APPS** — CPU with a 60-second line, performance (`P`) and
+  efficiency (`E`) core load, GPU, the one-minute load average, and the four
+  apps using the most CPU; `APPS IDLE` means no app uses at least 1% of the
+  Mac. An app's helper processes count toward the app.
+  Only your own processes are listed; system processes owned by other users
+  are not.
+* **POWER** — battery percentage and segment meter, charging state and time,
+  the Mac's current power draw, adapter wattage, battery health and cycle
+  count, and the lowest-charged Apple mouse, keyboard or trackpad (`LOW` at 20%
+  or less). A Mac without a battery shows `NO BATTERY`.
+* **NETWORK** — download and upload with 60-second lines, round-trip time to
+  the internet (`1.1.1.1`) and to your router, Wi-Fi signal and link rate, and
+  whether a full-tunnel VPN carries the default route. The Wi-Fi network name
+  is not read, so macOS does not ask for Location access.
+* **MEMORY / DISK** — RAM split into app, wired and compressed memory, swap in
+  use, free space on the startup disk in decimal GB as Finder shows it, and
+  disk read and write rates.
+
+A detail page updates about every two seconds; its values show `--` for the
+first two to four seconds after it opens, and again when they are more than
+six seconds old. The Mac
+measures the network only while the NETWORK page is open.
+Press Escape to leave. A v1
+Companion still supports MAC CONTROL but does not expose MAC STATUS; a Companion
+older than v6 shows only the overview. The v6 Companion offers protocols 6 to 3,
+so Cardputer firmware that supports only v1 or v2 does not connect to it;
+update the firmware together with the Companion. Companion
 loss closes MAC STATUS and reconnect does not reopen it automatically.
 
 AI USAGE has no setup screen. The Companion checks Codex, the existing

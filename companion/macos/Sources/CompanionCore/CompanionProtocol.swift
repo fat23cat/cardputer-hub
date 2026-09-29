@@ -17,6 +17,7 @@ public enum CompanionOperation: UInt8 {
     case appActiveChanged = 5
     case systemMetrics = 6
     case aiUsage = 7
+    case systemDetails = 8
 }
 
 public enum CompanionStatus: UInt8 {
@@ -33,11 +34,12 @@ public enum CompanionCapability: UInt8 {
     case appActiveEvents = 3
     case systemMetrics = 4
     case aiUsage = 5
+    case systemDetails = 6
 }
 
 public struct CompanionConstants {
     public static let protocolVersion: UInt8 = 1
-    public static let latestProtocolVersion: UInt8 = 5
+    public static let latestProtocolVersion: UInt8 = 6
     public static let maxMessageSize = 256
     public static let envelopeSize = 8
     public static let maxPayloadSize = maxMessageSize - envelopeSize
@@ -147,6 +149,10 @@ public enum CompanionCodec {
             message.payload[0] = 5
             message.payload.append(CompanionCapability.aiUsage.rawValue)
         }
+        if version >= 6 {
+            message.payload[0] = 6
+            message.payload.append(CompanionCapability.systemDetails.rawValue)
+        }
         return message
     }
 
@@ -172,7 +178,8 @@ public enum CompanionCodec {
         case .request, .response:
             return operation == .ping || operation == .capabilities ||
                 operation == .appActive || operation == .appActivate ||
-                operation == .systemMetrics || operation == .aiUsage
+                operation == .systemMetrics || operation == .aiUsage ||
+                operation == .systemDetails
         case .event:
             return operation == .appActiveChanged
         }
@@ -218,7 +225,8 @@ public enum CompanionCodec {
             return message.payload.dropFirst().allSatisfy {
                 guard let capability = CompanionCapability(rawValue: $0) else { return false }
                 return (capability != .systemMetrics || message.version >= 2) &&
-                    (capability != .aiUsage || message.version >= 3)
+                    (capability != .aiUsage || message.version >= 3) &&
+                    (capability != .systemDetails || message.version >= 6)
             }
         case .appActive:
             if message.kind == .request { return message.payload.isEmpty }
@@ -232,12 +240,19 @@ public enum CompanionCodec {
         case .systemMetrics:
             guard message.version >= 2 else { return false }
             if message.kind == .request || message.status != .ok { return message.payload.isEmpty }
-            return SystemMetricsSample.decode(message.payload) != nil
+            return SystemMetricsSample.decode(message.payload, protocolVersion: message.version) != nil
         case .aiUsage:
             guard message.version >= 3 else { return false }
             if message.kind == .request || message.status != .ok { return message.payload.isEmpty }
-            return message.payload.first == message.version - 2 &&
+            return message.payload.first == AiUsageSnapshot.schema(protocolVersion: message.version) &&
                 AiUsageSnapshot.decode(message.payload) != nil
+        case .systemDetails:
+            guard message.version >= 6 else { return false }
+            if message.kind == .request {
+                return message.payload.count == 1 && SystemDetailsGroup(rawValue: message.payload[0]) != nil
+            }
+            if message.status != .ok { return message.payload.isEmpty }
+            return SystemDetailsSample.decode(message.payload) != nil
         }
     }
 }
@@ -246,6 +261,13 @@ public enum CompanionFramer {
     public static let headerSize = 3
     public static let defaultPayload = 17
     public static let maxChunks = 16
+
+    /// Chunk payload for one ATT write: the negotiated maximum (MTU − 3) minus the
+    /// chunk header, never below the 20-byte-MTU default and never above one
+    /// whole message. Fewer writes per message keep the link from backing up.
+    public static func payloadSize(maximumWriteLength: Int) -> Int {
+        max(defaultPayload, min(maximumWriteLength - headerSize, CompanionConstants.maxMessageSize))
+    }
 
     public static func encode(_ message: [UInt8], messageId: UInt8, maxPayload: Int = defaultPayload) -> [[UInt8]]? {
         guard !message.isEmpty, message.count <= CompanionConstants.maxMessageSize, maxPayload > 0 else { return nil }

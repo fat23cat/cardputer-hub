@@ -158,6 +158,7 @@ final class CompanionMenuBarController: NSObject, NSMenuDelegate {
         addInfo("App Control: \(availability(status.capabilities.appControl))")
         addInfo("App Events: \(availability(status.capabilities.appEvents))")
         addInfo("System Metrics: \(availability(status.capabilities.systemMetrics))")
+        addInfo("System Details: \(availability(status.capabilities.systemDetails))")
 
         addSection("AI Usage Cache on Mac")
         addInfo("Codex: \(aiProviderState(.codex))")
