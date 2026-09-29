@@ -944,7 +944,7 @@ func collectorPublishesPersonalCodexAndClaude() {
     cursorFake.complete(cursor)
     claudeFake.complete(claude)
     expect(waitUntil { collector.snapshot()?.providers.map(\.provider) == [.codex, .cursor, .claude] })
-    expect(collector.snapshot()?.encode(protocolVersion: 5).flatMap(AiUsageSnapshot.decode)?
+    expect(collector.snapshot()?.encode().flatMap(AiUsageSnapshot.decode)?
         .providers.map(\.provider) == [.codex, .cursor])
     collector.stop()
 }

@@ -419,7 +419,10 @@ Ordinal, and Ink tones. The orb is redrawn in its bounded viewport at most every
 active, and never counts as user activity. A reserved row at y=96..111 shows a
 round Leaf dot and active host name only when HostService is Ready, provides
 a name, and the COMPANION capability is live; long labels are visually
-truncated. The BT status dot remains tied to HostService. The fixed bottom
+truncated. When the Companion was built from a different protocol, the row
+instead shows a round Vermilion dot and `UPDATE COMPANION`, `UPDATE FIRMWARE`
+or `REBUILD BOTH`, naming the side with the older build date (both when the
+dates are equal or unknown; a pre-043 Companion always needs an update). The BT status dot remains tied to HostService. The fixed bottom
 action bar at y=113..134 contains APPS and SETTINGS, with APPS focused on each
 Home entry.
 Left/Right selects the action with the shared spring focus plate, Enter activates
@@ -540,20 +543,18 @@ between pages. A bound press waits on the resting grid; success lights that
 tile Leaf for 1.5 s, failure Vermilion for 2 s. Status is colour only. The tile
 then returns to the resting grid. Companion loss closes MAC CONTROL
 through the existing Mini App runtime and returns Launcher.
-MAC STATUS requires the live `SYSTEM_METRICS` capability. Its 240×135
+MAC STATUS requires the live `COMPANION` capability. Its 240×135
 overview uses the complete surface with CPU/RAM and SSD/battery blocks, a
 download/upload row, and `MEMORY …` / `TEMP …` labels (Leaf when healthy,
 Vermilion when critical or hot). The CPU block shows a
 60-second sparkline instead of a bar; the line fills from the right and breaks
-only where a poll failed, not where an answer was late. With a v6 Companion the battery label adds `H:MM` time (to
+only where a poll failed, not where an answer was late. The battery label adds `H:MM` time (to
 full while charging, to empty on battery) or `AC`, and a green dot marks
-charging. The overview has no title, connection label or connection dot. With
-`SYSTEM_DETAILS` it shows five small page dots at the bottom edge and four
-detail pages follow: CPU / TOP APPS, POWER, NETWORK and MEMORY / DISK. Each
+charging. The overview has no title, connection label or connection dot. It
+shows five small page dots at the bottom edge and four detail pages follow: CPU / TOP APPS, POWER, NETWORK and MEMORY / DISK. Each
 detail page has a one-line header with the title and a quiet `N/5` counter,
 one-pixel rules, and four label/value rows with right-aligned values. Left and
-Right (`,` / `/`, with or without Fn) slide between pages and wrap; without
-`SYSTEM_DETAILS` there is one page and these keys do nothing. The app always
+Right (`,` / `/`, with or without Fn) slide between pages and wrap. The app always
 opens on the overview. Missing metrics and stale snapshots show `--` in their
 own fields; a Mac without a battery shows `NO BATTERY`, and a CPU page with
 no app at 1% or more shows `APPS IDLE` rather than empty rows. Labels are
@@ -564,7 +565,7 @@ is shortened before it would touch its right-aligned value. A peripheral battery
 20% or less shows `LOW` in Vermilion. It repaints changed regions only. Escape
 uses the shared Mini App exit path. Capability loss closes it through
 MiniAppRuntime.
-AI USAGE requires the live v3 `AI_USAGE` capability. It uses the full 240×135
+AI USAGE requires the live `COMPANION` capability. It uses the full 240×135
 display without an internal title, host label, connection chrome, cards, or
 footer. It shows only discovered providers, presents bars as remaining quota,
 labels the value `LEFT`, and marks 0–4% remaining with `!`. A stale provider
@@ -576,7 +577,7 @@ overview uses two four-row zones when two metrics are present, with two purple
 boundary pixels and 30 quota pixels per zone. It runs at Idle priority and does
 not wake the LCD. Unchanged display
 state does not continuously redraw.
-For Codex Plus on protocol v4, the main provider row adds a compact `R×N`
+For Codex Plus, the main provider row adds a compact `R×N`
 badge when the reset-credit count is known, including zero. Enter opens two
 read-only detail pages: LIMITS shows the two rolling windows in separate
 side-by-side columns, each with used, left and reset; RESETS shows the known
@@ -590,7 +591,7 @@ Logical arrow keys also work. Enter returns to
 the dashboard. Both detail pages show `STALE` when the provider data is stale.
 Escape remains the shared Mini App exit. Business and Cursor
 screens retain their existing layout and behavior.
-On protocol v5, a provider with two rolling windows shown beside a second
+A provider with two rolling windows shown beside a second
 provider (for example Codex Plus and Claude) uses one compact row per window:
 `5H`/`WK`, bar, right-aligned remaining percent, and reset time. The provider
 row labels the columns `LEFT` and `RESET`; a stale provider replaces `RESET`

@@ -176,6 +176,9 @@ final class CompanionCentral: NSObject, CBCentralManagerDelegate, CBPeripheralDe
             handshakeWatchdog?.invalidate()
             handshakeWatchdog = Timer.scheduledTimer(withTimeInterval: 5, repeats: false) { [weak self] _ in
                 guard let self, self.session.session == 0 else { return }
+                // A mismatch is final until the user updates one side and reconnects.
+                if case .mismatch = self.session.compatibility { return }
+                self.session.handshakeTimedOut()
                 log.error("companion handshake timed out")
                 self.connectionError = true
                 self.apply(self.coordinator.handleHandshakeTimeout(attempt))
@@ -389,6 +392,10 @@ final class CompanionCentral: NSObject, CBCentralManagerDelegate, CBPeripheralDe
               let assembled = reassembler.ingest([UInt8](data))
         else { return }
         if session.handle(assembled) {
+            if case .mismatch = session.compatibility {
+                log.error("cardputer firmware built from a different protocol")
+                connectionError = true
+            }
             refreshStatus()
         }
     }

@@ -60,7 +60,6 @@ final class MacSystemDetailsCollector: SystemDetailsCollecting {
         case .cpu:
             (sample.performancePercent, sample.efficiencyPercent) = clusterUsage(now: now)
             sample.gpuPercent = gpuUtilization()
-            sample.loadCenti = loadAverage()
             sample.apps = apps.sample(processTimes(), at: now)
         case .power:
             let battery = MacSystemSources.registryValues(
@@ -144,12 +143,6 @@ final class MacSystemDetailsCollector: SystemDetailsCollecting {
             }
         }
         return nil
-    }
-
-    private func loadAverage() -> UInt16? {
-        var loads = [Double](repeating: 0, count: 1)
-        guard getloadavg(&loads, 1) == 1 else { return nil }
-        return UInt16(clamping: Int((loads[0] * 100).rounded()))
     }
 
     private func processTimes() -> [ProcessCPUTime] {

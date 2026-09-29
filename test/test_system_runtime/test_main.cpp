@@ -140,7 +140,8 @@ class FakeLogSink final : public ILogSink {
 struct RuntimeFixture {
     explicit RuntimeFixture(const char* version = "9.8.7")
         : platform(trace), keyboard(trace), display(trace), logSink(trace),
-          logger(logSink, LogLevel::Info), buildInfo{"Test Hub", version, "abc123", "test"},
+          logger(logSink, LogLevel::Info),
+          buildInfo{"Test Hub", version, "abc123", "test", "2026-09-29", "2026-09-29 abc123"},
           runtime(platform, keyboard, display, displayPower, logger, buildInfo) {}
 
     void startAndFinishSplash() {

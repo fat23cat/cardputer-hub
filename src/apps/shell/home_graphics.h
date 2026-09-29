@@ -1,5 +1,6 @@
 #pragma once
 #include "core/display/display_adapter.h"
+#include "services/companion/companion_service.h"
 #include "services/hosts/host_service.h"
 #include "services/network/network_service.h"
 #include <optional>
@@ -31,7 +32,10 @@ void drawHomeStatusBar(core::IDisplayAdapter& display);
 void drawHomeWifi(core::IDisplayAdapter& display, HomeStatusIndicator indicator);
 void drawHomeBluetooth(core::IDisplayAdapter& display, HomeStatusIndicator indicator);
 std::string homeConnectedDeviceName(const services::HostStatusSnapshot& status);
-void drawHomeConnectedDevice(core::IDisplayAdapter& display, const std::string& name);
+// `warning` swaps the Leaf dot for Vermilion, for a Companion mismatch notice.
+void drawHomeConnectedDevice(core::IDisplayAdapter& display, const std::string& name,
+                             bool warning = false);
+std::string homeCompanionMismatchText(services::CompanionMismatchAdvice advice);
 void drawHomeActions(core::IDisplayAdapter& display, std::int32_t plateX);
 void drawHomeBattery(core::IDisplayAdapter& display, std::optional<std::uint8_t> batteryPercent);
 } // namespace cardputer_hub::apps

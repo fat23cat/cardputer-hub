@@ -1,7 +1,17 @@
-# Companion Protocol v1–v6
+# Companion Protocol
 
 Firmware and the macOS Companion share this wire contract and the binary
 fixtures in `fixtures/`. They do not share implementation code.
+
+There is one wire format and no version negotiation: firmware and Companion
+are always built from the same commit and updated together.
+`generate_fixtures.py` defines every layout below and writes the fixtures,
+`companion_fixtures.h`, `src/connectivity/companion/companion_fingerprint.h`
+and `companion/macos/Sources/CompanionCore/ProtocolFingerprint.swift`. The
+protocol fingerprint is the first 8 bytes of SHA-256 over the generator
+source, so any wire change must be made there, and rerunning it changes the
+fingerprint on both sides. `test_python/test_companion_fixtures.py` fails when
+committed outputs differ from what the generator writes.
 
 All multi-byte integers are little-endian. A logical protocol message is at
 most 256 bytes.
@@ -39,27 +49,29 @@ Partial payloads never reach `CompanionService`.
 
 | Offset | Size | Field |
 | --- | --- | --- |
-| 0 | 1 | version (`1`–`6`) |
+| 0 | 1 | frame marker `0xC7` |
 | 1 | 1 | kind |
 | 2 | 2 | session generation |
 | 4 | 1 | request ID (`0` if unused) |
 | 5 | 1 | operation |
-| 6 | 1 | status (`0` unless RESPONSE) |
+| 6 | 1 | status (`0` unless RESPONSE or a mismatch HELLO_ACK) |
 | 7 | 1 | payload length |
 | 8 | n | payload |
 
 Header is 8 bytes. Payload length is at most 248.
 
-Decode and encode reject unknown kind/operation/status, illegal
-`(kind, operation)` pairs, `status != OK` on non-RESPONSE messages, HELLO
-with a non-zero session or request ID, REQUEST/RESPONSE with session or
-request ID `0`, EVENT with a non-zero request ID, PING payloads other than
-4 bytes, non-empty CAPABILITIES/APP_ACTIVE requests, and APP_ACTIVATE
-requests without a valid bundle identifier.
-SYSTEM_METRICS is valid in v2 and later; its request payload is empty and an OK
-response has exactly 24 bytes (schema 1, v2–v5) or 27 bytes (schema 2, v6).
-SYSTEM_DETAILS is valid only in v6; its request carries one group byte.
-Normal session messages must match the selected protocol version.
+Decode and encode reject another marker, unknown kind/operation/status,
+illegal `(kind, operation)` pairs, `status != OK` on REQUEST, EVENT and HELLO,
+HELLO with a non-zero session or request ID, a HELLO_ACK that is neither
+accepted (session non-zero, `OK`) nor mismatch (session `0`, `UNSUPPORTED`),
+REQUEST/RESPONSE with session or request ID `0`, EVENT with a non-zero request
+ID, PING payloads other than 4 bytes, non-empty APP_ACTIVE, SYSTEM_METRICS and
+AI_USAGE requests, APP_ACTIVATE requests without a valid bundle identifier,
+and any payload that does not match its layout exactly.
+
+Frames from Companion builds before plan 043 start with a protocol version
+`1`–`6` instead of the marker. The firmware recognizes such a HELLO only to
+report the mismatch; it never answers it.
 
 ### Kinds
 
@@ -77,13 +89,14 @@ Normal session messages must match the selected protocol version.
 | --- | --- | --- |
 | 0 | NONE | HELLO, HELLO_ACK |
 | 1 | PING | REQUEST, RESPONSE |
-| 2 | CAPABILITIES | REQUEST, RESPONSE |
 | 3 | APP_ACTIVE | REQUEST, RESPONSE |
 | 4 | APP_ACTIVATE | REQUEST, RESPONSE |
 | 5 | APP_ACTIVE_CHANGED | EVENT |
-| 6 | SYSTEM_METRICS | REQUEST, RESPONSE (v2+) |
-| 7 | AI_USAGE | REQUEST, RESPONSE (v3+) |
-| 8 | SYSTEM_DETAILS | REQUEST, RESPONSE (v6+) |
+| 6 | SYSTEM_METRICS | REQUEST, RESPONSE |
+| 7 | AI_USAGE | REQUEST, RESPONSE |
+| 8 | SYSTEM_DETAILS | REQUEST, RESPONSE |
+
+Value `2` (the former CAPABILITIES) is unused and rejected.
 
 ### Status
 
@@ -95,52 +108,59 @@ Normal session messages must match the selected protocol version.
 | 3 | UNSUPPORTED |
 | 4 | MALFORMED |
 
-### Payloads
+## Session start
 
-* HELLO: `count` then up to 4 supported protocol versions.
-* HELLO_ACK: selected protocol version (`1`–`6`). Session generation is in the envelope.
+HELLO and HELLO_ACK carry the same payload: protocol fingerprint (8 bytes),
+build ID length (1 byte, `1..24`), build ID (printable ASCII). A build ID is
+`YYYY-MM-DD <commit>`, with `+` after the commit for a build from uncommitted
+changes, for example `2026-09-29 abc1234`.
+
+1. The Mac sends HELLO with its fingerprint and Companion build ID.
+2. When the fingerprints match, the Cardputer replies HELLO_ACK with a new
+   session generation, status `OK`, its own fingerprint and firmware build ID,
+   then requests APP_ACTIVE. The session is ready when that answer arrives.
+3. When they differ, the Cardputer replies HELLO_ACK with session `0`, status
+   `UNSUPPORTED`, its fingerprint and firmware build ID, and starts no
+   session. Both sides show which build to update (the one with the older
+   build date; both when the dates are equal or unknown). Nothing else is
+   exchanged until a new HELLO.
+4. A pre-043 HELLO gets no reply; the Cardputer asks for a Companion update.
+
+Cardputer sends PING heartbeats. The Mac sends APP_ACTIVE_CHANGED events.
+
+## Payloads
+
 * PING: 4-byte token, echoed by the response.
-* CAPABILITIES request: empty. Response: `count` then capability IDs `1=APP_ACTIVE`, `2=APP_ACTIVATE`, `3=APP_ACTIVE_EVENTS`. Version 2 adds `4=SYSTEM_METRICS`; version 3 adds `5=AI_USAGE`; version 6 adds `6=SYSTEM_DETAILS`. Older versions must not advertise later capabilities.
 * APP_ACTIVE / APP_ACTIVATE / APP_ACTIVE_CHANGED: `length` then UTF-8 bundle identifier, 1–128 bytes. APP_ACTIVE may return `NOT_AVAILABLE` with an empty payload. APP_ACTIVATE may return `NOT_FOUND`. APP_ACTIVE_CHANGED with an empty payload and status `OK` means there is no active bundle.
-* SYSTEM_METRICS request: empty. `OK` response: the fixed payload below. `NOT_AVAILABLE` or `MALFORMED`: empty response. Individual unavailable fields are represented by clear validity bits, not a failed response.
+* SYSTEM_METRICS request: empty. `OK` response: the fixed 26-byte payload below. `NOT_AVAILABLE` or `MALFORMED`: empty response. Individual unavailable fields are represented by clear validity bits, not a failed response.
 
 | Offset | Size | SYSTEM_METRICS response field |
 | --- | --- | --- |
-| 0 | 1 | schema version `1` |
-| 1 | 2 | validity bits: CPU 0, RAM 1, pressure 2, SSD 3, battery 4, network 5, thermal 6 |
-| 3 | 1 | CPU percentage |
-| 4 | 4 | physical RAM used estimate, MiB |
-| 8 | 4 | physical RAM total, MiB |
-| 12 | 1 | pressure: normal 1, warning 2, critical 3 |
-| 13 | 1 | root-volume disk used percentage |
-| 14 | 1 | battery percentage |
-| 15 | 1 | thermal: normal 1, fair 2, serious 3, critical 4 |
-| 16 | 4 | download KiB/s |
-| 20 | 4 | upload KiB/s |
+| 0 | 2 | validity bits: CPU 0, RAM 1, pressure 2, SSD 3, battery 4, network 5, thermal 6, power source 7, battery minutes 8 |
+| 2 | 1 | CPU percentage |
+| 3 | 4 | physical RAM used estimate, MiB |
+| 7 | 4 | physical RAM total, MiB |
+| 11 | 1 | pressure: normal 1, warning 2, critical 3 |
+| 12 | 1 | root-volume disk used percentage |
+| 13 | 1 | battery percentage |
+| 14 | 1 | thermal: normal 1, fair 2, serious 3, critical 4 |
+| 15 | 4 | download KiB/s |
+| 19 | 4 | upload KiB/s |
+| 23 | 1 | power source: battery 1, AC charging 2, AC not charging 3 |
+| 24 | 2 | battery minutes: to full while charging, to empty on battery |
 
 Values with clear validity bits are ignored. Percentages must be 0–100 when
 valid. Unknown pressure or thermal state uses a clear validity bit. The first
 CPU and network samples may be unavailable while their rate baselines form.
-
-Protocol v6 uses SYSTEM_METRICS schema `2`: byte 0 is `2`, bytes 1–23 are
-unchanged, and three bytes follow. v2–v5 sessions keep schema `1` exactly; a
-decoder rejects a schema that does not match the session version.
-
-| Offset | Size | Schema 2 addition |
-| --- | --- | --- |
-| 24 | 1 | power source, validity bit 7: battery 1, AC charging 2, AC not charging 3 |
-| 25 | 2 | battery minutes, validity bit 8: to full while charging, to empty on battery |
-
 The Mac clears bit 8 while macOS is still estimating and on AC while not
 charging. A Mac without an internal battery clears bits 4, 7 and 8.
 
-* SYSTEM_DETAILS request (v6): one byte, group `1=CPU`, `2=power`, `3=network`, `4=memory/disk`. Any other value makes the request invalid; it is not answered and times out on the Cardputer. `OK` response: the group layout below. `NOT_AVAILABLE` or `MALFORMED`: empty response. The Cardputer requests only the group of its visible page.
+* SYSTEM_DETAILS request: one byte, group `1=CPU`, `2=power`, `3=network`, `4=memory/disk`. Any other value makes the request invalid; it is not answered and times out on the Cardputer. `OK` response: the group layout below. `NOT_AVAILABLE` or `MALFORMED`: empty response. The Cardputer requests only the group of its visible page.
 
 | Offset | Size | SYSTEM_DETAILS response header |
 | --- | --- | --- |
-| 0 | 1 | details schema `1` |
-| 1 | 1 | group, echoed from the request |
-| 2 | 2 | validity bits for this group |
+| 0 | 1 | group, echoed from the request |
+| 1 | 2 | validity bits for this group |
 
 Every field is encoded in order even when its validity bit is clear; the Mac
 then writes zero. Names are printable ASCII (`0x20`–`0x7E`); the Mac
@@ -149,67 +169,54 @@ truncates. An empty name becomes `APP`.
 
 | Group | Body after the header |
 | --- | --- |
-| 1 CPU | P-cluster % (1, bit 0), E-cluster % (1, bit 1), GPU % (1, bit 2), 1-minute load ×100 (2, bit 3), app count (1, `0..4`, non-zero only with bit 4); then per app: CPU % of the whole machine (1, `0..100`), name length (1, `1..20`), name |
+| 1 CPU | P-cluster % (1, bit 0), E-cluster % (1, bit 1), GPU % (1, bit 2), app count (1, `0..4`, non-zero only with bit 3); then per app: CPU % of the whole machine (1, `0..100`), name length (1, `1..20`), name |
 | 2 power | system draw in deciwatts (2, bit 0), adapter watts (1, bit 1), battery health % (1, bit 2), cycle count (2, bit 3), lowest Apple peripheral battery % (1, bit 4), peripheral name length (1, `1..16` with bit 4, otherwise `0`), name |
-| 3 network | internet round trip ms (2, bit 0), router round trip ms (2, bit 1), Wi-Fi RSSI dBm signed (1, bit 2), Wi-Fi link rate Mbps (2, bit 3), reserved (1, bit 4; the Mac leaves it clear) |
+| 3 network | internet round trip ms (2, bit 0), router round trip ms (2, bit 1), Wi-Fi RSSI dBm signed (1, bit 2), Wi-Fi link rate Mbps (2, bit 3) |
 | 4 memory/disk | app, wired and compressed memory MiB (3 × 4, bit 0), swap used MiB (4, bit 1), root-volume free and total in decimal GB (2 + 2, bit 2; free ≤ total, total > 0), disk read and write KiB/s (4 + 4, bit 3) |
 
-Validity bits outside the group's fields (`0x1F`, or `0x0F` for memory/disk)
-invalidate the response, as do trailing bytes, out-of-range percentages and
-non-ASCII names. The largest body, CPU with four 20-byte names, is 98 bytes.
-The Mac never sends process paths, user names or peripheral addresses.
+Validity bits outside the group's fields (`0x1F` for power, `0x0F` for the
+others) invalidate the response, as do trailing bytes, out-of-range
+percentages and non-ASCII names. The largest body, CPU with four 20-byte
+names, is 92 bytes. The Mac never sends process paths, user names or
+peripheral addresses.
 
-* AI_USAGE request: empty. `OK` response: bounded schema below. `NOT_AVAILABLE` or `MALFORMED`: empty response. Zero providers is a valid response and does not remove the AI_USAGE capability.
+* AI_USAGE request: empty. `OK` response: bounded layout below. `NOT_AVAILABLE` or `MALFORMED`: empty response. Zero providers is a valid response.
 
 | Field | Size | Values |
 | --- | --- | --- |
-| Schema version | 1 | `1` |
 | Snapshot state | 1 | `1=discovering`, `2=ready` |
 | Provider count | 1 | `0..2` |
 | Generation | 4 | unsigned counter |
-| Each provider: ID, plan, freshness, metric count | 4 | ID `1=Codex`, `2=Cursor`; plan `0=unknown`, `1=Plus`, `2=Business`, `3=Enterprise`; freshness `1=fresh`, `2=stale`; metric count `1..2` |
+| Each provider: ID, plan, freshness, metric count | 4 | ID `1=Codex`, `2=Cursor`, `3=Claude`; plan `0=unknown`, `1=Plus`, `2=Business`, `3=Enterprise`, `4=Pro`, `5=Max`; freshness `1=fresh`, `2=stale`; metric count `1..2` |
 | Each metric: kind, unit | 2 | kind `1=5 hour`, `2=week`, `3=credits`, `4=money`; unit `1=percent`, `2=credits`, `3=cents` |
 | Each metric: used, limit, remaining | 12 | three unsigned 32-bit values |
 | Each metric: remaining percent | 1 | `0..100` |
 | Each metric: reset epoch, reset remaining seconds | 8 | two unsigned 32-bit values |
+| Each provider, after its metrics: reset data flag | 1 | `0=unknown`, `1=known` |
 
-All multi-byte fields are little-endian. A response has at most two providers
-and two metrics per provider, and must contain exactly the declared data. The
-Companion sends normalized numbers and enums only; provider credentials never
+A known reset section is allowed only for Codex Plus and adds `availableCount`
+(1 byte), `detailedCount` (1 byte, 0–4), then each detail: title length
+(1 byte, 1–24), UTF-8 title, expiry Unix epoch (4 bytes), and expiry remaining
+seconds (4 bytes). Zero expiry means unknown. The detail list may be shorter
+than the available count, but `detailedCount` must not exceed
+`availableCount`. Titles are normalized and uppercased on the Mac, then
+truncated to at most 24 UTF-8 bytes at a code-point boundary.
+
+A response has at most two providers and two metrics per provider, and must
+contain exactly the declared data; a Mac that detects more than two providers
+sends the first two in the order Codex, Cursor, Claude. The Companion sends
+normalized numbers and enums only; provider identifiers and credentials never
 cross BLE. Invalid AI usage response content is discarded without replacing
 the previous firmware snapshot. A new Companion session clears that snapshot
 immediately.
 
-Protocol v4 uses AI_USAGE schema `2`. The fields above remain byte-for-byte
-identical except for the schema byte. Each provider is followed by one reset
-data flag (`0=unknown`, `1=known`). A known section is allowed only for Codex
-Plus and adds `availableCount` (1 byte), `detailedCount` (1 byte, 0–4), then
-each detail: title length (1 byte, 1–24), UTF-8 title, expiry Unix epoch (4
-bytes), and expiry remaining seconds (4 bytes). Zero expiry means unknown.
-The detail list may be shorter than the available count, but `detailedCount`
-must not exceed `availableCount`. Titles are normalized and uppercased on the
-Mac, then truncated to at most 24 UTF-8 bytes at a code-point boundary.
-Invalid or truncated
-sections invalidate the response. Version 3 always uses schema `1` and does
-not contain reset data. No identifiers or credentials cross BLE.
+## Failure isolation
 
-Protocol v5 uses AI_USAGE schema `3`. It is byte-for-byte schema `2` except
-for the schema byte and two added enum ranges: provider `3=Claude` and plans
-`4=Pro`, `5=Max`. Schemas `1` and `2` reject provider `3` and plans `4`–`5`,
-so the Mac omits Claude from v3/v4 responses. Reset data remains Codex Plus
-only. The provider and metric bounds are unchanged; a Mac that detects more
-than two providers sends the first two in the order Codex, Cursor, Claude.
-
-Protocol v6 keeps AI_USAGE schema `3` unchanged.
-
-The Mac sends a v1-framed HELLO offering `[6, 5, 4, 3]`. HELLO carries at most
-four versions, so v1 and v2 are no longer offered; a v5 Cardputer still
-selects v5, and a Cardputer that supports only v1 or v2 shares no version.
-Cardputer selects the highest common version and replies with a v1-framed
-HELLO_ACK. Cardputer
-replies HELLO_ACK with a new session generation,
-then requests capabilities and the current active application. Cardputer sends
-PING heartbeats. The Mac sends APP_ACTIVE_CHANGED events.
+A malformed SYSTEM_METRICS, SYSTEM_DETAILS or AI_USAGE response for the current
+session is reported to the waiting app as `MALFORMED` and never ends the
+session; other malformed frames do. A request that times out after the
+handshake fails only for its caller; the session ends when the heartbeat
+liveness window expires.
 
 Normal logs must not contain payloads, bundle identifiers, bond identity, or
-peer identity.
+peer identity. Build IDs may be logged.

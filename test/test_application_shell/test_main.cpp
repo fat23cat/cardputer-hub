@@ -19,6 +19,9 @@
 #include <deque>
 #include <string>
 #include <unity.h>
+
+#include "../support/companion_session.h"
+#include "companion/companion_fixtures.h"
 #include <vector>
 
 using namespace cardputer_hub;
@@ -397,7 +400,8 @@ struct RuntimeBridge {
     RuntimeKeyboard keyboard;
     SilentLogSink sink;
     core::Logger logger{sink, core::LogLevel::Info};
-    const core::BuildInfo buildInfo{"Test Hub", "1", "test", "test"};
+    const core::BuildInfo buildInfo{"Test Hub", "1",          "test",
+                                    "test",     "2026-09-29", "2026-09-29 test"};
     core::SystemRuntime runtime;
 };
 
@@ -1474,6 +1478,63 @@ void test_companion_availability_alone_keeps_home_device_row_empty() {
         }));
 }
 
+class MismatchTransport final : public connectivity::ICompanionTransport {
+  public:
+    connectivity::CompanionTransportState state() const noexcept override {
+        return connectivity::CompanionTransportState::Ready;
+    }
+    connectivity::CompanionSendResult send(const connectivity::CompanionPayload& payload) override {
+        sent.push_back(payload);
+        return connectivity::CompanionSendResult::Sent;
+    }
+    std::optional<connectivity::CompanionPayload> receive() override {
+        if (incoming.empty())
+            return std::nullopt;
+        auto payload = incoming.front();
+        incoming.pop_front();
+        return payload;
+    }
+    std::deque<connectivity::CompanionPayload> incoming;
+    std::vector<connectivity::CompanionPayload> sent;
+};
+
+void test_home_names_the_side_to_update_after_a_companion_mismatch() {
+    Fixture f;
+    MismatchTransport transport;
+    core::CapabilityRegistry companionCapabilities;
+    services::CompanionService companion(transport, companionCapabilities);
+    auto shell = f.makeShell();
+    shell.setCompanion(companion);
+    shell.update({});
+    TEST_ASSERT_FALSE(f.display.shows("UPDATE COMPANION"));
+    // A Companion built before plan 043 sends its old version-list HELLO.
+    const auto* legacy = companion_fixtures::find("legacy-hello.bin");
+    TEST_ASSERT_NOT_NULL(legacy);
+    connectivity::CompanionPayload payload{};
+    std::memcpy(payload.bytes.data(), legacy->bytes, legacy->size);
+    payload.size = static_cast<std::uint16_t>(legacy->size);
+    transport.incoming.push_back(payload);
+    companion.update(std::chrono::milliseconds(0));
+    f.display.fills.clear();
+    f.display.texts.clear();
+    shell.update({});
+    TEST_ASSERT_TRUE(f.display.shows("UPDATE COMPANION"));
+    TEST_ASSERT_TRUE(
+        std::any_of(f.display.fills.begin(), f.display.fills.end(), [](const Display::Fill& fill) {
+            return fill.position.y >= apps::homeDeviceRowOrigin.y && fill.position.y < 112 &&
+                   fill.color.red == core::palette::vermilion.red &&
+                   fill.color.green == core::palette::vermilion.green;
+        }));
+    // A dated Companion build from another protocol: host tests have no dated
+    // firmware build, so the advice is to rebuild both sides.
+    transport.incoming.push_back(
+        test_support::companionWire(test_support::companionHello("2026-09-20 fff0000", false)));
+    companion.update(std::chrono::milliseconds(0));
+    f.display.texts.clear();
+    shell.update({});
+    TEST_ASSERT_TRUE(f.display.shows("REBUILD BOTH"));
+}
+
 void test_home_ready_host_row_updates_without_moving_orb_or_actions() {
     Fixture f;
     connectivity::BluetoothBondReference bond{};
@@ -1653,6 +1714,7 @@ int main() {
     RUN_TEST(test_home_connected_device_requires_ready_and_truncates_without_mutation);
     RUN_TEST(test_bluetooth_fake_defaults_have_no_bond_or_ready_hid);
     RUN_TEST(test_companion_availability_alone_keeps_home_device_row_empty);
+    RUN_TEST(test_home_names_the_side_to_update_after_a_companion_mismatch);
     RUN_TEST(test_home_ready_host_row_updates_without_moving_orb_or_actions);
     RUN_TEST(test_home_orb_does_not_advance_while_display_off);
     RUN_TEST(test_home_entering_while_display_off_defers_ambient_frame);

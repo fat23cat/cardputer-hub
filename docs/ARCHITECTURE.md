@@ -1799,34 +1799,36 @@ Cardputer Companion.app
     macOS APIs
 ```
 
-`CompanionService` owns protocol state, request correlation, timeouts, live
-capabilities, responses, and events for the selected host. It may depend on
+`CompanionService` owns protocol state, request correlation, timeouts, the
+live `COMPANION` capability, responses, and events for the selected host. It may depend on
 `HostService` and a lower-level `ICompanionTransport`; it must not own Bluetooth
 hardware, host selection, UI, or macOS-specific behavior. The companion is a
-separate program and shares a versioned wire contract and conformance fixtures
-with firmware, not a cross-platform C++ implementation library.
+separate program and shares one wire contract and conformance fixtures with
+firmware, not a cross-platform C++ implementation library.
 
-The Mac offers protocol versions 6, 5, 4 and 3 in a v1-framed HELLO; Cardputer
-selects the highest shared version. Protocol v2 adds `SYSTEM_METRICS` with a
-fixed 24-byte payload. A v1 session retains its original capability list and
-cannot use telemetry. Protocol v3 adds `AI_USAGE`, a bounded normalized
-provider snapshot. The capability describes Companion support and remains
-advertised during discovery or when no provider is installed.
-Protocol v4 adds bounded optional Codex Plus reset-credit details to AI_USAGE
-schema 2; v3 continues to use the original schema 1. The Companion normalizes
-count, usable titles and expiry from the existing Codex refresh. The Mac sends
-no more detail rows than the available count, and both codecs reject snapshots
-that violate this bound. Firmware keeps at most four detail rows per provider
-and clears them with the session.
-Protocol v5 uses AI_USAGE schema 3, which adds the Claude provider and its
-Pro/Max plans. The Companion omits Claude for v3/v4 sessions and still sends at
-most two providers. Firmware flattens provider metrics in snapshot order once,
-in `aiUsageVisibleMetrics`; AI USAGE rows, hover selection and Unit Puzzle
-bands all use that order.
-Protocol v6 uses SYSTEM_METRICS schema 2, which appends the power source and
-battery minutes, and adds `SYSTEM_DETAILS`: a request names one group (CPU,
-power, network, memory/disk) and the response echoes it. v2–v5 sessions keep
-schema 1 and never carry SYSTEM_DETAILS; AI_USAGE stays at schema 3.
+Firmware and Companion are built from the same commit and updated together, so
+there is no version negotiation and no capability list. HELLO and HELLO_ACK
+carry a protocol fingerprint — the first 8 bytes of SHA-256 over
+`protocol/companion/generate_fixtures.py`, which defines every layout — and the
+sender's build ID `YYYY-MM-DD <commit>[+]`. The generator writes the fixtures
+and the C++ and Swift fingerprint files, so every wire change changes the
+fingerprint. A matching HELLO gets an accepted HELLO_ACK and the session becomes
+ready after the APP_ACTIVE handshake request; a live session exposes every
+operation (`SYSTEM_METRICS`, `AI_USAGE`, `SYSTEM_DETAILS`, application control)
+under the single `COMPANION` capability. A different fingerprint gets a
+mismatch HELLO_ACK (session `0`, `UNSUPPORTED`) with the firmware build ID and
+moves `CompanionService` to `Incompatible`: it publishes no capability, answers
+nothing but a new HELLO, and exposes the peer build ID and
+`CompanionMismatchAdvice` (update the side with the older build date; both when
+the dates are equal or unknown). A pre-043 HELLO, framed with a version byte
+instead of the `0xC7` marker, is recognized only to enter `Incompatible` with
+"update Companion" advice and gets no reply. Home shows the advice in place of
+the connected device line.
+
+Firmware flattens AI provider metrics in snapshot order once, in
+`aiUsageVisibleMetrics`; AI USAGE rows, hover selection and Unit Puzzle bands
+all use that order. Firmware keeps at most four Codex Plus reset-credit detail
+rows per provider and clears them with the session.
 `CompanionService` exposes operation-filtered completions:
 `HostControlService` consumes APP_ACTIVATE, while `MacStatusService` consumes
 SYSTEM_METRICS and SYSTEM_DETAILS and `AiUsageService` consumes AI_USAGE. Internal handshake and
@@ -1902,8 +1904,12 @@ remaining time corrects it promptly. A new reset identity starts a new countdown
 parses provider JSON or BLE envelopes.
 
 On macOS, `CompanionCentral` owns CoreBluetooth attach and reconnect decisions.
-`CompanionSession` owns negotiated protocol state, the last valid message time,
-and the advertised capability snapshot. `CompanionStatusStore` maps those
+`CompanionSession` owns the session generation, the last valid message time,
+and the compatibility result (matched, mismatch with the firmware build ID, or
+no answer to HELLO). A mismatch stops liveness reconnects until the user
+reconnects; an unanswered HELLO keeps retrying and keeps its notice until a
+HELLO_ACK arrives. The Companion build ID comes from the `CardputerBuildId`
+Info.plist key written by `scripts/package_macos_companion.sh`. `CompanionStatusStore` maps those
 values into menu state; `CompanionMenuBarController` owns the status item and
 native menu lifecycle. Opening the menu does not initiate protocol traffic.
 Its Reconnect action restarts the existing
@@ -1911,11 +1917,10 @@ attach lifecycle without changing bonds, while Start at Login reads and writes
 the actual `SMAppService` registration. Quit releases observers, timers, BLE
 session resources, and the status item without changing login registration.
 
-The version-1 feature surface is intentionally small:
+The application-control surface is intentionally small:
 
 ```text
 ping
-capabilities
 activate application by bundle identifier
 get active application
 ```
@@ -1934,7 +1939,7 @@ peer; an unselected or pairing-only peer cannot issue or receive commands.
 Adding the service must preserve HID readiness, advertising, pairing, bond
 identity, shutdown ownership, the single-connection limit, and log privacy.
 
-The protocol is bounded and versioned. Requests carry a session/generation and
+The protocol is bounded and fingerprinted. Requests carry a session/generation and
 request identifier; responses identify the request; stale, duplicate,
 wrong-session, oversized, malformed, or unsupported messages are rejected.
 Timeout does not imply that a command can be replayed through another transport.
@@ -1946,7 +1951,7 @@ companion failure removes only its live capabilities and fails its pending
 operations explicitly.
 
 Persisted `HostProfile` capability data describes configured expectations.
-Capabilities negotiated from a live companion session describe current
+The capability published from a live companion session describes current
 availability and must not be written back automatically. `COMPANION` becomes a
 runtime Cardputer capability only while a compatible authenticated session for
 the selected host is ready.

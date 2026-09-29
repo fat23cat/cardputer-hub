@@ -44,24 +44,33 @@ enum CompanionCoreCheck {
                "last seen minutes")
         expect(CompanionPresentation.lastSeen(Date(timeIntervalSince1970: 6_400), now: displayNow) == "1h ago",
                "last seen hours")
-        expect(CompanionPresentation.statusMetadata(connection: .connected, protocolVersion: 2,
+expect(CompanionPresentation.statusMetadata(connection: .connected, firmwareBuildId: "2026-09-29 abc1234",
                                                     lastMessageAt: Date(timeIntervalSince1970: 9_999),
-                                                    now: displayNow) == "Protocol v2 · just now",
-               "connected v2 compact status metadata")
-        expect(CompanionPresentation.statusMetadata(connection: .connected, protocolVersion: 1,
-                                                    lastMessageAt: Date(timeIntervalSince1970: 9_992),
-                                                    now: displayNow) == "Protocol v1 · 8s ago",
-               "connected v1 compact status metadata")
-        expect(CompanionPresentation.statusMetadata(connection: .disconnected, protocolVersion: 2,
+                                                    now: displayNow) == "Cardputer 2026-09-29 abc1234 · just now",
+               "connected status names the Cardputer build")
+        expect(CompanionPresentation.statusMetadata(connection: .disconnected, firmwareBuildId: "2026-09-29 abc1234",
                                                     lastMessageAt: Date(timeIntervalSince1970: 9_999),
                                                     now: displayNow) == nil,
-               "disconnected status hides stale protocol metadata")
+               "disconnected status hides stale build metadata")
         expect(CompanionPresentation.sessionDuration(Date(timeIntervalSince1970: 8_878), now: displayNow) == "18m 42s",
                "session duration")
-        let capabilities = CompanionCapabilitySummary([.appActive, .appActivate, .appActiveEvents,
-                                                       .systemMetrics])
-        expect(capabilities.appControl && capabilities.appEvents && capabilities.systemMetrics,
-               "diagnostics capability mapping")
+        expect(CompanionPresentation.compatibilityNotice(.mismatch(firmwareBuildId: "2026-09-29 abc1234"),
+                                                         companionBuildId: "2026-09-20 fff0000") ==
+               "Update this Companion — Cardputer runs 2026-09-29 abc1234", "older Companion is named")
+        expect(CompanionPresentation.compatibilityNotice(.mismatch(firmwareBuildId: "2026-09-20 abc1234"),
+                                                         companionBuildId: "2026-09-29 fff0000") ==
+               "Update Cardputer firmware (2026-09-20 abc1234)", "older firmware is named")
+        expect(CompanionPresentation.compatibilityNotice(.mismatch(firmwareBuildId: "2026-09-29 abc1234"),
+                                                         companionBuildId: "dev") ==
+               "Rebuild firmware and Companion from one commit", "undated builds rebuild both")
+        expect(CompanionPresentation.compatibilityNotice(.noAnswer, companionBuildId: "dev")?
+                .hasPrefix("No answer") == true, "unanswered HELLO hints at old firmware")
+        expect(CompanionPresentation.compatibilityNotice(.matched(firmwareBuildId: "x"), companionBuildId: "y") == nil,
+               "matched builds need no notice")
+        expect(BuildIdentity.buildId(info: [BuildIdentity.infoKey: "2026-09-29 abc1234+"]) == "2026-09-29 abc1234+" &&
+               BuildIdentity.buildId(info: nil) == "dev" &&
+               BuildIdentity.buildId(info: [BuildIdentity.infoKey: String(repeating: "a", count: 25)]) == "dev",
+               "build id comes from Info.plist and is bounded")
         let loginService = FakeLoginRegistration()
         let login = StartAtLoginModel(service: loginService)
         expect(!login.enabled && !login.hasError, "login state reads service")
@@ -85,19 +94,27 @@ enum CompanionCoreCheck {
         expect(externalLogin.enabled && !externalLogin.hasError,
                "login error clears when external approval enables registration")
 
-        let hello = CompanionCodec.encode(CompanionCodec.hello())
-        expect(hello == fixture("hello-v1.bin"), "hello fixture")
-        expect(CompanionCodec.encode(CompanionCodec.hello(versions: [2, 1])) == fixture("hello-v2.bin"),
-               "v2 hello fixture")
-
+let hello = CompanionCodec.hello(CompanionHello(buildId: "2026-09-29 abc1234")).flatMap(CompanionCodec.encode)
+        expect(hello == fixture("hello.bin"), "hello carries fingerprint and build id")
         var ack = CompanionEnvelope()
         ack.kind = .helloAck
         ack.session = 42
-        ack.payload = [1]
-        expect(CompanionCodec.encode(ack) == fixture("hello-ack-v1.bin"), "hello-ack fixture")
-        ack.payload = [2]
-        expect(CompanionCodec.encode(ack) == fixture("hello-ack-v2.bin"), "v2 ack fixture")
-        ack.payload = [1]
+        ack.payload = CompanionHello(buildId: "2026-09-29 abc1234").payload!
+        expect(CompanionCodec.encode(ack) == fixture("hello-ack.bin"), "accepted hello-ack fixture")
+        var mismatchAck = CompanionEnvelope()
+        mismatchAck.kind = .helloAck
+        mismatchAck.status = .unsupported
+        mismatchAck.payload = CompanionHello(fingerprint: [0xFF, 0xEE, 0xDD, 0xCC, 0xBB, 0xAA, 0x99, 0x88],
+                                             buildId: "2026-09-29 abc1234").payload!
+        expect(CompanionCodec.encode(mismatchAck) == fixture("hello-ack-mismatch.bin"), "mismatch hello-ack fixture")
+        mismatchAck.session = 3
+        expect(CompanionCodec.encode(mismatchAck) == nil, "a mismatch ack carries no session")
+        expect(CompanionHello(buildId: "").payload == nil && CompanionHello(buildId: "café").payload == nil &&
+               CompanionHello(buildId: String(repeating: "a", count: 25)).payload == nil,
+               "build ids are 1-24 printable ASCII bytes")
+        expect(CompanionCodec.isLegacyFrame(fixture("legacy-hello.bin")) &&
+               CompanionCodec.decode(fixture("legacy-hello.bin")) == nil, "legacy frames are recognised, not decoded")
+        expect(!CompanionCodec.isLegacyFrame(fixture("hello.bin")), "current frames are not legacy")
 
         var ping = CompanionEnvelope()
         ping.kind = .request
@@ -105,8 +122,8 @@ enum CompanionCoreCheck {
         ping.requestId = 1
         ping.operation = .ping
         ping.payload = [1, 2, 3, 4]
-        expect(CompanionCodec.encode(ping) == fixture("ping-request-v1.bin"), "ping fixture")
-        expect(CompanionCodec.decode(fixture("unsupported-version.bin")) == nil, "unsupported version")
+        expect(CompanionCodec.encode(ping) == fixture("ping-request.bin"), "ping fixture")
+        expect(CompanionCodec.decode(fixture("unknown-marker.bin")) == nil, "unknown marker")
         expect(CompanionCodec.decode(fixture("unknown-operation.bin")) == nil, "unknown operation")
         expect(CompanionCodec.decode(fixture("malformed-length.bin")) == nil, "malformed length")
         expect(CompanionCodec.decode(fixture("wrong-session.bin"))?.session == 99, "wrong session")
@@ -246,26 +263,22 @@ enum CompanionCoreCheck {
         expect(wake.lookup(companionCount: 1, hidCount: 0) == .connectCompanion(0),
                "lookup after will-sleep")
 
-        var helloActivate = CompanionCodec.hello()
+var helloActivate = CompanionCodec.hello(CompanionHello(buildId: "x"))!
         helloActivate.operation = .appActivate
         expect(CompanionCodec.encode(helloActivate) == nil, "hello+activate encode rejected")
-        var helloWire = fixture("hello-v1.bin")
+        var helloWire = fixture("hello.bin")
         helloWire[5] = CompanionOperation.appActivate.rawValue
         expect(CompanionCodec.decode(helloWire) == nil, "hello+activate decode rejected")
-        var requestStatus = fixture("capabilities-request-v1.bin")
-        requestStatus[6] = CompanionStatus.notFound.rawValue
-        expect(CompanionCodec.decode(requestStatus) == nil, "request status decode rejected")
-        var zeroRequestId = fixture("ping-request-v1.bin")
+        var capabilitiesWire = fixture("app-active-request.bin")
+        capabilitiesWire[5] = 2
+        expect(CompanionCodec.decode(capabilitiesWire) == nil, "CAPABILITIES no longer exists")
+        var zeroRequestId = fixture("ping-request.bin")
         zeroRequestId[4] = 0
         expect(CompanionCodec.decode(zeroRequestId) == nil, "zero request id rejected")
-        var shortPing = Array(fixture("ping-request-v1.bin").prefix(CompanionConstants.envelopeSize + 3))
+        var shortPing = Array(fixture("ping-request.bin").prefix(CompanionConstants.envelopeSize + 3))
         shortPing[7] = 3
         expect(CompanionCodec.decode(shortPing) == nil, "short ping rejected")
-        var capsPayload = fixture("capabilities-request-v1.bin")
-        capsPayload[7] = 1
-        capsPayload.append(1)
-        expect(CompanionCodec.decode(capsPayload) == nil, "non-empty capabilities request rejected")
-        var activePayload = fixture("app-active-request-v1.bin")
+        var activePayload = fixture("app-active-request.bin")
         activePayload[7] = 1
         activePayload.append(1)
         expect(CompanionCodec.decode(activePayload) == nil, "non-empty app.active request rejected")
@@ -278,40 +291,28 @@ enum CompanionCoreCheck {
         var sent: [[UInt8]] = []
         session.outgoing = { sent.append($0) }
 
-        var helloAck = CompanionEnvelope()
-        helloAck.kind = .helloAck
-        helloAck.session = 7
-        helloAck.payload = [1]
-        session.handle(CompanionCodec.encode(helloAck)!)
+func helloAck(session: UInt16, firmware: String = "2026-09-29 abc1234",
+                      fingerprint: [UInt8] = ProtocolFingerprint.bytes) -> [UInt8] {
+            var ack = CompanionEnvelope()
+            ack.kind = .helloAck
+            ack.session = session
+            ack.status = session == 0 ? .unsupported : .ok
+            ack.payload = CompanionHello(fingerprint: fingerprint, buildId: firmware).payload!
+            return CompanionCodec.encode(ack)!
+        }
+        session.handle(helloAck(session: 7))
         expect(session.session == 0, "unsolicited hello-ack ignored")
 
         session.startHandshake()
-        expect(CompanionCodec.decode(sent[0])?.kind == .hello, "hello sent")
-        var validAck = helloAck
-        validAck.session = 7
-        validAck.payload = [1]
-        var zeroSession = CompanionCodec.encode(validAck)!
-        zeroSession[2] = 0
-        zeroSession[3] = 0
-        session.handle(zeroSession)
-        expect(session.session == 0, "zero session hello-ack ignored")
-        var wrongVersion = CompanionCodec.encode(validAck)!
-        wrongVersion[wrongVersion.count - 1] = 7
-        session.handle(wrongVersion)
-        expect(session.session == 0, "wrong version hello-ack ignored")
-        session.handle(CompanionCodec.encode(validAck)!)
-        expect(session.session == 7, "session stored")
-        helloAck.session = 9
-        session.handle(CompanionCodec.encode(helloAck)!)
+        let sentHello = CompanionCodec.decode(sent[0])
+        expect(sentHello?.kind == .hello &&
+               CompanionHello.read(sentHello?.payload ?? [])?.fingerprint == ProtocolFingerprint.bytes,
+               "hello carries this protocol's fingerprint")
+        session.handle(helloAck(session: 7))
+        expect(session.session == 7 && session.compatibility == .matched(firmwareBuildId: "2026-09-29 abc1234"),
+               "matching ack starts the session")
+        session.handle(helloAck(session: 9))
         expect(session.session == 7, "duplicate hello-ack ignored")
-
-        var caps = CompanionEnvelope()
-        caps.kind = .request
-        caps.session = 7
-        caps.requestId = 2
-        caps.operation = .capabilities
-        session.handle(CompanionCodec.encode(caps)!)
-        expect(CompanionCodec.decode(sent.last!)?.payload == [3, 1, 2, 3], "capabilities")
 
         var pingReq = CompanionEnvelope()
         pingReq.kind = .request
@@ -359,52 +360,36 @@ enum CompanionCoreCheck {
         expect(sent.count == afterReset, "reset suppresses events")
         expect(session.session == 0, "reset clears session")
         expect(session.lastValidMessageAt == nil && session.sessionStartedAt == nil &&
-               session.liveCapabilities.isEmpty, "reset clears presentation session details")
+               session.compatibility == .unknown, "reset clears presentation session details")
 
         let collector = FakeMetrics()
         var sessionClock = Date(timeIntervalSince1970: 100)
-        let v2 = CompanionSession(applications: FakeApplications(), metrics: collector,
+let v2 = CompanionSession(applications: FakeApplications(), metrics: collector,
                                   now: { sessionClock })
         var v2Sent: [[UInt8]] = []
         v2.outgoing = { v2Sent.append($0) }
         v2.startHandshake()
-        expect(CompanionCodec.decode(v2Sent[0])?.payload == [4, 6, 5, 4, 3],
-               "v6 hello offers fallback")
-        var v2Ack = CompanionEnvelope()
-        v2Ack.kind = .helloAck
-        v2Ack.session = 21
-        v2Ack.payload = [2]
-        v2.handle(CompanionCodec.encode(v2Ack)!)
-        expect(v2.selectedProtocolVersion == 2, "v2 negotiated")
+        v2.handle(helloAck(session: 21))
         expect(v2.sessionStartedAt == sessionClock && v2.lastValidMessageAt == sessionClock,
-               "negotiation starts session and last-seen clock")
-        var v2Caps = CompanionEnvelope()
-        v2Caps.version = 2
-        v2Caps.kind = .request
-        v2Caps.session = 21
-        v2Caps.requestId = 1
-        v2Caps.operation = .capabilities
+               "the accepted ack starts the session and last-seen clock")
+        var v2Metrics = CompanionEnvelope()
+        v2Metrics.kind = .request
+        v2Metrics.session = 21
+        v2Metrics.requestId = 2
+        v2Metrics.operation = .systemMetrics
         sessionClock = Date(timeIntervalSince1970: 105)
-        v2.handle(CompanionCodec.encode(v2Caps)!)
-        expect(CompanionCodec.decode(v2Sent.last!)?.payload == [4, 1, 2, 3, 4], "v2 capability")
-        expect(v2.lastValidMessageAt == sessionClock && v2.liveCapabilities.count == 4,
-               "valid request updates last seen and capability snapshot")
-        var oldSessionRequest = v2Caps
+        v2.handle(CompanionCodec.encode(v2Metrics)!)
+        expect(collector.calls == 1, "metrics collected once")
+        expect(v2.lastValidMessageAt == sessionClock, "valid request updates last seen")
+        var oldSessionRequest = v2Metrics
         oldSessionRequest.session = 99
         sessionClock = Date(timeIntervalSince1970: 110)
         v2.handle(CompanionCodec.encode(oldSessionRequest)!)
         expect(v2.lastValidMessageAt == Date(timeIntervalSince1970: 105),
                "old-session traffic does not update last seen")
-        var v2Metrics = v2Caps
-        v2Metrics.requestId = 2
-        v2Metrics.operation = .systemMetrics
-        v2.handle(CompanionCodec.encode(v2Metrics)!)
-        expect(collector.calls == 1, "metrics collected once")
         let metricsResponse = CompanionCodec.decode(v2Sent.last!)
-        expect(metricsResponse?.version == 2 && metricsResponse?.operation == .systemMetrics,
-               "metrics v2 response")
-        expect(metricsResponse?.status == .ok && metricsResponse?.payload.count == 24,
-               "metrics payload")
+        expect(metricsResponse?.operation == .systemMetrics && metricsResponse?.status == .ok &&
+               metricsResponse?.payload.count == SystemMetricsSample.payloadSize, "metrics response")
         var fixtureSample = SystemMetricsSample()
         fixtureSample.cpuPercent = 34
         fixtureSample.memory = (11500, 16384)
@@ -413,54 +398,31 @@ enum CompanionCoreCheck {
         fixtureSample.batteryPercent = 82
         fixtureSample.thermalState = .fair
         fixtureSample.network = (12698, 1843)
+        fixtureSample.powerSource = .charging
+        fixtureSample.batteryMinutes = 102
         var fixtureResponse = CompanionEnvelope()
-        fixtureResponse.version = 2
         fixtureResponse.kind = .response
         fixtureResponse.session = 42
         fixtureResponse.requestId = 5
         fixtureResponse.operation = .systemMetrics
         fixtureResponse.payload = fixtureSample.encode()!
-        expect(CompanionCodec.encode(fixtureResponse) == fixture("system-metrics-response-v2.bin"),
-               "v2 metrics fixture")
+        expect(CompanionCodec.encode(fixtureResponse) == fixture("system-metrics-response.bin"),
+               "metrics fixture")
+        expect(SystemMetricsSample.decode(fixtureResponse.payload) == fixtureSample, "metrics round trip")
         expect(SystemMetricsSample.decode(metricsResponse?.payload ?? [])?.cpuPercent == 34,
-               "metrics round trip")
-        var invalidMetrics = v2Metrics
-        invalidMetrics.version = 1
-        expect(CompanionCodec.encode(invalidMetrics) == nil, "v1 metrics rejected")
-        var badPayload = metricsResponse?.payload ?? []
-        badPayload[0] = 2
-        expect(SystemMetricsSample.decode(badPayload) == nil, "metrics schema rejected")
-        badPayload = Array((metricsResponse?.payload ?? []).dropLast())
+               "session metrics decode")
+        var badPayload = fixtureResponse.payload
+        badPayload[1] = 0x02
+        expect(SystemMetricsSample.decode(badPayload) == nil, "unknown metrics validity bit rejected")
+        badPayload = Array(fixtureResponse.payload.dropLast())
         expect(SystemMetricsSample.decode(badPayload) == nil, "truncated metrics rejected")
 
-        // Protocol v6: SYSTEM_METRICS schema 2 and SYSTEM_DETAILS.
-        var powerSample = fixtureSample
-        powerSample.powerSource = .charging
-        powerSample.batteryMinutes = 102
-        var v6Metrics = fixtureResponse
-        v6Metrics.version = 6
-        v6Metrics.payload = powerSample.encode(protocolVersion: 6)!
-        expect(CompanionCodec.encode(v6Metrics) == fixture("system-metrics-response-v6.bin"),
-               "v6 metrics fixture")
-        expect(powerSample.encode(protocolVersion: 5) == fixtureSample.encode(),
-               "v5 metrics drop power fields")
-        expect(SystemMetricsSample.decode(v6Metrics.payload, protocolVersion: 5) == nil &&
-               SystemMetricsSample.decode(v6Metrics.payload, protocolVersion: 6) == powerSample,
-               "metrics schema follows the session version")
-        var v6Caps = CompanionCodec.capabilitiesResponse(session: 42, requestId: 2, version: 6)
-        expect(CompanionCodec.encode(v6Caps) == fixture("capabilities-response-v6.bin"),
-               "v6 capabilities fixture")
-        v6Caps.version = 5
-        expect(CompanionCodec.encode(v6Caps) == nil, "v5 rejects SYSTEM_DETAILS capability")
-        var v6Ack = CompanionEnvelope()
-        v6Ack.kind = .helloAck; v6Ack.session = 42; v6Ack.payload = [6]
-        expect(CompanionCodec.encode(v6Ack) == fixture("hello-ack-v6.bin"), "v6 ack fixture")
+// SYSTEM_DETAILS.
 
         var cpuDetails = SystemDetailsSample(group: .cpu)
         cpuDetails.performancePercent = 61
         cpuDetails.efficiencyPercent = 18
         cpuDetails.gpuPercent = 27
-        cpuDetails.loadCenti = 310
         cpuDetails.apps = [TopApp(name: "Xcode", percent: 38), TopApp(name: "Google Chrome", percent: 21)]
         var powerDetails = SystemDetailsSample(group: .power)
         powerDetails.systemDrawDeciwatts = 142
@@ -473,7 +435,6 @@ enum CompanionCoreCheck {
         networkDetails.routerRttMs = 3
         networkDetails.wifiRssiDbm = -54
         networkDetails.wifiLinkMbps = 866
-        networkDetails.vpnActive = true
         var memoryDetails = SystemDetailsSample(group: .memory)
         memoryDetails.memorySplit = MemorySplit(appMiB: 14438, wiredMiB: 3994, compressedMiB: 3482)
         memoryDetails.swapUsedMiB = 1229
@@ -482,13 +443,13 @@ enum CompanionCoreCheck {
         for (sample, name) in [(cpuDetails, "cpu"), (powerDetails, "power"),
                                (networkDetails, "network"), (memoryDetails, "memory")] {
             var envelope = CompanionEnvelope()
-            envelope.version = 6; envelope.kind = .response; envelope.session = 42
+            envelope.kind = .response; envelope.session = 42
             envelope.requestId = 8; envelope.operation = .systemDetails
             envelope.payload = sample.encode() ?? []
-            let wire = fixture("system-details-response-\(name)-v6.bin")
-            expect(CompanionCodec.encode(envelope) == wire, "v6 \(name) details fixture")
+            let wire = fixture("system-details-response-\(name).bin")
+            expect(CompanionCodec.encode(envelope) == wire, "\(name) details fixture")
             expect(CompanionCodec.decode(wire).flatMap { SystemDetailsSample.decode($0.payload) } == sample,
-                   "v6 \(name) details round trip")
+                   "\(name) details round trip")
         }
         var tooMany = cpuDetails
         tooMany.apps = Array(repeating: TopApp(name: "A", percent: 1), count: 5)
@@ -501,16 +462,14 @@ enum CompanionCoreCheck {
         expect(SystemDetailsSample.decode(desktop.encode() ?? []) == desktop,
                "partial power details round trip")
         var detailsRequest = CompanionEnvelope()
-        detailsRequest.version = 6; detailsRequest.kind = .request; detailsRequest.session = 42
+        detailsRequest.kind = .request; detailsRequest.session = 42
         detailsRequest.requestId = 8; detailsRequest.operation = .systemDetails
         detailsRequest.payload = [1]
-        expect(CompanionCodec.encode(detailsRequest) == fixture("system-details-request-v6.bin"),
-               "v6 details request fixture")
+        expect(CompanionCodec.encode(detailsRequest) == fixture("system-details-request.bin"),
+               "details request fixture")
         detailsRequest.payload = [5]
         expect(CompanionCodec.encode(detailsRequest) == nil, "unknown detail group rejected")
         detailsRequest.payload = [1]
-        detailsRequest.version = 5
-        expect(CompanionCodec.encode(detailsRequest) == nil, "v5 rejects SYSTEM_DETAILS")
 
         let detailCollector = FakeDetails([.cpu: cpuDetails])
         let v6 = CompanionSession(applications: FakeApplications(), metrics: FakeMetrics(),
@@ -518,15 +477,14 @@ enum CompanionCoreCheck {
         var v6Sent: [[UInt8]] = []
         v6.outgoing = { v6Sent.append($0) }
         v6.startHandshake()
-        v6Ack.session = 61
-        v6.handle(CompanionCodec.encode(v6Ack)!)
+        v6.handle(helloAck(session: 61))
         var v6Request = detailsRequest
-        v6Request.version = 6; v6Request.session = 61
+        v6Request.session = 61
         v6.handle(CompanionCodec.encode(v6Request)!)
         let v6Response = CompanionCodec.decode(v6Sent.last!)
         expect(v6Response?.operation == .systemDetails && v6Response?.status == .ok &&
                SystemDetailsSample.decode(v6Response?.payload ?? []) == cpuDetails,
-               "v6 session answers the requested group")
+               "session answers the requested group")
         v6Request.requestId = 9
         v6Request.payload = [2]
         v6.handle(CompanionCodec.encode(v6Request)!)
@@ -537,7 +495,8 @@ enum CompanionCoreCheck {
         v6MetricsRequest.requestId = 10; v6MetricsRequest.operation = .systemMetrics
         v6MetricsRequest.payload = []
         v6.handle(CompanionCodec.encode(v6MetricsRequest)!)
-        expect(CompanionCodec.decode(v6Sent.last!)?.payload.first == 2, "v6 session sends metrics schema 2")
+        expect(CompanionCodec.decode(v6Sent.last!)?.payload.count == SystemMetricsSample.payloadSize,
+               "session sends the single metrics layout")
 
         expect(CompanionFramer.payloadSize(maximumWriteLength: 20) == 17 &&
                CompanionFramer.payloadSize(maximumWriteLength: 182) == 179 &&
@@ -551,21 +510,17 @@ enum CompanionCoreCheck {
         liveness.outgoing = { _ in }
         expect(!liveness.livenessExpired(at: livenessClock), "no session is never expired")
         liveness.startHandshake()
-        var livenessAck = CompanionEnvelope()
-        livenessAck.kind = .helloAck; livenessAck.session = 5; livenessAck.payload = [6]
-        liveness.handle(CompanionCodec.encode(livenessAck)!)
+        liveness.handle(helloAck(session: 5))
         livenessClock = livenessClock.addingTimeInterval(12)
         expect(!liveness.livenessExpired(at: livenessClock), "twelve silent seconds are still alive")
         expect(liveness.livenessExpired(at: livenessClock.addingTimeInterval(1)),
                "a silent session expires after twelve seconds")
         var livenessPing = CompanionEnvelope()
-        livenessPing.version = 6; livenessPing.kind = .request; livenessPing.session = 5
+        livenessPing.kind = .request; livenessPing.session = 5
         livenessPing.requestId = 1; livenessPing.operation = .ping; livenessPing.payload = [1, 2, 3, 4]
         livenessClock = livenessClock.addingTimeInterval(1)
         liveness.handle(CompanionCodec.encode(livenessPing)!)
         expect(!liveness.livenessExpired(at: livenessClock.addingTimeInterval(5)), "a ping keeps the session alive")
-        expect((0...6).map { AiUsageSnapshot.schema(protocolVersion: $0) } == [1, 1, 1, 1, 2, 3, 3],
-               "AI schema by version never traps")
         expect(DisplayName.sanitize("Телеграм", limit: 20) == "Telegram", "Cyrillic is transliterated")
         expect(DisplayName.sanitize("Café  Crème", limit: 20) == "Cafe Creme", "diacritics are stripped")
         expect(DisplayName.sanitize("✓", limit: 20) == "APP", "empty names fall back")
@@ -674,9 +629,8 @@ enum CompanionCoreCheck {
                "Only usable credits, sorted by expiry")
         let resetUsage = AiUsageSnapshot(generation: 10, state: .ready,
                                          providers: [resetSample!])
-        let v4Payload = resetUsage.encode(protocolVersion: 4)
-        expect(v4Payload?.first == 2 && AiUsageSnapshot.decode(v4Payload ?? []) == resetUsage,
-               "v4 reset credits round trip")
+        let v4Payload = resetUsage.encode()
+        expect(AiUsageSnapshot.decode(v4Payload ?? []) == resetUsage, "reset credits round trip")
         let fixtureCredit = AiResetCredit(title: "A", expiresAt: 1,
                                            expiresRemainingSeconds: 60)
         func resetPayload(available: UInt8, credits: [AiResetCredit],
@@ -685,7 +639,7 @@ enum CompanionCoreCheck {
                 AiUsageProviderSnapshot(provider: provider, plan: plan,
                     metrics: [resetSample!.metrics[0]],
                     resetCredits: AiResetCredits(availableCount: available, credits: credits))
-            ]).encode(protocolVersion: 4)
+            ]).encode()
         }
         expect(resetPayload(available: 0, credits: [fixtureCredit]) == nil,
                "v4 rejects zero available with a detail")
@@ -700,7 +654,7 @@ enum CompanionCoreCheck {
                resetPayload(available: 1, credits: [fixtureCredit], plan: .business) == nil,
                "v4 reset details are Plus only")
         if var invalid = resetPayload(available: 1, credits: [fixtureCredit]) {
-            let availableOffset = 7 + 4 + 23 + 1
+            let availableOffset = 6 + 4 + 23 + 1
             let countOffset = availableOffset + 1
             let titleLengthOffset = countOffset + 1
             invalid[availableOffset] = 0
@@ -718,14 +672,12 @@ enum CompanionCoreCheck {
             expect(AiUsageSnapshot.decode(Array(invalid.dropLast())) == nil,
                    "v4 truncated expiry")
             expect(AiUsageSnapshot.decode(invalid + [0]) == nil, "v4 trailing byte")
-            invalid[7] = AiProviderId.cursor.rawValue
+            invalid[6] = AiProviderId.cursor.rawValue
             expect(AiUsageSnapshot.decode(invalid) == nil, "v4 Cursor reset payload")
-            invalid[7] = AiProviderId.codex.rawValue
-            invalid[8] = AiPlan.business.rawValue
+            invalid[6] = AiProviderId.codex.rawValue
+            invalid[7] = AiPlan.business.rawValue
             expect(AiUsageSnapshot.decode(invalid) == nil, "v4 Business reset payload")
         }
-        expect(resetUsage.encode(protocolVersion: 3)?.first == 1,
-               "v3 keeps original schema")
         plusWithResets["rateLimitResetCredits"] = ["availableCount": 0,
                                                      "credits": []]
         expect(AiUsageNormalization.codex(plusWithResets)?.resetCredits?.availableCount == 0,
@@ -834,23 +786,15 @@ enum CompanionCoreCheck {
                "Claude unknown subscription keeps the account")
         let personal = AiUsageSnapshot(generation: 11, state: .ready,
                                        providers: [plusSample!, claudeSample!])
-        let v5Payload = personal.encode(protocolVersion: 5)
-        expect(v5Payload?.first == 3 && AiUsageSnapshot.decode(v5Payload ?? []) == personal,
-               "v5 schema 3 carries Claude")
-        let v4Personal = personal.encode(protocolVersion: 4)
-        expect(v4Personal.flatMap(AiUsageSnapshot.decode)?.providers.map(\.provider) == [.codex],
-               "v4 omits Claude for older firmware")
-        expect(personal.encode(protocolVersion: 3).flatMap(AiUsageSnapshot.decode)?
-            .providers.map(\.provider) == [.codex], "v3 omits Claude for older firmware")
+        let personalPayload = personal.encode()
+        expect(AiUsageSnapshot.decode(personalPayload ?? []) == personal, "Codex and Claude round trip")
         let cursorForCap = AiUsageNormalization.cursor(["membershipType": "enterprise",
             "individualUsage": ["overall": ["enabled": true, "used": 1, "limit": 100]]])!
         let three = AiUsageSnapshot(state: .ready,
                                     providers: [plusSample!, cursorForCap, claudeSample!])
-        expect(three.encode(protocolVersion: 5).flatMap(AiUsageSnapshot.decode)?
-            .providers.map(\.provider) == [.codex, .cursor], "v5 sends the first two providers")
+        expect(three.encode().flatMap(AiUsageSnapshot.decode)?
+            .providers.map(\.provider) == [.codex, .cursor], "the wire carries the first two providers")
         let cursorAndClaude = AiUsageSnapshot(state: .ready, providers: [cursorForCap, claudeSample!])
-        expect(cursorAndClaude.encode(protocolVersion: 4).flatMap(AiUsageSnapshot.decode)?
-            .providers.map(\.provider) == [.cursor], "v4 caps after omitting Claude")
         var elapsed = claudeSample!
         elapsed.freshness = .stale
         let reset = elapsed.aged(now: Date(timeIntervalSince1970: 20_000))
@@ -866,13 +810,9 @@ enum CompanionCoreCheck {
         let agedResets = resetSample!.aged(now: Date(timeIntervalSince1970: 30_000))
         expect(agedResets.resetCredits?.credits.first?.expiresRemainingSeconds == 60_000,
                "reset-credit expiry recounts")
-        expect(three.sentProviders(protocolVersion: 4).map(\.provider) == [.codex, .cursor] &&
-               cursorAndClaude.sentProviders(protocolVersion: 5).map(\.provider) == [.cursor, .claude],
-               "sent providers follow version and cap")
-        if var schemaTwoClaude = v5Payload {
-            schemaTwoClaude[0] = 2
-            expect(AiUsageSnapshot.decode(schemaTwoClaude) == nil, "schema 2 rejects Claude")
-        }
+        expect(three.sentProviders.map(\.provider) == [.codex, .cursor] &&
+               cursorAndClaude.sentProviders.map(\.provider) == [.cursor, .claude],
+               "sent providers follow the two-provider cap")
         let usage = AiUsageSnapshot(generation: 9, state: .ready,
             providers: [plusSample!, cursorSample!])
         expect(AiUsageState.forCache(pending: 1, hasUsableProvider: true) == .ready,
@@ -885,79 +825,66 @@ enum CompanionCoreCheck {
         expect(payload != nil && AiUsageSnapshot.decode(payload!) == usage,
                "AI usage bounded payload round trip")
         if var invalid = payload {
-            invalid[7 + 4 + 14] = 101
+            invalid[6 + 4 + 14] = 101
             expect(AiUsageSnapshot.decode(invalid) == nil, "AI usage percent bound")
             expect(AiUsageSnapshot.decode(Array(invalid.dropLast())) == nil,
                    "AI usage truncation rejected")
         }
-        let fixtureMetric = AiUsageMetric(kind: .fiveHour, unit: .percent, used: 37,
-                                          limit: 100, remaining: 63, remainingPercent: 63,
-                                          resetAt: 1780000000, resetRemainingSeconds: 3600)
-        var fixtureEnvelope = CompanionEnvelope()
-        fixtureEnvelope.version = 3; fixtureEnvelope.kind = .response
-        fixtureEnvelope.session = 42; fixtureEnvelope.requestId = 7
-        fixtureEnvelope.operation = .aiUsage
-        fixtureEnvelope.payload = AiUsageSnapshot(generation: 9, state: .ready,
-            providers: [AiUsageProviderSnapshot(provider: .codex, plan: .plus,
-                                                metrics: [fixtureMetric])]).encode()!
-        expect(CompanionCodec.encode(fixtureEnvelope) == fixture("ai-usage-response-v3.bin"),
-               "v3 AI usage fixture")
-        var v4Fixture = fixtureEnvelope
-        v4Fixture.version = 4
-        v4Fixture.payload = AiUsageSnapshot(generation: 9, state: .ready,
-            providers: [AiUsageProviderSnapshot(provider: .codex, plan: .plus,
-                metrics: [fixtureMetric], resetCredits: AiResetCredits(availableCount: 2,
-                    credits: [AiResetCredit(title: "Full reset", expiresAt: 1790000000,
-                                            expiresRemainingSeconds: 86400)]))])
-            .encode(protocolVersion: 4)!
-        expect(CompanionCodec.encode(v4Fixture) == fixture("ai-usage-response-v4.bin"),
-               "v4 reset-credit fixture")
-        var v5Fixture = fixtureEnvelope
-        v5Fixture.version = 5
-        v5Fixture.payload = AiUsageSnapshot(generation: 9, state: .ready,
+var aiFixture = CompanionEnvelope()
+        aiFixture.kind = .response
+        aiFixture.session = 42
+        aiFixture.requestId = 7
+        aiFixture.operation = .aiUsage
+        aiFixture.payload = AiUsageSnapshot(generation: 9, state: .ready,
             providers: [AiUsageProviderSnapshot(provider: .claude, plan: .pro,
                 metrics: [AiUsageMetric(kind: .fiveHour, unit: .percent, used: 8, limit: 100,
                                         remaining: 92, remainingPercent: 92,
                                         resetAt: 1780000000, resetRemainingSeconds: 3600)])])
-            .encode(protocolVersion: 5)!
-        expect(CompanionCodec.encode(v5Fixture) == fixture("ai-usage-response-v5.bin"),
-               "v5 Claude fixture")
-        var v5Ack = CompanionEnvelope()
-        v5Ack.kind = .helloAck; v5Ack.session = 42; v5Ack.payload = [5]
-        expect(CompanionCodec.encode(v5Ack) == fixture("hello-ack-v5.bin"), "v5 ack fixture")
-        let v3 = CompanionSession(applications: FakeApplications(), aiUsage: FakeAiUsage(usage))
-        var v3Sent: [[UInt8]] = []
-        v3.outgoing = { v3Sent.append($0) }
-        v3.startHandshake()
-        expect(v3Sent[0] == fixture("hello-v6.bin"), "v6 hello advertises fallbacks")
-        var v3Ack = CompanionEnvelope()
-        v3Ack.kind = .helloAck; v3Ack.session = 31; v3Ack.payload = [3]
-        v3.handle(CompanionCodec.encode(v3Ack)!)
-        var v3Caps = CompanionEnvelope()
-        v3Caps.version = 3; v3Caps.kind = .request; v3Caps.session = 31
-        v3Caps.requestId = 2; v3Caps.operation = .capabilities
-        v3.handle(CompanionCodec.encode(v3Caps)!)
-        expect(CompanionCodec.decode(v3Sent.last!)?.payload == [5, 1, 2, 3, 4, 5],
-               "v3 capability response")
+            .encode()!
+        expect(CompanionCodec.encode(aiFixture) == fixture("ai-usage-response.bin"), "AI usage fixture")
+        let aiSession = CompanionSession(applications: FakeApplications(), aiUsage: FakeAiUsage(resetUsage))
+        var aiSent: [[UInt8]] = []
+        aiSession.outgoing = { aiSent.append($0) }
+        aiSession.startHandshake()
+        expect(aiSent[0] == CompanionCodec.encode(CompanionCodec.hello(CompanionHello(buildId: aiSession.buildId))!),
+               "the session sends one HELLO with its build id")
+        aiSession.handle(helloAck(session: 32))
         var aiRequest = CompanionEnvelope()
-        aiRequest.version = 3; aiRequest.kind = .request; aiRequest.session = 31
-        aiRequest.requestId = 8; aiRequest.operation = .aiUsage
-        v3.handle(CompanionCodec.encode(aiRequest)!)
-        expect(CompanionCodec.decode(v3Sent.last!)?.payload == payload,
-               "v3 AI request reads cached snapshot")
-        let v4 = CompanionSession(applications: FakeApplications(), aiUsage: FakeAiUsage(resetUsage))
-        var v4Sent: [[UInt8]] = []
-        v4.outgoing = { v4Sent.append($0) }
-        v4.startHandshake()
-        var v4Ack = CompanionEnvelope()
-        v4Ack.kind = .helloAck; v4Ack.session = 32; v4Ack.payload = [4]
-        v4.handle(CompanionCodec.encode(v4Ack)!)
-        var v4Request = CompanionEnvelope()
-        v4Request.version = 4; v4Request.kind = .request; v4Request.session = 32
-        v4Request.requestId = 8; v4Request.operation = .aiUsage
-        v4.handle(CompanionCodec.encode(v4Request)!)
-        expect(CompanionCodec.decode(v4Sent.last!)?.payload == v4Payload,
-               "v4 session sends reset details")
+        aiRequest.kind = .request
+        aiRequest.session = 32
+        aiRequest.requestId = 8
+        aiRequest.operation = .aiUsage
+        aiSession.handle(CompanionCodec.encode(aiRequest)!)
+        expect(CompanionCodec.decode(aiSent.last!)?.payload == v4Payload,
+               "AI request reads the cached snapshot with reset details")
+
+        let mismatched = CompanionSession(applications: FakeApplications(), metrics: FakeMetrics())
+        var mismatchedSent: [[UInt8]] = []
+        mismatched.outgoing = { mismatchedSent.append($0) }
+        mismatched.startHandshake()
+        mismatched.handle(helloAck(session: 0, firmware: "2026-09-20 fff0000",
+                                   fingerprint: [0xFF, 0xEE, 0xDD, 0xCC, 0xBB, 0xAA, 0x99, 0x88]))
+        expect(mismatched.session == 0 &&
+               mismatched.compatibility == .mismatch(firmwareBuildId: "2026-09-20 fff0000"),
+               "a mismatch ack names the firmware build and starts no session")
+        var afterMismatch = aiRequest
+        afterMismatch.session = 1
+        let mismatchSentCount = mismatchedSent.count
+        mismatched.handle(CompanionCodec.encode(afterMismatch)!)
+        expect(mismatchedSent.count == mismatchSentCount, "nothing is answered after a mismatch")
+        expect(!mismatched.livenessExpired(at: Date().addingTimeInterval(60)),
+               "no liveness reconnect while incompatible")
+        let silent = CompanionSession(applications: FakeApplications())
+        silent.outgoing = { _ in }
+        silent.startHandshake()
+        silent.handshakeTimedOut()
+        expect(silent.compatibility == .noAnswer, "an unanswered HELLO is reported")
+        silent.reset()
+        silent.startHandshake()
+        expect(silent.compatibility == .noAnswer, "the no-answer hint survives retries")
+        silent.handle(helloAck(session: 4))
+        expect(silent.compatibility == .matched(firmwareBuildId: "2026-09-29 abc1234"),
+               "a later answer clears the hint")
 
         if failed > 0 {
             fputs("\(failed) checks failed\n", stderr)

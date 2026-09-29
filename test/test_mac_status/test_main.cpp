@@ -7,6 +7,7 @@
 #include <tuple>
 #include <vector>
 
+#include "../support/companion_session.h"
 #include "../support/ui_capture.h"
 #include "apps/mac_status/mac_status_app.h"
 #include "apps/runtime/mini_app_runtime.h"
@@ -58,38 +59,12 @@ struct Fixture {
     services::CompanionService companion{transport, capabilities};
     services::MacStatusService status{companion};
 
-    std::uint8_t version = 2;
-
-    // Protocol v6 with SYSTEM_DETAILS when `details`, otherwise the v2 overview only.
-    void ready(std::uint8_t protocol = 2, bool details = false) {
-        version = protocol;
-        const std::uint8_t v2[] = {2, 1};
-        const std::uint8_t v6[] = {6, 5, 4, 3};
-        transport.incoming.push_back(wire(protocol >= 6 ? makeHello(v6, 4) : makeHello(v2, 2)));
-        companion.update(std::chrono::milliseconds(0));
-        const auto capRequest = transport.last();
-        auto caps = makeResponse(companion.session(), capRequest.requestId,
-                                 CompanionOperation::Capabilities, CompanionStatus::Ok);
-        caps.version = protocol;
-        const CompanionCapability ids[] = {CompanionCapability::AppActive,
-                                           CompanionCapability::SystemMetrics,
-                                           CompanionCapability::SystemDetails};
-        TEST_ASSERT_TRUE(setCapabilityList(caps, ids, details ? 3 : 2));
-        transport.incoming.push_back(wire(caps));
-        companion.update(std::chrono::milliseconds(0));
-        const auto activeRequest = transport.last();
-        auto active = makeResponse(companion.session(), activeRequest.requestId,
-                                   CompanionOperation::AppActive, CompanionStatus::NotAvailable);
-        active.version = protocol;
-        transport.incoming.push_back(wire(active));
-        companion.update(std::chrono::milliseconds(0));
-    }
+    void ready() { test_support::completeCompanionHandshake(transport, companion); }
 
     void respond(const CompanionEnvelope& request, std::uint8_t cpu, std::uint8_t powerSource = 0,
                  std::uint16_t minutes = 0) {
         auto response = makeResponse(companion.session(), request.requestId,
                                      CompanionOperation::SystemMetrics, CompanionStatus::Ok);
-        response.version = version;
         CompanionSystemMetrics metrics{};
         metrics.validity = 1U | 2U | 8U | 32U | 64U;
         metrics.cpuPercent = cpu;
@@ -136,16 +111,14 @@ struct Fixture {
     void respondDetails(const CompanionEnvelope& request, SystemDetailsGroup group) {
         auto response = makeResponse(companion.session(), request.requestId,
                                      CompanionOperation::SystemDetails, CompanionStatus::Ok);
-        response.version = 6;
         CompanionSystemDetails details{};
         details.group = group;
         switch (group) {
         case SystemDetailsGroup::Cpu:
-            details.validity = 0x1f;
+            details.validity = 0x0f;
             details.performancePercent = 61;
             details.efficiencyPercent = 18;
             details.gpuPercent = 27;
-            details.loadCenti = 310;
             details.processCount = 4;
             for (const auto& [index, name, percent] :
                  {std::tuple{0, "Xcode", 38}, std::tuple{1, "Google Chrome", 21},
@@ -164,12 +137,11 @@ struct Fixture {
             std::strcpy(details.peripheralName.data(), "Magic Mouse");
             break;
         case SystemDetailsGroup::Network:
-            details.validity = 0x1f;
+            details.validity = 0x0f;
             details.internetRttMs = 18;
             details.routerRttMs = 3;
             details.wifiRssiDbm = -54;
             details.wifiLinkMbps = 866;
-            details.vpnActive = true;
             break;
         case SystemDetailsGroup::Memory:
             details.validity = 0x0f;
@@ -259,12 +231,12 @@ void test_monitoring_cadence_freshness_and_lifecycle() {
     Fixture f;
     f.ready();
     f.status.update(std::chrono::milliseconds(1000));
-    TEST_ASSERT_EQUAL_UINT(3, f.transport.sent.size());
+    TEST_ASSERT_EQUAL_UINT(2, f.transport.sent.size());
     f.status.startMonitoring();
-    TEST_ASSERT_EQUAL_UINT(4, f.transport.sent.size());
+    TEST_ASSERT_EQUAL_UINT(3, f.transport.sent.size());
     const auto first = f.transport.last();
     f.status.update(std::chrono::milliseconds(1000));
-    TEST_ASSERT_EQUAL_UINT(4, f.transport.sent.size());
+    TEST_ASSERT_EQUAL_UINT(3, f.transport.sent.size());
     f.respond(first, 34);
     f.status.update(std::chrono::milliseconds(0));
     TEST_ASSERT_EQUAL_UINT8(static_cast<unsigned>(services::MacStatusFreshness::Fresh),
@@ -272,19 +244,19 @@ void test_monitoring_cadence_freshness_and_lifecycle() {
     TEST_ASSERT_EQUAL_UINT8(34, f.status.snapshot().cpuPercent);
     const auto generation = f.status.snapshot().generation;
     f.status.update(std::chrono::milliseconds(1000));
-    TEST_ASSERT_EQUAL_UINT(5, f.transport.sent.size());
+    TEST_ASSERT_EQUAL_UINT(4, f.transport.sent.size());
     f.status.update(std::chrono::milliseconds(2100));
     TEST_ASSERT_EQUAL_UINT8(static_cast<unsigned>(services::MacStatusFreshness::Stale),
                             static_cast<unsigned>(f.status.snapshot().freshness));
     TEST_ASSERT_EQUAL_UINT32(generation + 1, f.status.snapshot().generation);
     f.status.stopMonitoring();
     f.status.update(std::chrono::milliseconds(5000));
-    TEST_ASSERT_EQUAL_UINT(5, f.transport.sent.size());
+    TEST_ASSERT_EQUAL_UINT(4, f.transport.sent.size());
     f.status.startMonitoring();
-    TEST_ASSERT_EQUAL_UINT(5, f.transport.sent.size());
+    TEST_ASSERT_EQUAL_UINT(4, f.transport.sent.size());
     f.companion.update(std::chrono::milliseconds(2000));
     f.status.update(std::chrono::milliseconds(1000));
-    TEST_ASSERT_EQUAL_UINT(6, f.transport.sent.size());
+    TEST_ASSERT_EQUAL_UINT(5, f.transport.sent.size());
     f.respond(f.transport.last(), 44);
     f.status.update(std::chrono::milliseconds(0));
     TEST_ASSERT_EQUAL_UINT8(44, f.status.snapshot().cpuPercent);
@@ -339,7 +311,7 @@ void test_history_appends_samples_gaps_and_clears_on_session_change() {
 
 void test_v6_overview_reports_power_source_and_minutes() {
     Fixture f;
-    f.ready(6, true);
+    f.ready();
     f.status.startMonitoring();
     f.respond(f.transport.last(), 42, 2, 102);
     f.status.update(std::chrono::milliseconds(0));
@@ -352,7 +324,7 @@ void test_v6_overview_reports_power_source_and_minutes() {
 
 void test_detail_polling_requests_only_the_selected_group() {
     Fixture f;
-    f.ready(6, true);
+    f.ready();
     TEST_ASSERT_TRUE(f.status.detailsSupported());
     f.status.startMonitoring();
     f.status.update(std::chrono::milliseconds(0));
@@ -391,7 +363,7 @@ void test_detail_polling_requests_only_the_selected_group() {
 
 void test_mismatched_group_completion_is_discarded() {
     Fixture f;
-    f.ready(6, true);
+    f.ready();
     f.status.startMonitoring();
     f.status.setDetailGroup(services::MacDetailGroup::Cpu);
     const auto cpuRequest = *f.lastOf(CompanionOperation::SystemDetails);
@@ -411,7 +383,7 @@ void test_mismatched_group_completion_is_discarded() {
 
 void test_detail_values_expire_after_six_seconds_without_retry_burst() {
     Fixture f;
-    f.ready(6, true);
+    f.ready();
     f.status.startMonitoring();
     f.status.setDetailGroup(services::MacDetailGroup::Network);
     f.respondDetails(*f.lastOf(CompanionOperation::SystemDetails), SystemDetailsGroup::Network);
@@ -453,7 +425,8 @@ void test_overview_draws_cpu_sparkline_from_history() {
     // The line occupies the right side of the CPU block, and no bar is drawn.
     TEST_ASSERT_TRUE(display.rectanglesIn(80, 26, 110, 41, core::palette::blue) > 0);
     TEST_ASSERT_EQUAL_UINT(0, display.rectanglesIn(8, 26, 60, 41, core::palette::blue));
-    TEST_ASSERT_EQUAL_UINT(0, display.rectanglesIn(100, 131, 140, 134, core::palette::pale));
+    // Detail pages exist with every Companion, so the overview shows page dots.
+    TEST_ASSERT_EQUAL_UINT(4, display.rectanglesIn(100, 131, 140, 134, core::palette::pale));
     const auto before = display.draws;
     app.update({}, std::chrono::milliseconds(0));
     TEST_ASSERT_EQUAL_INT(before, display.draws);
@@ -461,7 +434,7 @@ void test_overview_draws_cpu_sparkline_from_history() {
 
 void test_overview_battery_shows_charge_state_and_time() {
     Fixture f;
-    f.ready(6, true);
+    f.ready();
     Display display;
     apps::MacStatusApp app(f.status, display);
     app.onActivate();
@@ -499,7 +472,7 @@ void test_overview_battery_shows_charge_state_and_time() {
 
 void test_detail_pages_wrap_and_request_only_visible_group() {
     Fixture f;
-    f.ready(6, true);
+    f.ready();
     Display display;
     apps::MacStatusApp app(f.status, display);
     app.onActivate();
@@ -551,7 +524,7 @@ void test_detail_pages_wrap_and_request_only_visible_group() {
 
 void test_detail_page_content_matches_details() {
     Fixture f;
-    f.ready(6, true);
+    f.ready();
     Display display;
     apps::MacStatusApp app(f.status, display);
     app.onActivate();
@@ -611,7 +584,7 @@ void test_detail_page_content_matches_details() {
 
 void test_cpu_page_marks_idle_apps_and_keeps_rows_apart() {
     Fixture f;
-    f.ready(6, true);
+    f.ready();
     Display display;
     apps::MacStatusApp app(f.status, display);
     app.onActivate();
@@ -621,14 +594,12 @@ void test_cpu_page_marks_idle_apps_and_keeps_rows_apart() {
     const auto request = *f.lastOf(CompanionOperation::SystemDetails);
     auto response = makeResponse(f.companion.session(), request.requestId,
                                  CompanionOperation::SystemDetails, CompanionStatus::Ok);
-    response.version = 6;
     CompanionSystemDetails details{};
     details.group = SystemDetailsGroup::Cpu;
-    details.validity = 0x1f;
+    details.validity = 0x0f;
     details.performancePercent = 100;
     details.efficiencyPercent = 100;
     details.gpuPercent = 100;
-    details.loadCenti = 12345;
     details.processCount = 0;
     TEST_ASSERT_TRUE(setSystemDetails(response, details));
     f.transport.incoming.push_back(wire(response));
@@ -648,26 +619,9 @@ void test_cpu_page_marks_idle_apps_and_keeps_rows_apart() {
     TEST_ASSERT_TRUE(valueStart - labelEnd >= 7);
 }
 
-void test_single_page_without_system_details_ignores_left_right() {
-    Fixture f;
-    f.ready(2);
-    Display display;
-    apps::MacStatusApp app(f.status, display);
-    app.onActivate();
-    f.respond(f.transport.last(), 42);
-    f.status.update(std::chrono::milliseconds(0));
-    app.update(key(core::NamedKey::Right), std::chrono::milliseconds(0));
-    app.update(character(','), std::chrono::milliseconds(0));
-    TEST_ASSERT_EQUAL_UINT8(static_cast<unsigned>(apps::MacStatusPage::Overview),
-                            static_cast<unsigned>(app.page()));
-    TEST_ASSERT_EQUAL_UINT(0, f.count(CompanionOperation::SystemDetails));
-    TEST_ASSERT_EQUAL_UINT(0, display.rectanglesIn(100, 131, 140, 134, core::palette::pale));
-    TEST_ASSERT_TRUE(display.hasLabel("BAT --"));
-}
-
 void test_detail_pages_render_placeholders_for_invalid_fields() {
     Fixture f;
-    f.ready(6, true);
+    f.ready();
     Display display;
     apps::MacStatusApp app(f.status, display);
     app.onActivate();
@@ -688,7 +642,6 @@ void test_detail_pages_render_placeholders_for_invalid_fields() {
     auto unavailable =
         makeResponse(f.companion.session(), cpuRequest.requestId, CompanionOperation::SystemDetails,
                      CompanionStatus::NotAvailable);
-    unavailable.version = 6;
     f.transport.incoming.push_back(wire(unavailable));
     f.companion.update(std::chrono::milliseconds(0));
     f.status.update(std::chrono::milliseconds(0));
@@ -696,7 +649,6 @@ void test_detail_pages_render_placeholders_for_invalid_fields() {
     TEST_ASSERT_EQUAL_UINT8(2, request.payload[0]);
     auto response = makeResponse(f.companion.session(), request.requestId,
                                  CompanionOperation::SystemDetails, CompanionStatus::Ok);
-    response.version = 6;
     CompanionSystemDetails details{};
     details.group = SystemDetailsGroup::Power;
     details.validity = 2;
@@ -717,14 +669,11 @@ void test_companion_loss_resets_pages_and_history() {
     Display display;
     apps::MacStatusApp app(f.status, display);
     core::AppRegistry registry;
-    (void)registry.registerApp({"mac-status",
-                                "MAC STATUS",
-                                "mac-status",
-                                "mac-status",
-                                {companionSystemMetricsCapabilityId}});
+    (void)registry.registerApp(
+        {"mac-status", "MAC STATUS", "mac-status", "mac-status", {companionCapabilityId}});
     apps::MiniAppRuntime runtime(registry, f.capabilities);
     (void)runtime.registerInstance("mac-status", app);
-    f.ready(6, true);
+    f.ready();
     TEST_ASSERT_EQUAL_UINT8(static_cast<unsigned>(apps::MiniAppActivationResult::Activated),
                             static_cast<unsigned>(runtime.activate("mac-status")));
     f.respond(*f.lastOf(CompanionOperation::SystemMetrics), 42);
@@ -749,7 +698,7 @@ static_assert(sizeof(apps::MacStatusApp) <= 4 * sizeof(void*));
 
 void test_closed_mac_status_releases_state() {
     Fixture f;
-    f.ready(6, true);
+    f.ready();
     Display display;
     apps::MacStatusApp app(f.status, display);
     TEST_ASSERT_NULL(f.status.history());
@@ -823,11 +772,8 @@ void test_mac_status_requires_live_metric_capability() {
     core::AppRegistry registry;
     TEST_ASSERT_EQUAL_UINT8(
         static_cast<unsigned>(core::AppRegistrationResult::Registered),
-        static_cast<unsigned>(registry.registerApp({"mac-status",
-                                                    "MAC STATUS",
-                                                    "mac-status",
-                                                    "mac-status",
-                                                    {companionSystemMetricsCapabilityId}})));
+        static_cast<unsigned>(registry.registerApp(
+            {"mac-status", "MAC STATUS", "mac-status", "mac-status", {companionCapabilityId}})));
     apps::MiniAppRuntime runtime(registry, f.capabilities);
     (void)runtime.registerInstance("mac-status", app);
     TEST_ASSERT_EQUAL_UINT8(static_cast<unsigned>(apps::MiniAppEligibility::MissingCapability),
@@ -836,7 +782,7 @@ void test_mac_status_requires_live_metric_capability() {
     TEST_ASSERT_EQUAL_UINT8(static_cast<unsigned>(apps::MiniAppActivationResult::Activated),
                             static_cast<unsigned>(runtime.activate("mac-status")));
     TEST_ASSERT_TRUE(f.status.monitoring());
-    (void)f.capabilities.removeCapability(companionSystemMetricsCapabilityId);
+    (void)f.capabilities.removeCapability(companionCapabilityId);
     TEST_ASSERT_EQUAL_UINT8(
         static_cast<unsigned>(apps::MiniAppUpdateResult::DeactivatedMissingCapability),
         static_cast<unsigned>(runtime.update({}, std::chrono::milliseconds(0))));
@@ -858,7 +804,6 @@ int main() {
     RUN_TEST(test_detail_pages_wrap_and_request_only_visible_group);
     RUN_TEST(test_detail_page_content_matches_details);
     RUN_TEST(test_cpu_page_marks_idle_apps_and_keeps_rows_apart);
-    RUN_TEST(test_single_page_without_system_details_ignores_left_right);
     RUN_TEST(test_detail_pages_render_placeholders_for_invalid_fields);
     RUN_TEST(test_companion_loss_resets_pages_and_history);
     RUN_TEST(test_closed_mac_status_releases_state);

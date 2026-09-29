@@ -48,7 +48,6 @@ public struct SystemDetailsSample: Equatable {
     public var performancePercent: UInt8?
     public var efficiencyPercent: UInt8?
     public var gpuPercent: UInt8?
-    public var loadCenti: UInt16?
     public var apps: [TopApp]?
     public var systemDrawDeciwatts: UInt16?
     public var adapterWatts: UInt8?
@@ -59,7 +58,6 @@ public struct SystemDetailsSample: Equatable {
     public var routerRttMs: UInt16?
     public var wifiRssiDbm: Int8?
     public var wifiLinkMbps: UInt16?
-    public var vpnActive: Bool?
     public var memorySplit: MemorySplit?
     public var swapUsedMiB: UInt32?
     public var ssd: SsdSpace?
@@ -68,7 +66,7 @@ public struct SystemDetailsSample: Equatable {
     public init(group: SystemDetailsGroup) { self.group = group }
 
     public func encode() -> [UInt8]? {
-        var bytes: [UInt8] = [1, group.rawValue, 0, 0]
+        var bytes: [UInt8] = [group.rawValue, 0, 0]
         var flags: UInt16 = 0
         func bit(_ index: UInt16, _ present: Bool) { if present { flags |= 1 << index } }
         switch group {
@@ -77,9 +75,8 @@ public struct SystemDetailsSample: Equatable {
                 guard (value ?? 0) <= 100 else { return nil }
             }
             bit(0, performancePercent != nil); bit(1, efficiencyPercent != nil)
-            bit(2, gpuPercent != nil); bit(3, loadCenti != nil); bit(4, apps != nil)
+            bit(2, gpuPercent != nil); bit(3, apps != nil)
             bytes += [performancePercent ?? 0, efficiencyPercent ?? 0, gpuPercent ?? 0]
-            Self.put16(loadCenti ?? 0, into: &bytes)
             let list = apps ?? []
             guard list.count <= Self.maxApps else { return nil }
             bytes.append(UInt8(list.count))
@@ -106,12 +103,11 @@ public struct SystemDetailsSample: Equatable {
             }
         case .network:
             bit(0, internetRttMs != nil); bit(1, routerRttMs != nil); bit(2, wifiRssiDbm != nil)
-            bit(3, wifiLinkMbps != nil); bit(4, vpnActive != nil)
+            bit(3, wifiLinkMbps != nil)
             Self.put16(internetRttMs ?? 0, into: &bytes)
             Self.put16(routerRttMs ?? 0, into: &bytes)
             bytes.append(UInt8(bitPattern: wifiRssiDbm ?? 0))
             Self.put16(wifiLinkMbps ?? 0, into: &bytes)
-            bytes.append(vpnActive == true ? 1 : 0)
         case .memory:
             if let ssd { guard ssd.totalGB > 0, ssd.freeGB <= ssd.totalGB else { return nil } }
             bit(0, memorySplit != nil); bit(1, swapUsedMiB != nil)
@@ -125,28 +121,26 @@ public struct SystemDetailsSample: Equatable {
             Self.put32(diskRates?.readKiBps ?? 0, into: &bytes)
             Self.put32(diskRates?.writeKiBps ?? 0, into: &bytes)
         }
-        bytes[2] = UInt8(truncatingIfNeeded: flags)
-        bytes[3] = UInt8(truncatingIfNeeded: flags >> 8)
+        bytes[1] = UInt8(truncatingIfNeeded: flags)
+        bytes[2] = UInt8(truncatingIfNeeded: flags >> 8)
         return bytes.count <= CompanionConstants.maxPayloadSize ? bytes : nil
     }
 
     public static func decode(_ bytes: [UInt8]) -> Self? {
-        guard bytes.count >= 4, bytes[0] == 1, let group = SystemDetailsGroup(rawValue: bytes[1])
-        else { return nil }
-        let flags = get16(bytes, at: 2)
-        guard flags & ~(group == .memory ? UInt16(0x0f) : 0x1f) == 0 else { return nil }
+        guard bytes.count >= 3, let group = SystemDetailsGroup(rawValue: bytes[0]) else { return nil }
+        let flags = get16(bytes, at: 1)
+        guard flags & ~(group == .power ? UInt16(0x1f) : 0x0f) == 0 else { return nil }
         func has(_ index: UInt16) -> Bool { flags & (1 << index) != 0 }
         var value = Self(group: group)
-        var pos = 4
+        var pos = 3
         switch group {
         case .cpu:
-            guard bytes.count >= pos + 6 else { return nil }
+            guard bytes.count >= pos + 4 else { return nil }
             if has(0) { value.performancePercent = bytes[pos] }
             if has(1) { value.efficiencyPercent = bytes[pos + 1] }
             if has(2) { value.gpuPercent = bytes[pos + 2] }
-            if has(3) { value.loadCenti = get16(bytes, at: pos + 3) }
-            let count = Int(bytes[pos + 5]); pos += 6
-            guard count <= maxApps, has(4) || count == 0 else { return nil }
+            let count = Int(bytes[pos + 3]); pos += 4
+            guard count <= maxApps, has(3) || count == 0 else { return nil }
             var apps: [TopApp] = []
             for _ in 0..<count {
                 guard pos + 2 <= bytes.count else { return nil }
@@ -156,7 +150,7 @@ public struct SystemDetailsSample: Equatable {
                 else { return nil }
                 apps.append(TopApp(name: name, percent: percent)); pos += length
             }
-            if has(4) { value.apps = apps }
+            if has(3) { value.apps = apps }
         case .power:
             guard bytes.count >= pos + 8 else { return nil }
             if has(0) { value.systemDrawDeciwatts = get16(bytes, at: pos) }
@@ -172,13 +166,12 @@ public struct SystemDetailsSample: Equatable {
             }
             pos += length
         case .network:
-            guard bytes.count >= pos + 8, bytes[pos + 7] <= 1 else { return nil }
+            guard bytes.count >= pos + 7 else { return nil }
             if has(0) { value.internetRttMs = get16(bytes, at: pos) }
             if has(1) { value.routerRttMs = get16(bytes, at: pos + 2) }
             if has(2) { value.wifiRssiDbm = Int8(bitPattern: bytes[pos + 4]) }
             if has(3) { value.wifiLinkMbps = get16(bytes, at: pos + 5) }
-            if has(4) { value.vpnActive = bytes[pos + 7] == 1 }
-            pos += 8
+            pos += 7
         case .memory:
             guard bytes.count >= pos + 28 else { return nil }
             if has(0) {
