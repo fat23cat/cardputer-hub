@@ -151,7 +151,7 @@ truncates. An empty name becomes `APP`.
 | --- | --- |
 | 1 CPU | P-cluster % (1, bit 0), E-cluster % (1, bit 1), GPU % (1, bit 2), 1-minute load ×100 (2, bit 3), app count (1, `0..4`, non-zero only with bit 4); then per app: CPU % of the whole machine (1, `0..100`), name length (1, `1..20`), name |
 | 2 power | system draw in deciwatts (2, bit 0), adapter watts (1, bit 1), battery health % (1, bit 2), cycle count (2, bit 3), lowest Apple peripheral battery % (1, bit 4), peripheral name length (1, `1..16` with bit 4, otherwise `0`), name |
-| 3 network | internet round trip ms (2, bit 0), router round trip ms (2, bit 1), Wi-Fi RSSI dBm signed (1, bit 2), Wi-Fi link rate Mbps (2, bit 3), VPN active `0`/`1` (1, bit 4) |
+| 3 network | internet round trip ms (2, bit 0), router round trip ms (2, bit 1), Wi-Fi RSSI dBm signed (1, bit 2), Wi-Fi link rate Mbps (2, bit 3), reserved (1, bit 4; the Mac leaves it clear) |
 | 4 memory/disk | app, wired and compressed memory MiB (3 × 4, bit 0), swap used MiB (4, bit 1), root-volume free and total in decimal GB (2 + 2, bit 2; free ≤ total, total > 0), disk read and write KiB/s (4 + 4, bit 3) |
 
 Validity bits outside the group's fields (`0x1F`, or `0x0F` for memory/disk)

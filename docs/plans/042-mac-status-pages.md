@@ -53,6 +53,16 @@ invalid request rather than a `MALFORMED` answer, and a malformed
 telemetry response (SYSTEM_METRICS, AI_USAGE or SYSTEM_DETAILS) fails only that
 request.
 
+Polish on 2026-09-29: the NETWORK page no longer shows VPN (the Mac leaves
+the network bit 4 clear), a green dot replaces the blue charging bolt on the
+overview, labels were rewritten as plain words (`DISK 63% USED`,
+`MEMORY OK`, `TEMP OK`, `CORES FAST / EFF`, `POWER USE`, `CHARGER`,
+`BATTERY HEALTH`, `CHARGE CYCLES`, `INTERNET PING`, `WI-FI SIGNAL STRONG`,
+`WI-FI SPEED`, `APPS / MACOS / COMPRESSED`, `SWAPPED TO DISK`), LOAD is no
+longer shown, and top apps are averaged over about ten seconds
+with a 1.5-point margin before two listed apps swap, because the 2-second
+instantaneous ranking reshuffled the list on every update.
+
 Code review on 2026-09-28 added: `APPS IDLE` instead of a blank app list; a
 compact cores line (`P61% E18% GPU27%`) and a label-fitting rule so no row
 touches its value; a shared `isPageLeft`/`isPageRight` input helper used by MAC
@@ -77,7 +87,7 @@ The single dashboard becomes the first of five pages:
 3 POWER           battery % · charging · time to full/empty · draw W · adapter W
                   · health % · cycles · lowest Apple peripheral battery
 4 NETWORK         ↓/↑ with 60 s sparklines · router ping · internet ping
-                  · Wi-Fi RSSI and link rate · VPN
+                  · Wi-Fi RSSI and link rate
 5 MEMORY · DISK   RAM split app/wired/compressed · swap · SSD free/total
                   · disk read/write rates
 ```
@@ -502,8 +512,7 @@ Firmware tests are Unity cases; Companion checks are named `expect` labels in
   Magic Mouse or Keyboard battery appears and turns `LOW` at 20% or less.
 - NETWORK page: router RTT stays low while internet RTT rises under an upload;
   RSSI changes when moving away from the access point; no Location prompt
-  appears; VPN toggles with a full-tunnel VPN and stays `OFF` with iCloud
-  Private Relay.
+  appears.
 - MEMORY page: app/wired/compressed values are close to Activity Monitor;
   disk rates react to copying a large file.
 - A 98-byte CPU response arrives within the 2-second request timeout at the

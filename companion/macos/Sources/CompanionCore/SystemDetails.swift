@@ -251,12 +251,20 @@ public struct ProcessCPUTime: Equatable {
     }
 }
 
-/// Ranks apps by CPU use between two samples. Processes that the user may
-/// not read are simply absent from the samples.
+/// Ranks apps by CPU use. Each app's share is averaged over about ten
+/// seconds, apps below half a percent leave the list, and two listed apps only
+/// swap places when one leads by more than 1.5 percentage points, so the
+/// Cardputer list stays readable instead of reshuffling on every update.
+/// Processes that the user may not read are simply absent from the samples.
 public final class TopAppsTracker {
     public static let baselineLimit: TimeInterval = 10
+    public static let averagingTime: TimeInterval = 10
+    public static let listThreshold = 0.5
+    public static let reorderMargin = 1.5
     private var previous: [Int32: ProcessCPUTime] = [:]
     private var previousTime: TimeInterval?
+    private var average: [String: Double] = [:]
+    private var shown: [String] = []
     private let logicalCPUs: Int
 
     public init(logicalCPUs: Int) { self.logicalCPUs = max(1, logicalCPUs) }
@@ -267,25 +275,56 @@ public final class TopAppsTracker {
             previousTime = time
         }
         guard let previousTime, time > previousTime, time - previousTime <= Self.baselineLimit
-        else { return nil }
-        let window = (time - previousTime) * 1_000_000_000 * Double(logicalCPUs)
-        var totals: [String: UInt64] = [:]
+        else {
+            average.removeAll()
+            shown.removeAll()
+            return nil
+        }
+        let elapsed = time - previousTime
+        let window = elapsed * 1_000_000_000 * Double(logicalCPUs)
+        var current: [String: Double] = [:]
         for process in processes {
             guard let earlier = previous[process.pid], earlier.path == process.path,
                   process.cpuNanoseconds >= earlier.cpuNanoseconds else { continue }
             let name = DisplayName.appName(forExecutable: process.path)
             guard !name.isEmpty else { continue }
-            totals[name, default: 0] += process.cpuNanoseconds - earlier.cpuNanoseconds
+            current[name, default: 0] += Double(process.cpuNanoseconds - earlier.cpuNanoseconds) / window * 100
         }
-        return totals
-            .map { name, nanoseconds in
-                TopApp(name: DisplayName.sanitize(name, limit: SystemDetailsSample.maxAppName),
-                       percent: UInt8(min(100, (Double(nanoseconds) / window * 100).rounded())))
+        // A new app starts at its first measured share, so a sudden burst shows at once.
+        let weight = 1 - exp(-elapsed / Self.averagingTime)
+        for name in Set(average.keys).union(current.keys) {
+            let value = min(100, current[name] ?? 0)
+            average[name] = average[name].map { $0 + weight * (value - $0) } ?? value
+        }
+        average = average.filter { $0.value >= Self.listThreshold / 5 }
+
+        let listed = average.filter { $0.value >= Self.listThreshold }
+        var members = listed.sorted { $0.value != $1.value ? $0.value > $1.value : $0.key < $1.key }
+            .prefix(SystemDetailsSample.maxApps).map(\.key)
+        // A listed app is not pushed out by a newcomer that is only slightly busier.
+        for name in shown where !members.contains(name) {
+            guard let value = listed[name],
+                  let newcomer = members.last(where: { !shown.contains($0) }),
+                  let challenger = listed[newcomer], challenger < value + Self.reorderMargin
+            else { continue }
+            members[members.firstIndex(of: newcomer)!] = name
+        }
+        var order = shown.filter(members.contains) +
+            members.filter { !shown.contains($0) }.sorted { listed[$0]! > listed[$1]! }
+        var swapped = true
+        while swapped {
+            swapped = false
+            for index in order.indices.dropLast()
+            where listed[order[index + 1]]! > listed[order[index]]! + Self.reorderMargin {
+                order.swapAt(index, index + 1)
+                swapped = true
             }
-            .filter { $0.percent > 0 }
-            .sorted { $0.percent != $1.percent ? $0.percent > $1.percent : $0.name < $1.name }
-            .prefix(SystemDetailsSample.maxApps)
-            .map { $0 }
+        }
+        shown = order
+        return order.map { name in
+            TopApp(name: DisplayName.sanitize(name, limit: SystemDetailsSample.maxAppName),
+                   percent: UInt8(min(100, max(1, listed[name]!.rounded()))))
+        }
     }
 }
 

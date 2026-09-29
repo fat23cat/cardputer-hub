@@ -592,6 +592,41 @@ enum CompanionCoreCheck {
                "top apps roll up helpers and skip processes without a baseline")
         expect(tracker.sample(second, at: 112) == nil, "process baseline expires after ten seconds")
 
+        // Top apps are smoothed over about ten seconds and do not reorder for
+        // small differences, so the Cardputer list does not jump every update.
+        func topAppsRun(_ percents: [[String: Double]]) -> [[TopApp]?] {
+            let smoothTracker = TopAppsTracker(logicalCPUs: 2)
+            var cumulative: [String: UInt64] = [:]
+            var names: [String] = []
+            for step in percents { for name in step.keys where !names.contains(name) { names.append(name) } }
+            func processes() -> [ProcessCPUTime] {
+                names.enumerated().map { index, name in
+                    ProcessCPUTime(pid: Int32(index + 1), path: "/Applications/\(name).app/Contents/MacOS/\(name)",
+                                   cpuNanoseconds: cumulative[name, default: 0])
+                }
+            }
+            var results: [[TopApp]?] = [smoothTracker.sample(processes(), at: 0)]
+            for (index, step) in percents.enumerated() {
+                // 1% of two CPUs over two seconds is 40 ms of CPU time.
+                for (name, percent) in step { cumulative[name, default: 0] += UInt64(percent * 40_000_000) }
+                results.append(smoothTracker.sample(processes(), at: Double(index + 1) * 2))
+            }
+            return results
+        }
+        let flapping = topAppsRun((0..<10).map { ["Steady": 20, "Flicker": $0 % 2 == 0 ? 4 : 0] })
+        expect(flapping.dropFirst(2).allSatisfy { $0?.map(\.name) == ["Steady", "Flicker"] },
+               "an app that briefly idles stays in the list")
+        let close = topAppsRun((0..<10).map { $0 % 2 == 0 ? ["Alpha": 10, "Beta": 11] : ["Alpha": 11, "Beta": 10] })
+        let closeOrders = Set(close.dropFirst().compactMap { $0?.map(\.name).joined(separator: ",") })
+        expect(closeOrders.count == 1, "near-equal apps keep their order")
+        let takeover = topAppsRun([["Old": 10, "New": 0], ["Old": 10, "New": 60], ["Old": 10, "New": 60]])
+        expect(takeover.last??.first?.name == "New", "a clearly busier app moves up within one update")
+        let spawned = topAppsRun([["Base": 5], ["Base": 5, "Burst": 30]])
+        expect(spawned.last??.first == TopApp(name: "Burst", percent: 30),
+               "a new busy app appears on its first sample")
+        let fading = topAppsRun([["Gone": 3]] + Array(repeating: [:], count: 12))
+        expect(fading.last == .some([]), "an idle app leaves the list once its average falls")
+
         var disk = CounterRate()
         expect(disk.sample(read: 0, write: 0, at: 10) == nil, "disk counters need a baseline")
         expect(disk.sample(read: 2048, write: 1024, at: 12) == DiskRates(readKiBps: 1, writeKiBps: 0),

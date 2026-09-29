@@ -449,6 +449,7 @@ void test_overview_draws_cpu_sparkline_from_history() {
     display.capture.save("mac-status-sparkline");
     TEST_ASSERT_EQUAL_UINT(10, f.status.history()->size());
     TEST_ASSERT_TRUE(display.hasLabel("CPU 82%"));
+    TEST_ASSERT_TRUE(display.hasLabel("TEMP OK"));
     // The line occupies the right side of the CPU block, and no bar is drawn.
     TEST_ASSERT_TRUE(display.rectanglesIn(80, 26, 110, 41, core::palette::blue) > 0);
     TEST_ASSERT_EQUAL_UINT(0, display.rectanglesIn(8, 26, 60, 41, core::palette::blue));
@@ -469,7 +470,9 @@ void test_overview_battery_shows_charge_state_and_time() {
     app.update({}, std::chrono::milliseconds(0));
     display.capture.save("mac-status-v6");
     TEST_ASSERT_TRUE(display.hasLabel("BAT 78% 1:42"));
-    TEST_ASSERT_TRUE(display.rectanglesIn(224, 47, 232, 60, core::palette::blue) > 0);
+    TEST_ASSERT_TRUE(display.rectanglesIn(224, 47, 232, 60, core::palette::leaf) > 0);
+    // Charging is a green dot, not a blue bolt.
+    TEST_ASSERT_EQUAL_UINT(0, display.rectanglesIn(224, 47, 232, 60, core::palette::blue));
     // Five page dots show that detail pages exist.
     TEST_ASSERT_EQUAL_UINT(4, display.rectanglesIn(100, 131, 140, 134, core::palette::pale));
     display.reset();
@@ -478,7 +481,14 @@ void test_overview_battery_shows_charge_state_and_time() {
     f.status.update(std::chrono::milliseconds(0));
     app.update({}, std::chrono::milliseconds(0));
     TEST_ASSERT_TRUE(display.hasLabel("BAT 78% 3:05"));
-    TEST_ASSERT_EQUAL_UINT(0, display.rectanglesIn(224, 47, 232, 60, core::palette::blue));
+    display.reset();
+    app.update(key(core::NamedKey::Right), std::chrono::milliseconds(0));
+    app.update(key(core::NamedKey::Right), std::chrono::milliseconds(0));
+    TEST_ASSERT_TRUE(display.hasLabel("ON BATTERY"));
+    TEST_ASSERT_TRUE(display.hasLabel("EMPTY IN 3:05"));
+    app.update(key(core::NamedKey::Left), std::chrono::milliseconds(0));
+    app.update(key(core::NamedKey::Left), std::chrono::milliseconds(0));
+    TEST_ASSERT_EQUAL_UINT(0, display.rectanglesIn(224, 47, 232, 60, core::palette::leaf));
     display.reset();
     f.status.update(std::chrono::milliseconds(1000));
     f.respond(*f.lastOf(CompanionOperation::SystemMetrics), 42, 3);
@@ -522,7 +532,11 @@ void test_detail_pages_wrap_and_request_only_visible_group() {
         display.capture.save(captures[index]);
     }
     TEST_ASSERT_EQUAL_UINT(4, f.count(CompanionOperation::SystemDetails));
-    TEST_ASSERT_TRUE(display.hasLabel("340.0 MB/s"));
+    TEST_ASSERT_TRUE(display.hasLabel("READ 340 WRITE 58 MB/s"));
+    TEST_ASSERT_TRUE(display.hasLabel("SWAPPED TO DISK"));
+    TEST_ASSERT_TRUE(display.hasLabel("MACOS"));
+    TEST_ASSERT_TRUE(display.hasLabel("COMPRESSED"));
+    TEST_ASSERT_TRUE(display.hasLabel("14.1 G"));
     app.update(key(core::NamedKey::Right), std::chrono::milliseconds(0));
     TEST_ASSERT_EQUAL_UINT8(static_cast<unsigned>(apps::MacStatusPage::Overview),
                             static_cast<unsigned>(app.page()));
@@ -548,8 +562,11 @@ void test_detail_page_content_matches_details() {
     f.status.update(std::chrono::milliseconds(0));
     app.update({}, std::chrono::milliseconds(0));
     TEST_ASSERT_TRUE(display.hasLabel("42%"));
-    TEST_ASSERT_TRUE(display.hasLabel("P61% E18% GPU27%"));
-    TEST_ASSERT_TRUE(display.hasLabel("LOAD 3.1"));
+    TEST_ASSERT_TRUE(display.hasLabel("CORES"));
+    TEST_ASSERT_TRUE(display.hasLabel("FAST 61%  EFF 18%"));
+    TEST_ASSERT_TRUE(display.hasLabel("GPU"));
+    TEST_ASSERT_TRUE(display.hasLabel("27%"));
+    TEST_ASSERT_FALSE(display.hasLabel("LOAD 3.1"));
     TEST_ASSERT_TRUE(display.hasLabel("GOOGLE CHROME"));
     TEST_ASSERT_TRUE(display.hasLabel("04"));
     display.reset();
@@ -561,7 +578,13 @@ void test_detail_page_content_matches_details() {
     TEST_ASSERT_TRUE(display.hasLabel("CHARGING"));
     TEST_ASSERT_TRUE(display.hasLabel("FULL IN 1:42"));
     TEST_ASSERT_TRUE(display.hasLabel("14.2 W"));
-    TEST_ASSERT_TRUE(display.hasLabel("91%  214 CYC"));
+    TEST_ASSERT_TRUE(display.hasLabel("POWER USE"));
+    TEST_ASSERT_TRUE(display.hasLabel("CHARGER"));
+    TEST_ASSERT_TRUE(display.hasLabel("96 W"));
+    TEST_ASSERT_TRUE(display.hasLabel("BATTERY HEALTH"));
+    TEST_ASSERT_TRUE(display.hasLabel("91%"));
+    TEST_ASSERT_TRUE(display.hasLabel("CHARGE CYCLES"));
+    TEST_ASSERT_TRUE(display.hasLabel("214"));
     TEST_ASSERT_TRUE(display.hasLabel("MAGIC MOUSE"));
     TEST_ASSERT_TRUE(display.hasLabel("LOW 12%"));
     TEST_ASSERT_EQUAL_UINT(16, display.rectanglesIn(8, 46, 232, 53, core::palette::blue));
@@ -571,10 +594,15 @@ void test_detail_page_content_matches_details() {
     f.status.update(std::chrono::milliseconds(0));
     app.update({}, std::chrono::milliseconds(0));
     TEST_ASSERT_TRUE(display.hasLabel("12.4 MB/s"));
+    TEST_ASSERT_TRUE(display.hasLabel("INTERNET PING"));
     TEST_ASSERT_TRUE(display.hasLabel("18 MS"));
     TEST_ASSERT_TRUE(display.hasLabel("3 MS"));
-    TEST_ASSERT_TRUE(display.hasLabel("-54 DBM 866 MBPS"));
-    TEST_ASSERT_TRUE(display.hasLabel("ON"));
+    TEST_ASSERT_TRUE(display.hasLabel("WI-FI SIGNAL"));
+    TEST_ASSERT_TRUE(display.hasLabel("STRONG"));
+    TEST_ASSERT_TRUE(display.hasLabel("WI-FI SPEED"));
+    TEST_ASSERT_TRUE(display.hasLabel("866 MBIT/S"));
+    TEST_ASSERT_FALSE(display.hasLabel("-54 DBM 866 MBPS"));
+    TEST_ASSERT_FALSE(display.hasLabel("VPN"));
     // Unchanged regions are not repainted on the next frame.
     const auto before = display.draws;
     app.update({}, std::chrono::milliseconds(0));
@@ -612,12 +640,12 @@ void test_cpu_page_marks_idle_apps_and_keeps_rows_apart() {
     // A Mac with no busy app says so instead of leaving the list blank.
     TEST_ASSERT_TRUE(display.hasLabel("APPS"));
     TEST_ASSERT_TRUE(display.hasLabel("IDLE"));
-    TEST_ASSERT_TRUE(display.hasLabel("P100% E100% GPU100%"));
-    TEST_ASSERT_TRUE(display.hasLabel("LOAD 123.5"));
-    // The widest cores line still ends at least one glyph before LOAD.
-    const auto coresEnd = 8 + core::systemTextWidth("P100% E100% GPU100%");
-    const auto loadStart = core::rightAlignedTextX("LOAD 123.5", 232);
-    TEST_ASSERT_TRUE(loadStart - coresEnd >= 7);
+    TEST_ASSERT_TRUE(display.hasLabel("FAST 100%  EFF 100%"));
+    TEST_ASSERT_TRUE(display.hasLabel("100%"));
+    // The widest cores value still leaves a glyph of space after its label.
+    const auto labelEnd = 8 + core::systemTextWidth("CORES");
+    const auto valueStart = core::rightAlignedTextX("FAST 100%  EFF 100%", 232);
+    TEST_ASSERT_TRUE(valueStart - labelEnd >= 7);
 }
 
 void test_single_page_without_system_details_ignores_left_right() {
@@ -646,13 +674,12 @@ void test_detail_pages_render_placeholders_for_invalid_fields() {
     f.respond(f.transport.last(), 42);
     f.status.update(std::chrono::milliseconds(0));
     app.update(key(core::NamedKey::Right), std::chrono::milliseconds(0));
-    TEST_ASSERT_TRUE(display.hasLabel("P-- E-- GPU--"));
-    TEST_ASSERT_TRUE(display.hasLabel("LOAD --"));
+    TEST_ASSERT_TRUE(display.hasLabel("FAST --  EFF --"));
     TEST_ASSERT_TRUE(display.hasLabel("APPS"));
     display.reset();
     app.update(key(core::NamedKey::Right), std::chrono::milliseconds(0));
     TEST_ASSERT_TRUE(display.hasLabel("NO BATTERY"));
-    TEST_ASSERT_TRUE(display.hasLabel("SYSTEM DRAW"));
+    TEST_ASSERT_TRUE(display.hasLabel("POWER USE"));
     TEST_ASSERT_EQUAL_UINT(0, display.rectanglesIn(8, 46, 232, 53, core::palette::blue));
     // The CPU request from the previous page is still in flight; its late
     // answer is dropped and the POWER request follows.
@@ -765,7 +792,9 @@ void test_dashboard_uses_full_screen_placeholders_and_dirty_blocks() {
     TEST_ASSERT_EQUAL_UINT(8, display.labels.size());
     TEST_ASSERT_EQUAL_STRING("CPU --", display.labels[0].c_str());
     TEST_ASSERT_EQUAL_STRING("RAM --", display.labels[1].c_str());
-    TEST_ASSERT_EQUAL_STRING("THERM --", display.labels[7].c_str());
+    TEST_ASSERT_EQUAL_STRING("DISK --", display.labels[2].c_str());
+    TEST_ASSERT_EQUAL_STRING("MEMORY --", display.labels[6].c_str());
+    TEST_ASSERT_EQUAL_STRING("TEMP --", display.labels[7].c_str());
     const auto initialDraws = display.draws;
     app.update({}, std::chrono::milliseconds(100));
     TEST_ASSERT_EQUAL_INT(initialDraws, display.draws);
@@ -774,6 +803,7 @@ void test_dashboard_uses_full_screen_placeholders_and_dirty_blocks() {
     app.update({}, std::chrono::milliseconds(0));
     TEST_ASSERT_EQUAL_STRING("CPU 34%", display.labels[8].c_str());
     TEST_ASSERT_EQUAL_STRING("RAM 8.0/16G", display.labels[9].c_str());
+    TEST_ASSERT_EQUAL_STRING("DISK 63% USED", display.labels[10].c_str());
     const auto afterSample = display.draws;
     app.update({}, std::chrono::milliseconds(0));
     TEST_ASSERT_EQUAL_INT(afterSample, display.draws);

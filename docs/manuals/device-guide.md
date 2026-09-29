@@ -133,8 +133,11 @@ missing, crashed, or disconnected.
 After Companion closes, its host-name row on Home disappears when the session
 is detected as unavailable, even if Bluetooth HID remains connected.
 
-MAC STATUS shows CPU, physical memory used/total, memory pressure, root-volume
-storage usage, Mac battery, download/upload rates, and thermal state. The
+MAC STATUS shows CPU, physical memory used/total, how much of the startup disk
+is used (`DISK 63% USED`), Mac battery, download/upload rates, whether memory
+is sufficient (`MEMORY OK`, `TIGHT` or `CRITICAL`, from macOS memory pressure)
+and how hot the Mac is (`TEMP OK`, `WARM`, `HOT` or `CRITICAL`, from the macOS
+thermal state; green is fine, red needs attention). The
 memory value is an estimate that counts compressed and inactive app memory but
 excludes free memory and file-backed cache. Under the CPU value a line shows
 the last 60 seconds; it grows from the right after you open the app and breaks
@@ -145,29 +148,39 @@ metrics and values older than three seconds show `--`. CPU and network rates
 may initially show `--` while the Companion establishes counter baselines.
 
 With a Companion that supports protocol v6, the battery also shows the time to
-full charge while charging (with a blue bolt), the time left on battery, or
+full charge while charging (with a green dot), the time left on battery, or
 `AC` when plugged in and not charging. Five dots at the bottom mean four more
 pages are available. Press Right (`/`) or Left (`,`), with or without Fn, to
 move between them; the pages wrap around, and MAC STATUS always opens on the
 overview:
 
-* **CPU / TOP APPS** — CPU with a 60-second line, performance (`P`) and
-  efficiency (`E`) core load, GPU, the one-minute load average, and the four
-  apps using the most CPU; `APPS IDLE` means no app uses at least 1% of the
-  Mac. An app's helper processes count toward the app.
+* **CPU / TOP APPS** — CPU with a 60-second line; `CORES` splits the load
+  between the fast performance cores (`FAST`) and the energy-efficient cores
+  (`EFF`) that run background work; `GPU` is graphics-chip load; below are the
+  four apps using the most CPU; `APPS IDLE` means no app uses at least 1% of the
+  Mac. An app's helper processes count toward the app. The list uses each
+  app's average over about ten seconds, and apps with nearly equal use keep
+  their places, so the order changes only when one app is clearly busier.
   Only your own processes are listed; system processes owned by other users
   are not.
-* **POWER** — battery percentage and segment meter, charging state and time,
-  the Mac's current power draw, adapter wattage, battery health and cycle
-  count, and the lowest-charged Apple mouse, keyboard or trackpad (`LOW` at 20%
-  or less). A Mac without a battery shows `NO BATTERY`.
-* **NETWORK** — download and upload with 60-second lines, round-trip time to
-  the internet (`1.1.1.1`) and to your router, Wi-Fi signal and link rate, and
-  whether a full-tunnel VPN carries the default route. The Wi-Fi network name
-  is not read, so macOS does not ask for Location access.
-* **MEMORY / DISK** — RAM split into app, wired and compressed memory, swap in
-  use, free space on the startup disk in decimal GB as Finder shows it, and
-  disk read and write rates.
+* **POWER** — battery percentage and segment meter, charging state with
+  `FULL IN` or `EMPTY IN` time, `POWER USE` (what the whole Mac draws right
+  now, in watts), `CHARGER` (the connected charger's rating), `BATTERY HEALTH`
+  (capacity left compared with a new battery), `CHARGE CYCLES`, and the
+  lowest-charged Apple mouse, keyboard or trackpad (`LOW` at 20% or less). A
+  Mac without a battery shows `NO BATTERY`.
+* **NETWORK** — download and upload with 60-second lines; `INTERNET PING` and
+  `ROUTER PING` are round-trip times to `1.1.1.1` and to your router (a slow
+  internet ping with a fast router ping points at the provider, both slow at
+  Wi-Fi); `WI-FI SIGNAL` is `STRONG`, `GOOD`, `WEAK` or `VERY WEAK`;
+  `WI-FI SPEED` is the current link rate in Mbit/s. The Wi-Fi network name is
+  not read, so macOS does not ask for Location access.
+* **MEMORY / DISK** — RAM in use and a bar split into `APPS` (memory your
+  apps use), `MACOS` (memory the system keeps for itself and cannot move) and
+  `COMPRESSED` (app memory macOS squeezed to make room); `SWAPPED TO DISK` is
+  memory moved to the SSD because RAM was full; `DISK FREE` is free space on
+  the startup disk in decimal GB as Finder shows it; `DISK` shows current read
+  and write speed in MB/s.
 
 A detail page updates about every two seconds; its values show `--` for the
 first two to four seconds after it opens, and again when they are more than

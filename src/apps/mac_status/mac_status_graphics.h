@@ -18,6 +18,8 @@ struct MacStatusPresentation {
     std::array<std::string, 8> labels{};
     std::array<int, 4> bars{};
     bool charging = false;
+    // Memory pressure and temperature: 0 neutral, 1 healthy, 2 needs attention.
+    std::array<std::uint8_t, 2> severity{};
 };
 
 MacStatusPresentation formatMacStatus(const services::MacStatusSnapshot& snapshot);

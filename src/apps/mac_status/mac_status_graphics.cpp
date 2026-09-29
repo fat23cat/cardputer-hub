@@ -14,10 +14,15 @@ using services::MacStatusHistory;
 
 constexpr std::int32_t left = 8;
 constexpr std::int32_t right = 232;
-constexpr std::int32_t ruleY = 57;
-constexpr std::int32_t firstRowY = 60;
-constexpr std::int32_t rowPitch = 18;
 constexpr float largeTextScale = 2.0f;
+
+// Label/value rows. Pages with four rows use the roomy grid; pages that need
+// five or six rows use the compact one (15 px keeps a 5 px gap under 10 px text).
+struct RowGrid {
+    std::int32_t top;
+    std::int32_t pitch;
+};
+constexpr RowGrid roomyRows{60, 18};
 
 std::string percent(const char* prefix, bool available, unsigned value) {
     if (!available)
@@ -77,6 +82,23 @@ std::string rate(bool available, std::uint32_t kib) {
 }
 
 // Battery time as H:MM; macOS never reports more than a few days.
+// Both disk rates in one unit so a single row can carry them.
+std::string megabytes(std::uint32_t kib) {
+    if (kib < 10U * 1024U)
+        return tenths(kib, 1024);
+    return std::to_string((kib + 512U) / 1024U);
+}
+
+std::string wifiSignal(std::int8_t dbm) {
+    if (dbm >= -60)
+        return "STRONG";
+    if (dbm >= -70)
+        return "GOOD";
+    if (dbm >= -80)
+        return "WEAK";
+    return "VERY WEAK";
+}
+
 std::string duration(std::uint16_t minutes) {
     if (minutes / 60U > 99U)
         return "--";
@@ -115,10 +137,10 @@ void drawArrow(core::IDisplayAdapter& display, std::int32_t x, std::int32_t y, b
     }
 }
 
-void drawBolt(core::IDisplayAdapter& display, std::int32_t x, std::int32_t y) {
-    display.fillRectangle({x + 3, y}, 3, 4, core::palette::blue);
-    display.fillRectangle({x + 1, y + 4}, 6, 2, core::palette::blue);
-    display.fillRectangle({x + 1, y + 6}, 3, 4, core::palette::blue);
+// A round 6×6 Leaf dot marks a charging battery.
+void drawChargingDot(core::IDisplayAdapter& display, std::int32_t x, std::int32_t y) {
+    display.fillRectangle({x + 1, y}, 4, 6, core::palette::leaf);
+    display.fillRectangle({x, y + 1}, 6, 4, core::palette::leaf);
 }
 
 enum class Series : std::uint8_t { Cpu, Download, Upload };
@@ -214,23 +236,39 @@ MacStatusRegion textRegion(std::int32_t y, std::int32_t height, std::string left
     return region;
 }
 
-MacStatusRegion row(int index, std::string label, std::string value,
+MacStatusRegion row(RowGrid grid, int index, std::string label, std::string value,
                     core::RgbColor color = core::palette::ink) {
-    return textRegion(firstRowY + index * rowPitch, 16, std::move(label), std::move(value), color);
+    return textRegion(grid.top + index * grid.pitch, grid.pitch - 2, std::move(label),
+                      std::move(value), color);
 }
 
-MacStatusRegion header(const char* title, MacStatusPage page) {
+// A row whose label starts with a colour swatch that keys a bar above it.
+MacStatusRegion swatchRow(RowGrid grid, int index, core::RgbColor swatch, std::string label,
+                          std::string value) {
+    const auto y = grid.top + index * grid.pitch;
+    MacStatusRegion region{0, y, 240, grid.pitch - 2, label + "|" + value, {}};
+    region.draw = [y, swatch, label, value](core::IDisplayAdapter& display) {
+        display.fillRectangle({left, y + 4}, 5, 5, swatch);
+        display.drawText({left + 9, y + 2}, label.c_str(), textStyle());
+        drawRight(display, y + 2, value);
+    };
+    return region;
+}
+
+// `ruleY` draws the separator under the page's summary; 0 means none.
+MacStatusRegion header(const char* title, MacStatusPage page, std::int32_t ruleY) {
     char counter[8]{};
     std::snprintf(counter, sizeof(counter), "%u/%u", unsigned(page) + 1U,
                   unsigned(macStatusPageCount));
     const std::string name = title;
     const std::string pageText = counter;
     MacStatusRegion region{0, 0, 240, 16, name + pageText, {}};
-    region.draw = [name, pageText](core::IDisplayAdapter& display) {
+    region.draw = [name, pageText, ruleY](core::IDisplayAdapter& display) {
         display.drawText({left, 3}, name.c_str(), textStyle());
         drawRight(display, 3, pageText, core::palette::ordinal);
         display.fillRectangle({0, 15}, 240, 1, core::palette::pale);
-        display.fillRectangle({0, ruleY}, 240, 1, core::palette::pale);
+        if (ruleY > 0)
+            display.fillRectangle({0, ruleY}, 240, 1, core::palette::pale);
     };
     return region;
 }
@@ -256,24 +294,21 @@ void addCpuPage(std::vector<MacStatusRegion>& regions, const services::MacStatus
     };
     regions.push_back(std::move(spark));
     const auto opt = [&](const auto& value) { return detail ? value : std::nullopt; };
-    // Compact labels keep the widest line (all 100%) clear of LOAD.
-    std::string cores = "P" + percentValue(opt(details.performancePercent)) + " E" +
-                        percentValue(opt(details.efficiencyPercent)) + " GPU" +
-                        percentValue(opt(details.gpuPercent));
-    std::string load = "LOAD --";
-    if (detail && details.loadCenti)
-        load = "LOAD " + tenths(*details.loadCenti, 100);
-    regions.push_back(textRegion(42, 14, cores, load));
+    regions.push_back(textRegion(42, 14, "CORES",
+                                 "FAST " + percentValue(opt(details.performancePercent)) +
+                                     "  EFF " + percentValue(opt(details.efficiencyPercent))));
+    regions.push_back(textRegion(57, 14, "GPU", percentValue(opt(details.gpuPercent))));
+    constexpr RowGrid apps{75, 15};
     if (!detail || !details.appsAvailable || details.appCount == 0) {
         // No app reached 1% of the machine: say so instead of a blank list.
-        regions.push_back(row(0, "APPS", detail && details.appsAvailable ? "IDLE" : "--"));
+        regions.push_back(row(apps, 0, "APPS", detail && details.appsAvailable ? "IDLE" : "--"));
         for (int index = 1; index < 4; ++index)
-            regions.push_back(row(index, "", ""));
+            regions.push_back(row(apps, index, "", ""));
         return;
     }
     for (int index = 0; index < 4; ++index) {
         if (index >= details.appCount) {
-            regions.push_back(row(index, "", ""));
+            regions.push_back(row(apps, index, "", ""));
             continue;
         }
         const auto& app = details.apps[static_cast<std::size_t>(index)];
@@ -283,8 +318,8 @@ void addCpuPage(std::vector<MacStatusRegion>& regions, const services::MacStatus
         const auto nameWidth = right - core::systemTextWidth(value.c_str()) - 8 - 30;
         const std::string name = core::fitSystemText(upper(app.name), nameWidth);
         const std::string number = ordinal;
-        const auto y = firstRowY + index * rowPitch;
-        MacStatusRegion region{0, y, 240, 16, number + name + value, {}};
+        const auto y = apps.top + index * apps.pitch;
+        MacStatusRegion region{0, y, 240, apps.pitch - 2, number + name + value, {}};
         region.draw = [y, number, name, value](core::IDisplayAdapter& display) {
             display.drawText({left, y + 2}, number.c_str(), textStyle(core::palette::ordinal));
             display.drawText({30, y + 2}, name.c_str(), textStyle());
@@ -325,7 +360,7 @@ void addPowerPage(std::vector<MacStatusRegion>& regions,
     case MacPowerSource::Battery:
         state = "ON BATTERY";
         if (minutes)
-            time = "LEFT " + duration(snapshot.batteryMinutes);
+            time = "EMPTY IN " + duration(snapshot.batteryMinutes);
         break;
     case MacPowerSource::AcPower:
         state = "ON AC";
@@ -359,20 +394,22 @@ void addPowerPage(std::vector<MacStatusRegion>& regions,
     std::string adapter = "--";
     if (detail && details.adapterWatts)
         adapter = std::to_string(*details.adapterWatts) + " W";
-    std::string health = detail ? percentValue(details.healthPercent) : "--";
-    if (detail && details.cycleCount)
-        health += "  " + std::to_string(*details.cycleCount) + " CYC";
-    regions.push_back(row(0, "SYSTEM DRAW", draw));
-    regions.push_back(row(1, "ADAPTER", adapter));
-    regions.push_back(row(2, "HEALTH", health));
+    constexpr RowGrid rows{59, 15};
+    regions.push_back(row(rows, 0, "POWER USE", draw));
+    regions.push_back(row(rows, 1, "CHARGER", adapter));
+    regions.push_back(
+        row(rows, 2, "BATTERY HEALTH", detail ? percentValue(details.healthPercent) : "--"));
+    regions.push_back(row(rows, 3, "CHARGE CYCLES",
+                          detail && details.cycleCount ? std::to_string(*details.cycleCount)
+                                                       : std::string("--")));
     if (detail && details.peripheralPercent) {
         const bool low = *details.peripheralPercent <= 20;
         const auto value =
             (low ? std::string("LOW ") : std::string()) + percentValue(details.peripheralPercent);
-        regions.push_back(row(3, core::fitSystemText(upper(details.peripheralName), 150), value,
-                              low ? core::palette::vermilion : core::palette::ink));
+        regions.push_back(row(rows, 4, core::fitSystemText(upper(details.peripheralName), 150),
+                              value, low ? core::palette::vermilion : core::palette::ink));
     } else {
-        regions.push_back(row(3, "", ""));
+        regions.push_back(row(rows, 4, "", ""));
     }
 }
 
@@ -398,23 +435,15 @@ void addNetworkPage(std::vector<MacStatusRegion>& regions,
     const auto milliseconds = [&](const std::optional<std::uint16_t>& value) {
         return detail && value ? std::to_string(*value) + " MS" : std::string("--");
     };
-    std::string wifi = "--";
-    if (detail && details.wifiRssiDbm) {
-        wifi = std::to_string(*details.wifiRssiDbm) + " DBM";
-        if (details.wifiLinkMbps)
-            wifi += " " + std::to_string(*details.wifiLinkMbps) + " MBPS";
-    }
-    std::string vpn = "--";
-    auto vpnColor = core::palette::ink;
-    if (detail && details.vpnActive) {
-        vpn = *details.vpnActive ? "ON" : "OFF";
-        if (*details.vpnActive)
-            vpnColor = core::palette::blue;
-    }
-    regions.push_back(row(0, "INTERNET", milliseconds(details.internetRttMs)));
-    regions.push_back(row(1, "ROUTER", milliseconds(details.routerRttMs)));
-    regions.push_back(row(2, "WI-FI", wifi));
-    regions.push_back(row(3, "VPN", vpn, vpnColor));
+    regions.push_back(row(roomyRows, 0, "INTERNET PING", milliseconds(details.internetRttMs)));
+    regions.push_back(row(roomyRows, 1, "ROUTER PING", milliseconds(details.routerRttMs)));
+    regions.push_back(
+        row(roomyRows, 2, "WI-FI SIGNAL",
+            detail && details.wifiRssiDbm ? wifiSignal(*details.wifiRssiDbm) : std::string("--")));
+    regions.push_back(row(roomyRows, 3, "WI-FI SPEED",
+                          detail && details.wifiLinkMbps
+                              ? std::to_string(*details.wifiLinkMbps) + " MBIT/S"
+                              : std::string("--")));
 }
 
 void addMemoryPage(std::vector<MacStatusRegion>& regions,
@@ -458,33 +487,26 @@ void addMemoryPage(std::vector<MacStatusRegion>& regions,
         }
     };
     regions.push_back(std::move(bar));
-    const auto part = [&](const char* name, std::uint32_t mib) {
-        return std::string(name) + " " + (split ? tenths(mib, 1024) : std::string("--"));
+    const auto gigabytes = [&](std::uint32_t mib) {
+        return split ? tenths(mib, 1024) + " G" : std::string("--");
     };
-    const std::array<std::string, 3> legend{part("APP", details.appMiB),
-                                            part("WIRED", details.wiredMiB),
-                                            part("COMP", details.compressedMiB)};
-    MacStatusRegion key{0, 42, 240, 13, legend[0] + legend[1] + legend[2], {}};
-    key.draw = [legend](core::IDisplayAdapter& display) {
-        const std::int32_t xs[] = {left, 76, 152};
-        const core::RgbColor colors[] = {core::palette::blue, core::palette::ink,
-                                         core::palette::ordinal};
-        for (std::size_t i = 0; i < legend.size(); ++i) {
-            display.fillRectangle({xs[i], 46}, 5, 5, colors[i]);
-            display.drawText({xs[i] + 9, 44}, legend[i].c_str(), textStyle());
-        }
-    };
-    regions.push_back(std::move(key));
+    constexpr RowGrid rows{41, 15};
+    regions.push_back(swatchRow(rows, 0, core::palette::blue, "APPS", gigabytes(details.appMiB)));
+    regions.push_back(swatchRow(rows, 1, core::palette::ink, "MACOS", gigabytes(details.wiredMiB)));
+    regions.push_back(
+        swatchRow(rows, 2, core::palette::ordinal, "COMPRESSED", gigabytes(details.compressedMiB)));
     std::string ssd = "--";
     if (detail && details.ssdAvailable)
         ssd =
             std::to_string(details.ssdFreeGB) + " G / " + std::to_string(details.ssdTotalGB) + " G";
-    const bool rates = detail && details.diskRatesAvailable;
-    regions.push_back(
-        row(0, "SWAP", detail && details.swapUsedMiB ? mebibytes(*details.swapUsedMiB) : "--"));
-    regions.push_back(row(1, "SSD FREE", ssd));
-    regions.push_back(row(2, "DISK READ", rate(rates, details.diskReadKiBps)));
-    regions.push_back(row(3, "DISK WRITE", rate(rates, details.diskWriteKiBps)));
+    std::string disk = "--";
+    if (detail && details.diskRatesAvailable)
+        disk = "READ " + megabytes(details.diskReadKiBps) + " WRITE " +
+               megabytes(details.diskWriteKiBps) + " MB/s";
+    regions.push_back(row(rows, 3, "SWAPPED TO DISK",
+                          detail && details.swapUsedMiB ? mebibytes(*details.swapUsedMiB) : "--"));
+    regions.push_back(row(rows, 4, "DISK FREE", ssd));
+    regions.push_back(row(rows, 5, "DISK", disk));
 }
 } // namespace
 
@@ -494,7 +516,9 @@ MacStatusPresentation formatMacStatus(const services::MacStatusSnapshot& snapsho
     result.labels[0] = percent("CPU", fresh && snapshot.cpuAvailable, snapshot.cpuPercent);
     result.labels[1] =
         memory(fresh && snapshot.memoryAvailable, snapshot.memoryUsedMiB, snapshot.memoryTotalMiB);
-    result.labels[2] = percent("SSD", fresh && snapshot.diskAvailable, snapshot.diskUsedPercent);
+    result.labels[2] = percent("DISK", fresh && snapshot.diskAvailable, snapshot.diskUsedPercent);
+    if (fresh && snapshot.diskAvailable)
+        result.labels[2] += " USED";
     result.labels[3] = percent("BAT", fresh && snapshot.batteryAvailable, snapshot.batteryPercent);
     if (fresh && snapshot.batteryAvailable) {
         using services::MacPowerSource;
@@ -508,37 +532,43 @@ MacStatusPresentation formatMacStatus(const services::MacStatusSnapshot& snapsho
     }
     result.labels[4] = rate(fresh && snapshot.networkAvailable, snapshot.downloadKiBps);
     result.labels[5] = rate(fresh && snapshot.networkAvailable, snapshot.uploadKiBps);
+    // Severity: 1 is healthy (Leaf), 2 needs attention (Vermilion), 0 is neutral.
     const auto pressure = fresh ? snapshot.memoryPressure : services::MacMemoryPressure::Unknown;
     switch (pressure) {
     case services::MacMemoryPressure::Normal:
-        result.labels[6] = "PRESS NORMAL";
+        result.labels[6] = "MEMORY OK";
+        result.severity[0] = 1;
         break;
     case services::MacMemoryPressure::Warning:
-        result.labels[6] = "PRESS WARN";
+        result.labels[6] = "MEMORY TIGHT";
         break;
     case services::MacMemoryPressure::Critical:
-        result.labels[6] = "PRESS CRIT";
+        result.labels[6] = "MEMORY CRITICAL";
+        result.severity[0] = 2;
         break;
     default:
-        result.labels[6] = "PRESS --";
+        result.labels[6] = "MEMORY --";
         break;
     }
     const auto thermal = fresh ? snapshot.thermalState : services::MacThermalState::Unknown;
     switch (thermal) {
     case services::MacThermalState::Normal:
-        result.labels[7] = "THERM NORMAL";
+        result.labels[7] = "TEMP OK";
+        result.severity[1] = 1;
         break;
     case services::MacThermalState::Fair:
-        result.labels[7] = "THERM FAIR";
+        result.labels[7] = "TEMP WARM";
         break;
     case services::MacThermalState::Serious:
-        result.labels[7] = "THERM SERIOUS";
+        result.labels[7] = "TEMP HOT";
+        result.severity[1] = 2;
         break;
     case services::MacThermalState::Critical:
-        result.labels[7] = "THERM CRIT";
+        result.labels[7] = "TEMP CRITICAL";
+        result.severity[1] = 2;
         break;
     default:
-        result.labels[7] = "THERM --";
+        result.labels[7] = "TEMP --";
         break;
     }
     result.bars[0] = fresh && snapshot.cpuAvailable ? snapshot.cpuPercent : -1;
@@ -566,16 +596,16 @@ void drawMacStatusMetric(core::IDisplayAdapter& display, const MacStatusPresenta
     }
     auto color = palette::ink;
     if (index >= 6) {
-        if (value.labels[index].find("CRIT") != std::string::npos ||
-            value.labels[index].find("SERIOUS") != std::string::npos)
+        const auto severity = value.severity[static_cast<std::size_t>(index - 6)];
+        if (severity == 2)
             color = palette::vermilion;
-        else if (value.labels[index].find("NORMAL") != std::string::npos)
+        else if (severity == 1)
             color = palette::leaf;
     }
     display.drawText({textX, y + 1}, value.labels[index].c_str(),
                      {color, palette::bone, core::systemTextScale});
     if (index == 3 && value.charging)
-        drawBolt(display, x + 100, y + 1);
+        drawChargingDot(display, x + 101, y + 3);
     if (index == 0) {
         drawSparkline(display, history, Series::Cpu, x, y + 16, 100, 14);
     } else if (index < 4) {
@@ -601,19 +631,19 @@ std::vector<MacStatusRegion> layoutMacStatusPage(MacStatusPage page,
     case MacStatusPage::Overview:
         break;
     case MacStatusPage::Cpu:
-        regions.push_back(header("CPU / TOP APPS", page));
+        regions.push_back(header("CPU / TOP APPS", page, 73));
         addCpuPage(regions, snapshot, details, history);
         break;
     case MacStatusPage::Power:
-        regions.push_back(header("POWER", page));
+        regions.push_back(header("POWER", page, 57));
         addPowerPage(regions, snapshot, details);
         break;
     case MacStatusPage::Network:
-        regions.push_back(header("NETWORK", page));
+        regions.push_back(header("NETWORK", page, 57));
         addNetworkPage(regions, snapshot, details, history);
         break;
     case MacStatusPage::Memory:
-        regions.push_back(header("MEMORY / DISK", page));
+        regions.push_back(header("MEMORY / DISK", page, 0));
         addMemoryPage(regions, snapshot, details);
         break;
     }

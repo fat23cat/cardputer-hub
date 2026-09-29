@@ -114,7 +114,9 @@ reads the group again, so the first request after a page opens is answered
   statistics, the one-minute load average, and the four apps using the most
   CPU. Process CPU time comes from `proc_pid_rusage`; processes of other users
   are not readable without root and are skipped. Helper processes inside an
-  `.app` bundle count toward the outermost app.
+  `.app` bundle count toward the outermost app. Each app's share is averaged
+  over about ten seconds; apps under 0.5% leave the list, and listed apps swap
+  places only when one leads by more than 1.5 percentage points.
 * Power: system power draw from the battery telemetry, adapter wattage,
   battery health (nominal over design capacity), cycle count, and the
   lowest-charged Apple Bluetooth mouse, keyboard or trackpad.
@@ -123,8 +125,7 @@ reads the group again, so the first request after a page opens is answered
   or 443. Probes run on their own queue at most every five seconds and stop ten
   seconds after the last NETWORK request. Wi-Fi signal and link rate come from
   CoreWLAN without reading the network name, so no Location permission is
-  needed. VPN is on when the primary interface is a `utun`, `ipsec` or `ppp`
-  tunnel.
+  needed.
 * Memory and disk: app, wired and compressed memory, swap in use, free and
   total space on `/` in decimal GB, and disk read/write rates from the block
   storage counters.

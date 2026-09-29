@@ -83,9 +83,6 @@ final class MacSystemDetailsCollector: SystemDetailsCollecting {
                 let rate = wifi.transmitRate()
                 sample.wifiLinkMbps = rate > 0 ? UInt16(clamping: Int(rate.rounded())) : nil
             }
-            if let name = primary.interface {
-                sample.vpnActive = ["utun", "ipsec", "ppp"].contains { name.hasPrefix($0) }
-            }
         case .memory:
             sample.memorySplit = memorySplit()
             sample.swapUsedMiB = swapUsed()

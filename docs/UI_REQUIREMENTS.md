@@ -542,10 +542,11 @@ then returns to the resting grid. Companion loss closes MAC CONTROL
 through the existing Mini App runtime and returns Launcher.
 MAC STATUS requires the live `SYSTEM_METRICS` capability. Its 240×135
 overview uses the complete surface with CPU/RAM and SSD/battery blocks, a
-download/upload row, and pressure/thermal labels. The CPU block shows a
+download/upload row, and `MEMORY …` / `TEMP …` labels (Leaf when healthy,
+Vermilion when critical or hot). The CPU block shows a
 60-second sparkline instead of a bar; the line fills from the right and breaks
 only where a poll failed, not where an answer was late. With a v6 Companion the battery label adds `H:MM` time (to
-full while charging, to empty on battery) or `AC`, and a blue bolt marks
+full while charging, to empty on battery) or `AC`, and a green dot marks
 charging. The overview has no title, connection label or connection dot. With
 `SYSTEM_DETAILS` it shows five small page dots at the bottom edge and four
 detail pages follow: CPU / TOP APPS, POWER, NETWORK and MEMORY / DISK. Each
@@ -555,7 +556,10 @@ Right (`,` / `/`, with or without Fn) slide between pages and wrap; without
 `SYSTEM_DETAILS` there is one page and these keys do nothing. The app always
 opens on the overview. Missing metrics and stale snapshots show `--` in their
 own fields; a Mac without a battery shows `NO BATTERY`, and a CPU page with
-no app at 1% or more shows `APPS IDLE` rather than empty rows. A row's label
+no app at 1% or more shows `APPS IDLE` rather than empty rows. Labels are
+plain words (`POWER USE`, `CHARGER`, `WI-FI SIGNAL STRONG`) rather than
+abbreviations or raw units such as dBm. Pages that need five or six rows use a
+15-pixel row pitch instead of 18. A row's label
 is shortened before it would touch its right-aligned value. A peripheral battery at
 20% or less shows `LOW` in Vermilion. It repaints changed regions only. Escape
 uses the shared Mini App exit path. Capability loss closes it through
