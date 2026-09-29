@@ -19,9 +19,12 @@ make companion-check
 
 `scripts/package_macos_companion.sh` creates `Cardputer Companion.app` with `LSUIElement` set so it does not appear in the Dock.
 It stamps the build ID `YYYY-MM-DD <commit>` (`+` after the commit for
-uncommitted changes) into `CardputerBuildId`, `CFBundleVersion` and, as the
-date, `CFBundleShortVersionString`. `CARDPUTER_HUB_BUILD_DATE` and
-`CARDPUTER_HUB_COMMIT` override the date and commit, as for the firmware.
+uncommitted changes) into `CardputerBuildId`. The macOS bundle version fields
+use numeric values: `CFBundleShortVersionString` is the dotted build date
+`YYYY.MM.DD`, and `CFBundleVersion` is the Git revision count. The bundle
+version falls back to `1` when Git metadata is unavailable.
+`CARDPUTER_HUB_BUILD_DATE` and `CARDPUTER_HUB_COMMIT` override the date and
+commit in the build ID, as for the firmware.
 
 Build the Companion and the firmware from the same checkout and install both.
 There is no protocol version negotiation: HELLO carries a fingerprint of the

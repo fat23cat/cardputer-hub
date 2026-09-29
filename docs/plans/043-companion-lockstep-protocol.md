@@ -19,6 +19,8 @@ Deviations:
   would be circular; the consistency test is
   `test_python/test_companion_fixtures.py`.
 * The build ID has no `·`: `2026-09-29 abc1234`, as in section 3.
+* macOS keeps that build ID in `CardputerBuildId`; its standard bundle version
+  keys use numeric values (dotted build date and Git revision count).
 * No answer to HELLO does not stop the Mac: it keeps the existing reconnect
   retries and keeps the no-answer notice until a HELLO_ACK arrives, so a
   firmware update connects without pressing Reconnect. A mismatch does stop
@@ -142,9 +144,10 @@ similar checks become `hasLiveCompanion()`.
   always runs and rewrites the file only when its content changes). An
   environment override (`CARDPUTER_HUB_BUILD_DATE`) keeps release builds
   reproducible.
-* Companion: `scripts/package_macos_companion.sh` writes `CFBundleVersion` =
-  build id and `CFBundleShortVersionString` = date. `CompanionCore` reads its
-  build id from the bundle, with a `dev` fallback for `swift run`.
+* Companion: `scripts/package_macos_companion.sh` writes the build ID to
+  `CardputerBuildId` and numeric values to the standard macOS bundle version
+  keys. `CompanionCore` reads the build ID from the bundle, with a `dev`
+  fallback for `swift run`.
 
 ## 4. Ownership & Boundaries
 
