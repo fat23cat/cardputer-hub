@@ -40,6 +40,15 @@ struct CompanionCompletedRequest {
     connectivity::CompanionEnvelope message{};
 };
 
+// A request the Mac sent to the Cardputer (inventory operations only). It is
+// answered with respond() while its session is still the live one.
+struct CompanionInboundRequest {
+    std::uint16_t session = 0;
+    std::uint8_t requestId = 0;
+    connectivity::CompanionOperation operation = connectivity::CompanionOperation::None;
+    connectivity::CompanionEnvelope message{};
+};
+
 class CompanionService {
   public:
     static constexpr auto requestTimeout = std::chrono::seconds(2);
@@ -71,6 +80,17 @@ class CompanionService {
     takeCompletedRequest(connectivity::CompanionOperation operation);
     bool readActiveBundleIdentifier(char* destination, std::size_t capacity,
                                     std::uint8_t& length) const;
+
+    std::optional<CompanionInboundRequest> takeInboundRequest();
+    // Sends `response` (status and payload) as the answer to `request`. False
+    // when the request's session has ended; nothing is sent then.
+    bool respond(const CompanionInboundRequest& request,
+                 const connectivity::CompanionEnvelope& response);
+    // Changes whenever a session starts or ends, so state tied to one session
+    // (a partial transfer) can be discarded.
+    std::uint32_t sessionEpoch() const noexcept { return sessionEpoch_; }
+
+    static constexpr std::size_t maxInboundRequests = 2;
 
   private:
     struct PendingRequest {
@@ -106,6 +126,8 @@ class CompanionService {
     void tickPending(std::chrono::milliseconds elapsed);
     void tickHeartbeat(std::chrono::milliseconds elapsed);
     bool setActiveBundle(const connectivity::CompanionEnvelope& message, bool allowEmpty);
+    void handleInboundRequest(const connectivity::CompanionEnvelope& message);
+    void endSessionState();
 
     connectivity::ICompanionTransport& transport_;
     core::CapabilityRegistry& capabilities_;
@@ -129,6 +151,9 @@ class CompanionService {
     std::chrono::milliseconds sinceHeartbeat_{0};
     std::chrono::milliseconds sinceHeartbeatSend_{0};
     bool heartbeatInFlight_ = false;
+    std::array<CompanionInboundRequest, maxInboundRequests> inbound_{};
+    std::uint8_t inboundCount_ = 0;
+    std::uint32_t sessionEpoch_ = 0;
 };
 
 } // namespace cardputer_hub::services

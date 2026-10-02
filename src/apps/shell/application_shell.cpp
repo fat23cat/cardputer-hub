@@ -149,6 +149,10 @@ void ApplicationShell::playInputFeedback(const InputEvent& event) {
 
 void ApplicationShell::routeMiniAppEvent(const InputEvent& event) {
     if (isPlainEscape(event)) {
+        // An app with internal back navigation (a detail view) consumes the key
+        // and stays open; otherwise Escape closes it.
+        if (miniApps_.handleBack())
+            return;
         (void)actions_.dispatch({"app.close", "shell", {}});
         restoreLauncherFromMiniApp(false);
         return;

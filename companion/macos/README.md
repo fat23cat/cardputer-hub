@@ -1,6 +1,7 @@
 # Cardputer Companion
 
-Menu-bar macOS agent for Cardputer Hub. It has no Dock icon or main window.
+Menu-bar macOS agent for Cardputer Hub. It has no Dock icon; its only window is
+the optional Inventory editor.
 
 ## Build
 
@@ -149,3 +150,15 @@ reads the group again, so the first request after a page opens is answered
 App and peripheral names are transliterated to plain ASCII before they are
 sent. Process CPU and disk rates need a previous sample; after ten seconds
 without a request the first answer omits them.
+
+**Inventory…** in the menu opens the Inventory window, which lists the NFC
+inventory records on the connected Cardputer's microSD card, edits a
+container's name and free-text description, and deletes records after a
+confirmation. Requests are the Mac-to-Cardputer `INVENTORY_LIST`,
+`INVENTORY_GET`, `INVENTORY_PUT` and `INVENTORY_DELETE` operations of the live
+session, one at a time with a four-second timeout; records move as canonical
+JSON in bounded chunks and every save is checked against the revision the edit
+started from. The Companion keeps no copy of the records after the session
+ends, never resends an edit after a disconnect, and enforces the same limits as
+the firmware (names 32 and descriptions 900 characters, 4 KiB). See the
+[device guide](../../docs/manuals/device-guide.md#inventory-on-the-mac).

@@ -355,6 +355,37 @@ class EspIdfBuildConfigurationTests(unittest.TestCase):
         for source in (cardputer_root / "upstream" / "src").rglob("*.cpp"):
             self.assertIn(source.relative_to(cardputer_root).as_posix(), cardputer_component)
 
+    def test_nfc_library_components_are_enumerated_quiet_and_required_by_main(self) -> None:
+        modules = self.read(".gitmodules")
+        makefile = self.read("Makefile")
+        application_component = self.read("main/CMakeLists.txt")
+
+        for name, url in (
+            ("m5utility", "https://github.com/m5stack/M5Utility.git"),
+            ("m5hal", "https://github.com/m5stack/M5HAL.git"),
+            ("m5unitunified", "https://github.com/m5stack/M5UnitUnified.git"),
+            ("m5unitnfc", "https://github.com/m5stack/M5Unit-NFC.git"),
+        ):
+            with self.subTest(component=name):
+                self.assertIn(f"path = components/{name}/upstream", modules)
+                self.assertIn(f"url = {url}", modules)
+                self.assertIn(f"components/{name}/upstream/src/", makefile)
+                wrapper = self.read(f"components/{name}/CMakeLists.txt")
+                self.assertNotIn("GLOB", wrapper)
+                # Vendor logging prints identifiers; it is compiled out.
+                self.assertIn("M5_LOG_LEVEL=0", wrapper)
+                component_root = ROOT / "components" / name
+                for source in (component_root / "upstream" / "src").rglob("*.cpp"):
+                    relative = source.relative_to(component_root).as_posix()
+                    if "/googletest/" in relative:
+                        continue
+                    if name == "m5utility" and "/m5_utility/" not in relative:
+                        continue
+                    self.assertIn(relative, wrapper)
+
+        self.assertIn("m5unitnfc", application_component)
+        self.assertIn("M5_LOG_LEVEL=0", application_component)
+
     def test_historical_device_harnesses_are_removed_from_firmware(self) -> None:
         project = self.read("CMakeLists.txt")
         component = self.read("main/CMakeLists.txt")
@@ -388,6 +419,7 @@ class EspIdfBuildConfigurationTests(unittest.TestCase):
             "        const auto& input = runtime.update(elapsed);\n"
             "        hosts.update(elapsed);\n"
             "        companion.update(elapsed);\n"
+            "        inventoryCompanion.update(elapsed);\n"
             "        hostControl.update();\n"
             "        macStatus.update(elapsed);\n"
             "        aiUsage.update(elapsed);\n"
@@ -397,6 +429,8 @@ class EspIdfBuildConfigurationTests(unittest.TestCase):
             "        pomodoroLed.update(elapsed);\n"
             "        aiUsageIndicator.update(elapsed);\n"
             "        indicator.update();\n"
+            "        nfc.update(elapsed);\n"
+            "        removableStorage.update(elapsed);\n"
             "        if (!homeVisible) {\n"
             "            if (runtime.splashFinished()) {\n"
             "                // Consume any key sampled on the frame that dismisses the splash.\n"

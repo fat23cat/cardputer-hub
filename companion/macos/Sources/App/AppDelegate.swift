@@ -30,10 +30,14 @@ final class CompanionCentral: NSObject, CBCentralManagerDelegate, CBPeripheralDe
     private var cancellationTick: Timer?
     private var workspaceObservers: [NSObjectProtocol] = []
     private var livenessTick: Timer?
+    private let inventory: InventoryEditorModel
+    private var inventorySession: UInt16 = 0
 
     init(applications: ApplicationControlling, metrics: SystemMetricsCollecting,
-         details: SystemDetailsCollecting, aiUsage: AiUsageCollector, status: CompanionStatusStore) {
+         details: SystemDetailsCollecting, aiUsage: AiUsageCollector, status: CompanionStatusStore,
+         inventory: InventoryEditorModel) {
         self.aiUsage = aiUsage
+        self.inventory = inventory
         session = CompanionSession(applications: applications, metrics: metrics, details: details,
                                    aiUsage: aiUsage)
         self.status = status
@@ -190,6 +194,13 @@ final class CompanionCentral: NSObject, CBCentralManagerDelegate, CBPeripheralDe
         status.sync(session: session, phase: coordinator.phase,
                     error: connectionError, bluetoothReady: manager?.state == .poweredOn,
                     waitingToConnect: coordinator.pendingConnectId != nil)
+        // Each new session lists the Cardputer's records afresh; nothing is
+        // replayed from an earlier one.
+        if session.session != inventorySession {
+            if inventorySession != 0 { inventory.setTransport(nil) }
+            inventorySession = session.session
+            if inventorySession != 0 { inventory.setTransport(session) }
+        }
     }
 
     func reconnect() {
@@ -314,6 +325,7 @@ final class CompanionCentral: NSObject, CBCentralManagerDelegate, CBPeripheralDe
         reassemblyTick?.invalidate()
         reassemblyTick = Timer.scheduledTimer(withTimeInterval: 0.25, repeats: true) { [weak self] _ in
             self?.reassembler.update(0.25)
+            self?.session.expireRequests(at: Date())
         }
     }
 
@@ -431,24 +443,31 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var central: CompanionCentral?
     private var status: CompanionStatusStore?
     private var menuBar: CompanionMenuBarController?
+    private var inventoryWindow: InventoryWindowController?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         let status = CompanionStatusStore(login: StartAtLoginModel(service: SystemLoginRegistration()))
         let menuBar = CompanionMenuBarController(status: status)
+        let inventory = InventoryEditorModel()
+        let inventoryWindow = InventoryWindowController(model: inventory)
         let central = CompanionCentral(applications: WorkspaceApplicationController(),
                                        metrics: MacSystemMetricsCollector(),
                                        details: MacSystemDetailsCollector(),
-                                       aiUsage: AiUsageCollector(), status: status)
+                                       aiUsage: AiUsageCollector(), status: status,
+                                       inventory: inventory)
         status.onReconnect = { [weak central] in central?.reconnect() }
         status.onQuit = { [weak self] in self?.quit() }
+        status.onOpenInventory = { [weak inventoryWindow] in inventoryWindow?.show() }
         self.status = status
         self.menuBar = menuBar
+        self.inventoryWindow = inventoryWindow
         self.central = central
         central.start()
     }
 
     func applicationWillTerminate(_ notification: Notification) {
         central?.stop()
+        inventoryWindow?.close()
         menuBar?.stop()
     }
 

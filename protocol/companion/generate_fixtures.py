@@ -22,7 +22,12 @@ MARKER = 0xC7
 HELLO, HELLO_ACK, REQUEST, RESPONSE, EVENT = 1, 2, 3, 4, 5
 PING, APP_ACTIVE, APP_ACTIVATE, APP_ACTIVE_CHANGED = 1, 3, 4, 5
 SYSTEM_METRICS, AI_USAGE, SYSTEM_DETAILS = 6, 7, 8
+# Inventory operations are requested by the Mac and answered by the Cardputer.
+INVENTORY_LIST, INVENTORY_GET, INVENTORY_PUT, INVENTORY_DELETE = 9, 10, 11, 12
 OK, NOT_AVAILABLE, NOT_FOUND, UNSUPPORTED, MALFORMED = 0, 1, 2, 3, 4
+CONFLICT, REJECTED, STORAGE_ERROR = 5, 6, 7
+INVENTORY_ID = bytes.fromhex("0f1e2d3c4b5a69788796a5b4c3d2e1f0")
+OTHER_INVENTORY_ID = bytes.fromhex("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
 SESSION = 42
 COMPANION_BUILD = b"2026-09-29 abc1234"
 FIRMWARE_BUILD = b"2026-09-29 abc1234"
@@ -56,12 +61,33 @@ def bundle(identifier: str) -> bytes:
     return bytes([len(encoded)]) + encoded
 
 
+def inventory_record(revision: int, name: str, description: str) -> bytes:
+    """Canonical record JSON (schema 2, at most 4096 bytes): schema, id, revision,
+    name, description; UTF-8 unescaped except quote, backslash and line break."""
+    def quoted(text: str) -> str:
+        return '"' + text.replace("\\", "\\\\").replace('"', '\\"').replace("\n", "\\n") + '"'
+    return (
+        '{"schema":2,"id":' + quoted(INVENTORY_ID.hex()) + ',"revision":' + str(revision) +
+        ',"name":' + quoted(name) + ',"description":' + quoted(description) + "}"
+    ).encode("utf-8")
+
+
+def list_entry(identifier: bytes, revision: int, name: str) -> bytes:
+    encoded = name.encode("utf-8")
+    valid = 1 if encoded else 0
+    return identifier + bytes([valid]) + u32(revision) + bytes([len(encoded)]) + encoded
+
+
 def hello_payload(protocol: bytes, build: bytes) -> bytes:
     return protocol + bytes([len(build)]) + build
 
 
 def as_c_array(data: bytes) -> str:
     return ", ".join(f"0x{byte:02X}" for byte in data)
+
+
+GET_RECORD = inventory_record(3, "Чемодан", "Зарядка, свитер")
+PUT_RECORD = inventory_record(3, "Синий чемодан", "Штаны, шорты\nНоски\nЛыжи «Atomic»")
 
 
 def fixtures(protocol: bytes) -> dict[str, bytes]:
@@ -123,6 +149,37 @@ def fixtures(protocol: bytes) -> dict[str, bytes]:
             bytes([4]) + u16(0x0F) + u32(14438) + u32(3994) + u32(3482) + u32(1229) +
             u16(212) + u16(994) + u32(348160) + u32(59392)
         ),
+        # Inventory: the Mac requests, the Cardputer answers. LIST: start index;
+        # total, next index, count, then id, valid flag, revision, name length, name.
+        "inventory-list-request.bin": envelope(REQUEST, SESSION, 21, INVENTORY_LIST, OK, u16(0)),
+        "inventory-list-response.bin": envelope(
+            RESPONSE, SESSION, 21, INVENTORY_LIST, OK,
+            u16(2) + u16(2) + bytes([2]) + list_entry(INVENTORY_ID, 3, "Чемодан") +
+            list_entry(OTHER_INVENTORY_ID, 0, "")
+        ),
+        # GET: id, offset; revision, total, offset, JSON bytes.
+        "inventory-get-request.bin": envelope(REQUEST, SESSION, 22, INVENTORY_GET, OK,
+                                              INVENTORY_ID + u16(0)),
+        "inventory-get-response.bin": envelope(
+            RESPONSE, SESSION, 22, INVENTORY_GET, OK,
+            u32(3) + u16(len(GET_RECORD)) + u16(0) + GET_RECORD
+        ),
+        "inventory-get-not-available.bin": envelope(RESPONSE, SESSION, 22, INVENTORY_GET,
+                                                    NOT_AVAILABLE, b""),
+        # PUT: id, expected revision, total, offset, JSON bytes; received, committed revision.
+        "inventory-put-request.bin": envelope(
+            REQUEST, SESSION, 23, INVENTORY_PUT, OK,
+            INVENTORY_ID + u32(3) + u16(len(PUT_RECORD)) + u16(0) + PUT_RECORD
+        ),
+        "inventory-put-response.bin": envelope(RESPONSE, SESSION, 23, INVENTORY_PUT, OK,
+                                               u16(len(PUT_RECORD)) + u32(4)),
+        "inventory-put-conflict.bin": envelope(RESPONSE, SESSION, 23, INVENTORY_PUT, CONFLICT,
+                                               u32(5)),
+        # DELETE: id, the revision the editor saw (0 for a damaged record); empty OK.
+        "inventory-delete-request.bin": envelope(REQUEST, SESSION, 24, INVENTORY_DELETE, OK,
+                                                 INVENTORY_ID + u32(4)),
+        "inventory-delete-response.bin": envelope(RESPONSE, SESSION, 24, INVENTORY_DELETE, OK,
+                                                  b""),
         # A HELLO from a Companion built before plan 043 (v1-framed version list).
         "legacy-hello.bin": envelope(HELLO, 0, 0, 0, OK, bytes([4, 6, 5, 4, 3]), marker=1),
         "malformed-length.bin": bytes([MARKER, REQUEST, SESSION, 0, 1, PING, 0, 10, 1, 2]),

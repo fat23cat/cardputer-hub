@@ -18,6 +18,16 @@ public enum CompanionOperation: UInt8 {
     case systemMetrics = 6
     case aiUsage = 7
     case systemDetails = 8
+    // Inventory operations: the Mac requests, the Cardputer answers.
+    case inventoryList = 9
+    case inventoryGet = 10
+    case inventoryPut = 11
+    case inventoryDelete = 12
+
+    public var isInventory: Bool {
+        self == .inventoryList || self == .inventoryGet || self == .inventoryPut ||
+            self == .inventoryDelete
+    }
 }
 
 public enum CompanionStatus: UInt8 {
@@ -26,6 +36,11 @@ public enum CompanionStatus: UInt8 {
     case notFound = 2
     case unsupported = 3
     case malformed = 4
+    /// An edit was based on an older revision; the payload is the current one.
+    case conflict = 5
+    /// The stored or submitted record is invalid, or a transfer is out of order.
+    case rejected = 6
+    case storageError = 7
 }
 
 public struct CompanionConstants {
@@ -182,7 +197,7 @@ public enum CompanionCodec {
         case .request, .response:
             return operation == .ping || operation == .appActive || operation == .appActivate ||
                 operation == .systemMetrics || operation == .aiUsage ||
-                operation == .systemDetails
+                operation == .systemDetails || operation.isInventory
         case .event:
             return operation == .appActiveChanged
         }
@@ -234,6 +249,8 @@ public enum CompanionCodec {
             }
             if message.status != .ok { return message.payload.isEmpty }
             return SystemDetailsSample.decode(message.payload) != nil
+        case .inventoryList, .inventoryGet, .inventoryPut, .inventoryDelete:
+            return InventoryWire.payloadValid(message)
         }
     }
 }

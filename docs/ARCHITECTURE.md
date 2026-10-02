@@ -48,6 +48,7 @@ Core principle:
 │ Media                                │
 │ Telegram                             │
 │ LED Control                          │
+│ NFC inventory                        │
 │ Settings                             │
 │ ...                                  │
 └──────────────────┬───────────────────┘
@@ -65,6 +66,8 @@ Core principle:
 │ MediaService                         │
 │ IndicatorService                     │
 │ PomodoroService                      │
+│ NfcService / InventoryService        │
+│ RemovableStorageService              │
 │ ConfigurationService                 │
 │ RemoteControlService                 │
 │ ...                                  │
@@ -89,6 +92,7 @@ Core principle:
 │ ESP32 BLE                            │
 │ ESP32 Wi-Fi                          │
 │ Puzzle RGB 8×8                       │
+│ NFC reader (ST25R3916)               │
 │ Battery                              │
 │ Internal NVS                         │
 │ microSD                              │
@@ -140,6 +144,22 @@ location, and runs in the host CI gate through `make architecture-check`.
 Include paths are normalized before their target layer is classified. A new
 top-level production directory, or an include that resolves to one inside
 `src/`, fails until that layer is added to this documented matrix.
+
+The same script enforces the NFC inventory rules that a layer matrix cannot
+express (plans 044 and 045): the pinned NFC vendor library (M5Unit-NFC,
+M5UnitUnified, M5HAL, M5Utility) may be included only by
+`src/hardware/nfc/st25r3916_adapter.cpp`; only `main.cpp` and
+`src/hardware/nfc/` include the adapter header; the adapter source alone
+issues the single-page Type 2 write (`write4`), and code under the `nfc` and
+`services/inventory` directories contains no other tag-writing, MIFARE Classic
+authentication, value-block, emulation, cloning, key-search or raw card-data
+diagnostic API (comments excluded); `INfcReader` declares exactly the reviewed
+method set; `NfcApp` drives neither the reader nor `NfcService` and includes no
+storage, Companion or connectivity header; reader, tag-session and screen code
+includes no storage or configuration; board filesystem and SD card headers are
+included only under `src/hardware/storage/microsd/`; and Companion protocol and
+service code never includes File Storage, so inventory records cross BLE only
+through `InventoryService`.
 
 ---
 
@@ -426,6 +446,10 @@ and `onDeactivate()`. `app.close` dispatched from inside `update()` is deferred
 until that callback returns, so `onDeactivate()` is never reentrant.
 Application activation is owned by Launcher/system navigation: Mini Apps may
 request `app.close` and must not dispatch `app.open`.
+`IMiniApp::handleBack()` lets an app with internal depth keep the plain Escape
+key: the shell offers it to the active app through `MiniAppRuntime::handleBack()`
+before closing, and an app that consumes it (NFC leaves its name entry) stays
+open. The default declines, so every other app closes on Escape as before.
 Instances are static process-lifetime objects; the
 runtime keeps non-owning references and never constructs or destroys apps.
 Mini Apps own application-specific view state. Shared Services remain
@@ -873,6 +897,9 @@ Services
 ├── MediaService
 ├── IndicatorService
 ├── PomodoroService
+├── NfcService
+├── InventoryService
+├── RemovableStorageService
 ├── ConfigurationService
 └── RemoteControlService
 ```
@@ -902,6 +929,90 @@ per update that received one or more transitions. That wake restores backlight
 visibility without synthesizing input or changing the active Mini App. LED
 claim visibility, adapter presence, and audio playback success do not gate the
 wake request. Running Pomodoro does not disable the global idle dim/off policy.
+
+`NfcService` owns the optional NFC reader lifecycle, tag sessions and NFC Forum
+Type 2 page operations. It is built over `INfcReader`, the shared
+`CapabilityRegistry` and the Logger, and `main.cpp` updates it once per loop
+pass. `start()` initializes the reader once. A reader that does not answer on
+its bus then leaves the Service `Unavailable` and is never probed again; one
+that answered keeps `NFC_READER` registered, and a failure or loss (a failed
+poll, presence check or page operation, or repeated stale results) shuts the
+reader down, withdraws `NFC_READER`, clears the session and retries every two
+seconds. A Mini App only states whether it wants scanning (through
+`InventoryService::open()`): the RF field is on and polled every 150 ms only
+then. `update()` performs at most one reader operation, so reading or writing a
+tag never stalls the loop. Every tag gets a session id and a reader-issued
+activation id; a result for an earlier activation is discarded, and one for a
+newer activation ends the session. Only NTAG213/215/216 data areas are read:
+four reads cover pages 2–17 (static lock bytes, capability container and the
+first 56 data bytes), and the host-tested `inspectType2Window()` classifies the
+tag as blank, holding one NDEF message, holding other data, not NDEF formatted,
+or read-only (capability container write access or any static lock bit). Blank
+needs proof: a Terminator TLV (after NULL bytes and at most one empty NDEF
+TLV), or the whole declared data area read and holding nothing else. While the
+bytes read decide nothing (NULL bytes to their end, or a message that continues
+past them) the Service reads four more pages per update, the last group ending
+at the last user page; a capability container claiming more than the user
+area, data after an empty NDEF TLV, and Lock or Memory Control TLVs without a
+message are other data, so reserved areas and hidden messages are never
+overwritten. Every other card is `Unsupported` without any data access, so recognising
+a card family never implies inventory compatibility. `writeMessage(session,
+message)` is accepted only for that session's blank, writable tag and a message
+that fits: it writes an empty NDEF TLV and a Terminator (`03 00 FE 00`) to the
+first user page, the message body next and the real first page last, so a torn
+write leaves a provably blank tag or a complete message, then
+reads the area back and compares it before reporting `Succeeded`. A refused or
+mismatched write reports `Failed` and re-inspects the tag; removal, replacement
+or reader loss reports `Interrupted` for the old session. Nothing is persisted
+and nothing about a tag is logged.
+
+`InventoryService` maps the versioned inventory ID on a tag to a validated
+record on microSD and coordinates registration; it reads `NfcService` state and
+File Storage through `RemovableStorageService`, never draws, and commits every
+record write, including Companion edits. An inventory tag holds one NDEF Text
+record, `CHINV1:` and 32 lowercase hex digits of a random 128-bit ID from the
+injected `IRandomSource` (the ESP32 hardware RNG in firmware); the ID is a
+locator, not a secret, and the UID is diagnostic only. Registration needs no
+tag while the name is typed: `startEnrollment(name)` (a mounted card with room
+for a record) makes the next blank, writable tag presented receive a fresh ID;
+any other tag is refused without being touched and the wait goes on until the
+user cancels. The tag write and read-back come first, and revision 1 of the
+record (Cardputer-entered printable ASCII name, empty description) is saved
+only after verification, so a failed write never claims a saved box. A failed
+write is not retried on the same tag until it is presented again; a tag found
+carrying the last attempt's complete ID (verification interrupted) is saved
+without a second write. A verified ID whose save failed shows `SaveFailed`
+(Enter saves again), and a later tap shows `MissingRecord`; `createRecord(id,
+name)` creates the record for that same ID without the tag. A lookup reads only
+the matching record, once per tag session; removing or replacing the tag clears
+it. `requestErase()` remembers the inspected UID and bytes; after explicit
+`confirmErase()`, `NfcService::eraseTag()` empties only that same writable tag.
+Its record is deleted only after the empty page is verified. A failed readback
+leaves the record intact and keeps that target in memory, even if another erase
+also has an uncertain result: inspecting each target's UID as blank completes
+its deletion, including after a retap. A different tag cannot trigger that
+deletion; a record that cannot be deleted after a verified erase is reported.
+Records are UTF-8
+JSON, `{"schema":2,"id":…,"revision":N,"name":…,"description":…}`, at most 4 KiB;
+names are 1–32 code points without control or line-separator characters or
+edge spaces, and descriptions 0–900 code points whose only control character
+is a line break, without edge spaces or breaks. Both sides escape only quote,
+backslash and line break. The strict parser refuses malformed
+JSON, invalid UTF-8, unknown or duplicate fields, a wrong schema and a record
+whose ID differs from its file name, and such a file is reported as damaged and
+left untouched. A file read error during a Companion listing fails the listing
+rather than marking the record damaged. `InventoryStore` keeps one file per ID at
+`inventory/records/<id>.json` (file names never contain user text), creates
+only absent records, commits an edit only as `expectedRevision + 1` when the
+stored revision still matches (otherwise `Conflict` with the current one),
+writes every record through `FileStorage::replaceRecoverable()`, and deletes
+through `removeRecoverable()` (temporary file, backup, then the file itself,
+so an interrupted removal never resurrects an older backup) against the
+revision the deleting editor saw, or 0 for a damaged file.
+`RemovableStorageService` owns when the card is mounted: nothing mounts at boot,
+a consumer's `ensureReady()` mounts it at most once per three seconds while it
+is absent, `retryNow()` serves an explicit user retry, and it publishes
+`REMOVABLE_FILE_STORAGE` while the adapter reports `Ready`.
 
 `NetworkService` is the application-facing Wi-Fi boundary. It owns the single
 persisted station network, enabled/disabled intent, startup restoration,
@@ -1814,8 +1925,8 @@ sender's build ID `YYYY-MM-DD <commit>[+]`. The generator writes the fixtures
 and the C++ and Swift fingerprint files, so every wire change changes the
 fingerprint. A matching HELLO gets an accepted HELLO_ACK and the session becomes
 ready after the APP_ACTIVE handshake request; a live session exposes every
-operation (`SYSTEM_METRICS`, `AI_USAGE`, `SYSTEM_DETAILS`, application control)
-under the single `COMPANION` capability. A different fingerprint gets a
+operation (`SYSTEM_METRICS`, `AI_USAGE`, `SYSTEM_DETAILS`, application control,
+inventory) under the single `COMPANION` capability. A different fingerprint gets a
 mismatch HELLO_ACK (session `0`, `UNSUPPORTED`) with the firmware build ID and
 moves `CompanionService` to `Incompatible`: it publishes no capability, answers
 nothing but a new HELLO, and exposes the peer build ID and
@@ -1917,6 +2028,40 @@ attach lifecycle without changing bonds, while Start at Login reads and writes
 the actual `SMAppService` registration. Quit releases observers, timers, BLE
 session resources, and the status item without changing login registration.
 
+Inventory is the one direction reversal: the Mac sends INVENTORY_LIST,
+INVENTORY_GET, INVENTORY_PUT and INVENTORY_DELETE requests and the Cardputer
+answers them.
+`CompanionService` queues at most two such requests of the live session,
+ignores one from an earlier session, treats one outside a ready session as a
+protocol error like any other unexpected request, and answers through
+`respond()` only while the request's session is still live. Its
+`sessionEpoch()` changes whenever a session starts or ends.
+`InventoryCompanionEndpoint` serves them from `InventoryService`: listing in
+pages that fit one message (ID, valid flag, revision and name per record),
+downloads in 240-byte chunks from one snapshot with the revision in every
+chunk, and uploads in 224-byte chunks buffered (at most one, at most 4 KiB, only
+while in progress) until the last chunk, when `InventoryService` validates and
+commits the complete JSON as one new revision. A stale base revision is refused
+with `CONFLICT` before or at commit; an out-of-order chunk, invalid JSON or a
+mismatched ID is `REJECTED`; a missing card is `NOT_AVAILABLE`. INVENTORY_DELETE
+removes a record for good when its revision matches (0 for a damaged file) and
+ends any transfer of that record. A new or lost
+session, or ten idle seconds, discards a partial upload, and nothing is
+replayed. On macOS, `CompanionSession.sendRequest()` keeps one request
+outstanding with a four-second timeout and fails it when the session resets;
+`InventoryClient` performs paged list, chunked get (restarting once the
+revision changes mid-download) and chunked put; `InventoryEditorModel` owns the
+window's states (disconnected, loading, clean, dirty, saving, saved, conflict,
+error), lists afresh for every session, re-reads the selected record (dropping
+it when the new listing no longer has it, and turning a draft based on an older
+revision into a conflict) and never re-saves on its own. A failed listing hides
+the old list and disables editing until a successful list and get; a get in
+progress also disables the form. It deletes the
+selected record (or a damaged one, with revision 0) after the window confirms.
+The
+`InventoryWindowController` hosts its SwiftUI view in the menu-bar app; it keeps
+no record copy as a second source of truth.
+
 The application-control surface is intentionally small:
 
 ```text
@@ -1928,7 +2073,8 @@ get active application
 Application activation uses a semantic identifier supplied as configuration or
 Action data. Personal application names and bundle identifiers must not be
 hardcoded as special cases. Arbitrary shell execution, AppleScript payloads,
-clipboard access, notifications, file transfer, OTA, USB networking, and system
+clipboard access, notifications, file transfer (inventory records are domain
+messages, never paths or file operations), OTA, USB networking, and system
 automation are later features with separate permission and security reviews.
 
 The first concrete transport is a project-owned BLE GATT service registered
@@ -2157,6 +2303,7 @@ RGB_PANEL
 REMOTE_CONTROL
 COMPANION
 REMOVABLE_FILE_STORAGE
+NFC_READER
 ```
 
 Mini Apps can declare requirements.
@@ -2206,9 +2353,17 @@ currently available or even known. AppRegistry remains metadata-only.
 `MiniAppRuntime` performs the explicit eligibility checks against
 CapabilityRegistry.
 
+`NFC_READER` means that the optional NFC Unit answered and `NfcService` brought
+it up; a connected or merely compiled-in reader is not enough. `NfcService`
+registers it after a successful initialization and withdraws it when the reader
+fails or disappears, so an active NFC Mini App follows the existing
+capability-loss behavior and returns Launcher.
+
 `REMOVABLE_FILE_STORAGE` means that a microSD card is mounted and usable; it
 does not merely mean that the device has a physical card slot. Its availability
-may change when media is inserted, removed, or fails.
+may change when media is inserted, removed, or fails. `RemovableStorageService`
+publishes it after a successful mount and withdraws it when an operation finds
+the card gone; it is independent of `NFC_READER`.
 
 The Phase 1 microSD adapter is not composed into the firmware runtime and does
 not publish this capability. A future concrete file-storage owner must refresh
@@ -2405,7 +2560,21 @@ allocating its owned result, returns `TooLarge` without bytes when that bound
 would be exceeded, and returns empty data for every unsuccessful read. A
 successful empty file is distinct from a missing file. Writes replace the
 known path, permit empty files, create parents only within the owned root, and
-flush before success. Removal never recursively removes directories.
+flush before success. Removal never recursively removes directories. Listing
+returns the regular file names of one directory up to a caller's bound (more
+is `TooMany`, never a truncated list), and rename never replaces an existing
+name, as on FAT.
+
+`FileStorage::replaceRecoverable()` is the write policy for user data. It first
+finishes or rolls back an interrupted replacement (a `<path>.bak` without the
+file is the previous file and is renamed back; a backup beside the file is
+stale and removed; a stray `<path>.new` is removed), writes `<path>.new`, reads
+it back and compares, renames the previous file to `<path>.bak`, commits by
+renaming `.new` to the path, and removes the backup. A power or media loss at
+any step leaves the previous complete file or the new complete file readable
+through `readRecoverable()`, which falls back to the backup and never writes.
+The host tests cut power after every possible number of card operations; the
+physical check against real FAT media is pending (plan 045).
 
 The Cardputer adapter uses the pinned framework's SD and SPI interfaces and
 keeps every managed path below `/cardputer-hub`. Production FAT configuration
@@ -2413,9 +2582,10 @@ enables filenames up to 255 characters with the work buffer allocated on the
 heap, and the Cardputer-Adv SDSPI adapter uses the physically validated 10 MHz
 clock for media compatibility. Its initial state is `Uninitialized`; an
 explicit refresh produces `Ready`, `NotPresent`, or `MountError`. It never
-formats, repairs, erases, or repartitions media. It is compiled but not
-constructed by `main.cpp`, so Phase 1 performs no automatic mount and writes no
-product data.
+formats, repairs, erases, or repartitions media. `main.cpp` constructs it for
+the inventory (plan 045) behind `RemovableStorageService`, which mounts on
+first use rather than at boot. An operation that meets `EIO`, `ENODEV` or
+`ENXIO` unmounts and reports the card unavailable.
 
 The microSD card is optional and removable. Missing media, mount failure,
 read-only media, capacity exhaustion, and ordinary I/O failure must remain
@@ -2519,6 +2689,13 @@ File Storage
 CardputerMicroSdFileStorageAdapter
 ```
 
+```text
+InventoryService ──→ NfcService ──→ INfcReader ──→ St25r3916Adapter
+       │                                              ↓
+       │                         M5Unit-NFC / M5UnitUnified (pinned submodules)
+       └──→ RemovableStorageService ──→ FileStorage ──→ CardputerMicroSdFileStorageAdapter
+```
+
 This is necessary for automated testing and safe refactoring.
 
 `AudioService` owns logical volume, persistence changes, and the bounded PCM
@@ -2542,6 +2719,40 @@ adapter starts silent I2S clocks first, initializes the codec with both DAC mute
 bits set, allows its analog references to settle, and then performs one soft
 unmute ramp. This keeps codec power-up transients out of the speaker while
 preserving asynchronous playback after startup.
+
+`INfcReader` and its normalized card, activation and operation-result types live
+in `core/nfc`, because Services may not include hardware headers. It can
+initialize, switch the RF field, detect and identify a card, confirm presence,
+read four NFC Forum Type 2 pages, and write one page inside an NTAG213/215/216
+user area; lock, capability, configuration and OTP pages cannot be addressed,
+and there is no emulation, MIFARE Classic authentication or key handling.
+`St25r3916Adapter` is the only translation unit that includes the vendor
+library; it hides it behind a pimpl, maps library types exhaustively into the
+normalized ones, and compiles the library's own logging out (`M5_LOG_LEVEL=0`)
+because it would print identifiers. Each page operation wakes the halted tag by
+its saved UID, runs one READ or WRITE (the library's user-area check applies
+once more) and halts the tag again. It polls NFC-A, NFC-B, NFC-F and NFC-V in
+rotation, keeps one active card, and tells a silent card from a silent reader by
+reading the chip identity register after any failure. The Unit NFC is an I2C
+device on Grove port A, which is also Unit Puzzle's data pin (SCL G1, SDA G2).
+The adapter claims M5Unified's `Ex_I2C` only when a reader answers at the Unit
+NFC address, and releases it otherwise. `main.cpp` therefore starts
+`NfcService` before Unit Puzzle: a reader that answered owns the pins for the
+session and `PuzzleWs2812Adapter::inhibit()` keeps the Puzzle output off;
+otherwise the pins are handed back untouched and the Puzzle starts as before.
+The ST25R3916 libraries are pinned Git submodules under `components/` with
+explicit-source wrappers, and link only the new I2C master, RMT and ADC drivers
+the rest of the firmware already uses.
+
+Text is UTF-8 throughout. `core/display/display_glyphs.h` maps each code point
+to one byte of the system font: ASCII keeps its codes and the upper half holds
+Russian Cyrillic, Ё/ё, «», №, ° and …; macOS typographic dashes, quotes and
+spaces fall back to their ASCII shapes and anything else to a box glyph.
+`text_layout.h` measures, truncates and word-wraps by code point.
+`CardputerDisplayAdapter` draws those bytes with a Font0-derived GLCD table
+whose upper half comes from `hardware/cardputer/assets/system_font_extension.h`
+(original 5×8 artwork; letters shaped like Latin ones reuse Font0), with the
+library's UTF-8 decoding off.
 
 `IBacklightAdapter` is a hardware-neutral 8-bit level boundary where 0 is off
 and 255 is the adapter's maximum. `CardputerBacklightAdapter` is the only code
@@ -2677,6 +2888,17 @@ Bluetooth `Error` and shuts down that adapter; ordinary insecure pairing is
 rejected without affecting unrelated systems. Remove-all reports partial
 deletion instead of claiming success. These outcomes do not alter Wi-Fi or
 System Core state.
+
+The NFC Unit is optional and shares its Grove pins with Unit Puzzle. Its absence,
+an initialization failure, or a reader that disappears mid-session affects only
+`NfcService`: it withdraws `NFC_READER`, clears the tag session and retries
+without touching unrelated Services, and the NFC Mini App closes through the
+normal capability-loss path. A tag that cannot be registered or read is
+reported as such and never stops scanning. A missing or removed microSD card
+affects only inventory: lookups and registration report storage unavailable,
+the reader stays available, Companion inventory requests answer
+`NOT_AVAILABLE`, and no previous record is erased. Reader loss never touches
+stored records.
 
 A companion protocol, permission, timeout, or macOS-agent failure removes only
 the companion's live capabilities and fails its own pending operations. It must
@@ -3032,7 +3254,9 @@ src/
 │   ├── input/
 │   ├── lifecycle/
 │   ├── logging/
+│   ├── nfc/
 │   ├── power/
+│   ├── text/
 │   └── storage/
 │       ├── storage.h / storage.cpp
 │       └── files/
@@ -3052,6 +3276,9 @@ src/
 │   ├── telegram/
 │   ├── media/
 │   ├── indicator/
+│   ├── nfc/
+│   ├── inventory/
+│   ├── storage/
 │   ├── configuration/
 │   └── remote_control/
 │
@@ -3064,6 +3291,7 @@ src/
 │   ├── telegram/
 │   ├── media/
 │   ├── led_control/
+│   ├── nfc/
 │   └── settings/
 │
 ├── hardware/
@@ -3072,6 +3300,8 @@ src/
 │   ├── led/
 │   ├── bluetooth/
 │   ├── wifi/
+│   ├── nfc/
+│   │   └── st25r3916_adapter.*
 │   └── storage/
 │       ├── nvs/
 │       └── microsd/

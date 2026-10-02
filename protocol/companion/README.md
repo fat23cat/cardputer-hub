@@ -95,6 +95,10 @@ report the mismatch; it never answers it.
 | 6 | SYSTEM_METRICS | REQUEST, RESPONSE |
 | 7 | AI_USAGE | REQUEST, RESPONSE |
 | 8 | SYSTEM_DETAILS | REQUEST, RESPONSE |
+| 9 | INVENTORY_LIST | REQUEST (Mac), RESPONSE (Cardputer) |
+| 10 | INVENTORY_GET | REQUEST (Mac), RESPONSE (Cardputer) |
+| 11 | INVENTORY_PUT | REQUEST (Mac), RESPONSE (Cardputer) |
+| 12 | INVENTORY_DELETE | REQUEST (Mac), RESPONSE (Cardputer) |
 
 Value `2` (the former CAPABILITIES) is unused and rejected.
 
@@ -107,6 +111,9 @@ Value `2` (the former CAPABILITIES) is unused and rejected.
 | 2 | NOT_FOUND |
 | 3 | UNSUPPORTED |
 | 4 | MALFORMED |
+| 5 | CONFLICT |
+| 6 | REJECTED |
+| 7 | STORAGE_ERROR |
 
 ## Session start
 
@@ -127,6 +134,12 @@ changes, for example `2026-09-29 abc1234`.
 4. A pre-043 HELLO gets no reply; the Cardputer asks for a Companion update.
 
 Cardputer sends PING heartbeats. The Mac sends APP_ACTIVE_CHANGED events.
+Requests normally go from the Cardputer to the Mac; the inventory operations
+are the exception and go from the Mac to the Cardputer. Each side numbers and
+correlates its own requests. The Cardputer accepts inventory requests only for
+the current ready session (a request from an earlier session is ignored, one
+outside a ready session is a protocol error), queues at most two and answers a
+third with `NOT_AVAILABLE`. The Mac keeps one inventory request outstanding.
 
 ## Payloads
 
@@ -209,6 +222,46 @@ normalized numbers and enums only; provider identifiers and credentials never
 cross BLE. Invalid AI usage response content is discarded without replacing
 the previous firmware snapshot. A new Companion session clears that snapshot
 immediately.
+
+* Inventory records are UTF-8 JSON of at most 4096 bytes,
+  `{"schema":2,"id":"<32 lowercase hex>","revision":N,"name":"…","description":"…"}`
+  with a name of 1–32 code points (no control or line separator characters, no
+  edge spaces) and a description of 0–900 code points whose only control
+  character is a line break, with no space or line break at either end. Both
+  sides write the canonical form: keys in that order, no whitespace, only `"`,
+  `\` and the line break (`\n`) escaped. Every OK answer below is exactly its layout; an error answer
+  (`NOT_AVAILABLE` for a missing microSD card, `NOT_FOUND`, `REJECTED`,
+  `STORAGE_ERROR`, `MALFORMED`) has an empty payload, except `CONFLICT`.
+* INVENTORY_LIST request: start index (2). OK response: total records (2),
+  next index (2), entry count (1), then per entry: ID (16), valid flag (1),
+  revision (4), name length (1, `0..128`), UTF-8 name. A stored file that is not
+  a valid record has valid flag `0`, revision `0` and no name; a valid record
+  has a non-zero revision and a name. Records are sorted by ID and a page holds
+  as many entries as fit one message; the Mac asks again from `next` until
+  `next == total`.
+* INVENTORY_GET request: ID (16), byte offset (2). OK response: revision (4),
+  total length (2, `1..4096`), offset (2), then 1–240 bytes of the record's
+  canonical JSON. Offset 0 takes a fresh snapshot; later offsets come from it,
+  and every chunk names its revision, so a Mac that sees the revision change
+  starts again. A damaged record answers `REJECTED`.
+* INVENTORY_PUT request: ID (16), revision the edit is based on (4, non-zero),
+  total length (2, `1..4096`), offset (2), then 1–224 bytes of the edited
+  record's canonical JSON, whose `revision` is that same base revision. Chunks
+  arrive in order from offset 0; offset 0 starts a new upload and is answered
+  `CONFLICT` at once when the base is stale. OK response: bytes received (2) and
+  the committed revision (4), which is `0` until the last chunk and then the
+  base plus one. CONFLICT response: the current revision (4). An out-of-order
+  chunk, JSON that is not a valid record or names another ID, or a damaged
+  stored record answers `REJECTED`. The Cardputer buffers one upload of at most
+  4 KiB, commits it only after the complete record validates, and discards it
+  when the session changes or after ten seconds without a chunk. A timed-out
+  PUT may or may not have committed; the Mac reloads instead of resending.
+* INVENTORY_DELETE request: ID (16), the revision the editor saw (4; `0` for a
+  stored file that is not a valid record). OK response: empty; the record, with
+  any temporary or backup file, is gone for good and any transfer of it ends.
+  CONFLICT response: the current revision (4). A base that does not match a
+  damaged record answers `REJECTED`; a missing record `NOT_FOUND`. The tag
+  keeps its ID; erasing a tag is a Cardputer action, never a protocol one.
 
 ## Failure isolation
 

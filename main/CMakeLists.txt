@@ -1,5 +1,7 @@
 set(CARDPUTER_HUB_SOURCES
+    "${CMAKE_CURRENT_LIST_DIR}/../src/core/display/display_glyphs.cpp"
     "${CMAKE_CURRENT_LIST_DIR}/../src/core/display/slide_transition.cpp"
+    "${CMAKE_CURRENT_LIST_DIR}/../src/core/display/text_layout.cpp"
     "${CMAKE_CURRENT_LIST_DIR}/../src/apps/shell/home_graphics.cpp"
     "${CMAKE_CURRENT_LIST_DIR}/../src/apps/shell/home_ambient.cpp"
     "${CMAKE_CURRENT_LIST_DIR}/../src/apps/shell/ui_scheduler.cpp"
@@ -19,6 +21,8 @@ set(CARDPUTER_HUB_SOURCES
     "${CMAKE_CURRENT_LIST_DIR}/../src/apps/mac_status/mac_status_app.cpp"
     "${CMAKE_CURRENT_LIST_DIR}/../src/apps/mac_status/mac_status_graphics.cpp"
     "${CMAKE_CURRENT_LIST_DIR}/../src/apps/ai_usage/ai_usage_app.cpp"
+    "${CMAKE_CURRENT_LIST_DIR}/../src/apps/nfc/nfc_app.cpp"
+    "${CMAKE_CURRENT_LIST_DIR}/../src/apps/nfc/nfc_graphics.cpp"
     "${CMAKE_CURRENT_LIST_DIR}/../src/apps/led_gallery/led_gallery_app.cpp"
     "${CMAKE_CURRENT_LIST_DIR}/../src/apps/led_gallery/led_gallery_engine.cpp"
     "${CMAKE_CURRENT_LIST_DIR}/../src/apps/pomodoro/pomodoro_app.cpp"
@@ -41,6 +45,15 @@ set(CARDPUTER_HUB_SOURCES
     "${CMAKE_CURRENT_LIST_DIR}/../src/services/mac_status/mac_status_service.cpp"
     "${CMAKE_CURRENT_LIST_DIR}/../src/services/ai_usage/ai_usage_service.cpp"
     "${CMAKE_CURRENT_LIST_DIR}/../src/services/ai_usage/ai_usage_indicator_controller.cpp"
+    "${CMAKE_CURRENT_LIST_DIR}/../src/services/inventory/inventory_companion_endpoint.cpp"
+    "${CMAKE_CURRENT_LIST_DIR}/../src/services/inventory/inventory_id.cpp"
+    "${CMAKE_CURRENT_LIST_DIR}/../src/services/inventory/inventory_record.cpp"
+    "${CMAKE_CURRENT_LIST_DIR}/../src/services/inventory/inventory_service.cpp"
+    "${CMAKE_CURRENT_LIST_DIR}/../src/services/inventory/inventory_store.cpp"
+    "${CMAKE_CURRENT_LIST_DIR}/../src/services/nfc/nfc_format.cpp"
+    "${CMAKE_CURRENT_LIST_DIR}/../src/services/nfc/nfc_ndef.cpp"
+    "${CMAKE_CURRENT_LIST_DIR}/../src/services/nfc/nfc_service.cpp"
+    "${CMAKE_CURRENT_LIST_DIR}/../src/services/storage/removable_storage_service.cpp"
     "${CMAKE_CURRENT_LIST_DIR}/../src/core/actions/action.cpp"
     "${CMAKE_CURRENT_LIST_DIR}/../src/core/actions/action_bus.cpp"
     "${CMAKE_CURRENT_LIST_DIR}/../src/core/app_registry/app_registry.cpp"
@@ -53,6 +66,7 @@ set(CARDPUTER_HUB_SOURCES
     "${CMAKE_CURRENT_LIST_DIR}/../src/core/power/display_power_controller.cpp"
     "${CMAKE_CURRENT_LIST_DIR}/../src/core/storage/files/file_storage.cpp"
     "${CMAKE_CURRENT_LIST_DIR}/../src/core/storage/storage.cpp"
+    "${CMAKE_CURRENT_LIST_DIR}/../src/core/text/utf8.cpp"
     "${CMAKE_CURRENT_LIST_DIR}/../src/hardware/cardputer/cardputer_backlight_adapter.cpp"
     "${CMAKE_CURRENT_LIST_DIR}/../src/hardware/cardputer/cardputer_display_adapter.cpp"
     "${CMAKE_CURRENT_LIST_DIR}/../src/hardware/cardputer/cardputer_adv_keyboard_layout.cpp"
@@ -62,6 +76,8 @@ set(CARDPUTER_HUB_SOURCES
     "${CMAKE_CURRENT_LIST_DIR}/../src/hardware/cardputer/serial_log_sink.cpp"
     "${CMAKE_CURRENT_LIST_DIR}/../src/hardware/esp32/bluetooth/esp32_bluetooth_adapter.cpp"
     "${CMAKE_CURRENT_LIST_DIR}/../src/hardware/esp32/esp32_nvs_storage_adapter.cpp"
+    "${CMAKE_CURRENT_LIST_DIR}/../src/hardware/esp32/esp32_random_source.cpp"
+    "${CMAKE_CURRENT_LIST_DIR}/../src/hardware/nfc/st25r3916_adapter.cpp"
     "${CMAKE_CURRENT_LIST_DIR}/../src/hardware/esp32/wifi/esp32_wifi_adapter.cpp"
     "${CMAKE_CURRENT_LIST_DIR}/../src/hardware/storage/microsd/cardputer_microsd_file_storage_adapter.cpp"
     "${CMAKE_CURRENT_LIST_DIR}/../src/hardware/storage/microsd/microsd_io_error.cpp"
@@ -85,6 +101,7 @@ idf_component_register(
         mbedtls
         m5stack__m5gfx
         m5stack__m5unified
+        m5unitnfc
         nvs_flash)
 
 target_compile_features(${COMPONENT_LIB} PUBLIC cxx_std_17)
@@ -124,4 +141,6 @@ target_compile_definitions(
     ${COMPONENT_LIB}
     PRIVATE
         CARDPUTER_HUB_VERSION="${CARDPUTER_HUB_VERSION}"
-        CARDPUTER_HUB_BUILD_TYPE="${CARDPUTER_HUB_BUILD_TYPE}")
+        CARDPUTER_HUB_BUILD_TYPE="${CARDPUTER_HUB_BUILD_TYPE}"
+        # St25r3916Adapter includes the NFC library headers; see components/m5unitnfc.
+        M5_LOG_LEVEL=0)

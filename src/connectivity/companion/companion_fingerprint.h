@@ -10,6 +10,6 @@ namespace cardputer_hub::connectivity {
 // SHA-256 of the protocol generator, first 8 bytes. HELLO carries it; a peer
 // with a different value was built from a different protocol definition.
 inline constexpr std::array<std::uint8_t, 8> companionProtocolFingerprint{
-    0xE7, 0xCE, 0xCD, 0xC7, 0x06, 0xF1, 0xCD, 0xCA};
+    0x1F, 0x80, 0xD4, 0x5B, 0xFF, 0x96, 0x39, 0xC8};
 
 } // namespace cardputer_hub::connectivity

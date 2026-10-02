@@ -62,6 +62,8 @@ class MiniAppRuntime {
     MiniAppActivationResult activate(const std::string& appId);
     MiniAppDeactivationResult deactivate();
     MiniAppUpdateResult update(const core::InputEvents& input, std::chrono::milliseconds elapsed);
+    // Offers Back to the active app. True means the app consumed it and stays open.
+    [[nodiscard]] bool handleBack();
 
     [[nodiscard]] bool hasActiveApp() const noexcept;
     [[nodiscard]] std::optional<std::string> activeAppId() const;

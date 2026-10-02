@@ -605,6 +605,52 @@ unused band stays dark. A stale rolling window whose reset time has passed
 arrives as 100% left with an unknown reset and keeps the `STALE` mark. The
 empty state lists `CODEX / CURSOR / CLAUDE` with a schema 3 Companion and
 `CODEX / CURSOR` with an older one.
+NFC requires the live `NFC_READER` capability, so it is unavailable in Apps
+(`REQUIRES NFC_READER`) without a Unit NFC. It is a personal inventory screen
+with the header `NFC`; the header's right slot shows a quiet `NO SD` while the
+microSD card is not mounted. With no tag it shows a centered `TAP A TAG` with a
+quiet `)))` and the right footer `ENTER  NEW`, drawn once and without
+animation. State screens use one centered title and up to three quiet lines:
+`READING TAG`, `UNSUPPORTED TAG` (use an NTAG213/215/216 sticker),
+`TAG NOT NDEF FORMATTED`, `TAG IS LOCKED`, `TAG HOLDS OTHER DATA` (never
+overwritten during registration), `COULD NOT READ TAG`, and the progress screens `WRITING TAG` /
+`CHECKING TAG` / `ERASING TAG` (keep the tag on the reader) and `SAVING RECORD`.
+Failures (`NFC READER UNAVAILABLE`, `COULD NOT READ TAG`, `RECORD IS DAMAGED`,
+`MICROSD UNAVAILABLE`, `RECORD NOT SAVED`, `ERASE UNCONFIRMED`,
+`RECORD NOT DELETED`) and the erase confirmation use the Vermilion title.
+Screens with an action show it as a right footer hint: `BLANK TAG` with
+`ENTER  REGISTER`, `NO RECORD FOR THIS TAG` with `ENTER  CREATE`,
+`RECORD NOT SAVED` and `MICROSD UNAVAILABLE` with `ENTER  RETRY`, and the
+notices `RECORD SAVED`, `TAG ERASED`, `ERASE UNCONFIRMED` and `RECORD NOT DELETED`
+with `ENTER  OK`. A screen whose tag can be erased (a known container, a missing
+or damaged record, or unrelated writable NDEF data without reserved areas)
+shows the quiet left hint `FN+DEL  ERASE`. When registration
+is not possible the screen adds `INSERT MICROSD TO SAVE` or `INVENTORY IS FULL`
+instead of opening the editor. The name editor (`NEW CONTAINER` or
+`CREATE RECORD`) needs no tag: it takes printable ASCII from the keyboard,
+shows the draft with a `_` cursor that scrolls, `N LEFT` and `N/32`, the note
+that the description is written on the Mac, and the footer `ESC  CANCEL` on the
+left and `ENTER  SAVE` on the right only once the draft is not empty. A new
+container then shows `TAP TAG TO WRITE` with its name, `ANY BLANK NTAG STICKER`
+(or `THIS TAG IS NOT BLANK`, `TAG NOT WRITTEN, TAP AGAIN`, `INSERT MICROSD` with
+`ENTER  RETRY`) and `ESC  CANCEL`. `ERASE THIS TAG?` names the container, says
+`ITS RECORD IS DELETED` (or `THE TAG BECOMES BLANK`) and shows `ESC  CANCEL`
+and `ENTER  ERASE`. Escape leaves the editor, the erase confirmation and the
+wait for a tag through `IMiniApp::handleBack()`, is ignored while a tag is
+being written, and on any other screen uses the shared Mini App exit. A known
+container shows its name as the title, a rule, and up to seven description
+lines in Ink: each line break starts a line and long lines word-wrap by code
+point. The right header slot shows the page counter (`1/2`) when there is more
+than one page and Leaf `SAVED` right after a registration. Up/Down (`;` / `.`)
+and Left/Right (`,` / `/`, with or without Fn) change pages without wrapping and
+slide in the direction of travel. A container without a description shows
+`NO DESCRIPTION YET` and `WRITE IT IN MAC COMPANION`. Text renders in UTF-8
+with the Cyrillic glyphs of the system font; an unsupported character is a
+box. Removing the tag, or presenting another, returns to `TAP A TAG` at once
+and ends an erase confirmation, so a container's contents never stay on
+screen; name entry goes on without the tag. Capability loss closes the app
+through MiniAppRuntime. Physical review of the Cyrillic glyphs on the 240×135
+display is pending.
 Idle dimming, the final off fade and wake-input consumption are implemented for
 every screen and Mini App from the shared runtime input path; physical
 acceptance on Cardputer-Adv is pending. Remaining semantic

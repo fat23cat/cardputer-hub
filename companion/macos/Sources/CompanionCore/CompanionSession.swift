@@ -1,6 +1,18 @@
 import Foundation
 
-public final class CompanionSession {
+public enum CompanionRequestFailure: Error, Equatable {
+    case disconnected, timeout, busy, encoding
+}
+
+public typealias CompanionResponseHandler = (Result<CompanionEnvelope, CompanionRequestFailure>) -> Void
+
+/// Requests the Mac sends to the Cardputer (inventory operations).
+public protocol CompanionRequesting: AnyObject {
+    func sendRequest(_ operation: CompanionOperation, payload: [UInt8],
+                     completion: @escaping CompanionResponseHandler)
+}
+
+public final class CompanionSession: CompanionRequesting {
     public private(set) var session: UInt16 = 0
     public private(set) var compatibility: CompanionCompatibility = .unknown
     public private(set) var sessionStartedAt: Date?
@@ -15,6 +27,18 @@ public final class CompanionSession {
     private let now: () -> Date
     public var outgoing: ([UInt8]) -> Void = { _ in }
     private var awaitingHelloAck = false
+
+    private struct PendingRequest {
+        let id: UInt8
+        let operation: CompanionOperation
+        let session: UInt16
+        let deadline: Date
+        let completion: CompanionResponseHandler
+    }
+    private var pending: PendingRequest?
+    private var nextRequestId: UInt8 = 1
+    /// The longest wait for the Cardputer's answer to a Mac request.
+    public static let requestTimeout: TimeInterval = 4
 
     public init(applications: ApplicationControlling, metrics: SystemMetricsCollecting? = nil,
                 details: SystemDetailsCollecting? = nil,
@@ -51,6 +75,8 @@ public final class CompanionSession {
     }
 
     public func reset() {
+        // A request never outlives its session and is never resent.
+        failPending(.disconnected)
         session = 0
         if compatibility != .noAnswer { compatibility = .unknown }
         sessionStartedAt = nil
@@ -88,6 +114,7 @@ public final class CompanionSession {
                 return true
             }
             compatibility = .matched(firmwareBuildId: firmware.buildId)
+            failPending(.disconnected)
             session = message.session
             sessionStartedAt = now()
             lastValidMessageAt = sessionStartedAt
@@ -98,9 +125,50 @@ public final class CompanionSession {
             lastValidMessageAt = now()
             handleRequest(message)
             return true
+        case .response:
+            guard session != 0, message.session == session, let request = pending,
+                  request.id == message.requestId, request.operation == message.operation,
+                  request.session == message.session else { return false }
+            pending = nil
+            lastValidMessageAt = now()
+            request.completion(.success(message))
+            return true
         default:
             return false
         }
+    }
+
+    /// Sends one request; only one is outstanding at a time.
+    public func sendRequest(_ operation: CompanionOperation, payload: [UInt8],
+                            completion: @escaping CompanionResponseHandler) {
+        guard session != 0 else { return completion(.failure(.disconnected)) }
+        guard pending == nil else { return completion(.failure(.busy)) }
+        var message = CompanionEnvelope()
+        message.kind = .request
+        message.session = session
+        message.requestId = nextRequestId
+        message.operation = operation
+        message.payload = payload
+        guard let bytes = CompanionCodec.encode(message) else { return completion(.failure(.encoding)) }
+        nextRequestId = nextRequestId == 255 ? 1 : nextRequestId + 1
+        pending = PendingRequest(id: message.requestId, operation: operation, session: session,
+                                 deadline: now().addingTimeInterval(Self.requestTimeout),
+                                 completion: completion)
+        outgoing(bytes)
+    }
+
+    public var hasPendingRequest: Bool { pending != nil }
+
+    public func expireRequests(at time: Date) {
+        guard let request = pending, time >= request.deadline else { return }
+        pending = nil
+        request.completion(.failure(.timeout))
+    }
+
+    private func failPending(_ failure: CompanionRequestFailure) {
+        guard let request = pending else { return }
+        pending = nil
+        request.completion(.failure(failure))
     }
 
     private func handleRequest(_ message: CompanionEnvelope) {

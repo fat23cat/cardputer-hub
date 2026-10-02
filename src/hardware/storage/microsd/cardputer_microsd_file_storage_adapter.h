@@ -16,6 +16,10 @@ class CardputerMicroSdFileStorageAdapter final : public core::IFileStorageAdapte
     core::FileWriteStatus replace(const core::FileStoragePath& path,
                                   const core::FileStorageBytes& data) override;
     core::FileRemoveStatus remove(const core::FileStoragePath& path) override;
+    core::FileListResult list(const core::FileStoragePath& directory,
+                              std::size_t maxEntries) override;
+    core::FileRenameStatus rename(const core::FileStoragePath& from,
+                                  const core::FileStoragePath& to) override;
 
   private:
     bool operationBecameUnavailable(int error);

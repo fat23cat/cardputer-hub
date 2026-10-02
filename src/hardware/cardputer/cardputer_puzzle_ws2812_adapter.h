@@ -69,11 +69,20 @@ class PuzzleWs2812Adapter final : public core::ILEDAdapter {
     bool begin();
     void writeFrame(const core::LedHardwareFrame& frame) override;
 
+    // Gives the data pin up for the rest of the session. Unit Puzzle and the NFC
+    // Unit share Grove port A, so the firmware inhibits the Puzzle when it finds
+    // an NFC reader there. An inhibited adapter never touches the backend again,
+    // not even to quiet the line: the pin now belongs to another device. Call it
+    // before begin() whenever possible; a running strip is released once.
+    void inhibit();
+    [[nodiscard]] bool inhibited() const noexcept { return inhibited_; }
+
   private:
     void disable();
 
     IPuzzleLedBackend& backend_;
     bool ready_ = false;
+    bool inhibited_ = false;
 };
 
 class EspPuzzleLedBackend final : public IPuzzleLedBackend {
@@ -95,7 +104,18 @@ class EspPuzzleLedBackend final : public IPuzzleLedBackend {
 
 inline PuzzleWs2812Adapter::PuzzleWs2812Adapter(IPuzzleLedBackend& backend) : backend_(backend) {}
 
-inline PuzzleWs2812Adapter::~PuzzleWs2812Adapter() { disable(); }
+inline PuzzleWs2812Adapter::~PuzzleWs2812Adapter() {
+    if (!inhibited_)
+        disable();
+}
+
+inline void PuzzleWs2812Adapter::inhibit() {
+    if (inhibited_)
+        return;
+    if (ready_)
+        disable();
+    inhibited_ = true;
+}
 
 inline void PuzzleWs2812Adapter::disable() {
     backend_.close();
@@ -103,6 +123,8 @@ inline void PuzzleWs2812Adapter::disable() {
 }
 
 inline bool PuzzleWs2812Adapter::begin() {
+    if (inhibited_)
+        return false;
     if (ready_)
         return true;
     backend_.quietLine();
@@ -116,6 +138,8 @@ inline bool PuzzleWs2812Adapter::begin() {
 }
 
 inline void PuzzleWs2812Adapter::writeFrame(const core::LedHardwareFrame& frame) {
+    if (inhibited_)
+        return;
     if (!ready_ && !begin())
         return;
     if (!backend_.writeMappedFrame(frame))

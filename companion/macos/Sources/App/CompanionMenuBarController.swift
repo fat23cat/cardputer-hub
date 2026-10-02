@@ -49,6 +49,11 @@ final class CompanionMenuBarController: NSObject, NSMenuDelegate {
         menu.addItem(loginErrorItem)
         menu.addItem(.separator())
 
+        let inventoryItem = NSMenuItem(title: "Inventory…", action: #selector(openInventory),
+                                       keyEquivalent: "i")
+        inventoryItem.target = self
+        menu.addItem(inventoryItem)
+
         let diagnosticsItem = NSMenuItem(title: "Diagnostics", action: nil, keyEquivalent: "")
         diagnosticsItem.submenu = diagnosticsMenu
         menu.addItem(diagnosticsItem)
@@ -108,6 +113,10 @@ final class CompanionMenuBarController: NSObject, NSMenuDelegate {
 
     @objc private func reconnect() {
         status.onReconnect?()
+    }
+
+    @objc private func openInventory() {
+        status.onOpenInventory?()
     }
 
     @objc private func setStartAtLogin(_ sender: NSSwitch) {

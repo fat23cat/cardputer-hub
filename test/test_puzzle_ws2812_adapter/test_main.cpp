@@ -97,6 +97,48 @@ void test_write_failure_returns_adapter_to_retryable_state() {
     TEST_ASSERT_EQUAL(2, backend.opens);
     TEST_ASSERT_EQUAL(3, backend.writes);
 }
+
+void test_inhibited_adapter_never_touches_the_backend() {
+    FakePuzzleBackend backend;
+    {
+        PuzzleWs2812Adapter adapter(backend);
+        adapter.inhibit();
+        TEST_ASSERT_TRUE(adapter.inhibited());
+        TEST_ASSERT_FALSE(adapter.begin());
+        LedHardwareFrame frame{};
+        adapter.writeFrame(frame);
+        adapter.writeFrame(frame);
+        // The data pin belongs to another device now: it is never driven, not even
+        // to quiet it.
+        TEST_ASSERT_EQUAL(0, backend.quiets);
+        TEST_ASSERT_EQUAL(0, backend.opens);
+        TEST_ASSERT_EQUAL(0, backend.writes);
+        TEST_ASSERT_EQUAL(0, backend.closes);
+    }
+    TEST_ASSERT_EQUAL(0, backend.closes);
+}
+
+void test_inhibiting_a_running_adapter_releases_the_strip_once() {
+    FakePuzzleBackend backend;
+    PuzzleWs2812Adapter adapter(backend);
+    LedHardwareFrame frame{};
+    adapter.writeFrame(frame);
+    TEST_ASSERT_EQUAL(1, backend.writes);
+    adapter.inhibit();
+    TEST_ASSERT_EQUAL(1, backend.closes);
+    adapter.writeFrame(frame);
+    TEST_ASSERT_EQUAL(1, backend.writes);
+    TEST_ASSERT_EQUAL(1, backend.opens);
+}
+
+void test_adapter_that_was_never_inhibited_still_retries() {
+    FakePuzzleBackend backend;
+    PuzzleWs2812Adapter adapter(backend);
+    TEST_ASSERT_FALSE(adapter.inhibited());
+    LedHardwareFrame frame{};
+    adapter.writeFrame(frame);
+    TEST_ASSERT_EQUAL(1, backend.writes);
+}
 } // namespace
 
 void setUp() {}
@@ -109,5 +151,8 @@ int main() {
     RUN_TEST(test_rotation_moves_logical_origin);
     RUN_TEST(test_begin_failure_is_retryable);
     RUN_TEST(test_write_failure_returns_adapter_to_retryable_state);
+    RUN_TEST(test_inhibited_adapter_never_touches_the_backend);
+    RUN_TEST(test_inhibiting_a_running_adapter_releases_the_strip_once);
+    RUN_TEST(test_adapter_that_was_never_inhibited_still_retries);
     return UNITY_END();
 }

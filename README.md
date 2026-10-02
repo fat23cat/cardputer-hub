@@ -127,6 +127,16 @@ Companion is connected; polling runs only while the app is open.
 AI USAGE shows discovered Codex/Cursor/Claude quotas from the Companion and publishes
 a remaining-quota gauge on Unit Puzzle at idle priority. Provider collection
 is automatic on the Mac; firmware receives only normalized usage numbers.
+NFC is a personal inventory for boxes and bags: a writable NTAG213/215/216
+sticker carries only a random inventory ID, and the container's name and item
+list live as a JSON record on the Cardputer's microSD card. `NfcApp` renders
+`InventoryService`, which registers blank stickers (writes and verifies the ID,
+then saves the record) and shows a tapped container's list offline;
+`NfcService` owns the optional M5Stack Unit NFC (ST25R3916) behind `INfcReader`
+and withdraws `NFC_READER` if the unit disappears. The Companion's Inventory
+window edits each container's name and free-text description (including
+Cyrillic) over the live BLE session;
+the Cardputer validates and commits every revision-checked write.
 
 ---
 
@@ -532,9 +542,11 @@ Target device:
 
 * M5Stack Cardputer-Adv
 
-Planned external hardware:
+External hardware:
 
 * M5Stack Unit Puzzle 8×8 WS2812E RGB LED matrix
+* M5Stack Unit NFC (ST25R3916, SKU U216) for the NFC Mini App. It shares
+  Grove port A with the Unit Puzzle, so use one at a time.
 
 Additional sensors and modules may be added later.
 
