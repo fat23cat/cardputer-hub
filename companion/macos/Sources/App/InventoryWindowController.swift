@@ -95,7 +95,7 @@ struct InventoryView: View {
                 ForEach(model.entries, id: \.id) { entry in
                     Text(entry.valid ? entry.name : "Damaged record")
                         .foregroundColor(entry.valid ? .primary : .secondary)
-                        .tag(Optional(entry.id))
+                        .tag(entry.id)
                 }
             }
             Divider()
