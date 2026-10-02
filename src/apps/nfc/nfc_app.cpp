@@ -310,19 +310,30 @@ NfcMessage NfcApp::message(const InventoryStatus& status) const {
         }
         if (status.eraseHint == InventoryEraseHint::TagRemoved)
             message.lines.emplace_back("TAG REMOVED; ENTER, THEN TAP IT");
-        else if (status.eraseHint == InventoryEraseHint::DifferentTag)
+        else if (status.eraseHint == InventoryEraseHint::CheckingTag) {
+            message.lines.emplace_back("CHECKING TAG; WAIT");
+            message.footerRight.clear();
+        } else if (status.eraseHint == InventoryEraseHint::TagChanged) {
+            message.lines.emplace_back("TAG DATA CHANGED");
+            message.footerRight.clear();
+        } else if (status.eraseHint == InventoryEraseHint::DifferentTag) {
             message.lines.emplace_back("THIS IS A DIFFERENT TAG");
+            message.footerRight.clear();
+        }
         break;
     }
-    case InventoryScreen::EraseAwaitingTag:
+    case InventoryScreen::EraseAwaitingTag: {
+        const auto detail =
+            status.eraseHint == InventoryEraseHint::DifferentTag  ? "THIS IS A DIFFERENT TAG"
+            : status.eraseHint == InventoryEraseHint::TagChanged  ? "TAG DATA CHANGED"
+            : status.eraseHint == InventoryEraseHint::CheckingTag ? "CHECKING TAG"
+                                                                  : "THE SAME TAG, UNCHANGED";
         message = {"PUT THE TAG BACK",
-                   {status.eraseForeign ? "TO ERASE ITS OTHER DATA" : status.eraseName,
-                    status.eraseHint == InventoryEraseHint::DifferentTag
-                        ? "THIS IS A DIFFERENT TAG"
-                        : "THE SAME TAG, UNCHANGED"},
+                   {status.eraseForeign ? "TO ERASE ITS OTHER DATA" : status.eraseName, detail},
                    "ESC  CANCEL",
                    ""};
         break;
+    }
     case InventoryScreen::Erasing:
         message = {"ERASING TAG", {"KEEP THE TAG ON THE READER"}, "", ""};
         break;

@@ -541,10 +541,23 @@ bool InventoryService::targetPresent(const NfcStatus& nfc) const {
 InventoryCommandResult InventoryService::confirmErase() {
     if (flow_ != Flow::ConfirmingErase || !target_)
         return InventoryCommandResult::NotAllowed;
+    // A visible mismatch cannot turn confirmation into a deferred erase. The
+    // original tag must be present, or the reader must be empty, when Enter is
+    // accepted.
+    if (status_.eraseHint == InventoryEraseHint::DifferentTag ||
+        status_.eraseHint == InventoryEraseHint::TagChanged)
+        return InventoryCommandResult::NotAllowed;
     // Never erase an inventory tag while its record cannot be deleted.
     if (target_->deleteRecord && !storage_.ensureReady())
         return InventoryCommandResult::StorageUnavailable;
     const auto& nfc = nfc_.status();
+    if (nfc.card && !targetPresent(nfc)) {
+        setEraseHint(nfc.state == NfcServiceState::Reading || nfc.tag.content == NfcTagContent::None
+                         ? InventoryEraseHint::CheckingTag
+                     : nfc.card->uid == target_->uid ? InventoryEraseHint::TagChanged
+                                                     : InventoryEraseHint::DifferentTag);
+        return InventoryCommandResult::NotAllowed;
+    }
     if (targetPresent(nfc)) {
         startErase();
         return InventoryCommandResult::Started;
@@ -587,14 +600,19 @@ void InventoryService::observeEraseRequest(const NfcStatus& nfc) {
     if (flow_ == Flow::ConfirmingErase) {
         if (session_ == 0)
             setEraseHint(InventoryEraseHint::TagRemoved);
-        else if (!reading)
-            setEraseHint(targetPresent(nfc) ? InventoryEraseHint::None
-                                            : InventoryEraseHint::DifferentTag);
+        else if (reading)
+            setEraseHint(InventoryEraseHint::CheckingTag);
+        else if (targetPresent(nfc))
+            setEraseHint(InventoryEraseHint::None);
+        else
+            setEraseHint(nfc.card && nfc.card->uid == target_->uid
+                             ? InventoryEraseHint::TagChanged
+                             : InventoryEraseHint::DifferentTag);
         show(InventoryScreen::EraseConfirm);
         return;
     }
     if (session_ == 0 || reading) {
-        setEraseHint(InventoryEraseHint::None);
+        setEraseHint(session_ == 0 ? InventoryEraseHint::None : InventoryEraseHint::CheckingTag);
         show(InventoryScreen::EraseAwaitingTag);
         return;
     }
@@ -602,7 +620,8 @@ void InventoryService::observeEraseRequest(const NfcStatus& nfc) {
         startErase();
         return;
     }
-    setEraseHint(InventoryEraseHint::DifferentTag);
+    setEraseHint(nfc.card && nfc.card->uid == target_->uid ? InventoryEraseHint::TagChanged
+                                                           : InventoryEraseHint::DifferentTag);
     show(InventoryScreen::EraseAwaitingTag);
 }
 

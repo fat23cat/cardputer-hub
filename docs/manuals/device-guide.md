@@ -158,7 +158,13 @@ container, `NO RECORD FOR THIS TAG` or `RECORD IS DAMAGED`), press **Fn+Del**.
 `ERASE THIS TAG?` asks first; **Enter** erases, Escape cancels. The app empties
 the sticker and checks it, then deletes the container's record from the
 microSD card for good; the sticker is blank again and can be registered for
-another box. If erasure cannot be verified, `ERASE UNCONFIRMED` keeps the
+another box. If the sticker was removed, **Enter** waits for that same sticker
+to return. If a different sticker is present, remove it and bring back the
+original before pressing **Enter**; the warning disables confirmation. While a
+returned sticker is being read, wait for the check to finish before pressing
+**Enter**. `TAG DATA CHANGED` means the same sticker's contents no longer match
+what was selected; cancel and inspect it again before starting a new erase. If
+erasure cannot be verified, `ERASE UNCONFIRMED` keeps the
 record on microSD: hold or present the same sticker again. If it is read as
 blank, the record is deleted then; another sticker cannot cause deletion. If
 the device restarts before this check, an orphaned record can be removed in

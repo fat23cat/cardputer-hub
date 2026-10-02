@@ -59,7 +59,13 @@ enum class InventoryScreen : std::uint8_t {
 // Why AwaitingTag is still waiting.
 enum class InventoryAwaitHint : std::uint8_t { None, TagNotBlank, WriteFailed, StorageUnavailable };
 // What the erase screens add about the tag on the reader.
-enum class InventoryEraseHint : std::uint8_t { None, TagRemoved, DifferentTag };
+enum class InventoryEraseHint : std::uint8_t {
+    None,
+    TagRemoved,
+    CheckingTag,
+    TagChanged,
+    DifferentTag,
+};
 
 struct InventoryStatus {
     InventoryScreen screen = InventoryScreen::ReaderUnavailable;

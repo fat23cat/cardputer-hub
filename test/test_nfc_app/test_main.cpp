@@ -354,6 +354,45 @@ void test_erase_asks_first_then_empties_the_tag_and_deletes_the_record() {
     f.runUntil(InventoryScreen::Blank);
 }
 
+void test_erase_confirmation_hides_enter_when_a_different_tag_is_present() {
+    Fixture f;
+    const auto foreign =
+        makeNtag213WithArea(4, *encodeType2NdefArea(encodeNdefTextMessage("hello"), 144));
+    const auto other =
+        makeNtag213WithArea(5, *encodeType2NdefArea(encodeNdefTextMessage("hello"), 144));
+    const auto changed =
+        makeNtag213WithArea(4, *encodeType2NdefArea(encodeNdefTextMessage("world"), 144));
+    f.begin();
+    f.reader.present(foreign);
+    f.runUntil(InventoryScreen::OtherData);
+    f.press(fnDelete);
+    f.reader.removeCard();
+    for (int index = 0; index < 5; ++index)
+        f.step();
+    f.reader.present(other);
+    f.step();
+    TEST_ASSERT_TRUE(f.display.shows("CHECKING TAG; WAIT"));
+    TEST_ASSERT_FALSE(f.display.shows("ENTER  ERASE"));
+    for (int index = 0;
+         index < 50 && f.inventory.status().eraseHint != InventoryEraseHint::DifferentTag; ++index)
+        f.step();
+    TEST_ASSERT_TRUE(f.display.shows("THIS IS A DIFFERENT TAG"));
+    TEST_ASSERT_FALSE(f.display.shows("ENTER  ERASE"));
+    f.press(enter);
+    TEST_ASSERT_TRUE(f.reader.pageWrites.empty());
+    TEST_ASSERT_EQUAL_UINT8(static_cast<unsigned>(InventoryScreen::EraseConfirm),
+                            static_cast<unsigned>(f.inventory.status().screen));
+    f.reader.removeCard();
+    for (int index = 0; index < 5; ++index)
+        f.step();
+    f.reader.present(changed);
+    for (int index = 0;
+         index < 50 && f.inventory.status().eraseHint != InventoryEraseHint::TagChanged; ++index)
+        f.step();
+    TEST_ASSERT_TRUE(f.display.shows("TAG DATA CHANGED"));
+    TEST_ASSERT_FALSE(f.display.shows("ENTER  ERASE"));
+}
+
 void test_missing_record_is_created_for_the_existing_id_without_the_tag() {
     Fixture f;
     f.begin();
@@ -442,6 +481,7 @@ int main() {
     RUN_TEST(test_escape_does_not_abandon_a_tag_write);
     RUN_TEST(test_known_container_pages_the_cyrillic_description_and_clears_on_removal);
     RUN_TEST(test_erase_asks_first_then_empties_the_tag_and_deletes_the_record);
+    RUN_TEST(test_erase_confirmation_hides_enter_when_a_different_tag_is_present);
     RUN_TEST(test_missing_record_is_created_for_the_existing_id_without_the_tag);
     RUN_TEST(test_storage_unavailable_offers_a_retry);
     RUN_TEST(test_nonblank_and_unsupported_tags_show_only_available_actions);

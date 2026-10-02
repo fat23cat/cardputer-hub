@@ -625,6 +625,144 @@ void test_erase_of_a_missing_or_damaged_record_tag() {
     TEST_ASSERT_EQUAL_UINT(0, damaged.recordFiles());
 }
 
+void test_foreign_tag_removed_and_returned_before_erase_confirmation() {
+    Harness h;
+    const auto foreign =
+        makeNtag213WithArea(4, *encodeType2NdefArea(encodeNdefTextMessage("hello"), 144));
+    h.inventory.open();
+    h.reader.present(foreign);
+    h.runUntil(InventoryScreen::OtherData);
+    TEST_ASSERT_EQUAL_UINT8(static_cast<unsigned>(InventoryCommandResult::Started),
+                            static_cast<unsigned>(h.inventory.requestErase()));
+    h.reader.removeCard();
+    h.settle(5);
+    h.assertScreen(InventoryScreen::EraseConfirm);
+    TEST_ASSERT_EQUAL_UINT8(static_cast<unsigned>(InventoryEraseHint::TagRemoved),
+                            static_cast<unsigned>(h.inventory.status().eraseHint));
+
+    h.reader.present(foreign);
+    for (int index = 0; index < 50 && h.inventory.status().eraseHint != InventoryEraseHint::None;
+         ++index)
+        h.step();
+    h.assertScreen(InventoryScreen::EraseConfirm);
+    TEST_ASSERT_EQUAL_UINT8(static_cast<unsigned>(InventoryEraseHint::None),
+                            static_cast<unsigned>(h.inventory.status().eraseHint));
+    TEST_ASSERT_TRUE(h.reader.pageWrites.empty());
+    (void)h.inventory.confirmErase();
+    h.runUntil(InventoryScreen::Erased);
+    TEST_ASSERT_EQUAL_UINT(0, h.recordFiles());
+    TEST_ASSERT_EQUAL_UINT8(
+        static_cast<unsigned>(NfcTagContent::Blank),
+        static_cast<unsigned>(
+            inspectType2Window(h.reader.memory().data() + 8, nfcInspectBytes).content));
+}
+
+void test_different_tag_cannot_arm_erase_without_a_new_confirmation() {
+    Harness h;
+    const auto foreign =
+        makeNtag213WithArea(4, *encodeType2NdefArea(encodeNdefTextMessage("hello"), 144));
+    const auto other =
+        makeNtag213WithArea(5, *encodeType2NdefArea(encodeNdefTextMessage("hello"), 144));
+    h.inventory.open();
+    h.reader.present(foreign);
+    h.runUntil(InventoryScreen::OtherData);
+    (void)h.inventory.requestErase();
+    h.reader.removeCard();
+    h.settle(5);
+    h.reader.present(other);
+    for (int index = 0;
+         index < 50 && h.inventory.status().eraseHint != InventoryEraseHint::DifferentTag; ++index)
+        h.step();
+    h.assertScreen(InventoryScreen::EraseConfirm);
+    TEST_ASSERT_EQUAL_UINT8(static_cast<unsigned>(InventoryEraseHint::DifferentTag),
+                            static_cast<unsigned>(h.inventory.status().eraseHint));
+    TEST_ASSERT_EQUAL_UINT8(static_cast<unsigned>(InventoryCommandResult::NotAllowed),
+                            static_cast<unsigned>(h.inventory.confirmErase()));
+    h.reader.removeCard();
+    h.settle(5);
+    h.reader.present(foreign);
+    for (int index = 0; index < 50 && h.inventory.status().eraseHint != InventoryEraseHint::None;
+         ++index)
+        h.step();
+    h.assertScreen(InventoryScreen::EraseConfirm);
+    TEST_ASSERT_TRUE(h.reader.pageWrites.empty());
+    h.settle(10);
+    TEST_ASSERT_TRUE(h.reader.pageWrites.empty());
+    TEST_ASSERT_EQUAL_UINT8(static_cast<unsigned>(InventoryCommandResult::Started),
+                            static_cast<unsigned>(h.inventory.confirmErase()));
+    h.runUntil(InventoryScreen::Erased);
+}
+
+void test_tag_being_read_cannot_arm_erase_without_a_new_confirmation() {
+    Harness h;
+    const auto foreign =
+        makeNtag213WithArea(4, *encodeType2NdefArea(encodeNdefTextMessage("hello"), 144));
+    h.inventory.open();
+    h.reader.present(foreign);
+    h.runUntil(InventoryScreen::OtherData);
+    (void)h.inventory.requestErase();
+    h.reader.removeCard();
+    h.settle(5);
+    h.reader.present(foreign);
+    h.step();
+    TEST_ASSERT_EQUAL_UINT8(static_cast<unsigned>(NfcServiceState::Reading),
+                            static_cast<unsigned>(h.nfc.status().state));
+    TEST_ASSERT_EQUAL_UINT8(static_cast<unsigned>(InventoryCommandResult::NotAllowed),
+                            static_cast<unsigned>(h.inventory.confirmErase()));
+    for (int index = 0; index < 50 && h.nfc.status().state != NfcServiceState::Ready; ++index)
+        h.step();
+    h.assertScreen(InventoryScreen::EraseConfirm);
+    h.settle(10);
+    TEST_ASSERT_TRUE(h.reader.pageWrites.empty());
+    TEST_ASSERT_EQUAL_UINT8(static_cast<unsigned>(InventoryCommandResult::Started),
+                            static_cast<unsigned>(h.inventory.confirmErase()));
+    h.runUntil(InventoryScreen::Erased);
+}
+
+void test_same_uid_with_changed_data_is_not_called_a_different_tag() {
+    Harness h;
+    const auto foreign =
+        makeNtag213WithArea(4, *encodeType2NdefArea(encodeNdefTextMessage("hello"), 144));
+    const auto changed =
+        makeNtag213WithArea(4, *encodeType2NdefArea(encodeNdefTextMessage("world"), 144));
+    h.inventory.open();
+    h.reader.present(foreign);
+    h.runUntil(InventoryScreen::OtherData);
+    (void)h.inventory.requestErase();
+    h.reader.removeCard();
+    h.settle(5);
+    h.reader.present(changed);
+    for (int index = 0;
+         index < 50 && h.inventory.status().eraseHint != InventoryEraseHint::TagChanged; ++index)
+        h.step();
+    TEST_ASSERT_EQUAL_UINT8(static_cast<unsigned>(InventoryEraseHint::TagChanged),
+                            static_cast<unsigned>(h.inventory.status().eraseHint));
+    TEST_ASSERT_EQUAL_UINT8(static_cast<unsigned>(InventoryCommandResult::NotAllowed),
+                            static_cast<unsigned>(h.inventory.confirmErase()));
+    TEST_ASSERT_TRUE(h.reader.pageWrites.empty());
+}
+
+void test_confirmed_erase_checks_returning_tag_before_writing() {
+    Harness h;
+    const auto foreign =
+        makeNtag213WithArea(4, *encodeType2NdefArea(encodeNdefTextMessage("hello"), 144));
+    h.inventory.open();
+    h.reader.present(foreign);
+    h.runUntil(InventoryScreen::OtherData);
+    (void)h.inventory.requestErase();
+    h.reader.removeCard();
+    h.settle(5);
+    TEST_ASSERT_EQUAL_UINT8(static_cast<unsigned>(InventoryCommandResult::Started),
+                            static_cast<unsigned>(h.inventory.confirmErase()));
+    h.assertScreen(InventoryScreen::EraseAwaitingTag);
+    h.reader.present(foreign);
+    h.step();
+    TEST_ASSERT_EQUAL_UINT8(static_cast<unsigned>(InventoryEraseHint::CheckingTag),
+                            static_cast<unsigned>(h.inventory.status().eraseHint));
+    TEST_ASSERT_TRUE(h.reader.pageWrites.empty());
+    h.runUntil(InventoryScreen::Erased);
+}
+
 // ---- Companion edits ---------------------------------------------------------------
 
 void test_inventory_put_revision_round_trip() {
@@ -734,6 +872,11 @@ int main() {
     RUN_TEST(test_uncertain_erase_waits_for_the_same_blank_tag);
     RUN_TEST(test_two_uncertain_erases_keep_both_records_until_each_tag_is_blank);
     RUN_TEST(test_erase_of_a_missing_or_damaged_record_tag);
+    RUN_TEST(test_foreign_tag_removed_and_returned_before_erase_confirmation);
+    RUN_TEST(test_different_tag_cannot_arm_erase_without_a_new_confirmation);
+    RUN_TEST(test_tag_being_read_cannot_arm_erase_without_a_new_confirmation);
+    RUN_TEST(test_same_uid_with_changed_data_is_not_called_a_different_tag);
+    RUN_TEST(test_confirmed_erase_checks_returning_tag_before_writing);
     RUN_TEST(test_inventory_put_revision_round_trip);
     RUN_TEST(test_companion_delete_checks_the_revision);
     RUN_TEST(test_listing_names_each_record_once);
