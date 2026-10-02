@@ -3,6 +3,7 @@
 #include <cstddef>
 #include <string>
 
+#include "../support/memory_file_storage.h"
 #include "core/storage/files/file_storage.h"
 
 namespace {
@@ -47,11 +48,34 @@ class RecordingFileStorageAdapter final : public IFileStorageAdapter {
         return removeResult;
     }
 
+    cardputer_hub::core::FileListResult list(const FileStoragePath& directory,
+                                             std::size_t maxEntries) override {
+        ++listCalls;
+        lastPath = directory;
+        lastListLimit = maxEntries;
+        return listResult;
+    }
+
+    cardputer_hub::core::FileRenameStatus rename(const FileStoragePath& from,
+                                                 const FileStoragePath& to) override {
+        ++renameCalls;
+        lastPath = from;
+        lastRenameTarget = to;
+        return renameResult;
+    }
+
     FileStorageState currentState = FileStorageState::Uninitialized;
     FileStorageState refreshedState = FileStorageState::Uninitialized;
     FileReadResult readResult{FileReadStatus::Found, {}};
     FileWriteStatus writeResult = FileWriteStatus::Stored;
     FileRemoveStatus removeResult = FileRemoveStatus::Removed;
+    cardputer_hub::core::FileListResult listResult{cardputer_hub::core::FileListStatus::Listed, {}};
+    cardputer_hub::core::FileRenameStatus renameResult =
+        cardputer_hub::core::FileRenameStatus::Renamed;
+    int listCalls = 0;
+    int renameCalls = 0;
+    std::size_t lastListLimit = 0;
+    FileStoragePath lastRenameTarget;
     int refreshCalls = 0;
     int readCalls = 0;
     int replaceCalls = 0;
@@ -261,6 +285,173 @@ void test_invalid_remove_paths_do_not_reach_the_adapter() {
     TEST_ASSERT_EQUAL_INT(0, adapter.removeCalls);
 }
 
+// ---- Listing and rename -------------------------------------------------------
+
+using cardputer_hub::core::FileListStatus;
+using cardputer_hub::core::FileRenameStatus;
+using cardputer_hub::test_support::bytesOf;
+using cardputer_hub::test_support::MemoryFileStorageAdapter;
+
+void test_listing_is_bounded_and_validated() {
+    RecordingFileStorageAdapter adapter;
+    FileStorage storage(adapter);
+    TEST_ASSERT_EQUAL_UINT8(static_cast<unsigned>(FileListStatus::InvalidRequest),
+                            static_cast<unsigned>(storage.list("inventory", 0).status));
+    TEST_ASSERT_EQUAL_UINT8(static_cast<unsigned>(FileListStatus::InvalidPath),
+                            static_cast<unsigned>(storage.list("../x", 4).status));
+    TEST_ASSERT_EQUAL_INT(0, adapter.listCalls);
+
+    adapter.listResult = {FileListStatus::Listed, {"a", "b", "c"}};
+    const auto overflow = storage.list("inventory", 2);
+    // An adapter answer above the bound is never passed on.
+    TEST_ASSERT_EQUAL_UINT8(static_cast<unsigned>(FileListStatus::TooMany),
+                            static_cast<unsigned>(overflow.status));
+    TEST_ASSERT_TRUE(overflow.names.empty());
+    const auto listed = storage.list("inventory", 3);
+    TEST_ASSERT_EQUAL_UINT(3, listed.names.size());
+    TEST_ASSERT_EQUAL_UINT(3, adapter.lastListLimit);
+}
+
+void test_rename_never_replaces_and_rejects_unsafe_paths() {
+    MemoryFileStorageAdapter adapter;
+    FileStorage storage(adapter);
+    adapter.files["a.json"] = bytesOf("A");
+    adapter.files["b.json"] = bytesOf("B");
+    TEST_ASSERT_EQUAL_UINT8(static_cast<unsigned>(FileRenameStatus::Exists),
+                            static_cast<unsigned>(storage.rename("a.json", "b.json")));
+    TEST_ASSERT_EQUAL_STRING("B", adapter.text("b.json")->c_str());
+    TEST_ASSERT_EQUAL_UINT8(static_cast<unsigned>(FileRenameStatus::InvalidPath),
+                            static_cast<unsigned>(storage.rename("a.json", "/b")));
+    TEST_ASSERT_EQUAL_UINT8(static_cast<unsigned>(FileRenameStatus::InvalidPath),
+                            static_cast<unsigned>(storage.rename("a.json", "a.json")));
+    TEST_ASSERT_EQUAL_UINT8(static_cast<unsigned>(FileRenameStatus::NotFound),
+                            static_cast<unsigned>(storage.rename("c.json", "d.json")));
+    TEST_ASSERT_EQUAL_UINT8(static_cast<unsigned>(FileRenameStatus::Renamed),
+                            static_cast<unsigned>(storage.rename("a.json", "c.json")));
+    TEST_ASSERT_FALSE(adapter.text("a.json").has_value());
+}
+
+// ---- Recoverable replacement --------------------------------------------------
+
+constexpr char recordPath[] = "inventory/records/r.json";
+
+void test_recoverable_replace_commits_and_leaves_no_side_files() {
+    MemoryFileStorageAdapter adapter;
+    FileStorage storage(adapter);
+    TEST_ASSERT_EQUAL_UINT8(
+        static_cast<unsigned>(FileWriteStatus::Stored),
+        static_cast<unsigned>(storage.replaceRecoverable(recordPath, bytesOf("first"))));
+    TEST_ASSERT_EQUAL_UINT8(
+        static_cast<unsigned>(FileWriteStatus::Stored),
+        static_cast<unsigned>(storage.replaceRecoverable(recordPath, bytesOf("second"))));
+    TEST_ASSERT_EQUAL_UINT(1, adapter.files.size());
+    TEST_ASSERT_EQUAL_STRING("second", adapter.text(recordPath)->c_str());
+    const auto read = storage.readRecoverable(recordPath, 64);
+    TEST_ASSERT_EQUAL_UINT8(static_cast<unsigned>(FileReadStatus::Found),
+                            static_cast<unsigned>(read.status));
+}
+
+void test_recoverable_replace_on_missing_media_writes_nothing() {
+    MemoryFileStorageAdapter adapter;
+    adapter.currentState = cardputer_hub::core::FileStorageState::NotPresent;
+    FileStorage storage(adapter);
+    TEST_ASSERT_EQUAL_UINT8(
+        static_cast<unsigned>(FileWriteStatus::Unavailable),
+        static_cast<unsigned>(storage.replaceRecoverable(recordPath, bytesOf("new"))));
+    TEST_ASSERT_TRUE(adapter.files.empty());
+    TEST_ASSERT_EQUAL_UINT8(
+        static_cast<unsigned>(FileWriteStatus::InvalidPath),
+        static_cast<unsigned>(storage.replaceRecoverable("../x", bytesOf("new"))));
+}
+
+// Power is lost after every possible number of completed card operations. On
+// the next mount the reader sees the previous file or the new file, complete,
+// and the next replacement cleans up and succeeds.
+void test_power_loss_at_any_step_preserves_a_complete_record() {
+    for (int completed = 0; completed < 12; ++completed) {
+        MemoryFileStorageAdapter adapter;
+        FileStorage storage(adapter);
+        adapter.files[recordPath] = bytesOf("previous-record");
+        adapter.mutationsBeforeLoss = completed;
+        const auto status = storage.replaceRecoverable(recordPath, bytesOf("replacement-record"));
+        adapter.reinsert();
+
+        const auto read = storage.readRecoverable(recordPath, 64);
+        TEST_ASSERT_EQUAL_UINT8(static_cast<unsigned>(FileReadStatus::Found),
+                                static_cast<unsigned>(read.status));
+        const std::string text(read.data.begin(), read.data.end());
+        if (status == FileWriteStatus::Stored)
+            TEST_ASSERT_EQUAL_STRING("replacement-record", text.c_str());
+        else
+            TEST_ASSERT_TRUE(text == "previous-record" || text == "replacement-record");
+
+        TEST_ASSERT_EQUAL_UINT8(
+            static_cast<unsigned>(FileWriteStatus::Stored),
+            static_cast<unsigned>(storage.replaceRecoverable(recordPath, bytesOf("next"))));
+        TEST_ASSERT_EQUAL_UINT(1, adapter.files.size());
+        TEST_ASSERT_EQUAL_STRING("next", adapter.text(recordPath)->c_str());
+    }
+}
+
+void test_power_loss_while_creating_leaves_nothing_readable() {
+    for (int completed = 0; completed < 6; ++completed) {
+        MemoryFileStorageAdapter adapter;
+        FileStorage storage(adapter);
+        adapter.mutationsBeforeLoss = completed;
+        const auto status = storage.replaceRecoverable(recordPath, bytesOf("created"));
+        adapter.reinsert();
+        const auto read = storage.readRecoverable(recordPath, 64);
+        if (status == FileWriteStatus::Stored || read.status == FileReadStatus::Found) {
+            TEST_ASSERT_EQUAL_UINT8(static_cast<unsigned>(FileReadStatus::Found),
+                                    static_cast<unsigned>(read.status));
+            TEST_ASSERT_EQUAL_STRING("created",
+                                     std::string(read.data.begin(), read.data.end()).c_str());
+        } else {
+            // A torn temporary file is never mistaken for the record.
+            TEST_ASSERT_EQUAL_UINT8(static_cast<unsigned>(FileReadStatus::NotFound),
+                                    static_cast<unsigned>(read.status));
+        }
+    }
+}
+
+void test_recoverable_remove_deletes_the_file_last() {
+    MemoryFileStorageAdapter adapter;
+    FileStorage storage(adapter);
+    const std::string path(recordPath);
+    adapter.files[path] = bytesOf("current");
+    adapter.files[path + ".bak"] = bytesOf("older");
+    adapter.files[path + ".new"] = bytesOf("torn");
+    // Power fails after two removals: the file is still the readable record,
+    // and the older backup can never reappear.
+    adapter.mutationsBeforeLoss = 2;
+    TEST_ASSERT_EQUAL_UINT8(static_cast<unsigned>(FileRemoveStatus::Unavailable),
+                            static_cast<unsigned>(storage.removeRecoverable(path)));
+    adapter.reinsert();
+    const auto survivor = storage.readRecoverable(path, 64);
+    TEST_ASSERT_EQUAL_STRING("current",
+                             std::string(survivor.data.begin(), survivor.data.end()).c_str());
+    TEST_ASSERT_EQUAL_UINT8(static_cast<unsigned>(FileRemoveStatus::Removed),
+                            static_cast<unsigned>(storage.removeRecoverable(path)));
+    TEST_ASSERT_TRUE(adapter.files.empty());
+    TEST_ASSERT_EQUAL_UINT8(static_cast<unsigned>(FileRemoveStatus::NotFound),
+                            static_cast<unsigned>(storage.removeRecoverable(path)));
+    // A backup alone is a record too, and is removed as one.
+    adapter.files[path + ".bak"] = bytesOf("older");
+    TEST_ASSERT_EQUAL_UINT8(static_cast<unsigned>(FileRemoveStatus::Removed),
+                            static_cast<unsigned>(storage.removeRecoverable(path)));
+}
+
+void test_backup_is_read_when_the_commit_did_not_happen() {
+    MemoryFileStorageAdapter adapter;
+    FileStorage storage(adapter);
+    adapter.files[std::string(recordPath) + ".bak"] = bytesOf("previous");
+    adapter.files[std::string(recordPath) + ".new"] = bytesOf("uncommitted");
+    const auto read = storage.readRecoverable(recordPath, 64);
+    TEST_ASSERT_EQUAL_STRING("previous", std::string(read.data.begin(), read.data.end()).c_str());
+    // Reading never changes the card.
+    TEST_ASSERT_EQUAL_UINT(2, adapter.files.size());
+}
+
 } // namespace
 
 void setUp() {}
@@ -279,5 +470,13 @@ int main() {
     RUN_TEST(test_invalid_replace_paths_do_not_reach_the_adapter);
     RUN_TEST(test_remove_outcomes_propagate_for_present_missing_and_failed_media);
     RUN_TEST(test_invalid_remove_paths_do_not_reach_the_adapter);
+    RUN_TEST(test_listing_is_bounded_and_validated);
+    RUN_TEST(test_rename_never_replaces_and_rejects_unsafe_paths);
+    RUN_TEST(test_recoverable_replace_commits_and_leaves_no_side_files);
+    RUN_TEST(test_recoverable_replace_on_missing_media_writes_nothing);
+    RUN_TEST(test_power_loss_at_any_step_preserves_a_complete_record);
+    RUN_TEST(test_power_loss_while_creating_leaves_nothing_readable);
+    RUN_TEST(test_recoverable_remove_deletes_the_file_last);
+    RUN_TEST(test_backup_is_read_when_the_commit_did_not_happen);
     return UNITY_END();
 }

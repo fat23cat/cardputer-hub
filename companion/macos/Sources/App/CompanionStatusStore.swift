@@ -17,6 +17,7 @@ final class CompanionStatusStore: ObservableObject {
     @Published private(set) var aiUsage = AiUsageSnapshot()
     var onReconnect: (() -> Void)?
     var onQuit: (() -> Void)?
+    var onOpenInventory: (() -> Void)?
     var readAiUsage: (() -> AiUsageSnapshot?)?
 
     private let login: StartAtLoginModel

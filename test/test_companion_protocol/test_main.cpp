@@ -291,6 +291,129 @@ void test_only_telemetry_failures_are_isolated() {
     TEST_ASSERT_FALSE(companionResponseFailureIsIsolated(CompanionOperation::Ping));
 }
 
+// ---- Inventory ----------------------------------------------------------------
+
+const CompanionInventoryId inventoryId{0x0f, 0x1e, 0x2d, 0x3c, 0x4b, 0x5a, 0x69, 0x78,
+                                       0x87, 0x96, 0xa5, 0xb4, 0xc3, 0xd2, 0xe1, 0xf0};
+const CompanionInventoryId otherInventoryId{0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa,
+                                            0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa};
+
+std::string getRecordJson() {
+    return "{\"schema\":2,\"id\":\"0f1e2d3c4b5a69788796a5b4c3d2e1f0\",\"revision\":3,"
+           "\"name\":\"Чемодан\",\"description\":\"Зарядка, свитер\"}";
+}
+
+std::string putRecordJson() {
+    return "{\"schema\":2,\"id\":\"0f1e2d3c4b5a69788796a5b4c3d2e1f0\",\"revision\":3,"
+           "\"name\":\"Синий чемодан\",\"description\":\"Штаны, шорты\\nНоски\\nЛыжи «Atomic»\"}";
+}
+
+void test_inventory_messages_match_fixtures() {
+    auto list = makeRequest(42, 21, CompanionOperation::InventoryList);
+    TEST_ASSERT_TRUE(setInventoryListRequest(list, 0));
+    assertEncodedMatchesFixture(list, "inventory-list-request.bin");
+
+    const CompanionInventoryListEntry entries[] = {{inventoryId, true, 3, "Чемодан"},
+                                                   {otherInventoryId, false, 0, ""}};
+    auto listed = makeResponse(42, 21, CompanionOperation::InventoryList, CompanionStatus::Ok);
+    TEST_ASSERT_TRUE(setInventoryListResponse(listed, 2, 2, entries, 2));
+    assertEncodedMatchesFixture(listed, "inventory-list-response.bin");
+
+    auto get = makeRequest(42, 22, CompanionOperation::InventoryGet);
+    TEST_ASSERT_TRUE(setInventoryGetRequest(get, inventoryId, 0));
+    assertEncodedMatchesFixture(get, "inventory-get-request.bin");
+    CompanionInventoryId readId{};
+    std::uint16_t offset = 1;
+    TEST_ASSERT_TRUE(
+        readInventoryGetRequest(decodeFixture("inventory-get-request.bin"), readId, offset));
+    TEST_ASSERT_TRUE(readId == inventoryId);
+    TEST_ASSERT_EQUAL_UINT16(0, offset);
+
+    const auto record = getRecordJson();
+    CompanionInventoryChunk chunk{};
+    chunk.id = inventoryId;
+    chunk.revision = 3;
+    chunk.total = static_cast<std::uint16_t>(record.size());
+    chunk.data = reinterpret_cast<const std::uint8_t*>(record.data());
+    chunk.size = record.size();
+    auto got = makeResponse(42, 22, CompanionOperation::InventoryGet, CompanionStatus::Ok);
+    TEST_ASSERT_TRUE(setInventoryGetResponse(got, chunk));
+    assertEncodedMatchesFixture(got, "inventory-get-response.bin");
+    assertEncodedMatchesFixture(
+        makeResponse(42, 22, CompanionOperation::InventoryGet, CompanionStatus::NotAvailable),
+        "inventory-get-not-available.bin");
+
+    const auto edited = putRecordJson();
+    chunk.total = static_cast<std::uint16_t>(edited.size());
+    chunk.data = reinterpret_cast<const std::uint8_t*>(edited.data());
+    chunk.size = edited.size();
+    auto put = makeRequest(42, 23, CompanionOperation::InventoryPut);
+    TEST_ASSERT_TRUE(setInventoryPutRequest(put, chunk));
+    assertEncodedMatchesFixture(put, "inventory-put-request.bin");
+    auto stored = makeResponse(42, 23, CompanionOperation::InventoryPut, CompanionStatus::Ok);
+    TEST_ASSERT_TRUE(setInventoryPutResponse(stored, static_cast<std::uint16_t>(edited.size()), 4));
+    assertEncodedMatchesFixture(stored, "inventory-put-response.bin");
+    auto conflict =
+        makeResponse(42, 23, CompanionOperation::InventoryPut, CompanionStatus::Conflict);
+    TEST_ASSERT_TRUE(setInventoryConflict(conflict, 5));
+    assertEncodedMatchesFixture(conflict, "inventory-put-conflict.bin");
+
+    auto remove = makeRequest(42, 24, CompanionOperation::InventoryDelete);
+    TEST_ASSERT_TRUE(setInventoryDeleteRequest(remove, inventoryId, 4));
+    assertEncodedMatchesFixture(remove, "inventory-delete-request.bin");
+    CompanionInventoryId removedId{};
+    std::uint32_t removedRevision = 0;
+    TEST_ASSERT_TRUE(readInventoryDeleteRequest(decodeFixture("inventory-delete-request.bin"),
+                                                removedId, removedRevision));
+    TEST_ASSERT_TRUE(removedId == inventoryId);
+    TEST_ASSERT_EQUAL_UINT32(4, removedRevision);
+    assertEncodedMatchesFixture(
+        makeResponse(42, 24, CompanionOperation::InventoryDelete, CompanionStatus::Ok),
+        "inventory-delete-response.bin");
+}
+
+void test_inventory_chunks_are_bounded() {
+    std::vector<std::uint8_t> data(companionInventoryPutChunkSize + 1, 'x');
+    CompanionInventoryChunk chunk{};
+    chunk.id = inventoryId;
+    chunk.revision = 1;
+    chunk.total = 4096;
+    chunk.data = data.data();
+    auto put = makeRequest(42, 23, CompanionOperation::InventoryPut);
+    chunk.size = companionInventoryPutChunkSize + 1;
+    TEST_ASSERT_FALSE(setInventoryPutRequest(put, chunk));
+    chunk.size = companionInventoryPutChunkSize;
+    TEST_ASSERT_TRUE(setInventoryPutRequest(put, chunk));
+    // Beyond the record bound, past the declared total, and with no base revision.
+    chunk.total = 4097;
+    TEST_ASSERT_FALSE(setInventoryPutRequest(put, chunk));
+    chunk.total = 100;
+    TEST_ASSERT_FALSE(setInventoryPutRequest(put, chunk));
+    chunk.total = 4096;
+    chunk.offset = 4000;
+    TEST_ASSERT_FALSE(setInventoryPutRequest(put, chunk));
+    chunk.offset = 0;
+    chunk.revision = 0;
+    TEST_ASSERT_FALSE(setInventoryPutRequest(put, chunk));
+
+    // A list entry's name and validity must agree; names are UTF-8.
+    const CompanionInventoryListEntry invalid[] = {{inventoryId, false, 0, "named"}};
+    auto listed = makeResponse(42, 21, CompanionOperation::InventoryList, CompanionStatus::Ok);
+    TEST_ASSERT_FALSE(setInventoryListResponse(listed, 1, 1, invalid, 1));
+    const CompanionInventoryListEntry malformed[] = {{inventoryId, true, 1, "\xC3\x28"}};
+    TEST_ASSERT_FALSE(setInventoryListResponse(listed, 1, 1, malformed, 1));
+    // Only PUT answers CONFLICT, and an error answer carries no payload.
+    auto conflictGet =
+        makeResponse(42, 22, CompanionOperation::InventoryGet, CompanionStatus::Conflict);
+    conflictGet.payloadSize = 4;
+    TEST_ASSERT_FALSE(encodeCompanionMessage(conflictGet).has_value());
+    auto rejected =
+        makeResponse(42, 23, CompanionOperation::InventoryPut, CompanionStatus::Rejected);
+    TEST_ASSERT_TRUE(encodeCompanionMessage(rejected).has_value());
+    rejected.payloadSize = 1;
+    TEST_ASSERT_FALSE(encodeCompanionMessage(rejected).has_value());
+}
+
 } // namespace
 
 void setUp() {}
@@ -307,5 +430,7 @@ int main() {
     RUN_TEST(test_ai_usage_round_trip_and_reset_credit_rules);
     RUN_TEST(test_system_details_groups_round_trip_and_reject_bad_names);
     RUN_TEST(test_only_telemetry_failures_are_isolated);
+    RUN_TEST(test_inventory_messages_match_fixtures);
+    RUN_TEST(test_inventory_chunks_are_bounded);
     return UNITY_END();
 }

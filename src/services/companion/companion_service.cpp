@@ -104,6 +104,11 @@ void CompanionService::failAllPending(CompanionStatus status) {
     }
 }
 
+void CompanionService::endSessionState() {
+    inboundCount_ = 0;
+    ++sessionEpoch_;
+}
+
 void CompanionService::completePending(PendingRequest& pending, const CompanionEnvelope& message) {
     if (!pending.heartbeat && !(state_ == CompanionServiceState::Handshaking &&
                                 pending.operation == CompanionOperation::AppActive)) {
@@ -148,6 +153,8 @@ std::uint8_t CompanionService::pendingCount() const noexcept {
 }
 
 void CompanionService::becomeUnavailable() {
+    if (state_ != CompanionServiceState::Unavailable)
+        endSessionState();
     failAllPending(CompanionStatus::NotAvailable);
     clearLiveCapabilities();
     hasActiveBundle_ = false;
@@ -165,6 +172,7 @@ void CompanionService::becomeUnavailable() {
 }
 
 void CompanionService::enterIncompatible(const char* peerBuildId, bool legacy) {
+    endSessionState();
     failAllPending(CompanionStatus::NotAvailable);
     clearLiveCapabilities();
     hasActiveBundle_ = false;
@@ -179,6 +187,7 @@ void CompanionService::enterIncompatible(const char* peerBuildId, bool legacy) {
 }
 
 void CompanionService::enterProtocolError() {
+    endSessionState();
     failAllPending(CompanionStatus::Malformed);
     clearLiveCapabilities();
     heartbeatInFlight_ = false;
@@ -370,6 +379,7 @@ void CompanionService::handleHello(const CompanionEnvelope& message) {
         enterIncompatible(hello.buildId.data(), false);
         return;
     }
+    endSessionState();
     failAllPending(CompanionStatus::NotAvailable);
     clearLiveCapabilities();
     hasActiveBundle_ = false;
@@ -501,6 +511,11 @@ void CompanionService::handleIncoming(const CompanionPayload& payload) {
     if ((decoded->kind == CompanionKind::Response || decoded->kind == CompanionKind::Event) &&
         decoded->session != session_)
         return;
+    if (decoded->kind == CompanionKind::Request &&
+        connectivity::isInventoryOperation(decoded->operation)) {
+        handleInboundRequest(*decoded);
+        return;
+    }
     switch (decoded->kind) {
     case CompanionKind::Hello:
         handleHello(*decoded);
@@ -517,6 +532,54 @@ void CompanionService::handleIncoming(const CompanionPayload& payload) {
             enterProtocolError();
         return;
     }
+}
+
+// Inventory requests from the Mac are queued for their owner. Requests from an
+// earlier session are stale and dropped; requests received during the final
+// handshake step wait for Ready.
+void CompanionService::handleInboundRequest(const CompanionEnvelope& message) {
+    // The Mac starts inventory loading as soon as it receives HELLO_ACK. Its
+    // request can arrive before our APP_ACTIVE handshake response, so hold it
+    // until the session becomes Ready.
+    if (state_ != CompanionServiceState::Ready && state_ != CompanionServiceState::Handshaking) {
+        if (state_ != CompanionServiceState::Unavailable)
+            enterProtocolError();
+        return;
+    }
+    if (message.session != session_)
+        return;
+    const CompanionInboundRequest request{message.session, message.requestId, message.operation,
+                                          message};
+    if (inboundCount_ >= inbound_.size()) {
+        // respond() is Ready-only, but the Mac can fill the queue before the
+        // final handshake response arrives. The session is already known.
+        (void)sendMessage(connectivity::makeResponse(session_, message.requestId, message.operation,
+                                                     CompanionStatus::NotAvailable));
+        return;
+    }
+    inbound_[inboundCount_++] = request;
+}
+
+std::optional<CompanionInboundRequest> CompanionService::takeInboundRequest() {
+    if (state_ != CompanionServiceState::Ready || inboundCount_ == 0)
+        return std::nullopt;
+    const auto request = inbound_[0];
+    for (std::uint8_t index = 1; index < inboundCount_; ++index)
+        inbound_[index - 1] = inbound_[index];
+    --inboundCount_;
+    return request;
+}
+
+bool CompanionService::respond(const CompanionInboundRequest& request,
+                               const CompanionEnvelope& response) {
+    if (state_ != CompanionServiceState::Ready || request.session != session_)
+        return false;
+    auto outgoing = response;
+    outgoing.kind = CompanionKind::Response;
+    outgoing.session = request.session;
+    outgoing.requestId = request.requestId;
+    outgoing.operation = request.operation;
+    return sendMessage(outgoing);
 }
 
 void CompanionService::tickPending(std::chrono::milliseconds elapsed) {

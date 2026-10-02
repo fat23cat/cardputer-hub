@@ -87,6 +87,8 @@ MiniAppUpdateResult MiniAppRuntime::update(const core::InputEvents& input,
     return MiniAppUpdateResult::Updated;
 }
 
+bool MiniAppRuntime::handleBack() { return activeApp_ != nullptr && activeApp_->handleBack(); }
+
 bool MiniAppRuntime::hasActiveApp() const noexcept { return activeApp_ != nullptr; }
 
 std::optional<std::string> MiniAppRuntime::activeAppId() const { return activeId_; }

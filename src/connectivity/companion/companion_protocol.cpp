@@ -1,5 +1,7 @@
 #include "connectivity/companion/companion_protocol.h"
 
+#include "core/text/utf8.h"
+
 #include <cstring>
 
 namespace cardputer_hub::connectivity {
@@ -12,11 +14,11 @@ bool isKnownKindValue(std::uint8_t kind) noexcept {
 
 bool isKnownOperationValue(std::uint8_t operation) noexcept {
     return operation != 2 &&
-           operation <= static_cast<std::uint8_t>(CompanionOperation::SystemDetails);
+           operation <= static_cast<std::uint8_t>(CompanionOperation::InventoryDelete);
 }
 
 bool isKnownStatusValue(std::uint8_t status) noexcept {
-    return status <= static_cast<std::uint8_t>(CompanionStatus::Malformed);
+    return status <= static_cast<std::uint8_t>(CompanionStatus::StorageError);
 }
 
 void write16(std::uint8_t* bytes, std::uint16_t value) {
@@ -77,6 +79,49 @@ bool bundlePayloadValid(const CompanionEnvelope& message) noexcept {
     return readBundleIdentifier(message, bundle, sizeof(bundle), length);
 }
 
+bool inventoryListResponseValid(const CompanionEnvelope& message) noexcept;
+bool inventoryGetResponseValid(const CompanionEnvelope& message) noexcept;
+bool inventoryPutRequestValid(const CompanionEnvelope& message) noexcept;
+
+bool inventoryPayloadValid(const CompanionEnvelope& message) noexcept {
+    if (message.kind == CompanionKind::Request) {
+        switch (message.operation) {
+        case CompanionOperation::InventoryList: {
+            std::uint16_t start = 0;
+            return readInventoryListRequest(message, start);
+        }
+        case CompanionOperation::InventoryGet: {
+            CompanionInventoryId id{};
+            std::uint16_t offset = 0;
+            return readInventoryGetRequest(message, id, offset);
+        }
+        case CompanionOperation::InventoryDelete: {
+            CompanionInventoryId id{};
+            std::uint32_t revision = 0;
+            return readInventoryDeleteRequest(message, id, revision);
+        }
+        default:
+            return inventoryPutRequestValid(message);
+        }
+    }
+    if (message.status == CompanionStatus::Conflict)
+        return (message.operation == CompanionOperation::InventoryPut ||
+                message.operation == CompanionOperation::InventoryDelete) &&
+               message.payloadSize == 4 && read32(message.payload.data()) != 0;
+    if (message.status != CompanionStatus::Ok)
+        return message.payloadSize == 0;
+    switch (message.operation) {
+    case CompanionOperation::InventoryList:
+        return inventoryListResponseValid(message);
+    case CompanionOperation::InventoryGet:
+        return inventoryGetResponseValid(message);
+    case CompanionOperation::InventoryDelete:
+        return message.payloadSize == 0;
+    default:
+        return message.payloadSize == 6;
+    }
+}
+
 bool operationPayloadValid(const CompanionEnvelope& message) noexcept {
     switch (message.operation) {
     case CompanionOperation::None:
@@ -117,6 +162,11 @@ bool operationPayloadValid(const CompanionEnvelope& message) noexcept {
         CompanionSystemDetails details{};
         return readSystemDetails(message, details);
     }
+    case CompanionOperation::InventoryList:
+    case CompanionOperation::InventoryGet:
+    case CompanionOperation::InventoryPut:
+    case CompanionOperation::InventoryDelete:
+        return inventoryPayloadValid(message);
     }
     return false;
 }
@@ -133,7 +183,7 @@ bool operationAllowedForKind(CompanionKind kind, CompanionOperation operation) n
                operation == CompanionOperation::AppActivate ||
                operation == CompanionOperation::SystemMetrics ||
                operation == CompanionOperation::AiUsage ||
-               operation == CompanionOperation::SystemDetails;
+               operation == CompanionOperation::SystemDetails || isInventoryOperation(operation);
     case CompanionKind::Event:
         return operation == CompanionOperation::AppActiveChanged;
     }
@@ -830,6 +880,226 @@ bool readSystemDetails(const CompanionEnvelope& message, CompanionSystemDetails&
     if (pos != size || !validDetails(result))
         return false;
     details = result;
+    return true;
+}
+
+namespace {
+
+bool chunkBoundsValid(std::uint16_t total, std::uint16_t offset, std::size_t size,
+                      std::size_t maxChunk) noexcept {
+    return total > 0 && total <= companionInventoryMaxRecordBytes && size > 0 && size <= maxChunk &&
+           offset < total && offset + size <= total;
+}
+
+bool readListEntries(const CompanionEnvelope& message, std::uint16_t& total, std::uint16_t& next,
+                     std::uint8_t& count) noexcept {
+    if (message.payloadSize < companionInventoryListHeaderSize)
+        return false;
+    const auto* bytes = message.payload.data();
+    total = read16(bytes);
+    next = read16(bytes + 2);
+    count = bytes[4];
+    std::size_t position = companionInventoryListHeaderSize;
+    for (std::uint8_t index = 0; index < count; ++index) {
+        if (position + inventoryListEntrySize(0) > message.payloadSize)
+            return false;
+        const auto valid = bytes[position + companionInventoryIdSize];
+        const auto revision = read32(bytes + position + companionInventoryIdSize + 1);
+        const auto nameLength = bytes[position + companionInventoryIdSize + 5];
+        position += inventoryListEntrySize(nameLength);
+        if (valid > 1 || position > message.payloadSize ||
+            nameLength > companionInventoryMaxNameBytes)
+            return false;
+        if ((valid == 1) != (nameLength > 0) || (valid == 1) != (revision != 0))
+            return false;
+        const std::string_view name(reinterpret_cast<const char*>(bytes + position - nameLength),
+                                    nameLength);
+        if (!core::isValidUtf8(name))
+            return false;
+    }
+    return position == message.payloadSize && next <= total && count <= total;
+}
+
+bool inventoryListResponseValid(const CompanionEnvelope& message) noexcept {
+    std::uint16_t total = 0;
+    std::uint16_t next = 0;
+    std::uint8_t count = 0;
+    return readListEntries(message, total, next, count);
+}
+
+bool inventoryGetResponseValid(const CompanionEnvelope& message) noexcept {
+    CompanionInventoryChunk chunk{};
+    return readInventoryGetResponse(message, chunk);
+}
+
+bool inventoryPutRequestValid(const CompanionEnvelope& message) noexcept {
+    CompanionInventoryChunk chunk{};
+    return readInventoryPutRequest(message, chunk);
+}
+
+} // namespace
+
+bool isInventoryOperation(CompanionOperation operation) noexcept {
+    return operation == CompanionOperation::InventoryList ||
+           operation == CompanionOperation::InventoryGet ||
+           operation == CompanionOperation::InventoryPut ||
+           operation == CompanionOperation::InventoryDelete;
+}
+
+std::size_t inventoryListEntrySize(std::size_t nameBytes) noexcept {
+    return companionInventoryIdSize + 1 + 4 + 1 + nameBytes;
+}
+
+bool setInventoryListRequest(CompanionEnvelope& message, std::uint16_t start) {
+    write16(message.payload.data(), start);
+    message.payloadSize = 2;
+    return true;
+}
+
+bool readInventoryListRequest(const CompanionEnvelope& message, std::uint16_t& start) {
+    if (message.payloadSize != 2)
+        return false;
+    start = read16(message.payload.data());
+    return true;
+}
+
+bool setInventoryListResponse(CompanionEnvelope& message, std::uint16_t total, std::uint16_t next,
+                              const CompanionInventoryListEntry* entries, std::size_t count) {
+    if (next > total || count > total || count > 255 || (count > 0 && entries == nullptr))
+        return false;
+    std::size_t size = companionInventoryListHeaderSize;
+    for (std::size_t index = 0; index < count; ++index) {
+        const auto& entry = entries[index];
+        if (entry.name.size() > companionInventoryMaxNameBytes ||
+            entry.valid != !entry.name.empty() || entry.valid != (entry.revision != 0) ||
+            !core::isValidUtf8(entry.name))
+            return false;
+        size += inventoryListEntrySize(entry.name.size());
+    }
+    if (size > companionMaxPayloadSize)
+        return false;
+    auto* bytes = message.payload.data();
+    write16(bytes, total);
+    write16(bytes + 2, next);
+    bytes[4] = static_cast<std::uint8_t>(count);
+    std::size_t position = companionInventoryListHeaderSize;
+    for (std::size_t index = 0; index < count; ++index) {
+        const auto& entry = entries[index];
+        std::memcpy(bytes + position, entry.id.data(), companionInventoryIdSize);
+        position += companionInventoryIdSize;
+        bytes[position++] = entry.valid ? 1 : 0;
+        write32(bytes + position, entry.revision);
+        position += 4;
+        bytes[position++] = static_cast<std::uint8_t>(entry.name.size());
+        if (!entry.name.empty())
+            std::memcpy(bytes + position, entry.name.data(), entry.name.size());
+        position += entry.name.size();
+    }
+    message.payloadSize = static_cast<std::uint8_t>(position);
+    return true;
+}
+
+bool setInventoryGetRequest(CompanionEnvelope& message, const CompanionInventoryId& id,
+                            std::uint16_t offset) {
+    std::memcpy(message.payload.data(), id.data(), companionInventoryIdSize);
+    write16(message.payload.data() + companionInventoryIdSize, offset);
+    message.payloadSize = companionInventoryIdSize + 2;
+    return true;
+}
+
+bool readInventoryGetRequest(const CompanionEnvelope& message, CompanionInventoryId& id,
+                             std::uint16_t& offset) {
+    if (message.payloadSize != companionInventoryIdSize + 2)
+        return false;
+    std::memcpy(id.data(), message.payload.data(), companionInventoryIdSize);
+    offset = read16(message.payload.data() + companionInventoryIdSize);
+    return offset < companionInventoryMaxRecordBytes;
+}
+
+bool setInventoryGetResponse(CompanionEnvelope& message, const CompanionInventoryChunk& chunk) {
+    if (chunk.revision == 0 || chunk.data == nullptr ||
+        !chunkBoundsValid(chunk.total, chunk.offset, chunk.size, companionInventoryGetChunkSize))
+        return false;
+    auto* bytes = message.payload.data();
+    write32(bytes, chunk.revision);
+    write16(bytes + 4, chunk.total);
+    write16(bytes + 6, chunk.offset);
+    std::memcpy(bytes + companionInventoryGetHeaderSize, chunk.data, chunk.size);
+    message.payloadSize = static_cast<std::uint8_t>(companionInventoryGetHeaderSize + chunk.size);
+    return true;
+}
+
+bool readInventoryGetResponse(const CompanionEnvelope& message, CompanionInventoryChunk& chunk) {
+    if (message.payloadSize <= companionInventoryGetHeaderSize)
+        return false;
+    const auto* bytes = message.payload.data();
+    chunk.revision = read32(bytes);
+    chunk.total = read16(bytes + 4);
+    chunk.offset = read16(bytes + 6);
+    chunk.data = bytes + companionInventoryGetHeaderSize;
+    chunk.size = message.payloadSize - companionInventoryGetHeaderSize;
+    return chunk.revision != 0 &&
+           chunkBoundsValid(chunk.total, chunk.offset, chunk.size, companionInventoryGetChunkSize);
+}
+
+bool setInventoryPutRequest(CompanionEnvelope& message, const CompanionInventoryChunk& chunk) {
+    if (chunk.revision == 0 || chunk.data == nullptr ||
+        !chunkBoundsValid(chunk.total, chunk.offset, chunk.size, companionInventoryPutChunkSize))
+        return false;
+    auto* bytes = message.payload.data();
+    std::memcpy(bytes, chunk.id.data(), companionInventoryIdSize);
+    write32(bytes + 16, chunk.revision);
+    write16(bytes + 20, chunk.total);
+    write16(bytes + 22, chunk.offset);
+    std::memcpy(bytes + companionInventoryPutHeaderSize, chunk.data, chunk.size);
+    message.payloadSize = static_cast<std::uint8_t>(companionInventoryPutHeaderSize + chunk.size);
+    return true;
+}
+
+bool readInventoryPutRequest(const CompanionEnvelope& message, CompanionInventoryChunk& chunk) {
+    if (message.payloadSize <= companionInventoryPutHeaderSize)
+        return false;
+    const auto* bytes = message.payload.data();
+    std::memcpy(chunk.id.data(), bytes, companionInventoryIdSize);
+    chunk.revision = read32(bytes + 16);
+    chunk.total = read16(bytes + 20);
+    chunk.offset = read16(bytes + 22);
+    chunk.data = bytes + companionInventoryPutHeaderSize;
+    chunk.size = message.payloadSize - companionInventoryPutHeaderSize;
+    return chunk.revision != 0 &&
+           chunkBoundsValid(chunk.total, chunk.offset, chunk.size, companionInventoryPutChunkSize);
+}
+
+bool setInventoryPutResponse(CompanionEnvelope& message, std::uint16_t received,
+                             std::uint32_t committedRevision) {
+    write16(message.payload.data(), received);
+    write32(message.payload.data() + 2, committedRevision);
+    message.payloadSize = 6;
+    return true;
+}
+
+bool setInventoryDeleteRequest(CompanionEnvelope& message, const CompanionInventoryId& id,
+                               std::uint32_t expectedRevision) {
+    std::memcpy(message.payload.data(), id.data(), companionInventoryIdSize);
+    write32(message.payload.data() + companionInventoryIdSize, expectedRevision);
+    message.payloadSize = companionInventoryIdSize + 4;
+    return true;
+}
+
+bool readInventoryDeleteRequest(const CompanionEnvelope& message, CompanionInventoryId& id,
+                                std::uint32_t& expectedRevision) {
+    if (message.payloadSize != companionInventoryIdSize + 4)
+        return false;
+    std::memcpy(id.data(), message.payload.data(), companionInventoryIdSize);
+    expectedRevision = read32(message.payload.data() + companionInventoryIdSize);
+    return true;
+}
+
+bool setInventoryConflict(CompanionEnvelope& message, std::uint32_t currentRevision) {
+    if (currentRevision == 0)
+        return false;
+    write32(message.payload.data(), currentRevision);
+    message.payloadSize = 4;
     return true;
 }
 

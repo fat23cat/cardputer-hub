@@ -42,6 +42,12 @@ inline constexpr const char* const ledGalleryAppIcon[] = {
     "#  #  #  #  # ", "  #  #  #  #  ", "#  #  #  #  # ", "  #  #  #  #  ",
 };
 
+inline constexpr const char* const nfcAppIcon[] = {
+    "              ", "         #    ", "          #   ", "      #   #   ", "       #   #  ",
+    "   #   #   #  ", "##  #   #  #  ", "##  #   #  #  ", "   #   #   #  ", "       #   #  ",
+    "      #   #   ", "          #   ", "         #    ", "              ",
+};
+
 inline constexpr const char* const fallbackAppIcon[] = {
     " ############ ", " #          # ", " # ######## # ", " # #      # # ", " # #      # # ",
     " # #      # # ", " # #      # # ", " # #      # # ", " # ######## # ", " #          # ",
@@ -61,6 +67,8 @@ inline const char* const* appIconRows(const char* iconId) {
         return pomodoroAppIcon;
     if (iconId != nullptr && std::strcmp(iconId, "led-gallery") == 0)
         return ledGalleryAppIcon;
+    if (iconId != nullptr && std::strcmp(iconId, "nfc") == 0)
+        return nfcAppIcon;
     return fallbackAppIcon;
 }
 

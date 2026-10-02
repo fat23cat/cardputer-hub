@@ -886,6 +886,273 @@ var aiFixture = CompanionEnvelope()
         expect(silent.compatibility == .matched(firmwareBuildId: "2026-09-29 abc1234"),
                "a later answer clears the hint")
 
+        // ---- Inventory ----------------------------------------------------------
+        let recordId = InventoryId(hex: "0f1e2d3c4b5a69788796a5b4c3d2e1f0")!
+        let otherId = InventoryId(hex: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")!
+        expect(InventoryId(hex: "0F1E2D3C4B5A69788796A5B4C3D2E1F0") == nil &&
+               InventoryId(hex: String(repeating: "0", count: 32)) == nil, "inventory ids are lowercase and non-zero")
+        let fixtureRecord = InventoryRecord(id: recordId, name: "Чемодан", description: "Зарядка, свитер",
+                                            revision: 3)
+        let editedRecord = InventoryRecord(id: recordId, name: "Синий чемодан",
+                                           description: "Штаны, шорты\nНоски\nЛыжи «Atomic»", revision: 3)
+
+        var listRequest = CompanionEnvelope()
+        listRequest.kind = .request
+        listRequest.session = 42
+        listRequest.requestId = 21
+        listRequest.operation = .inventoryList
+        listRequest.payload = InventoryWire.listRequest(start: 0)
+        expect(CompanionCodec.encode(listRequest) == fixture("inventory-list-request.bin"), "inventory list request fixture")
+        let listed = CompanionCodec.decode(fixture("inventory-list-response.bin"))
+        let page = listed.flatMap { InventoryWire.decodeListPage($0.payload) }
+        expect(page?.total == 2 && page?.next == 2 &&
+               page?.entries == [InventoryListEntry(id: recordId, valid: true, revision: 3, name: "Чемодан"),
+                                 InventoryListEntry(id: otherId, valid: false, revision: 0, name: "")],
+               "inventory list response fixture names valid and damaged records")
+        expect(page.flatMap(InventoryWire.encodeListPage) == listed?.payload, "inventory list page encodes like firmware")
+
+        var getRequest = listRequest
+        getRequest.requestId = 22
+        getRequest.operation = .inventoryGet
+        getRequest.payload = InventoryWire.getRequest(id: recordId, offset: 0)
+        expect(CompanionCodec.encode(getRequest) == fixture("inventory-get-request.bin"), "inventory get request fixture")
+        let gotChunk = CompanionCodec.decode(fixture("inventory-get-response.bin")).flatMap {
+            InventoryWire.decodeGetChunk($0.payload)
+        }
+        expect(gotChunk?.revision == 3 && gotChunk?.data == fixtureRecord.canonicalJSON(),
+               "firmware and Companion write the same canonical record JSON")
+        expect(gotChunk.flatMap { InventoryRecord.decode($0.data) } == fixtureRecord, "inventory record decodes")
+        expect(CompanionCodec.decode(fixture("inventory-get-not-available.bin"))?.status == .notAvailable,
+               "missing microSD answers not available")
+
+        let editedJSON = editedRecord.canonicalJSON()!
+        var putRequest = listRequest
+        putRequest.requestId = 23
+        putRequest.operation = .inventoryPut
+        putRequest.payload = InventoryWire.putRequest(id: recordId, expectedRevision: 3, total: editedJSON.count,
+                                                      offset: 0, data: editedJSON)!
+        expect(CompanionCodec.encode(putRequest) == fixture("inventory-put-request.bin"),
+               "inventory put request fixture escapes line breaks like firmware")
+        let putAck = CompanionCodec.decode(fixture("inventory-put-response.bin")).flatMap {
+            InventoryWire.decodePutAck($0.payload)
+        }
+        expect(putAck?.received == editedJSON.count && putAck?.committed == 4, "inventory put response fixture")
+        let conflict = CompanionCodec.decode(fixture("inventory-put-conflict.bin"))
+        expect(conflict?.status == .conflict && conflict.flatMap { InventoryWire.conflictRevision($0.payload) } == 5,
+               "inventory conflict carries the current revision")
+        var deleteRequest = listRequest
+        deleteRequest.requestId = 24
+        deleteRequest.operation = .inventoryDelete
+        deleteRequest.payload = InventoryWire.deleteRequest(id: recordId, expectedRevision: 4)
+        expect(CompanionCodec.encode(deleteRequest) == fixture("inventory-delete-request.bin") &&
+               CompanionCodec.decode(fixture("inventory-delete-response.bin"))?.payload.isEmpty == true,
+               "inventory delete fixtures")
+        var errorWithPayload = conflict!
+        errorWithPayload.status = .rejected
+        expect(CompanionCodec.encode(errorWithPayload) == nil, "inventory errors carry no payload")
+        expect(InventoryWire.putRequest(id: recordId, expectedRevision: 3, total: 4097, offset: 0,
+                                        data: [1]) == nil &&
+               InventoryWire.putRequest(id: recordId, expectedRevision: 3, total: 300, offset: 0,
+                                        data: [UInt8](repeating: 1, count: InventoryLimits.putChunkSize + 1)) == nil,
+               "inventory chunks are bounded")
+
+        let cyrillic900 = String(repeating: "ж", count: 900)
+        expect(InventoryRecord(id: recordId, name: "Box", description: cyrillic900, revision: 1).problems.isEmpty,
+               "the description limit counts code points, not bytes")
+        expect(InventoryRecord(id: recordId, name: "Box", description: cyrillic900 + "ж", revision: 1).problems ==
+               [.description], "long descriptions are refused")
+        expect(InventoryRecord(id: recordId, name: String(repeating: "x", count: 33), description: "",
+                               revision: 1).problems == [.name], "long names are refused")
+        expect(InventoryRecord(id: recordId, name: "Box", description: String(repeating: "📦", count: 900),
+                               revision: 1).problems.isEmpty, "the longest description fits the record bound")
+        expect(InventoryRecord(id: recordId, name: "Box", description: "\nЛыжи", revision: 1).problems ==
+               [.description] &&
+               InventoryRecord(id: recordId, name: "Box", description: "Лыжи\tпалки", revision: 1).problems ==
+               [.description], "edge breaks and tabs are refused")
+        expect(InventoryText.normalizeDescription("  Штаны,  шорты  \r\nНоски\t3 пары\r\n\n") ==
+               "Штаны,  шорты\nНоски 3 пары", "descriptions are normalized for saving")
+        expect(InventoryRecord.decode(Array("{\"schema\":2,\"id\":\"0f1e2d3c4b5a69788796a5b4c3d2e1f0\",\"revision\":1,\"name\":\"Box\",\"description\":\"\",\"items\":[]}".utf8)) == nil,
+               "unknown record fields are refused")
+
+        // Mac requests over the session.
+        let requester = CompanionSession(applications: FakeApplications(), now: { livenessClock })
+        var requesterSent: [[UInt8]] = []
+        requester.outgoing = { requesterSent.append($0) }
+        var answered: [Result<CompanionEnvelope, CompanionRequestFailure>] = []
+        requester.sendRequest(.inventoryList, payload: InventoryWire.listRequest(start: 0)) { answered.append($0) }
+        expect(answered == [.failure(.disconnected)], "no request without a session")
+        requester.startHandshake()
+        requester.handle(helloAck(session: 9))
+        requesterSent.removeAll()
+        answered.removeAll()
+        requester.sendRequest(.inventoryList, payload: InventoryWire.listRequest(start: 0)) { answered.append($0) }
+        requester.sendRequest(.inventoryList, payload: InventoryWire.listRequest(start: 0)) { answered.append($0) }
+        let sentList = requesterSent.last.flatMap(CompanionCodec.decode)
+        expect(sentList?.kind == .request && sentList?.session == 9 && sentList?.operation == .inventoryList &&
+               answered == [.failure(.busy)], "one Mac request is outstanding at a time")
+        var listAnswer = CompanionCodec.decode(fixture("inventory-list-response.bin"))!
+        listAnswer.session = 9
+        listAnswer.requestId = sentList!.requestId &+ 1
+        expect(!requester.handle(CompanionCodec.encode(listAnswer)!), "an answer to another request is ignored")
+        listAnswer.requestId = sentList!.requestId
+        expect(requester.handle(CompanionCodec.encode(listAnswer)!) && answered.count == 2 && !requester.hasPendingRequest,
+               "the matching answer completes the request")
+        requester.sendRequest(.inventoryGet, payload: InventoryWire.getRequest(id: recordId, offset: 0)) {
+            answered.append($0)
+        }
+        requester.expireRequests(at: livenessClock.addingTimeInterval(CompanionSession.requestTimeout))
+        expect(answered.last == .failure(.timeout), "an unanswered request times out")
+        requester.sendRequest(.inventoryGet, payload: InventoryWire.getRequest(id: recordId, offset: 0)) {
+            answered.append($0)
+        }
+        requester.reset()
+        expect(answered.last == .failure(.disconnected), "a session reset fails the request, never resends it")
+
+        // Client and editor against a simulated Cardputer.
+        let simulated = FakeCardputer()
+        simulated.records[recordId] = InventoryRecord(
+            id: recordId, name: "Кладовка",
+            description: (1...30).map { "Коробка номер \($0)" }.joined(separator: "\n"), revision: 2)
+        simulated.records[otherId] = InventoryRecord(id: otherId, name: "Гараж", description: "", revision: 1)
+        for index in 0..<6 {
+            let id = InventoryId(bytes: [0xb0] + [UInt8](repeating: UInt8(index + 1), count: 15))!
+            simulated.records[id] = InventoryRecord(id: id, name: String(repeating: "Ящик", count: 8),
+                                                    description: "", revision: 1)
+        }
+        let client = InventoryClient(transport: simulated)
+        var listedEntries: [InventoryListEntry] = []
+        client.list { if case .success(let entries) = $0 { listedEntries = entries } }
+        expect(listedEntries.count == 8 && simulated.listRequests > 1, "the list is read in pages")
+        var downloaded: InventoryRecord?
+        client.get(recordId) { downloaded = try? $0.get() }
+        expect(downloaded == simulated.records[recordId] && simulated.getRequests > 2, "records download in chunks")
+
+        let model = InventoryEditorModel()
+        model.setTransport(simulated)
+        expect(model.entries.count == 8 && model.listState == .loaded, "a new session lists the records")
+        model.select(recordId)
+        expect(model.state == .clean && model.name == "Кладовка" && model.description.hasPrefix("Коробка номер 1\n"),
+               "selection loads the record")
+        model.name = "Кладовка у входа"
+        model.description += "\n  Новая коробка  \r\n"
+        expect(model.state == .dirty && model.canSave, "edits make the draft dirty")
+        model.save()
+        expect(model.state == .saved && model.loaded?.revision == 3 &&
+               simulated.records[recordId]?.revision == 3 &&
+               simulated.records[recordId]?.description.hasSuffix("\nНовая коробка") == true &&
+               simulated.putChunks > 1,
+               "saving commits exactly one new revision with a normalized description")
+        expect(model.entries.first(where: { $0.id == recordId })?.name == "Кладовка у входа",
+               "the list shows the saved name")
+
+        // Another editor advanced the record: the stale save is refused.
+        simulated.records[recordId]?.revision = 4
+        let storedDescription = simulated.records[recordId]?.description
+        model.description += "\nЕщё одна"
+        model.save()
+        expect(model.state == .conflict(current: 4) && simulated.records[recordId]?.description == storedDescription,
+               "a stale revision is a conflict and changes nothing")
+        model.reload()
+        expect(model.state == .clean && model.loaded?.revision == 4, "reload fetches the authoritative record")
+
+        // The session drops during an upload: nothing is committed or replayed.
+        model.description += "\nПотерянная"
+        let putsBefore = simulated.putChunks
+        simulated.dropAfterPutChunks = putsBefore + 1
+        model.save()
+        simulated.disconnect()
+        model.setTransport(nil)
+        expect(model.state == .disconnected && simulated.records[recordId]?.revision == 4 &&
+               simulated.uploadAbandoned, "a dropped session discards the partial upload")
+        simulated.dropAfterPutChunks = nil
+        let listsBefore = simulated.listRequests
+        model.setTransport(simulated)
+        expect(simulated.listRequests > listsBefore && simulated.putChunks == putsBefore + 2 &&
+               model.state == .dirty, "reconnecting lists afresh and keeps the draft unsaved")
+
+        // A new session always re-reads the selected record, even at the same revision.
+        let resync = InventoryEditorModel()
+        resync.setTransport(simulated)
+        resync.select(otherId)
+        let getsBeforeResync = simulated.getRequests
+        resync.setTransport(nil)
+        resync.setTransport(simulated)
+        expect(simulated.getRequests == getsBeforeResync + 1 && resync.state == .clean,
+               "a new session reloads a clean selection")
+        resync.setTransport(nil)
+        let removed = simulated.records.removeValue(forKey: otherId)
+        resync.setTransport(simulated)
+        expect(resync.selection == nil && resync.loaded == nil && !resync.canEdit &&
+               resync.state == .error("This record is no longer on the Cardputer"),
+               "a selection missing after reconnect is dropped")
+        simulated.records[otherId] = removed
+        resync.refresh()
+        resync.select(otherId)
+        resync.name = "Гараж и подвал"
+        resync.setTransport(nil)
+        simulated.records[otherId]?.revision += 1
+        resync.setTransport(simulated)
+        expect(resync.state == .conflict(current: simulated.records[otherId]!.revision) && !resync.canSave,
+               "a draft based on an older revision is a conflict after reconnect")
+
+        // A failed list cannot make a cached record editable as current data.
+        let unavailable = InventoryEditorModel()
+        unavailable.setTransport(simulated)
+        unavailable.select(otherId)
+        unavailable.setTransport(nil)
+        simulated.storageReady = false
+        unavailable.setTransport(simulated)
+        expect(unavailable.listState == .failed("The Cardputer microSD card is not available") &&
+               unavailable.loaded != nil && !unavailable.canEdit && !unavailable.canSave &&
+               !unavailable.canDelete,
+               "a failed refresh preserves the draft but blocks stale editing")
+        simulated.storageReady = true
+        unavailable.refresh()
+        expect(unavailable.listState == .loaded && unavailable.canEdit,
+               "editing resumes after a fresh list and get")
+
+        // While a fresh GET is outstanding, the old form must be read-only.
+        simulated.holdNextGetResponse = true
+        unavailable.reload()
+        expect(unavailable.state == .loading && unavailable.loaded != nil && !unavailable.canEdit,
+               "the old record cannot be edited during reload")
+        simulated.deliverGetResponse()
+        expect(unavailable.state == .clean && unavailable.canEdit,
+               "the editor unlocks after the authoritative record arrives")
+
+        // Deleting checks the revision and removes the record for good.
+        let deleter = InventoryEditorModel()
+        deleter.setTransport(simulated)
+        deleter.select(otherId)
+        simulated.records[otherId]?.revision += 1
+        deleter.delete()
+        expect(deleter.state == .conflict(current: simulated.records[otherId]!.revision) &&
+               simulated.records[otherId] != nil, "a stale delete is refused")
+        deleter.reload()
+        expect(deleter.canDelete, "a loaded record can be deleted")
+        deleter.delete()
+        expect(simulated.records[otherId] == nil && deleter.selection == nil && deleter.loaded == nil &&
+               !deleter.entries.contains { $0.id == otherId } && deleter.state == .idle,
+               "delete removes the record and its row")
+
+        let damaged = InventoryEditorModel()
+        let damagedId = InventoryId(bytes: [0xb0] + [UInt8](repeating: 1, count: 15))!
+        simulated.damaged.insert(damagedId)
+        damaged.setTransport(simulated)
+        damaged.select(damagedId)
+        expect(damaged.loaded == nil && damaged.damagedSelection == damagedId && damaged.canDelete &&
+               damaged.state == .error("The record on the Cardputer is damaged and left unchanged"),
+               "a damaged record is not editable but can be deleted")
+        damaged.delete()
+        expect(simulated.records[damagedId] == nil && simulated.lastDeleteRevision == 0,
+               "a damaged record is deleted with revision 0")
+
+        let empty = InventoryEditorModel()
+        simulated.storageReady = false
+        empty.setTransport(simulated)
+        expect(empty.listState == .failed("The Cardputer microSD card is not available"),
+               "a missing microSD card is reported")
+
         if failed > 0 {
             fputs("\(failed) checks failed\n", stderr)
             exit(1)
@@ -963,5 +1230,145 @@ final class FakeLoginRegistration: LoginRegistration {
     func setEnabled(_ enabled: Bool) throws {
         if shouldFail { throw NSError(domain: "FakeLoginRegistration", code: 1) }
         isEnabled = enabled
+    }
+}
+
+/// A Cardputer that answers inventory requests the way firmware does: paged
+/// listing, chunked downloads from one snapshot, buffered uploads committed only
+/// when complete and still based on the current revision.
+final class FakeCardputer: CompanionRequesting {
+    var records: [InventoryId: InventoryRecord] = [:]
+    var damaged: Set<InventoryId> = []
+    var storageReady = true
+    var listRequests = 0
+    var getRequests = 0
+    var putChunks = 0
+    var dropAfterPutChunks: Int?
+    var lastDeleteRevision: UInt32?
+    var uploadAbandoned = false
+    var holdNextGetResponse = false
+    private var upload: (id: InventoryId, expected: UInt32, data: [UInt8])?
+    private var dropped: CompanionResponseHandler?
+    private var pendingGetResponse: (() -> Void)?
+
+    func sendRequest(_ operation: CompanionOperation, payload: [UInt8],
+                     completion: @escaping CompanionResponseHandler) {
+        var answer = CompanionEnvelope()
+        answer.kind = .response
+        answer.session = 1
+        answer.requestId = 1
+        answer.operation = operation
+        guard storageReady else {
+            answer.status = .notAvailable
+            return completion(.success(answer))
+        }
+        switch operation {
+        case .inventoryList:
+            listRequests += 1
+            let start = InventoryWire.decodeListRequest(payload)!
+            let ids = records.keys.sorted()
+            var entries: [InventoryListEntry] = []
+            var size = InventoryLimits.listHeaderSize
+            var index = start
+            while index < ids.count {
+                let record = records[ids[index]]!
+                let valid = !damaged.contains(record.id)
+                let entrySize = 22 + (valid ? record.name.utf8.count : 0)
+                if size + entrySize > CompanionConstants.maxPayloadSize { break }
+                size += entrySize
+                entries.append(InventoryListEntry(id: record.id, valid: valid, revision: valid ? record.revision : 0,
+                                                  name: valid ? record.name : ""))
+                index += 1
+            }
+            answer.payload = InventoryWire.encodeListPage(.init(total: ids.count, next: index, entries: entries))!
+        case .inventoryGet:
+            getRequests += 1
+            let (id, offset) = InventoryWire.decodeGetRequest(payload)!
+            guard let record = records[id] else { answer.status = .notFound; break }
+            guard !damaged.contains(id) else { answer.status = .rejected; break }
+            let json = record.canonicalJSON()!
+            let size = min(InventoryLimits.getChunkSize, json.count - offset)
+            answer.payload = InventoryWire.encodeGetChunk(.init(revision: record.revision, total: json.count,
+                                                                offset: offset,
+                                                                data: Array(json[offset..<offset + size])))!
+        case .inventoryPut:
+            putChunks += 1
+            let (id, chunk) = InventoryWire.decodePutRequest(payload)!
+            if let limit = dropAfterPutChunks, putChunks > limit {
+                // The link drops: this request is never answered here.
+                uploadAbandoned = upload != nil
+                upload = nil
+                dropped = completion
+                return
+            }
+            if chunk.offset == 0 {
+                guard let current = records[id] else { answer.status = .notFound; break }
+                guard current.revision == chunk.revision else {
+                    answer.status = .conflict
+                    answer.payload = [UInt8(current.revision & 0xFF), UInt8(current.revision >> 8 & 0xFF), 0, 0]
+                    break
+                }
+                upload = (id, chunk.revision, [])
+            }
+            guard var pending = upload, pending.id == id, pending.data.count == chunk.offset else {
+                upload = nil
+                answer.status = .rejected
+                break
+            }
+            pending.data += chunk.data
+            upload = pending
+            var committed: UInt32 = 0
+            if pending.data.count == chunk.total {
+                upload = nil
+                guard let record = InventoryRecord.decode(pending.data), record.id == id,
+                      record.revision == pending.expected else { answer.status = .rejected; break }
+                guard records[id]?.revision == pending.expected else {
+                    answer.status = .conflict
+                    answer.payload = [UInt8(records[id]!.revision & 0xFF), 0, 0, 0]
+                    break
+                }
+                var saved = record
+                saved.revision = pending.expected + 1
+                records[id] = saved
+                committed = saved.revision
+            }
+            answer.payload = InventoryWire.putAck(received: pending.data.count, committed: committed)
+        case .inventoryDelete:
+            let (id, revision) = InventoryWire.decodeDeleteRequest(payload)!
+            lastDeleteRevision = revision
+            guard let record = records[id] else { answer.status = .notFound; break }
+            let current = damaged.contains(id) ? 0 : record.revision
+            guard current == revision else {
+                if current == 0 {
+                    answer.status = .rejected
+                } else {
+                    answer.status = .conflict
+                    answer.payload = [UInt8(current & 0xFF), UInt8(current >> 8 & 0xFF), 0, 0]
+                }
+                break
+            }
+            records[id] = nil
+            damaged.remove(id)
+        default:
+            answer.status = .unsupported
+        }
+        if operation == .inventoryGet && holdNextGetResponse {
+            holdNextGetResponse = false
+            pendingGetResponse = { completion(.success(answer)) }
+            return
+        }
+        completion(.success(answer))
+    }
+
+    func deliverGetResponse() {
+        let reply = pendingGetResponse
+        pendingGetResponse = nil
+        reply?()
+    }
+
+    /// The dropped session fails the unanswered request, as CompanionSession does.
+    func disconnect() {
+        dropped?(.failure(.disconnected))
+        dropped = nil
     }
 }

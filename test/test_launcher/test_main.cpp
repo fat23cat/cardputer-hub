@@ -287,6 +287,13 @@ void test_known_icon_and_fallback_are_14_by_14() {
     TEST_ASSERT_TRUE(fallbackInk);
 }
 
+void test_nfc_icon_is_dedicated_and_14_by_14() {
+    TEST_ASSERT_TRUE(apps::assets::appIconRows("nfc") == apps::assets::nfcAppIcon);
+    TEST_ASSERT_TRUE(apps::assets::appIconRows("nfc") != apps::assets::fallbackAppIcon);
+    for (int y = 0; y < apps::assets::appIconSize; ++y)
+        TEST_ASSERT_EQUAL_UINT(apps::assets::appIconSize, std::strlen(apps::assets::nfcAppIcon[y]));
+}
+
 void test_selected_icon_is_inverted() {
     Fixture f;
     f.registerApp("system", "SYSTEM", "system");
@@ -462,6 +469,7 @@ int main() {
     RUN_TEST(test_selection_starts_at_first_and_does_not_wrap);
     RUN_TEST(test_three_row_window_keeps_selection_visible);
     RUN_TEST(test_known_icon_and_fallback_are_14_by_14);
+    RUN_TEST(test_nfc_icon_is_dedicated_and_14_by_14);
     RUN_TEST(test_selected_icon_is_inverted);
     RUN_TEST(test_availability_indicators_use_leaf_and_vermilion);
     RUN_TEST(test_unavailable_enter_keeps_selection_and_shows_reason);

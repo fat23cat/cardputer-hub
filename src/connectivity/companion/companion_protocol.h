@@ -27,6 +27,18 @@ inline constexpr std::size_t companionMaxPayloadSize =
 inline constexpr std::size_t companionMaxBundleIdSize = 128;
 inline constexpr std::size_t companionPingTokenSize = 4;
 inline constexpr std::size_t companionMaxOutstandingRequests = 4;
+// Inventory transfers (Mac requests, Cardputer responses). A record is moved in
+// bounded chunks; it is committed only after the last one arrives complete.
+inline constexpr std::size_t companionInventoryIdSize = 16;
+inline constexpr std::size_t companionInventoryMaxRecordBytes = 4096;
+inline constexpr std::size_t companionInventoryMaxNameBytes = 128;
+inline constexpr std::size_t companionInventoryGetHeaderSize = 8;
+inline constexpr std::size_t companionInventoryGetChunkSize =
+    companionMaxPayloadSize - companionInventoryGetHeaderSize;
+inline constexpr std::size_t companionInventoryPutHeaderSize = 24;
+inline constexpr std::size_t companionInventoryPutChunkSize =
+    companionMaxPayloadSize - companionInventoryPutHeaderSize;
+inline constexpr std::size_t companionInventoryListHeaderSize = 5;
 
 inline constexpr char companionServiceUuid[] = "07B23AB1-3938-418A-8E16-0AEC1CAA517F";
 inline constexpr char companionHostToDeviceUuid[] = "792B8431-054D-4758-B198-3EE728EA6FE1";
@@ -60,6 +72,10 @@ enum class CompanionOperation : std::uint8_t {
     SystemMetrics = 6,
     AiUsage = 7,
     SystemDetails = 8,
+    InventoryList = 9,
+    InventoryGet = 10,
+    InventoryPut = 11,
+    InventoryDelete = 12,
 };
 
 enum class CompanionStatus : std::uint8_t {
@@ -68,6 +84,31 @@ enum class CompanionStatus : std::uint8_t {
     NotFound = 2,
     Unsupported = 3,
     Malformed = 4,
+    // An edit was based on an older revision; the payload is the current one.
+    Conflict = 5,
+    // The record (stored or submitted) is not valid, or a transfer is out of order.
+    Rejected = 6,
+    StorageError = 7,
+};
+
+using CompanionInventoryId = std::array<std::uint8_t, companionInventoryIdSize>;
+
+struct CompanionInventoryListEntry {
+    CompanionInventoryId id{};
+    // False for a stored file that is not a valid record: no revision, no name.
+    bool valid = true;
+    std::uint32_t revision = 0;
+    std::string_view name;
+};
+
+struct CompanionInventoryChunk {
+    CompanionInventoryId id{};
+    // GET: the record's revision. PUT: the revision the edit was based on.
+    std::uint32_t revision = 0;
+    std::uint16_t total = 0;
+    std::uint16_t offset = 0;
+    const std::uint8_t* data = nullptr;
+    std::size_t size = 0;
 };
 
 enum class AiUsageState : std::uint8_t { Discovering = 1, Ready = 2 };
@@ -242,5 +283,38 @@ bool setSystemDetailsRequest(CompanionEnvelope& message, SystemDetailsGroup grou
 bool readSystemDetailsRequest(const CompanionEnvelope& message, SystemDetailsGroup& group);
 bool setSystemDetails(CompanionEnvelope& message, const CompanionSystemDetails& details);
 bool readSystemDetails(const CompanionEnvelope& message, CompanionSystemDetails& details);
+
+// INVENTORY_LIST request: start index (2). OK response: total (2), next index
+// (2), count (1), then per entry: id (16), valid flag (1), revision (4), name
+// length (1, 0 exactly when invalid) and UTF-8 name.
+bool isInventoryOperation(CompanionOperation operation) noexcept;
+std::size_t inventoryListEntrySize(std::size_t nameBytes) noexcept;
+bool setInventoryListRequest(CompanionEnvelope& message, std::uint16_t start);
+bool readInventoryListRequest(const CompanionEnvelope& message, std::uint16_t& start);
+bool setInventoryListResponse(CompanionEnvelope& message, std::uint16_t total, std::uint16_t next,
+                              const CompanionInventoryListEntry* entries, std::size_t count);
+// INVENTORY_GET request: id (16), offset (2). OK response: revision (4), total
+// (2), offset (2), 1..240 data bytes. `data` points into `message`.
+bool setInventoryGetRequest(CompanionEnvelope& message, const CompanionInventoryId& id,
+                            std::uint16_t offset);
+bool readInventoryGetRequest(const CompanionEnvelope& message, CompanionInventoryId& id,
+                             std::uint16_t& offset);
+bool setInventoryGetResponse(CompanionEnvelope& message, const CompanionInventoryChunk& chunk);
+bool readInventoryGetResponse(const CompanionEnvelope& message, CompanionInventoryChunk& chunk);
+// INVENTORY_PUT request: id (16), expected revision (4), total (2), offset (2),
+// 1..224 data bytes. OK response: bytes received (2), committed revision (4,
+// 0 until the last chunk is committed). CONFLICT response: current revision (4).
+bool setInventoryPutRequest(CompanionEnvelope& message, const CompanionInventoryChunk& chunk);
+bool readInventoryPutRequest(const CompanionEnvelope& message, CompanionInventoryChunk& chunk);
+bool setInventoryPutResponse(CompanionEnvelope& message, std::uint16_t received,
+                             std::uint32_t committedRevision);
+bool setInventoryConflict(CompanionEnvelope& message, std::uint32_t currentRevision);
+// INVENTORY_DELETE request: id (16), the revision the editor saw (4; 0 for a
+// stored file that is not a valid record). OK response: empty. CONFLICT
+// response: current revision (4).
+bool setInventoryDeleteRequest(CompanionEnvelope& message, const CompanionInventoryId& id,
+                               std::uint32_t expectedRevision);
+bool readInventoryDeleteRequest(const CompanionEnvelope& message, CompanionInventoryId& id,
+                                std::uint32_t& expectedRevision);
 
 } // namespace cardputer_hub::connectivity
