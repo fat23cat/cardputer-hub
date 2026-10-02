@@ -27,8 +27,10 @@ using cardputer_hub::connectivity::decodeCompanionMessage;
 using cardputer_hub::connectivity::encodeCompanionMessage;
 using cardputer_hub::connectivity::ICompanionTransport;
 using cardputer_hub::connectivity::makeEvent;
+using cardputer_hub::connectivity::makeRequest;
 using cardputer_hub::connectivity::makeResponse;
 using cardputer_hub::connectivity::setBundleIdentifier;
+using cardputer_hub::connectivity::setInventoryListRequest;
 using cardputer_hub::connectivity::setPingToken;
 using cardputer_hub::core::CapabilityRegistry;
 using cardputer_hub::core::ILogSink;
@@ -132,6 +134,36 @@ void test_handshake_reaches_ready_and_registers_capabilities() {
     std::uint8_t length = 0;
     TEST_ASSERT_TRUE(service.readActiveBundleIdentifier(bundle, sizeof(bundle), length));
     TEST_ASSERT_EQUAL_STRING("dev.zed.Zed", bundle);
+}
+
+void test_inventory_request_after_hello_ack_waits_for_handshake_completion() {
+    FakeTransport transport;
+    CapabilityRegistry capabilities;
+    CompanionService service(transport, capabilities);
+    transport.transportState = CompanionTransportState::Ready;
+    transport.incoming.push_back(encode(companionHello()));
+    service.update(std::chrono::milliseconds::zero());
+    const auto activeRequest = lastSent(transport);
+    const auto session = service.session();
+    auto listRequest = makeRequest(session, 7, CompanionOperation::InventoryList);
+    TEST_ASSERT_TRUE(setInventoryListRequest(listRequest, 0));
+    transport.incoming.push_back(encode(listRequest));
+    service.update(std::chrono::milliseconds::zero());
+    TEST_ASSERT_EQUAL_UINT8(static_cast<unsigned>(CompanionServiceState::Handshaking),
+                            static_cast<unsigned>(service.state()));
+    TEST_ASSERT_FALSE(service.takeInboundRequest().has_value());
+
+    transport.incoming.push_back(
+        encode(makeResponse(session, activeRequest.requestId, CompanionOperation::AppActive,
+                            CompanionStatus::NotAvailable)));
+    service.update(std::chrono::milliseconds::zero());
+    TEST_ASSERT_EQUAL_UINT8(static_cast<unsigned>(CompanionServiceState::Ready),
+                            static_cast<unsigned>(service.state()));
+    const auto queued = service.takeInboundRequest();
+    TEST_ASSERT_TRUE(queued.has_value());
+    TEST_ASSERT_EQUAL_UINT8(7, queued->requestId);
+    TEST_ASSERT_EQUAL_UINT8(static_cast<unsigned>(CompanionOperation::InventoryList),
+                            static_cast<unsigned>(queued->operation));
 }
 
 void test_new_hello_invalidates_old_session_and_pending_requests() {
@@ -620,6 +652,7 @@ void test_malformed_telemetry_fails_only_its_request() {
 int main() {
     UNITY_BEGIN();
     RUN_TEST(test_handshake_reaches_ready_and_registers_capabilities);
+    RUN_TEST(test_inventory_request_after_hello_ack_waits_for_handshake_completion);
     RUN_TEST(test_new_hello_invalidates_old_session_and_pending_requests);
     RUN_TEST(test_stale_response_and_event_are_ignored);
     RUN_TEST(test_stale_response_does_not_break_new_handshake);

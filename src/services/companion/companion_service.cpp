@@ -534,11 +534,14 @@ void CompanionService::handleIncoming(const CompanionPayload& payload) {
     }
 }
 
-// Inventory requests from the Mac are queued for their owner; a request from an
-// earlier session is stale and dropped, and one outside a ready session is a
-// protocol error like any other unexpected request.
+// Inventory requests from the Mac are queued for their owner. Requests from an
+// earlier session are stale and dropped; requests received during the final
+// handshake step wait for Ready.
 void CompanionService::handleInboundRequest(const CompanionEnvelope& message) {
-    if (state_ != CompanionServiceState::Ready) {
+    // The Mac starts inventory loading as soon as it receives HELLO_ACK. Its
+    // request can arrive before our APP_ACTIVE handshake response, so hold it
+    // until the session becomes Ready.
+    if (state_ != CompanionServiceState::Ready && state_ != CompanionServiceState::Handshaking) {
         if (state_ != CompanionServiceState::Unavailable)
             enterProtocolError();
         return;
@@ -557,7 +560,7 @@ void CompanionService::handleInboundRequest(const CompanionEnvelope& message) {
 }
 
 std::optional<CompanionInboundRequest> CompanionService::takeInboundRequest() {
-    if (inboundCount_ == 0)
+    if (state_ != CompanionServiceState::Ready || inboundCount_ == 0)
         return std::nullopt;
     const auto request = inbound_[0];
     for (std::uint8_t index = 1; index < inboundCount_; ++index)
