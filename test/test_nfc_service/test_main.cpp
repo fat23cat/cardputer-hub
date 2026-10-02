@@ -559,6 +559,23 @@ void test_erase_is_refused_for_blank_foreign_or_locked_tags() {
     TEST_ASSERT_TRUE(reserved.reader.pageWrites.empty());
 }
 
+void test_trailing_control_tlv_is_found_before_erase_is_offered() {
+    auto area = areaFor(sampleMessage());
+    const auto terminator = 2 + sampleMessage().size();
+    area[terminator] = 0;
+    area.resize(64, 0);
+    area.insert(area.end(), {0x01, 0x03, 0xA0, 0x10, 0x44, 0xFE});
+    Harness h;
+    h.startScanning();
+    h.reader.present(makeNtag213WithArea(1, area));
+    h.runUntil(NfcServiceState::Ready);
+    assertContent(NfcTagContent::OtherData, h.service.status().tag.content);
+    TEST_ASSERT_TRUE(h.service.status().tag.reserved);
+    TEST_ASSERT_FALSE(h.service.eraseTag(1, h.service.status().tag.raw));
+    TEST_ASSERT_FALSE(h.service.writeMessage(1, sampleMessage()));
+    TEST_ASSERT_TRUE(h.reader.pageWrites.empty());
+}
+
 // ---- Removal, replacement and stale results -----------------------------------
 
 void test_tag_removal_clears_the_session() {
@@ -752,6 +769,7 @@ int main() {
     RUN_TEST(test_transient_write_failure_is_retried_once);
     RUN_TEST(test_erase_empties_only_the_inspected_message_and_verifies);
     RUN_TEST(test_erase_is_refused_for_blank_foreign_or_locked_tags);
+    RUN_TEST(test_trailing_control_tlv_is_found_before_erase_is_offered);
     RUN_TEST(test_tag_removal_clears_the_session);
     RUN_TEST(test_tag_removed_during_a_read_never_reaches_ready);
     RUN_TEST(test_replacement_tag_never_receives_the_previous_tags_data);

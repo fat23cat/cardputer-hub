@@ -24,8 +24,9 @@ inline constexpr std::size_t nfcInspectBytes = nfcInspectPages * 4;
 // Classify bytes read from page 2. Blank needs proof: a Terminator TLV, or the
 // whole data area (as declared by the capability container) read and holding
 // nothing but NULL bytes and at most one empty NDEF TLV. Bytes that end before
-// a decision report `incomplete`. A message that continues past the data area
-// is OtherData, never truncated.
+// a decision report `incomplete`. A message is accepted only after a Terminator
+// or the end of the declared data area; trailing TLVs make it protected data.
+// A message that continues past the data area is OtherData, never truncated.
 [[nodiscard]] NfcTagInspection inspectType2Window(const std::uint8_t* window, std::size_t size);
 
 // The bytes to write from the first user page: NDEF TLV, message, terminator,

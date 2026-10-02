@@ -76,8 +76,8 @@ NfcTagInspection inspectType2Window(const std::uint8_t* window, std::size_t size
         inspection.incomplete = true;
         return inspection;
     };
-    // Control TLVs mark reserved areas: a write from the first user page would
-    // destroy them, so a tag that has them is never blank.
+    // Control TLVs and data after an NDEF TLV must not be overwritten by a
+    // write from the first user page.
     bool control = false;
     bool emptyMessage = false;
     std::size_t position = 0;
@@ -87,11 +87,15 @@ NfcTagInspection inspectType2Window(const std::uint8_t* window, std::size_t size
             ++position;
             continue;
         case tlvTerminator:
-            return decide(control ? NfcTagContent::OtherData : NfcTagContent::Blank);
+            return decide(!inspection.message.empty() ? NfcTagContent::Message
+                          : control                   ? NfcTagContent::OtherData
+                                                      : NfcTagContent::Blank);
         case tlvLockControl:
         case tlvMemoryControl: {
-            if (emptyMessage)
+            if (emptyMessage || !inspection.message.empty()) {
+                inspection.reserved = true;
                 return decide(NfcTagContent::OtherData);
+            }
             const auto length = tlvLength(data, position, limit);
             if (!length || position + length->header + length->value > limit)
                 return complete ? decide(NfcTagContent::OtherData) : undecided();
@@ -101,33 +105,37 @@ NfcTagInspection inspectType2Window(const std::uint8_t* window, std::size_t size
             continue;
         }
         case tlvNdef: {
+            if (emptyMessage || !inspection.message.empty()) {
+                inspection.reserved = true;
+                return decide(NfcTagContent::OtherData);
+            }
             const auto length = tlvLength(data, position, limit);
             if (!length)
                 return complete ? decide(NfcTagContent::OtherData) : undecided();
             if (length->value == 0) {
-                // A second NDEF TLV after an empty one would be hidden data.
-                if (emptyMessage)
-                    return decide(NfcTagContent::OtherData);
                 emptyMessage = true;
                 position += length->header;
                 continue;
             }
-            if (emptyMessage)
-                return decide(NfcTagContent::OtherData);
             if (position + length->header + length->value > limit)
                 return complete ? decide(NfcTagContent::OtherData) : undecided();
             const auto* first = data + position + length->header;
             inspection.message.assign(first, first + length->value);
-            return decide(NfcTagContent::Message);
+            position += length->header + length->value;
+            continue;
         }
         default:
+            if (emptyMessage || !inspection.message.empty())
+                inspection.reserved = true;
             return decide(NfcTagContent::OtherData);
         }
     }
     if (!complete)
         return undecided();
-    // The whole data area holds nothing but NULL bytes and empty TLVs.
-    return decide(control ? NfcTagContent::OtherData : NfcTagContent::Blank);
+    // A message without a Terminator can fill the declared data area.
+    return decide(!inspection.message.empty() ? NfcTagContent::Message
+                  : control                   ? NfcTagContent::OtherData
+                                              : NfcTagContent::Blank);
 }
 
 std::optional<std::vector<std::uint8_t>>

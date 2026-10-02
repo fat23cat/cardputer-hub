@@ -154,6 +154,7 @@ void test_blank_needs_proof_from_the_whole_data_area() {
     const auto hidden = inspectType2Window(whole.data(), whole.size());
     TEST_ASSERT_EQUAL_UINT8(static_cast<unsigned>(NfcTagContent::OtherData),
                             static_cast<unsigned>(hidden.content));
+    TEST_ASSERT_TRUE(hidden.reserved);
 }
 
 void test_control_tlvs_are_never_treated_as_blank() {
@@ -169,11 +170,39 @@ void test_control_tlvs_are_never_treated_as_blank() {
     // A message after them is still read.
     std::vector<std::uint8_t> area{0x01, 0x03, 0xA0, 0x10, 0x44};
     const auto message = *encodeType2NdefArea(inventoryTagMessage(sampleId()), 144);
-    area.insert(area.end(), message.begin(), message.end() - 4);
+    area.insert(area.end(), message.begin(), message.end());
     const auto bytes = window(area);
     const auto inspected = inspectType2Window(bytes.data(), bytes.size());
     TEST_ASSERT_EQUAL_UINT8(static_cast<unsigned>(NfcTagContent::Message),
                             static_cast<unsigned>(inspected.content));
+}
+
+void test_data_after_a_message_is_not_erasable_content() {
+    const auto message = inventoryTagMessage(sampleId());
+    for (const auto& trailing : {std::vector<std::uint8_t>{0x01, 0x03, 0xA0, 0x10, 0x44, 0xFE},
+                                 std::vector<std::uint8_t>{0x02, 0x03, 0xA0, 0x10, 0x44, 0xFE},
+                                 std::vector<std::uint8_t>{0xFD, 0x01, 0x42, 0xFE},
+                                 std::vector<std::uint8_t>{0x03, 0x01, 0x42, 0xFE}}) {
+        std::vector<std::uint8_t> area{0x03, static_cast<std::uint8_t>(message.size())};
+        area.insert(area.end(), message.begin(), message.end());
+        area.resize(64, 0); // The hidden TLV starts beyond the first read window.
+        area.insert(area.end(), trailing.begin(), trailing.end());
+        auto bytes = window({});
+        bytes.resize(8); // Keep the header; append beyond the helper's first window.
+        bytes.insert(bytes.end(), area.begin(), area.end());
+        const auto first = inspectType2Window(bytes.data(), nfcInspectBytes);
+        TEST_ASSERT_TRUE(first.incomplete);
+        bytes.resize(8 + 144, 0);
+        TEST_ASSERT_EQUAL_UINT8(trailing[0], bytes[8 + 64]);
+        const auto inspected = inspectType2Window(bytes.data(), bytes.size());
+        TEST_ASSERT_EQUAL_UINT8_MESSAGE(static_cast<unsigned>(NfcTagContent::OtherData),
+                                        static_cast<unsigned>(inspected.content),
+                                        trailing[0] == 0x01   ? "lock"
+                                        : trailing[0] == 0x02 ? "memory"
+                                        : trailing[0] == 0x03 ? "second NDEF"
+                                                              : "proprietary");
+        TEST_ASSERT_TRUE(inspected.reserved);
+    }
 }
 
 void test_type2_inspection_refuses_what_it_cannot_own() {
@@ -370,6 +399,7 @@ int main() {
     RUN_TEST(test_type2_inspection_classifies_blank_formats);
     RUN_TEST(test_blank_needs_proof_from_the_whole_data_area);
     RUN_TEST(test_control_tlvs_are_never_treated_as_blank);
+    RUN_TEST(test_data_after_a_message_is_not_erasable_content);
     RUN_TEST(test_type2_inspection_refuses_what_it_cannot_own);
     RUN_TEST(test_record_round_trips_cyrillic_description_with_line_breaks);
     RUN_TEST(test_record_accepts_escapes_whitespace_and_any_key_order);

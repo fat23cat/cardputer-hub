@@ -317,9 +317,9 @@ void NfcService::confirmFailedOperation() {
         finishWrite(NfcWriteState::Failed);
 }
 
-// Reads the first window, then more of the data area while its content is not
-// decided yet. The last group is read ending at the last user page, so no read
-// leaves the user area.
+// Reads the first window, then more of the data area until a Terminator or the
+// end proves there are no trailing TLVs. The last group ends at the last user
+// page, so no read leaves the user area.
 void NfcService::readStep() {
     auto& session = *session_;
     const auto next = static_cast<std::uint16_t>(nfcInspectFirstPage + session.window.size() / 4U);

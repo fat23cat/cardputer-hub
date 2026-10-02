@@ -166,6 +166,38 @@ void test_inventory_request_after_hello_ack_waits_for_handshake_completion() {
                             static_cast<unsigned>(queued->operation));
 }
 
+void test_handshake_inventory_queue_overflow_gets_not_available() {
+    FakeTransport transport;
+    CapabilityRegistry capabilities;
+    CompanionService service(transport, capabilities);
+    transport.transportState = CompanionTransportState::Ready;
+    transport.incoming.push_back(encode(companionHello()));
+    service.update(std::chrono::milliseconds::zero());
+    const auto activeRequest = lastSent(transport);
+    const auto session = service.session();
+    for (std::uint8_t id = 7; id <= 9; ++id) {
+        auto request = makeRequest(session, id, CompanionOperation::InventoryList);
+        TEST_ASSERT_TRUE(setInventoryListRequest(request, 0));
+        transport.incoming.push_back(encode(request));
+    }
+    service.update(std::chrono::milliseconds::zero());
+    TEST_ASSERT_EQUAL_UINT8(static_cast<unsigned>(CompanionServiceState::Handshaking),
+                            static_cast<unsigned>(service.state()));
+    TEST_ASSERT_EQUAL_UINT8(3, transport.sent.size());
+    const auto overflow = lastSent(transport);
+    TEST_ASSERT_EQUAL_UINT8(static_cast<unsigned>(CompanionKind::Response),
+                            static_cast<unsigned>(overflow.kind));
+    TEST_ASSERT_EQUAL_UINT8(9, overflow.requestId);
+    TEST_ASSERT_EQUAL_UINT8(static_cast<unsigned>(CompanionStatus::NotAvailable),
+                            static_cast<unsigned>(overflow.status));
+    transport.incoming.push_back(
+        encode(makeResponse(session, activeRequest.requestId, CompanionOperation::AppActive,
+                            CompanionStatus::NotAvailable)));
+    service.update(std::chrono::milliseconds::zero());
+    TEST_ASSERT_EQUAL_UINT8(7, service.takeInboundRequest()->requestId);
+    TEST_ASSERT_EQUAL_UINT8(8, service.takeInboundRequest()->requestId);
+}
+
 void test_new_hello_invalidates_old_session_and_pending_requests() {
     FakeTransport transport;
     CapabilityRegistry capabilities;
@@ -653,6 +685,7 @@ int main() {
     UNITY_BEGIN();
     RUN_TEST(test_handshake_reaches_ready_and_registers_capabilities);
     RUN_TEST(test_inventory_request_after_hello_ack_waits_for_handshake_completion);
+    RUN_TEST(test_handshake_inventory_queue_overflow_gets_not_available);
     RUN_TEST(test_new_hello_invalidates_old_session_and_pending_requests);
     RUN_TEST(test_stale_response_and_event_are_ignored);
     RUN_TEST(test_stale_response_does_not_break_new_handshake);

@@ -21,8 +21,8 @@ enum class NfcTagContent : std::uint8_t {
     // One NDEF message, held in full in `message`.
     Message,
     // Anything that is not provably blank and not one short NDEF message: a
-    // proprietary or control TLV area without a message, a message longer than
-    // the inspected bytes, data after an empty NDEF TLV, or malformed TLVs.
+    // proprietary or control TLV area, a message longer than the inspected
+    // bytes, data after an NDEF TLV, or malformed TLVs.
     OtherData,
     // The tag stayed in the field but its data area could not be read.
     ReadFailed,
@@ -37,7 +37,7 @@ struct NfcTagInspection {
     // The bytes inspected so far decide nothing yet: read more of the data
     // area. Never published by NfcService.
     bool incomplete = false;
-    // Lock or Memory Control TLVs describe reserved areas: never erased.
+    // Control TLVs or data hidden after an NDEF TLV: never erased.
     bool reserved = false;
     std::vector<std::uint8_t> message;
     // Every byte read from page 2 to decide the content. Two inspections of

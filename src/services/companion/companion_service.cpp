@@ -551,9 +551,10 @@ void CompanionService::handleInboundRequest(const CompanionEnvelope& message) {
     const CompanionInboundRequest request{message.session, message.requestId, message.operation,
                                           message};
     if (inboundCount_ >= inbound_.size()) {
-        (void)respond(request,
-                      connectivity::makeResponse(session_, message.requestId, message.operation,
-                                                 CompanionStatus::NotAvailable));
+        // respond() is Ready-only, but the Mac can fill the queue before the
+        // final handshake response arrives. The session is already known.
+        (void)sendMessage(connectivity::makeResponse(session_, message.requestId, message.operation,
+                                                     CompanionStatus::NotAvailable));
         return;
     }
     inbound_[inboundCount_++] = request;

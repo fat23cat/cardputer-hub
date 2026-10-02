@@ -950,12 +950,13 @@ tag as blank, holding one NDEF message, holding other data, not NDEF formatted,
 or read-only (capability container write access or any static lock bit). Blank
 needs proof: a Terminator TLV (after NULL bytes and at most one empty NDEF
 TLV), or the whole declared data area read and holding nothing else. While the
-bytes read decide nothing (NULL bytes to their end, or a message that continues
-past them) the Service reads four more pages per update, the last group ending
-at the last user page; a capability container claiming more than the user
-area, data after an empty NDEF TLV, and Lock or Memory Control TLVs without a
-message are other data, so reserved areas and hidden messages are never
-overwritten. Every other card is `Unsupported` without any data access, so recognising
+bytes read decide nothing (NULL bytes to their end, or a message without a
+following Terminator) the Service reads four more pages per update, the last
+group ending at the last user page; a capability container claiming more than
+the user area, data after any NDEF TLV, and Lock or Memory Control TLVs are
+other data. A tag with control TLVs or hidden trailing data is never erased, so
+reserved areas and hidden messages are never overwritten. Every other card is
+`Unsupported` without any data access, so recognising
 a card family never implies inventory compatibility. `writeMessage(session,
 message)` is accepted only for that session's blank, writable tag and a message
 that fits: it writes an empty NDEF TLV and a Terminator (`03 00 FE 00`) to the
@@ -2034,9 +2035,11 @@ Inventory is the one direction reversal: the Mac sends INVENTORY_LIST,
 INVENTORY_GET, INVENTORY_PUT and INVENTORY_DELETE requests and the Cardputer
 answers them.
 `CompanionService` queues at most two such requests of the live session,
-ignores one from an earlier session, treats one outside a ready session as a
-protocol error like any other unexpected request, and answers through
-`respond()` only while the request's session is still live. Its
+including requests during the final handshake step, and answers overflow with
+`NOT_AVAILABLE` immediately. It ignores requests from an earlier session,
+treats one outside a ready session as a protocol error like any other unexpected
+request, and answers queued requests through `respond()` only while the
+request's session is still live. Its
 `sessionEpoch()` changes whenever a session starts or ends.
 `InventoryCompanionEndpoint` serves them from `InventoryService`: listing in
 pages that fit one message (ID, valid flag, revision and name per record),

@@ -137,9 +137,10 @@ Cardputer sends PING heartbeats. The Mac sends APP_ACTIVE_CHANGED events.
 Requests normally go from the Cardputer to the Mac; the inventory operations
 are the exception and go from the Mac to the Cardputer. Each side numbers and
 correlates its own requests. The Cardputer accepts inventory requests only for
-the current ready session (a request from an earlier session is ignored, one
-outside a ready session is a protocol error), queues at most two and answers a
-third with `NOT_AVAILABLE`. The Mac keeps one inventory request outstanding.
+the current session, including the final handshake step (a request from an
+earlier session is ignored, one outside a live session is a protocol error),
+queues at most two and answers a third with `NOT_AVAILABLE` immediately. The Mac
+keeps one inventory request outstanding.
 
 ## Payloads
 
