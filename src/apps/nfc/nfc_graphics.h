@@ -37,7 +37,7 @@ void drawNfcMessage(core::IDisplayAdapter& display, const std::string& headerSta
 // One page of a known container: its name, a page counter and description
 // lines, with the erase hint when the tag can be erased.
 void drawNfcRecord(core::IDisplayAdapter& display, const services::InventoryRecord& record,
-                   std::size_t page, bool registered, bool erasable);
+                   std::size_t page, bool registered, bool erasable, bool detached = false);
 // The Cardputer name editor: draft with cursor and the visible length limit.
 void drawNfcNameEntry(core::IDisplayAdapter& display, const std::string& title,
                       const std::string& draft, std::size_t maxLength);

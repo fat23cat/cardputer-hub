@@ -68,6 +68,13 @@ bool NfcApp::handleBack() {
         inventory_.cancelEnrollment();
         return true;
     }
+    if (view.detached && view.retainedRecord) {
+        view.retainedRecord.reset();
+        view.detached = false;
+        view.page = 0;
+        view.drawnGeneration.reset();
+        return true;
+    }
     // A tag write in progress is not abandoned by Escape.
     return isBusy(screen);
 }
@@ -83,17 +90,33 @@ void NfcApp::update(const InputEvents& input, std::chrono::milliseconds) {
     render();
 }
 
-// A tag leaving or another arriving returns to the first page, so a
-// container's contents never stay on screen. Name entry needs no tag and goes
-// on, and an erase confirmation is InventoryService's to follow.
+// Retain only the rendered record when its tag leaves. InventoryService still
+// clears the live tag, so erase and write actions cannot use the snapshot.
 void NfcApp::syncWithInventory() {
     auto& view = *view_;
     const auto& status = inventory_.status();
-    if (status.session == view.session && status.screen == view.screen)
+    const bool changed = status.session != view.session || status.screen != view.screen;
+    if (status.screen == InventoryScreen::Known && status.record) {
+        if (changed)
+            view.page = 0;
+        view.retainedRecord = *status.record;
+        view.retainedRegistered = status.registered;
+        view.detached = false;
+    } else if (status.screen == InventoryScreen::Waiting ||
+               status.screen == InventoryScreen::Reading) {
+        view.detached = view.retainedRecord.has_value();
+        if (!view.detached && changed)
+            view.page = 0;
+    } else {
+        view.retainedRecord.reset();
+        view.detached = false;
+        if (changed)
+            view.page = 0;
+    }
+    if (!changed)
         return;
     view.session = status.session;
     view.screen = status.screen;
-    view.page = 0;
     view.hint = Hint::None;
 }
 
@@ -106,6 +129,17 @@ void NfcApp::handle(const InputEvent& event) {
         return;
     }
     const auto& status = inventory_.status();
+    if (view.detached && view.retainedRecord) {
+        const auto pages = nfcPageCount(nfcDescriptionLines(*view.retainedRecord).size());
+        if ((isPageRight(event) || isDown(event)) && view.page + 1 < pages) {
+            display_.beginTransition(SlideDirection::Forward);
+            ++view.page;
+        } else if ((isPageLeft(event) || isUp(event)) && view.page > 0) {
+            display_.beginTransition(SlideDirection::Backward);
+            --view.page;
+        }
+        return;
+    }
     if (isNamed(event, NamedKey::Delete) && inventory_.canErase()) {
         (void)inventory_.requestErase();
         return;
@@ -375,16 +409,24 @@ NfcMessage NfcApp::message(const InventoryStatus& status) const {
 void NfcApp::render() {
     auto& view = *view_;
     const auto& status = inventory_.status();
+    // Keep the previous complete frame while the next sticker is being read.
+    if (status.screen == InventoryScreen::Reading && !view.editing && !view.detached &&
+        view.drawnGeneration)
+        return;
     if (view.drawnGeneration && *view.drawnGeneration == status.generation &&
         view.drawnPage == view.page && view.drawnEditing == view.editing &&
-        view.drawnDraft == view.draft && view.drawnHint == view.hint)
+        view.drawnDraft == view.draft && view.drawnHint == view.hint &&
+        view.drawnDetached == view.detached)
         return;
     if (view.editing) {
         drawNfcNameEntry(display_, view.recordFor ? "CREATE RECORD" : "NEW CONTAINER", view.draft,
                          inventoryMaxNameLength);
-    } else if (status.screen == InventoryScreen::Known && status.record) {
-        drawNfcRecord(display_, *status.record, view.page, status.registered,
-                      inventory_.canErase());
+    } else if (view.retainedRecord && (status.screen == InventoryScreen::Known || view.detached)) {
+        drawNfcRecord(display_, *view.retainedRecord, view.page, view.retainedRegistered,
+                      !view.detached && inventory_.canErase(), view.detached);
+    } else if (status.screen == InventoryScreen::Reading) {
+        drawNfcMessage(display_, status.storageReady ? "" : "NO SD",
+                       {"TAP A TAG", {")))"}, "", "ENTER  NEW"});
     } else {
         drawNfcMessage(display_, status.storageReady ? "" : "NO SD", message(status));
     }
@@ -393,6 +435,7 @@ void NfcApp::render() {
     view.drawnEditing = view.editing;
     view.drawnDraft = view.draft;
     view.drawnHint = view.hint;
+    view.drawnDetached = view.detached;
 }
 
 } // namespace cardputer_hub::apps

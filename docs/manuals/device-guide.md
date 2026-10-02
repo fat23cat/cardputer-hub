@@ -148,8 +148,10 @@ the same ID; the sticker need not stay on the reader while you type that name.
 top and the description below, line by line with long lines wrapped; Cyrillic
 text is shown. With more than seven lines, Up/Down (`;` / `.`) or Left/Right
 (`,` / `/`) change pages, and the page counter shows where you are. Holding
-the sticker never writes anything. Removing it, or presenting another, clears
-the screen at once. `MICROSD UNAVAILABLE` means the card is missing or failed:
+the sticker never writes anything. Removing it leaves the container visible so
+you can read and page through its contents. Press **Escape** to close it, or
+present another sticker to replace it after that sticker is read. Erasing needs
+the original sticker to be on the reader. `MICROSD UNAVAILABLE` means the card is missing or failed:
 insert it and press **Enter** to retry. The RF field is on only while NFC is
 open.
 
@@ -173,7 +175,7 @@ the Companion. If the record could not be deleted after a verified erase,
 with unrelated NDEF data can also be erased after confirmation, without
 deleting any inventory record. Locked or reserved areas are not erased.
 
-**Edit on the Mac.** With Cardputer Companion connected, choose **Inventory…**
+**Edit on the Mac.** With Cardputer Companion connected, choose **Inventory**
 in its menu (see [Inventory on the Mac](#inventory-on-the-mac)). Saved edits appear
 on the Cardputer the next time the sticker is tapped, or at once if it is on
 the reader.
@@ -215,7 +217,7 @@ permission on first launch. The
 Companion attaches to the already-paired Cardputer; it does not scan or create
 a second pairing. The menu-bar menu shows connection status, the Cardputer
 firmware build and the last valid message; it also provides Reconnect, Start at
-Login, Inventory…, Diagnostics, About, and Quit. Start at Login can be enabled or disabled in the menu.
+Login, Inventory, Diagnostics, About, and Quit. Start at Login can be enabled or disabled in the menu.
 Closing the Mac lid, sleep,
 or a BLE drop invalidates the session; after wake and HID reconnect it attaches
 again without relaunching Companion or re-pairing.
@@ -240,7 +242,7 @@ keeps retrying.
 
 ### Inventory on the Mac
 
-Choose **Inventory…** (⌘I while the menu is open) in the Companion menu to open
+Choose **Inventory** (⌘I while the menu is open) in the Companion menu to open
 the Inventory window. The left column lists the containers registered on the
 connected Cardputer, read from its microSD card; `Damaged record` marks a file
 the Cardputer refuses. Select a container to load it, then edit its **name**

@@ -49,7 +49,7 @@ final class CompanionMenuBarController: NSObject, NSMenuDelegate {
         menu.addItem(loginErrorItem)
         menu.addItem(.separator())
 
-        let inventoryItem = NSMenuItem(title: "Inventory…", action: #selector(openInventory),
+        let inventoryItem = NSMenuItem(title: "Inventory", action: #selector(openInventory),
                                        keyEquivalent: "i")
         inventoryItem.target = self
         menu.addItem(inventoryItem)

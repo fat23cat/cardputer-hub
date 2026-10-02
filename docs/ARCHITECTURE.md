@@ -985,7 +985,9 @@ without a second write. A verified ID whose save failed shows `SaveFailed`
 (Enter saves again), and a later tap shows `MissingRecord`; `createRecord(id,
 name)` creates the record for that same ID without the tag. A lookup reads only
 the matching record, once per tag session; removing or replacing the tag clears
-it. `requestErase()` remembers the inspected UID and bytes; after explicit
+the live service result and prevents further tag actions. The NFC Mini App may
+retain a read-only copy of the last known record until Escape or the next tag
+finishes reading. `requestErase()` remembers the inspected UID and bytes; after explicit
 `confirmErase()`, `NfcService::eraseTag()` empties only that same writable tag.
 Its record is deleted only after the empty page is verified. A failed readback
 leaves the record intact and keeps that target in memory, even if another erase

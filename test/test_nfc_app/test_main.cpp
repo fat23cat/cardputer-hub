@@ -293,7 +293,19 @@ void test_escape_does_not_abandon_a_tag_write() {
 
 // ---- Known containers ------------------------------------------------------------
 
-void test_known_container_pages_the_cyrillic_description_and_clears_on_removal() {
+void test_reading_does_not_flash_an_intermediate_screen() {
+    Fixture f;
+    f.begin();
+    const auto waitingFrames = f.display.frames;
+    f.reader.present(makeNtag213(1));
+    f.runUntil(InventoryScreen::Reading);
+    TEST_ASSERT_EQUAL_INT(waitingFrames, f.display.frames);
+    TEST_ASSERT_TRUE(f.display.shows("TAP A TAG"));
+    f.runUntil(InventoryScreen::Blank);
+    TEST_ASSERT_TRUE(f.display.shows("BLANK TAG"));
+}
+
+void test_known_container_stays_until_explicitly_closed() {
     Fixture f;
     f.storeRecord(longDescription());
     f.begin();
@@ -321,8 +333,31 @@ void test_known_container_pages_the_cyrillic_description_and_clears_on_removal()
     f.reader.removeCard();
     f.runUntil(InventoryScreen::Waiting);
     f.app.update({}, 0ms);
+    TEST_ASSERT_TRUE(f.display.shows("Чемодан"));
+    TEST_ASSERT_TRUE(f.display.shows("Тапочки"));
+    TEST_ASSERT_TRUE(f.display.shows("ESC  CLOSE"));
+    TEST_ASSERT_FALSE(f.display.shows("FN+DEL  ERASE"));
+    f.press(plainLeft);
+    TEST_ASSERT_TRUE(f.display.shows("1/2"));
+    TEST_ASSERT_TRUE(f.app.handleBack());
+    f.app.update({}, 0ms);
     TEST_ASSERT_TRUE(f.display.shows("TAP A TAG"));
-    TEST_ASSERT_FALSE(f.display.showsPart("Тапочки"));
+    TEST_ASSERT_FALSE(f.app.handleBack());
+}
+
+void test_next_tag_replaces_the_retained_container_after_reading() {
+    Fixture f;
+    f.storeRecord(longDescription());
+    f.begin();
+    f.reader.present(inventoryTag(2));
+    f.runUntil(InventoryScreen::Known);
+    f.reader.removeCard();
+    f.runUntil(InventoryScreen::Waiting);
+    f.reader.present(makeNtag213(3));
+    f.runUntil(InventoryScreen::Reading);
+    TEST_ASSERT_TRUE(f.display.shows("Чемодан"));
+    f.runUntil(InventoryScreen::Blank);
+    TEST_ASSERT_TRUE(f.display.shows("BLANK TAG"));
     TEST_ASSERT_FALSE(f.display.shows("Чемодан"));
 }
 
@@ -479,7 +514,9 @@ int main() {
     RUN_TEST(test_name_entry_is_bounded_and_escape_cancels_it);
     RUN_TEST(test_registration_without_a_card_explains_and_writes_nothing);
     RUN_TEST(test_escape_does_not_abandon_a_tag_write);
-    RUN_TEST(test_known_container_pages_the_cyrillic_description_and_clears_on_removal);
+    RUN_TEST(test_reading_does_not_flash_an_intermediate_screen);
+    RUN_TEST(test_known_container_stays_until_explicitly_closed);
+    RUN_TEST(test_next_tag_replaces_the_retained_container_after_reading);
     RUN_TEST(test_erase_asks_first_then_empties_the_tag_and_deletes_the_record);
     RUN_TEST(test_erase_confirmation_hides_enter_when_a_different_tag_is_present);
     RUN_TEST(test_missing_record_is_created_for_the_existing_id_without_the_tag);

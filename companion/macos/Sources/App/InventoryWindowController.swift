@@ -228,10 +228,10 @@ struct InventoryView: View {
         case .disconnected: return "Disconnected"
         case .idle: return ""
         case .loading: return "Loading…"
-        case .clean: return "Up to date (revision \(model.loaded?.revision ?? 0))"
+        case .clean: return "Up to date"
         case .dirty: return "Unsaved changes"
         case .saving: return "Saving…"
-        case .saved: return "Saved (revision \(model.loaded?.revision ?? 0))"
+        case .saved: return "Saved"
         case .conflict(let current):
             return "Changed on the Cardputer (revision \(current)) — reload to continue"
         case .error(let message): return message

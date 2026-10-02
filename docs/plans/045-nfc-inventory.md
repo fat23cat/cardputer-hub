@@ -79,6 +79,11 @@ Revised on 2026-10-02 after the first implementation, at the user's request:
   editor hides a failed or pending listing and disables the old form during a
   fresh GET, preserving an unsaved draft until a successful refresh. A storage
   read error during listing fails the list instead of labeling a record damaged.
+* **Inventory UI follow-up.** Reading a tag keeps the previous complete frame
+  until a result is ready. A known container remains visible and pageable after
+  its tag leaves; Escape dismisses it, and the next completed read replaces it.
+  The Mac editor supplies standard text shortcuts and hides revision numbers
+  in the clean and saved labels.
 
 Deviations from the plan text:
 
@@ -182,9 +187,10 @@ session; no cloud account or replicated Mac database is required.
   embedded font, Unicode-aware wrapping and bounded scrolling/pagination on
   its 240×135 display. Input limits and available space are visible before
   saving.
-* A known tag loads only its matching record. Card removal clears the visible
-  list; another tag replaces the session. Repeated polling of a held tag never
-  duplicates a record or write.
+* A known tag loads only its matching record. Card removal clears the live tag
+  session but leaves a read-only record on screen until Escape or another tag
+  finishes reading. Repeated polling of a held tag never duplicates a record
+  or write.
 * The inventory remains usable without Bluetooth, Wi-Fi or Companion.
 
 ### Authoritative file data

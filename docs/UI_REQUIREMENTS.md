@@ -610,8 +610,10 @@ NFC requires the live `NFC_READER` capability, so it is unavailable in Apps
 with the header `NFC`; the header's right slot shows a quiet `NO SD` while the
 microSD card is not mounted. With no tag it shows a centered `TAP A TAG` with a
 quiet `)))` and the right footer `ENTER  NEW`, drawn once and without
-animation. State screens use one centered title and up to three quiet lines:
-`READING TAG`, `UNSUPPORTED TAG` (use an NTAG213/215/216 sticker),
+animation. Reading a tag keeps the previous complete frame until the result is
+ready; it does not flash an intermediate progress screen. State screens use one
+centered title and up to three quiet lines:
+`UNSUPPORTED TAG` (use an NTAG213/215/216 sticker),
 `TAG NOT NDEF FORMATTED`, `TAG IS LOCKED`, `TAG HOLDS OTHER DATA` (never
 overwritten during registration), `COULD NOT READ TAG`, and the progress screens `WRITING TAG` /
 `CHECKING TAG` / `ERASING TAG` (keep the tag on the reader) and `SAVING RECORD`.
@@ -637,7 +639,8 @@ container then shows `TAP TAG TO WRITE` with its name, `ANY BLANK NTAG STICKER`
 `ITS RECORD IS DELETED` (or `THE TAG BECOMES BLANK`) and shows `ESC  CANCEL`
 and `ENTER  ERASE`. Escape leaves the editor, the erase confirmation and the
 wait for a tag through `IMiniApp::handleBack()`, is ignored while a tag is
-being written, and on any other screen uses the shared Mini App exit. A known
+being written, closes a retained container after its tag leaves, and on any
+other screen uses the shared Mini App exit. A known
 container shows its name as the title, a rule, and up to seven description
 lines in Ink: each line break starts a line and long lines word-wrap by code
 point. The right header slot shows the page counter (`1/2`) when there is more
@@ -646,9 +649,11 @@ and Left/Right (`,` / `/`, with or without Fn) change pages without wrapping and
 slide in the direction of travel. A container without a description shows
 `NO DESCRIPTION YET` and `WRITE IT IN MAC COMPANION`. Text renders in UTF-8
 with the Cyrillic glyphs of the system font; an unsupported character is a
-box. Removing the tag, or presenting another, returns to `TAP A TAG` at once
-and ends an erase confirmation, so a container's contents never stay on
-screen; name entry goes on without the tag. Capability loss closes the app
+box. Removing a known container's tag keeps its name and description on screen,
+with pagination available and `ESC  CLOSE` replacing the erase hint. Escape
+returns to `TAP A TAG`; a newly read tag replaces the retained record. A retained
+record cannot be erased without its tag. Removing a tag ends an erase
+confirmation; name entry goes on without the tag. Capability loss closes the app
 through MiniAppRuntime. Physical review of the Cyrillic glyphs on the 240×135
 display is pending.
 Idle dimming, the final off fade and wake-input consumption are implemented for

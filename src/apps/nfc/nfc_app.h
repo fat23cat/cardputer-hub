@@ -39,12 +39,17 @@ class NfcApp final : public IMiniApp {
         // The inventory state this view belongs to.
         std::uint32_t session = 0;
         services::InventoryScreen screen = services::InventoryScreen::ReaderUnavailable;
+        // A read-only snapshot remains visible after the sticker leaves.
+        std::optional<services::InventoryRecord> retainedRecord;
+        bool retainedRegistered = false;
+        bool detached = false;
         // What the last frame showed; an unchanged view repaints nothing.
         std::optional<std::uint32_t> drawnGeneration;
         std::size_t drawnPage = 0;
         bool drawnEditing = false;
         std::string drawnDraft;
         Hint drawnHint = Hint::None;
+        bool drawnDetached = false;
     };
 
     void handle(const core::InputEvent& event);

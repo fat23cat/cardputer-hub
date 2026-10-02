@@ -78,7 +78,7 @@ void drawNfcMessage(IDisplayAdapter& display, const std::string& headerStatus,
 }
 
 void drawNfcRecord(IDisplayAdapter& display, const services::InventoryRecord& record,
-                   std::size_t page, bool registered, bool erasable) {
+                   std::size_t page, bool registered, bool erasable, bool detached) {
     const auto lines = nfcDescriptionLines(record);
     const auto pages = nfcPageCount(lines.size());
     const auto shownPage = std::min(page, pages - 1);
@@ -90,7 +90,9 @@ void drawNfcRecord(IDisplayAdapter& display, const services::InventoryRecord& re
     display.fillRectangle({marginX, ruleY}, rightEdge - marginX, 1, palette::ink);
     const TextStyle ink{palette::ink, palette::bone, systemTextScale};
     const TextStyle quiet{palette::ordinal, palette::bone, systemTextScale};
-    if (erasable)
+    if (detached)
+        drawContextualFooter(display, "ESC  CLOSE");
+    else if (erasable)
         drawContextualFooter(display, "FN+DEL  ERASE");
     if (lines.empty()) {
         display.drawText({centeredTextX("NO DESCRIPTION YET", 0, 240), 54}, "NO DESCRIPTION YET",

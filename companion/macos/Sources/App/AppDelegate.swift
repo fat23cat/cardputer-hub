@@ -446,6 +446,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var inventoryWindow: InventoryWindowController?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        installEditMenu()
         let status = CompanionStatusStore(login: StartAtLoginModel(service: SystemLoginRegistration()))
         let menuBar = CompanionMenuBarController(status: status)
         let inventory = InventoryEditorModel()
@@ -473,6 +474,27 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func quit() {
         NSApp.terminate(nil)
+    }
+
+    private func installEditMenu() {
+        // SwiftUI text controls route these actions through the first responder.
+        // An accessory app has no default Edit menu to supply their shortcuts.
+        let mainMenu = NSMenu()
+        let editItem = NSMenuItem(title: "Edit", action: nil, keyEquivalent: "")
+        let editMenu = NSMenu(title: "Edit")
+        for (title, action, key) in [
+            ("Cut", #selector(NSText.cut(_:)), "x"),
+            ("Copy", #selector(NSText.copy(_:)), "c"),
+            ("Paste", #selector(NSText.paste(_:)), "v"),
+            ("Select All", #selector(NSText.selectAll(_:)), "a"),
+        ] {
+            let item = NSMenuItem(title: title, action: action, keyEquivalent: key)
+            item.keyEquivalentModifierMask = .command
+            editMenu.addItem(item)
+        }
+        editItem.submenu = editMenu
+        mainMenu.addItem(editItem)
+        NSApp.mainMenu = mainMenu
     }
 }
 
