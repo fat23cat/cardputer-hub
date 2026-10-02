@@ -624,7 +624,9 @@ Screens with an action show it as a right footer hint: `BLANK TAG` with
 `ENTER  REGISTER`, `NO RECORD FOR THIS TAG` with `ENTER  CREATE`,
 `RECORD NOT SAVED` and `MICROSD UNAVAILABLE` with `ENTER  RETRY`, and the
 notices `RECORD SAVED`, `TAG ERASED`, `ERASE UNCONFIRMED` and `RECORD NOT DELETED`
-with `ENTER  OK`. A screen whose tag can be erased (a known container, a missing
+with `ENTER  OK`. `ERASE UNCONFIRMED` tells the user to check the tag and, for
+an inventory tag that is blank, delete the retained record on the Mac. A screen
+whose tag can be erased (a known container, a missing
 or damaged record, or unrelated writable NDEF data without reserved areas)
 shows the quiet left hint `FN+DEL  ERASE`. When registration
 is not possible the screen adds `INSERT MICROSD TO SAVE` or `INVENTORY IS FULL`

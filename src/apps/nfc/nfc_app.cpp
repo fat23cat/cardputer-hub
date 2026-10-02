@@ -385,11 +385,11 @@ NfcMessage NfcApp::message(const InventoryStatus& status) const {
         break;
     case InventoryScreen::EraseFailed:
         message = {"ERASE UNCONFIRMED",
-                   {"PRESENT THE SAME TAG AGAIN",
-                    status.eraseDeletesRecord ? "RECORD KEPT ON MICROSD" : "CHECK THE TAG CONTENT"},
-                   "",
-                   "ENTER  OK",
-                   true};
+                   status.eraseDeletesRecord
+                       ? std::vector<std::string>{"CHECK TAG CONTENT", "IF BLANK, DELETE ON MAC",
+                                                  "RECORD KEPT ON MICROSD"}
+                       : std::vector<std::string>{"CHECK THE TAG CONTENT"},
+                   "", "ENTER  OK", true};
         break;
     case InventoryScreen::RecordNotDeleted:
         message = {"RECORD NOT DELETED",

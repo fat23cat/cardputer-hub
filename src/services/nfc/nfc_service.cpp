@@ -11,10 +11,6 @@ namespace {
 constexpr char logComponent[] = "NfcService";
 constexpr std::uint8_t maxOperationRetries = 1;
 
-std::size_t readsFor(std::size_t bytes) {
-    return (bytes + core::nfcType2ReadBytes - 1) / core::nfcType2ReadBytes;
-}
-
 } // namespace
 
 NfcService::NfcService(core::INfcReader& reader, core::CapabilityRegistry& capabilities,
@@ -120,10 +116,15 @@ void NfcService::update(std::chrono::milliseconds elapsed) {
         }
         return;
     case NfcServiceState::Reading:
-        readStep();
+        if (session_->pendingPresence)
+            confirmFailedOperation();
+        else
+            readStep();
         return;
     case NfcServiceState::Writing:
-        if (session_->verifying)
+        if (session_->pendingPresence)
+            confirmFailedOperation();
+        else if (session_->verifying)
             verifyStep();
         else
             writeStep();
@@ -295,6 +296,27 @@ bool NfcService::confirmPresent() {
     return false;
 }
 
+// A failed page operation is followed by a presence check in a separate
+// update, so one main-loop pass never waits for two reader operations.
+void NfcService::confirmFailedOperation() {
+    auto& session = *session_;
+    session.pendingPresence = false;
+    if (!confirmPresent())
+        return;
+    if (status_.state == NfcServiceState::Reading) {
+        if (session.readRetries++ < maxOperationRetries)
+            return;
+        status_.tag = {};
+        status_.tag.content = NfcTagContent::ReadFailed;
+        sincePresence_ = std::chrono::milliseconds(0);
+        setState(NfcServiceState::Ready);
+        touch();
+        return;
+    }
+    if (session.writeRetries++ >= maxOperationRetries)
+        finishWrite(NfcWriteState::Failed);
+}
+
 // Reads the first window, then more of the data area while its content is not
 // decided yet. The last group is read ending at the last user page, so no read
 // leaves the user area.
@@ -331,16 +353,8 @@ void NfcService::readStep() {
     }
     case core::NfcOperationStatus::Rejected:
     case core::NfcOperationStatus::Failed:
-        // A failure may mean the tag left: confirm before retrying.
-        if (!confirmPresent())
-            return;
-        if (session.readRetries++ < maxOperationRetries)
-            return;
-        status_.tag = {};
-        status_.tag.content = NfcTagContent::ReadFailed;
-        sincePresence_ = std::chrono::milliseconds(0);
-        setState(NfcServiceState::Ready);
-        touch();
+        // A failure may mean the tag left: confirm on the next update.
+        session.pendingPresence = true;
         return;
     case core::NfcOperationStatus::ReaderLost:
         handleReaderLost();
@@ -365,11 +379,7 @@ void NfcService::writeStep() {
         }
         return;
     case core::NfcOperationStatus::Failed:
-        if (!confirmPresent())
-            return;
-        if (session.writeRetries++ < maxOperationRetries)
-            return;
-        finishWrite(NfcWriteState::Failed);
+        session.pendingPresence = true;
         return;
     case core::NfcOperationStatus::Rejected:
         finishWrite(NfcWriteState::Failed);
@@ -382,16 +392,20 @@ void NfcService::writeStep() {
 
 void NfcService::verifyStep() {
     auto& session = *session_;
-    const auto page =
+    const auto next =
         static_cast<std::uint16_t>(core::nfcType2FirstUserPage + session.readBack.size() / 4U);
-    const auto result = reader_.readPages(session.activation, page);
+    const auto lastUserPage =
+        static_cast<std::uint16_t>(session.userArea->firstPage + session.userArea->pageCount - 1U);
+    const auto first = std::min<std::uint16_t>(next, static_cast<std::uint16_t>(lastUserPage - 3U));
+    const auto result = reader_.readPages(session.activation, first);
     if (!acceptActivation(result.activation))
         return;
     switch (result.status) {
     case core::NfcOperationStatus::Ok:
-        session.readBack.insert(session.readBack.end(), result.data.begin(), result.data.end());
+        session.readBack.insert(session.readBack.end(), result.data.begin() + (next - first) * 4U,
+                                result.data.end());
         session.writeRetries = 0;
-        if (session.readBack.size() < readsFor(session.area.size()) * core::nfcType2ReadBytes)
+        if (session.readBack.size() < session.area.size())
             return;
         if (!std::equal(session.area.begin(), session.area.end(), session.readBack.begin())) {
             finishWrite(NfcWriteState::Failed);
@@ -413,11 +427,7 @@ void NfcService::verifyStep() {
         return;
     case core::NfcOperationStatus::Rejected:
     case core::NfcOperationStatus::Failed:
-        if (!confirmPresent())
-            return;
-        if (session.writeRetries++ < maxOperationRetries)
-            return;
-        finishWrite(NfcWriteState::Failed);
+        session.pendingPresence = true;
         return;
     case core::NfcOperationStatus::ReaderLost:
         handleReaderLost();

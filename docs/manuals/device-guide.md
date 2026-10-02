@@ -166,11 +166,11 @@ original before pressing **Enter**; the warning disables confirmation. While a
 returned sticker is being read, wait for the check to finish before pressing
 **Enter**. `TAG DATA CHANGED` means the same sticker's contents no longer match
 what was selected; cancel and inspect it again before starting a new erase. If
-erasure cannot be verified, `ERASE UNCONFIRMED` keeps the
-record on microSD: hold or present the same sticker again. If it is read as
-blank, the record is deleted then; another sticker cannot cause deletion. If
-the device restarts before this check, an orphaned record can be removed in
-the Companion. If the record could not be deleted after a verified erase,
+erasure cannot be verified, `ERASE UNCONFIRMED` keeps the record on microSD.
+If the sticker stays on the reader and is then read as blank, its record is
+deleted. After removing the sticker, check whether it is blank; if so, delete
+the orphaned record in the Companion. A later tap does not delete the record
+automatically. If the record could not be deleted after a verified erase,
 `RECORD NOT DELETED` says so; delete it in the Companion. Writable stickers
 with unrelated NDEF data can also be erased after confirmation, without
 deleting any inventory record. Locked or reserved areas are not erased.

@@ -50,7 +50,8 @@ enum class InventoryScreen : std::uint8_t {
     // The tag carries its new ID but the record could not be saved.
     SaveFailed,
     Erased,
-    // Erasure is unconfirmed; the record remains until the same tag is read blank.
+    // Erasure is unconfirmed; the record remains unless blank is read in the
+    // original reader session. After session loss, the Mac can remove it.
     EraseFailed,
     // The tag was erased but its record could not be deleted.
     RecordNotDeleted,
@@ -170,6 +171,9 @@ class InventoryService {
     };
 
     struct EraseTarget {
+        // Set when the write starts. A later activation cannot authorize
+        // deleting this record, even if it reports the same UID.
+        std::uint32_t writeSession = 0;
         std::vector<std::uint8_t> uid;
         std::vector<std::uint8_t> raw;
         std::optional<InventoryId> id;
@@ -214,9 +218,8 @@ class InventoryService {
     // a tag is presented anew.
     std::uint32_t failedSession_ = 0;
     std::optional<EraseTarget> target_;
-    // A failed readback can follow a successful page write. Keep every
-    // unresolved target until its UID is inspected again; later erases must
-    // not discard earlier targets.
+    // A failed readback can follow a successful page write. Reconcile only
+    // while the original tag session remains active.
     std::vector<EraseTarget> pendingErases_;
     std::string pendingName_;
 };

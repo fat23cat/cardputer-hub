@@ -529,7 +529,7 @@ void test_erase_readback_failure_reconciles_the_blank_tag() {
     TEST_ASSERT_EQUAL_UINT(1, h.reader.pageWrites.size());
 }
 
-void test_uncertain_erase_waits_for_the_same_blank_tag() {
+void test_uncertain_erase_keeps_record_after_session_loss_even_for_a_cloned_uid() {
     Harness h;
     h.storeRecord(cyrillicRecord());
     h.inventory.open();
@@ -542,18 +542,20 @@ void test_uncertain_erase_waits_for_the_same_blank_tag() {
     h.runUntil(InventoryScreen::EraseFailed);
     h.reader.removeCard();
     const auto erasedMemory = h.reader.memory();
-    h.reader.present(makeNtag213(8));
+    // A fresh blank sticker can advertise the same UID as the erased one.
+    // A new activation must not authorize deletion of the old record.
+    h.reader.present(makeNtag213(2));
     h.runUntil(InventoryScreen::Blank);
     TEST_ASSERT_EQUAL_UINT(1, h.recordFiles());
     h.reader.removeCard();
     auto original = inventoryTag(existingId(), 2);
     original.memory = erasedMemory;
     h.reader.present(original);
-    h.runUntil(InventoryScreen::Erased);
-    TEST_ASSERT_EQUAL_UINT(0, h.recordFiles());
+    h.runUntil(InventoryScreen::Blank);
+    TEST_ASSERT_EQUAL_UINT(1, h.recordFiles());
 }
 
-void test_two_uncertain_erases_keep_both_records_until_each_tag_is_blank() {
+void test_two_uncertain_erases_keep_both_records_after_new_sessions() {
     Harness h;
     const auto first = cyrillicRecord();
     auto second = first;
@@ -587,21 +589,20 @@ void test_two_uncertain_erases_keep_both_records_until_each_tag_is_blank() {
     auto firstAgain = inventoryTag(first.id, 2);
     firstAgain.memory = firstBlank;
     h.reader.present(firstAgain);
-    h.runUntil(InventoryScreen::Erased);
-    TEST_ASSERT_EQUAL_UINT(1, h.recordFiles());
-    TEST_ASSERT_EQUAL_UINT8(static_cast<unsigned>(InventoryStoreStatus::NotFound),
+    h.runUntil(InventoryScreen::Blank);
+    TEST_ASSERT_EQUAL_UINT(2, h.recordFiles());
+    TEST_ASSERT_EQUAL_UINT8(static_cast<unsigned>(InventoryStoreStatus::Ok),
                             static_cast<unsigned>(h.inventory.getRecord(first.id).status));
     TEST_ASSERT_EQUAL_UINT8(static_cast<unsigned>(InventoryStoreStatus::Ok),
                             static_cast<unsigned>(h.inventory.getRecord(second.id).status));
 
-    h.inventory.acknowledge();
     h.reader.removeCard();
     h.runUntil(InventoryScreen::Waiting);
     auto secondAgain = inventoryTag(second.id, 3);
     secondAgain.memory = secondBlank;
     h.reader.present(secondAgain);
-    h.runUntil(InventoryScreen::Erased);
-    TEST_ASSERT_EQUAL_UINT(0, h.recordFiles());
+    h.runUntil(InventoryScreen::Blank);
+    TEST_ASSERT_EQUAL_UINT(2, h.recordFiles());
 }
 
 void test_erase_of_a_missing_or_damaged_record_tag() {
@@ -869,8 +870,8 @@ int main() {
     RUN_TEST(test_erase_empties_the_tag_then_deletes_the_record);
     RUN_TEST(test_failed_erase_deletes_nothing);
     RUN_TEST(test_erase_readback_failure_reconciles_the_blank_tag);
-    RUN_TEST(test_uncertain_erase_waits_for_the_same_blank_tag);
-    RUN_TEST(test_two_uncertain_erases_keep_both_records_until_each_tag_is_blank);
+    RUN_TEST(test_uncertain_erase_keeps_record_after_session_loss_even_for_a_cloned_uid);
+    RUN_TEST(test_two_uncertain_erases_keep_both_records_after_new_sessions);
     RUN_TEST(test_erase_of_a_missing_or_damaged_record_tag);
     RUN_TEST(test_foreign_tag_removed_and_returned_before_erase_confirmation);
     RUN_TEST(test_different_tag_cannot_arm_erase_without_a_new_confirmation);

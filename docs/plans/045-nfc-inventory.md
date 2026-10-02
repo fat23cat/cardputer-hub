@@ -73,9 +73,10 @@ Revised on 2026-10-02 after the first implementation, at the user's request:
   tags.
 * **Review follow-up.** The erase tests use the confirmation API and distinguish
   foreign writable NDEF from reserved or locked tags. If readback fails after
-  the blank page may have been written, Inventory keeps every unresolved target
-  while the app runs and deletes each record only after reading its UID as blank;
-  otherwise it leaves the record for recovery through the Companion. The Mac
+  the blank page may have been written, Inventory deletes the record only if
+  a blank inspection succeeds in the same reader session. After that session
+  ends, even a matching UID cannot delete it; the user checks the sticker and
+  can remove an orphaned record through the Companion. The Mac
   editor hides a failed or pending listing and disables the old form during a
   fresh GET, preserving an unsaved draft until a successful refresh. A storage
   read error during listing fails the list instead of labeling a record damaged.
@@ -84,6 +85,9 @@ Revised on 2026-10-02 after the first implementation, at the user's request:
   its tag leaves; Escape dismisses it, and the next completed read replaces it.
   The Mac editor supplies standard text shortcuts and hides revision numbers
   in the clean and saved labels.
+* **Copilot review follow-up.** Verification of long NTAG215/216 writes reads
+  the last window inside the user area; failed page operations confirm presence
+  on the next update. UI capture glyph aliases now match firmware fallbacks.
 
 Deviations from the plan text:
 
@@ -125,8 +129,8 @@ order, verification, interruption, stale results, reader loss),
 `test_inventory_never_overwrites_foreign_ndef_or_classic`,
 `test_inventory_put_revision_round_trip`,
 `test_erase_readback_failure_reconciles_the_blank_tag`,
-`test_uncertain_erase_waits_for_the_same_blank_tag`,
-`test_two_uncertain_erases_keep_both_records_until_each_tag_is_blank`, the name-first
+`test_uncertain_erase_keeps_record_after_session_loss_even_for_a_cloned_uid`,
+`test_two_uncertain_erases_keep_both_records_after_new_sessions`, the name-first
 registration, erase and delete tests), `test_inventory_codec`
 (`test_inventory_rejects_invalid_utf8_json_and_bounds`, glyphs, wrapping),
 `test_inventory_companion` (`test_inventory_transfer_cancel_and_revision_conflict`,

@@ -121,6 +121,9 @@ void InventoryService::update() {
     else if (flow_ == Flow::Erasing)
         observeErase(nfc);
     if (nfc.session != session_) {
+        // A fresh activation, even with the same UID, does not prove that an
+        // earlier uncertain erase changed this physical tag.
+        pendingErases_.clear();
         resetSession(nfc.session);
         // A new tag replaces a notice; a tag leaving keeps it on screen.
         if (nfc.session != 0)
@@ -279,9 +282,9 @@ void InventoryService::reconcilePendingErase(const NfcStatus& nfc) {
     if (pendingErases_.empty() || nfc.state != NfcServiceState::Ready || !nfc.card ||
         nfc.tag.content == NfcTagContent::None || nfc.tag.content == NfcTagContent::ReadFailed)
         return;
-    const auto pending =
-        std::find_if(pendingErases_.begin(), pendingErases_.end(),
-                     [&nfc](const EraseTarget& target) { return target.uid == nfc.card->uid; });
+    const auto pending = std::find_if(
+        pendingErases_.begin(), pendingErases_.end(),
+        [&nfc](const EraseTarget& target) { return target.writeSession == nfc.session; });
     if (pending == pendingErases_.end())
         return;
     const bool blank = nfc.tag.content == NfcTagContent::Blank;
@@ -580,6 +583,7 @@ void InventoryService::cancelErase() {
 }
 
 void InventoryService::startErase() {
+    target_->writeSession = session_;
     if (!nfc_.eraseTag(session_, target_->raw)) {
         flow_ = Flow::None;
         target_.reset();

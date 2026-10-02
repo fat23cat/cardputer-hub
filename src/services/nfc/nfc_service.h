@@ -102,6 +102,7 @@ class NfcService {
         std::vector<std::uint8_t> window;
         std::uint8_t readRetries = 0;
         std::uint8_t staleResults = 0;
+        bool pendingPresence = false;
         // Write plan: (page, data) in order, then verification of `area`.
         std::vector<std::pair<std::uint16_t, core::NfcType2Page>> writes;
         std::size_t writeIndex = 0;
@@ -121,6 +122,7 @@ class NfcService {
     void readStep();
     void writeStep();
     void verifyStep();
+    void confirmFailedOperation();
     void beginInspection();
     void beginWrite(std::uint32_t session, std::vector<std::uint8_t> area);
     bool refuseWrite(std::uint32_t session);

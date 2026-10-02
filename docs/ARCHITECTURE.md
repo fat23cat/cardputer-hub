@@ -990,10 +990,10 @@ retain a read-only copy of the last known record until Escape or the next tag
 finishes reading. `requestErase()` remembers the inspected UID and bytes; after explicit
 `confirmErase()`, `NfcService::eraseTag()` empties only that same writable tag.
 Its record is deleted only after the empty page is verified. A failed readback
-leaves the record intact and keeps that target in memory, even if another erase
-also has an uncertain result: inspecting each target's UID as blank completes
-its deletion, including after a retap. A different tag cannot trigger that
-deletion; a record that cannot be deleted after a verified erase is reported.
+may be reconciled by a blank inspection within the same reader session. If that
+session ends first, the record stays on microSD even when a later tag has the
+same UID; the user checks the tag and can delete an orphaned record in the
+Companion. A record that cannot be deleted after a verified erase is reported.
 Records are UTF-8
 JSON, `{"schema":2,"id":…,"revision":N,"name":…,"description":…}`, at most 4 KiB;
 names are 1–32 code points without control or line-separator characters or

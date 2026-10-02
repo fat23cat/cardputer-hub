@@ -306,6 +306,51 @@ void test_read_failure_is_retried_once_then_reported() {
     TEST_ASSERT_FALSE(failing.service.status().tag.writable);
 }
 
+void test_failed_page_operations_check_presence_on_the_next_update() {
+    Harness reading;
+    reading.startScanning();
+    reading.reader.present(makeNtag213(1));
+    reading.service.update(150ms);
+    reading.reader.failReads = 1;
+    reading.service.update(0ms);
+    TEST_ASSERT_EQUAL_INT(1, reading.reader.pageReads.size());
+    TEST_ASSERT_EQUAL_INT(0, reading.reader.presenceCalls);
+    reading.service.update(0ms);
+    TEST_ASSERT_EQUAL_INT(1, reading.reader.pageReads.size());
+    TEST_ASSERT_EQUAL_INT(1, reading.reader.presenceCalls);
+
+    Harness writing;
+    writing.startScanning();
+    writing.reader.present(makeNtag213(2));
+    writing.runUntil(NfcServiceState::Ready);
+    TEST_ASSERT_TRUE(writing.service.writeMessage(1, sampleMessage()));
+    writing.reader.failWrites = 1;
+    writing.service.update(0ms);
+    TEST_ASSERT_EQUAL_INT(1, writing.reader.pageWrites.size());
+    TEST_ASSERT_EQUAL_INT(0, writing.reader.presenceCalls);
+    writing.service.update(0ms);
+    TEST_ASSERT_EQUAL_INT(1, writing.reader.pageWrites.size());
+    TEST_ASSERT_EQUAL_INT(1, writing.reader.presenceCalls);
+
+    Harness verifying;
+    verifying.startScanning();
+    verifying.reader.present(makeNtag213(3));
+    verifying.runUntil(NfcServiceState::Ready);
+    TEST_ASSERT_TRUE(verifying.service.writeMessage(1, sampleMessage()));
+    for (int index = 0; index < 100 && verifying.service.status().write != NfcWriteState::Verifying;
+         ++index)
+        verifying.service.update(0ms);
+    assertWrite(NfcWriteState::Verifying, verifying.service.status().write);
+    verifying.reader.pageReads.clear();
+    verifying.reader.failReads = 1;
+    verifying.service.update(0ms);
+    TEST_ASSERT_EQUAL_INT(1, verifying.reader.pageReads.size());
+    TEST_ASSERT_EQUAL_INT(0, verifying.reader.presenceCalls);
+    verifying.service.update(0ms);
+    TEST_ASSERT_EQUAL_INT(1, verifying.reader.pageReads.size());
+    TEST_ASSERT_EQUAL_INT(1, verifying.reader.presenceCalls);
+}
+
 // ---- Tag writing --------------------------------------------------------------
 
 void test_write_uses_empty_length_first_and_verifies_by_reading_back() {
@@ -340,6 +385,39 @@ void test_write_uses_empty_length_first_and_verifies_by_reading_back() {
     assertWrite(NfcWriteState::Succeeded, h.service.status().write);
     assertContent(NfcTagContent::Message, h.service.status().tag.content);
     TEST_ASSERT_TRUE(message == h.service.status().tag.message);
+}
+
+void test_verification_stays_within_ntags_last_user_page() {
+    for (const auto type : {NfcCardType::Ntag215, NfcCardType::Ntag216}) {
+        Harness h;
+        auto card = makeNtag213(1);
+        card.info.type = type;
+        const auto area = *nfcNtagUserArea(type);
+        const auto capacity = static_cast<std::size_t>(area.pageCount) * 4U;
+        card.info.userBytes = static_cast<std::uint32_t>(capacity);
+        card.memory.resize((area.firstPage + area.pageCount + 5U) * 4U, 0);
+        card.memory[14] = static_cast<std::uint8_t>(capacity / 8U);
+        std::vector<std::uint8_t> message;
+        for (std::size_t length = 1; length < capacity; ++length) {
+            auto candidate = encodeNdefTextMessage(std::string(length, 'X'));
+            const auto encoded = encodeType2NdefArea(candidate, capacity);
+            if (encoded && encoded->size() == capacity) {
+                message = std::move(candidate);
+                break;
+            }
+        }
+        TEST_ASSERT_FALSE(message.empty());
+        h.startScanning();
+        h.reader.present(card);
+        h.runUntil(NfcServiceState::Ready);
+        TEST_ASSERT_TRUE(h.service.writeMessage(1, message));
+        h.reader.pageReads.clear();
+        h.runUntil(NfcServiceState::Ready, 0ms);
+        assertWrite(NfcWriteState::Succeeded, h.service.status().write);
+        const auto lastStart = area.firstPage + area.pageCount - 4U;
+        TEST_ASSERT_TRUE(std::all_of(h.reader.pageReads.begin(), h.reader.pageReads.end(),
+                                     [lastStart](auto page) { return page <= lastStart; }));
+    }
 }
 
 void test_write_is_refused_for_anything_but_a_blank_writable_tag() {
@@ -664,7 +742,9 @@ int main() {
     RUN_TEST(test_message_tag_publishes_the_whole_message);
     RUN_TEST(test_held_tag_is_read_once_and_never_written);
     RUN_TEST(test_read_failure_is_retried_once_then_reported);
+    RUN_TEST(test_failed_page_operations_check_presence_on_the_next_update);
     RUN_TEST(test_write_uses_empty_length_first_and_verifies_by_reading_back);
+    RUN_TEST(test_verification_stays_within_ntags_last_user_page);
     RUN_TEST(test_write_is_refused_for_anything_but_a_blank_writable_tag);
     RUN_TEST(test_removal_during_write_interrupts_and_leaves_no_truncated_message);
     RUN_TEST(test_locked_page_fails_the_write_and_the_tag_is_inspected_again);
