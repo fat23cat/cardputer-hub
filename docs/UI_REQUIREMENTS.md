@@ -419,7 +419,10 @@ Ordinal, and Ink tones. The orb is redrawn in its bounded viewport at most every
 active, and never counts as user activity. A reserved row at y=96..111 shows a
 round Leaf dot and active host name only when HostService is Ready, provides
 a name, and the COMPANION capability is live; long labels are visually
-truncated. The BT status dot remains tied to HostService. The fixed bottom
+truncated. When the Companion was built from a different protocol, the row
+instead shows a round Vermilion dot and `UPDATE COMPANION`, `UPDATE FIRMWARE`
+or `REBUILD BOTH`, naming the side with the older build date (both when the
+dates are equal or unknown; a pre-043 Companion always needs an update). The BT status dot remains tied to HostService. The fixed bottom
 action bar at y=113..134 contains APPS and SETTINGS, with APPS focused on each
 Home entry.
 Left/Right selects the action with the shared spring focus plate, Enter activates
@@ -540,14 +543,29 @@ between pages. A bound press waits on the resting grid; success lights that
 tile Leaf for 1.5 s, failure Vermilion for 2 s. Status is colour only. The tile
 then returns to the resting grid. Companion loss closes MAC CONTROL
 through the existing Mini App runtime and returns Launcher.
-MAC STATUS requires the live `SYSTEM_METRICS` capability. Its single 240×135
+MAC STATUS requires the live `COMPANION` capability. Its 240×135
 overview uses the complete surface with CPU/RAM and SSD/battery blocks, a
-download/upload row, and pressure/thermal labels. It has no internal title,
-connection label, connection dot, or navigation chrome. Missing metrics and
-stale snapshots show `--` in their own fields. It repaints changed metric
-regions only. Escape uses the shared Mini App exit path; other keys have no
-dashboard action. Capability loss closes it through MiniAppRuntime.
-AI USAGE requires the live v3 `AI_USAGE` capability. It uses the full 240×135
+download/upload row, and `MEMORY …` / `TEMP …` labels (Leaf when healthy,
+Vermilion when critical or hot). The CPU block shows a
+60-second sparkline instead of a bar; the line fills from the right and breaks
+only where a poll failed, not where an answer was late. The battery label adds `H:MM` time (to
+full while charging, to empty on battery) or `AC`, and a green dot marks
+charging. The overview has no title, connection label or connection dot. It
+shows five small page dots at the bottom edge and four detail pages follow: CPU / TOP APPS, POWER, NETWORK and MEMORY / DISK. Each
+detail page has a one-line header with the title and a quiet `N/5` counter,
+one-pixel rules, and four label/value rows with right-aligned values. Left and
+Right (`,` / `/`, with or without Fn) slide between pages and wrap. The app always
+opens on the overview. Missing metrics and stale snapshots show `--` in their
+own fields; a Mac without a battery shows `NO BATTERY`, and a CPU page with
+no app at 1% or more shows `APPS IDLE` rather than empty rows. Labels are
+plain words (`POWER USE`, `CHARGER`, `WI-FI SIGNAL STRONG`) rather than
+abbreviations or raw units such as dBm. Pages that need five or six rows use a
+15-pixel row pitch instead of 18. A row's label
+is shortened before it would touch its right-aligned value. A peripheral battery at
+20% or less shows `LOW` in Vermilion. It repaints changed regions only. Escape
+uses the shared Mini App exit path. Capability loss closes it through
+MiniAppRuntime.
+AI USAGE requires the live `COMPANION` capability. It uses the full 240×135
 display without an internal title, host label, connection chrome, cards, or
 footer. It shows only discovered providers, presents bars as remaining quota,
 labels the value `LEFT`, and marks 0–4% remaining with `!`. A stale provider
@@ -559,7 +577,7 @@ overview uses two four-row zones when two metrics are present, with two purple
 boundary pixels and 30 quota pixels per zone. It runs at Idle priority and does
 not wake the LCD. Unchanged display
 state does not continuously redraw.
-For Codex Plus on protocol v4, the main provider row adds a compact `R×N`
+For Codex Plus, the main provider row adds a compact `R×N`
 badge when the reset-credit count is known, including zero. Enter opens two
 read-only detail pages: LIMITS shows the two rolling windows in separate
 side-by-side columns, each with used, left and reset; RESETS shows the known
@@ -573,7 +591,7 @@ Logical arrow keys also work. Enter returns to
 the dashboard. Both detail pages show `STALE` when the provider data is stale.
 Escape remains the shared Mini App exit. Business and Cursor
 screens retain their existing layout and behavior.
-On protocol v5, a provider with two rolling windows shown beside a second
+A provider with two rolling windows shown beside a second
 provider (for example Codex Plus and Claude) uses one compact row per window:
 `5H`/`WK`, bar, right-aligned remaining percent, and reset time. The provider
 row labels the columns `LEFT` and `RESET`; a stale provider replaces `RESET`
@@ -587,6 +605,59 @@ unused band stays dark. A stale rolling window whose reset time has passed
 arrives as 100% left with an unknown reset and keeps the `STALE` mark. The
 empty state lists `CODEX / CURSOR / CLAUDE` with a schema 3 Companion and
 `CODEX / CURSOR` with an older one.
+NFC requires the live `NFC_READER` capability, so it is unavailable in Apps
+(`REQUIRES NFC_READER`) without a Unit NFC. It is a personal inventory screen
+with the header `NFC`; the header's right slot shows a quiet `NO SD` while the
+microSD card is not mounted. With no tag it shows a centered `TAP A TAG` with a
+quiet `)))` and the right footer `ENTER  NEW`, drawn once and without
+animation. Reading a tag keeps the previous complete frame until the result is
+ready; it does not flash an intermediate progress screen. State screens use one
+centered title and up to three quiet lines:
+`UNSUPPORTED TAG` (use an NTAG213/215/216 sticker),
+`TAG NOT NDEF FORMATTED`, `TAG IS LOCKED`, `TAG HOLDS OTHER DATA` (never
+overwritten during registration), `COULD NOT READ TAG`, and the progress screens `WRITING TAG` /
+`CHECKING TAG` / `ERASING TAG` (keep the tag on the reader) and `SAVING RECORD`.
+Failures (`NFC READER UNAVAILABLE`, `COULD NOT READ TAG`, `RECORD IS DAMAGED`,
+`MICROSD UNAVAILABLE`, `RECORD NOT SAVED`, `ERASE UNCONFIRMED`,
+`RECORD NOT DELETED`) and the erase confirmation use the Vermilion title.
+Screens with an action show it as a right footer hint: `BLANK TAG` with
+`ENTER  REGISTER`, `NO RECORD FOR THIS TAG` with `ENTER  CREATE`,
+`RECORD NOT SAVED` and `MICROSD UNAVAILABLE` with `ENTER  RETRY`, and the
+notices `RECORD SAVED`, `TAG ERASED`, `ERASE UNCONFIRMED` and `RECORD NOT DELETED`
+with `ENTER  OK`. `ERASE UNCONFIRMED` tells the user to check the tag and, for
+an inventory tag that is blank, delete the retained record on the Mac. A screen
+whose tag can be erased (a known container, a missing
+or damaged record, or unrelated writable NDEF data without reserved areas)
+shows the quiet left hint `FN+DEL  ERASE`. When registration
+is not possible the screen adds `INSERT MICROSD TO SAVE` or `INVENTORY IS FULL`
+instead of opening the editor. The name editor (`NEW CONTAINER` or
+`CREATE RECORD`) needs no tag: it takes printable ASCII from the keyboard,
+shows the draft with a `_` cursor that scrolls, `N LEFT` and `N/32`, the note
+that the description is written on the Mac, and the footer `ESC  CANCEL` on the
+left and `ENTER  SAVE` on the right only once the draft is not empty. A new
+container then shows `TAP TAG TO WRITE` with its name, `ANY BLANK NTAG STICKER`
+(or `THIS TAG IS NOT BLANK`, `TAG NOT WRITTEN, TAP AGAIN`, `INSERT MICROSD` with
+`ENTER  RETRY`) and `ESC  CANCEL`. `ERASE THIS TAG?` names the container, says
+`ITS RECORD IS DELETED` (or `THE TAG BECOMES BLANK`) and shows `ESC  CANCEL`
+and `ENTER  ERASE`. Escape leaves the editor, the erase confirmation and the
+wait for a tag through `IMiniApp::handleBack()`, is ignored while a tag is
+being written, closes a retained container after its tag leaves, and on any
+other screen uses the shared Mini App exit. A known
+container shows its name as the title, a rule, and up to seven description
+lines in Ink: each line break starts a line and long lines word-wrap by code
+point. The right header slot shows the page counter (`1/2`) when there is more
+than one page and Leaf `SAVED` right after a registration. Up/Down (`;` / `.`)
+and Left/Right (`,` / `/`, with or without Fn) change pages without wrapping and
+slide in the direction of travel. A container without a description shows
+`NO DESCRIPTION YET` and `WRITE IT IN MAC COMPANION`. Text renders in UTF-8
+with the Cyrillic glyphs of the system font; an unsupported character is a
+box. Removing a known container's tag keeps its name and description on screen,
+with pagination available and `ESC  CLOSE` replacing the erase hint. Escape
+returns to `TAP A TAG`; a newly read tag replaces the retained record. A retained
+record cannot be erased without its tag. Removing a tag ends an erase
+confirmation; name entry goes on without the tag. Capability loss closes the app
+through MiniAppRuntime. Physical review of the Cyrillic glyphs on the 240×135
+display is pending.
 Idle dimming, the final off fade and wake-input consumption are implemented for
 every screen and Mini App from the shared runtime input path; physical
 acceptance on Cardputer-Adv is pending. Remaining semantic

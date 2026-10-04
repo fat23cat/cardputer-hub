@@ -4,6 +4,7 @@
 #include <cerrno>
 #include <climits>
 #include <cstdio>
+#include <dirent.h>
 #include <string>
 #include <string_view>
 #include <sys/stat.h>
@@ -330,6 +331,107 @@ CardputerMicroSdFileStorageAdapter::remove(const core::FileStoragePath& path) {
     }
     return error == ENOENT ? core::FileRemoveStatus::NotFound
                            : core::FileRemoveStatus::BackendError;
+}
+
+core::FileListResult
+CardputerMicroSdFileStorageAdapter::list(const core::FileStoragePath& directory,
+                                         std::size_t maxEntries) {
+    if (!isSafeLogicalPath(directory)) {
+        return {core::FileListStatus::InvalidPath, {}};
+    }
+    if (maxEntries == 0) {
+        return {core::FileListStatus::InvalidRequest, {}};
+    }
+    if (state_ != core::FileStorageState::Ready) {
+        return {core::FileListStatus::Unavailable, {}};
+    }
+    const auto backendPath = managedPath(directory);
+    errno = 0;
+    DIR* handle = opendir(backendPath.c_str());
+    if (handle == nullptr) {
+        const int error = errno;
+        if (operationBecameUnavailable(error)) {
+            return {core::FileListStatus::Unavailable, {}};
+        }
+        return {error == ENOENT ? core::FileListStatus::NotFound
+                                : core::FileListStatus::BackendError,
+                {}};
+    }
+    core::FileListResult result{core::FileListStatus::Listed, {}};
+    errno = 0;
+    while (const dirent* entry = readdir(handle)) {
+        const std::string_view name(entry->d_name);
+        if (name == "." || name == ".." || entry->d_type == DT_DIR) {
+            continue;
+        }
+        if (result.names.size() >= maxEntries) {
+            result.status = core::FileListStatus::TooMany;
+            result.names.clear();
+            break;
+        }
+        result.names.emplace_back(name);
+    }
+    const int readError = errno;
+    closedir(handle);
+    if (result.status == core::FileListStatus::Listed && readError != 0) {
+        result.names.clear();
+        result.status = operationBecameUnavailable(readError) ? core::FileListStatus::Unavailable
+                                                              : core::FileListStatus::BackendError;
+    }
+    return result;
+}
+
+core::FileRenameStatus CardputerMicroSdFileStorageAdapter::rename(const core::FileStoragePath& from,
+                                                                  const core::FileStoragePath& to) {
+    if (!isSafeLogicalPath(from) || !isSafeLogicalPath(to)) {
+        return core::FileRenameStatus::InvalidPath;
+    }
+    if (state_ != core::FileStorageState::Ready) {
+        return core::FileRenameStatus::Unavailable;
+    }
+    const auto source = managedPath(from);
+    const auto destination = managedPath(to);
+    struct stat status{};
+    errno = 0;
+    if (stat(source.c_str(), &status) != 0) {
+        const int error = errno;
+        if (operationBecameUnavailable(error)) {
+            return core::FileRenameStatus::Unavailable;
+        }
+        return error == ENOENT ? core::FileRenameStatus::NotFound
+                               : core::FileRenameStatus::BackendError;
+    }
+    if (S_ISDIR(status.st_mode)) {
+        return core::FileRenameStatus::BackendError;
+    }
+    // FAT never replaces an existing name; report it before trying.
+    errno = 0;
+    if (stat(destination.c_str(), &status) == 0) {
+        return core::FileRenameStatus::Exists;
+    }
+    if (const int error = errno; error != ENOENT) {
+        return operationBecameUnavailable(error) ? core::FileRenameStatus::Unavailable
+                                                 : core::FileRenameStatus::BackendError;
+    }
+    errno = 0;
+    if (!ensureParentDirectories(to)) {
+        const int error = errno;
+        return operationBecameUnavailable(error) ? core::FileRenameStatus::Unavailable
+                                                 : core::FileRenameStatus::BackendError;
+    }
+    errno = 0;
+    if (std::rename(source.c_str(), destination.c_str()) == 0) {
+        return core::FileRenameStatus::Renamed;
+    }
+    const int error = errno;
+    if (operationBecameUnavailable(error)) {
+        return core::FileRenameStatus::Unavailable;
+    }
+    if (error == EEXIST) {
+        return core::FileRenameStatus::Exists;
+    }
+    return error == ENOENT ? core::FileRenameStatus::NotFound
+                           : core::FileRenameStatus::BackendError;
 }
 
 } // namespace cardputer_hub::hardware

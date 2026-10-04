@@ -149,6 +149,10 @@ void ApplicationShell::playInputFeedback(const InputEvent& event) {
 
 void ApplicationShell::routeMiniAppEvent(const InputEvent& event) {
     if (isPlainEscape(event)) {
+        // An app with internal back navigation (a detail view) consumes the key
+        // and stays open; otherwise Escape closes it.
+        if (miniApps_.handleBack())
+            return;
         (void)actions_.dispatch({"app.close", "shell", {}});
         restoreLauncherFromMiniApp(false);
         return;
@@ -389,12 +393,16 @@ void ApplicationShell::renderHome(std::chrono::milliseconds elapsed,
     const auto wifi = homeWifiIndicator(network_.status());
     const auto hostStatus = hosts_.status();
     const auto bluetooth = homeBluetoothIndicator(hostStatus.connection);
-    const auto connectedDeviceName = capabilities_.isAvailable("COMPANION")
-                                         ? homeConnectedDeviceName(hostStatus)
-                                         : std::string{};
+    const bool mismatch = companion_ != nullptr &&
+                          companion_->state() == services::CompanionServiceState::Incompatible;
+    const auto connectedDeviceName =
+        mismatch ? homeCompanionMismatchText(companion_->mismatchAdvice())
+        : capabilities_.isAvailable("COMPANION") ? homeConnectedDeviceName(hostStatus)
+                                                 : std::string{};
     const auto percent = batteryPercent && *batteryPercent <= 100 ? batteryPercent : std::nullopt;
     const HomeStatusFrame next{static_cast<std::uint8_t>(wifi),
-                               static_cast<std::uint8_t>(bluetooth), percent, connectedDeviceName};
+                               static_cast<std::uint8_t>(bluetooth), percent, connectedDeviceName,
+                               mismatch};
     const bool entering = !homeStatusFrame_;
     if (entering) {
         homeAmbientRendered_ = false;
@@ -407,8 +415,9 @@ void ApplicationShell::renderHome(std::chrono::milliseconds elapsed,
         drawHomeBluetooth(display_, bluetooth);
     if (entering || homeStatusFrame_->batteryPercent != next.batteryPercent)
         drawHomeBattery(display_, percent);
-    if (entering || homeStatusFrame_->connectedDeviceName != next.connectedDeviceName)
-        drawHomeConnectedDevice(display_, connectedDeviceName);
+    if (entering || homeStatusFrame_->connectedDeviceName != next.connectedDeviceName ||
+        homeStatusFrame_->companionMismatch != next.companionMismatch)
+        drawHomeConnectedDevice(display_, connectedDeviceName, mismatch);
     if (!displayOff && !transitionPaused)
         homePlateMotion_.advance(elapsed);
     const int plateX =

@@ -29,11 +29,17 @@ final class CompanionCentral: NSObject, CBCentralManagerDelegate, CBPeripheralDe
     private var pendingTarget: CBPeripheral?
     private var cancellationTick: Timer?
     private var workspaceObservers: [NSObjectProtocol] = []
+    private var livenessTick: Timer?
+    private let inventory: InventoryEditorModel
+    private var inventorySession: UInt16 = 0
 
     init(applications: ApplicationControlling, metrics: SystemMetricsCollecting,
-         aiUsage: AiUsageCollector, status: CompanionStatusStore) {
+         details: SystemDetailsCollecting, aiUsage: AiUsageCollector, status: CompanionStatusStore,
+         inventory: InventoryEditorModel) {
         self.aiUsage = aiUsage
-        session = CompanionSession(applications: applications, metrics: metrics, aiUsage: aiUsage)
+        self.inventory = inventory
+        session = CompanionSession(applications: applications, metrics: metrics, details: details,
+                                   aiUsage: aiUsage)
         self.status = status
         super.init()
         session.outgoing = { [weak self] bytes in self?.send(bytes) }
@@ -42,6 +48,14 @@ final class CompanionCentral: NSObject, CBCentralManagerDelegate, CBPeripheralDe
 
     func start() {
         aiUsage.start()
+        // The Cardputer drops a session it cannot keep up with; reattach instead
+        // of waiting for the user to press Reconnect.
+        livenessTick?.invalidate()
+        livenessTick = Timer.scheduledTimer(withTimeInterval: 3, repeats: true) { [weak self] _ in
+            guard let self, self.session.livenessExpired(at: Date()) else { return }
+            log.error("companion session went silent; reconnecting")
+            self.reconnect()
+        }
         manager = CBCentralManager(delegate: self, queue: .main)
         refreshStatus()
         if workspaceObservers.isEmpty {
@@ -166,6 +180,9 @@ final class CompanionCentral: NSObject, CBCentralManagerDelegate, CBPeripheralDe
             handshakeWatchdog?.invalidate()
             handshakeWatchdog = Timer.scheduledTimer(withTimeInterval: 5, repeats: false) { [weak self] _ in
                 guard let self, self.session.session == 0 else { return }
+                // A mismatch is final until the user updates one side and reconnects.
+                if case .mismatch = self.session.compatibility { return }
+                self.session.handshakeTimedOut()
                 log.error("companion handshake timed out")
                 self.connectionError = true
                 self.apply(self.coordinator.handleHandshakeTimeout(attempt))
@@ -177,6 +194,13 @@ final class CompanionCentral: NSObject, CBCentralManagerDelegate, CBPeripheralDe
         status.sync(session: session, phase: coordinator.phase,
                     error: connectionError, bluetoothReady: manager?.state == .poweredOn,
                     waitingToConnect: coordinator.pendingConnectId != nil)
+        // Each new session lists the Cardputer's records afresh; nothing is
+        // replayed from an earlier one.
+        if session.session != inventorySession {
+            if inventorySession != 0 { inventory.setTransport(nil) }
+            inventorySession = session.session
+            if inventorySession != 0 { inventory.setTransport(session) }
+        }
     }
 
     func reconnect() {
@@ -191,6 +215,8 @@ final class CompanionCentral: NSObject, CBCentralManagerDelegate, CBPeripheralDe
     func stop() {
         guard !stopped else { return }
         stopped = true
+        livenessTick?.invalidate()
+        livenessTick = nil
         retry?.invalidate()
         retry = nil
         resetLocalConnection()
@@ -299,6 +325,7 @@ final class CompanionCentral: NSObject, CBCentralManagerDelegate, CBPeripheralDe
         reassemblyTick?.invalidate()
         reassemblyTick = Timer.scheduledTimer(withTimeInterval: 0.25, repeats: true) { [weak self] _ in
             self?.reassembler.update(0.25)
+            self?.session.expireRequests(at: Date())
         }
     }
 
@@ -377,13 +404,20 @@ final class CompanionCentral: NSObject, CBCentralManagerDelegate, CBPeripheralDe
               let assembled = reassembler.ingest([UInt8](data))
         else { return }
         if session.handle(assembled) {
+            if case .mismatch = session.compatibility {
+                log.error("cardputer firmware built from a different protocol")
+                connectionError = true
+            }
             refreshStatus()
         }
     }
 
     private func send(_ bytes: [UInt8]) {
         guard let peripheral, peripheral.identifier == coordinator.currentId, let hostToDevice,
-              let framed = CompanionFramer.encode(bytes, messageId: outgoingId)
+              let framed = CompanionFramer.encode(
+                  bytes, messageId: outgoingId,
+                  maxPayload: CompanionFramer.payloadSize(
+                      maximumWriteLength: peripheral.maximumWriteValueLength(for: .withoutResponse)))
         else { return }
         outgoingId &+= 1
         if outgoingId == 0 { outgoingId = 1 }
@@ -409,28 +443,58 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var central: CompanionCentral?
     private var status: CompanionStatusStore?
     private var menuBar: CompanionMenuBarController?
+    private var inventoryWindow: InventoryWindowController?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        installEditMenu()
         let status = CompanionStatusStore(login: StartAtLoginModel(service: SystemLoginRegistration()))
         let menuBar = CompanionMenuBarController(status: status)
+        let inventory = InventoryEditorModel()
+        let inventoryWindow = InventoryWindowController(model: inventory)
         let central = CompanionCentral(applications: WorkspaceApplicationController(),
                                        metrics: MacSystemMetricsCollector(),
-                                       aiUsage: AiUsageCollector(), status: status)
+                                       details: MacSystemDetailsCollector(),
+                                       aiUsage: AiUsageCollector(), status: status,
+                                       inventory: inventory)
         status.onReconnect = { [weak central] in central?.reconnect() }
         status.onQuit = { [weak self] in self?.quit() }
+        status.onOpenInventory = { [weak inventoryWindow] in inventoryWindow?.show() }
         self.status = status
         self.menuBar = menuBar
+        self.inventoryWindow = inventoryWindow
         self.central = central
         central.start()
     }
 
     func applicationWillTerminate(_ notification: Notification) {
         central?.stop()
+        inventoryWindow?.close()
         menuBar?.stop()
     }
 
     private func quit() {
         NSApp.terminate(nil)
+    }
+
+    private func installEditMenu() {
+        // SwiftUI text controls route these actions through the first responder.
+        // An accessory app has no default Edit menu to supply their shortcuts.
+        let mainMenu = NSMenu()
+        let editItem = NSMenuItem(title: "Edit", action: nil, keyEquivalent: "")
+        let editMenu = NSMenu(title: "Edit")
+        for (title, action, key) in [
+            ("Cut", #selector(NSText.cut(_:)), "x"),
+            ("Copy", #selector(NSText.copy(_:)), "c"),
+            ("Paste", #selector(NSText.paste(_:)), "v"),
+            ("Select All", #selector(NSText.selectAll(_:)), "a"),
+        ] {
+            let item = NSMenuItem(title: title, action: action, keyEquivalent: key)
+            item.keyEquivalentModifierMask = .command
+            editMenu.addItem(item)
+        }
+        editItem.submenu = editMenu
+        mainMenu.addItem(editItem)
+        NSApp.mainMenu = mainMenu
     }
 }
 

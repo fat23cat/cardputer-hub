@@ -1,5 +1,7 @@
 #include "connectivity/companion/companion_protocol.h"
 
+#include "core/text/utf8.h"
+
 #include <cstring>
 
 namespace cardputer_hub::connectivity {
@@ -11,14 +13,42 @@ bool isKnownKindValue(std::uint8_t kind) noexcept {
 }
 
 bool isKnownOperationValue(std::uint8_t operation) noexcept {
-    return operation <= static_cast<std::uint8_t>(CompanionOperation::AiUsage);
+    return operation != 2 &&
+           operation <= static_cast<std::uint8_t>(CompanionOperation::InventoryDelete);
 }
 
 bool isKnownStatusValue(std::uint8_t status) noexcept {
-    return status <= static_cast<std::uint8_t>(CompanionStatus::Malformed);
+    return status <= static_cast<std::uint8_t>(CompanionStatus::StorageError);
 }
 
-bool operationAllowedForKind(CompanionKind kind, CompanionOperation operation) noexcept;
+void write16(std::uint8_t* bytes, std::uint16_t value) {
+    bytes[0] = static_cast<std::uint8_t>(value);
+    bytes[1] = static_cast<std::uint8_t>(value >> 8U);
+}
+std::uint16_t read16(const std::uint8_t* bytes) {
+    return static_cast<std::uint16_t>(bytes[0] | (std::uint16_t(bytes[1]) << 8U));
+}
+void write32(std::uint8_t* bytes, std::uint32_t value) {
+    for (int i = 0; i < 4; ++i)
+        bytes[i] = static_cast<std::uint8_t>(value >> (8 * i));
+}
+std::uint32_t read32(const std::uint8_t* bytes) {
+    return static_cast<std::uint32_t>(bytes[0]) | (static_cast<std::uint32_t>(bytes[1]) << 8U) |
+           (static_cast<std::uint32_t>(bytes[2]) << 16U) |
+           (static_cast<std::uint32_t>(bytes[3]) << 24U);
+}
+bool printableAscii(const char* text, std::size_t length) {
+    for (std::size_t i = 0; i < length; ++i)
+        if (static_cast<unsigned char>(text[i]) < 0x20U ||
+            static_cast<unsigned char>(text[i]) > 0x7eU)
+            return false;
+    return true;
+}
+
+bool helloPayloadValid(const CompanionEnvelope& message) noexcept {
+    CompanionHello hello{};
+    return readHello(message, hello);
+}
 
 bool headerSemanticsValid(const CompanionEnvelope& message) noexcept {
     switch (message.kind) {
@@ -27,9 +57,10 @@ bool headerSemanticsValid(const CompanionEnvelope& message) noexcept {
                message.operation == CompanionOperation::None &&
                message.status == CompanionStatus::Ok;
     case CompanionKind::HelloAck:
-        return message.session != 0 && message.requestId == 0 &&
-               message.operation == CompanionOperation::None &&
-               message.status == CompanionStatus::Ok;
+        // Accepted: a session and OK. Mismatch: no session and UNSUPPORTED.
+        return message.requestId == 0 && message.operation == CompanionOperation::None &&
+               ((message.session != 0 && message.status == CompanionStatus::Ok) ||
+                (message.session == 0 && message.status == CompanionStatus::Unsupported));
     case CompanionKind::Request:
         return message.session != 0 && message.requestId != 0 &&
                message.status == CompanionStatus::Ok;
@@ -42,86 +73,102 @@ bool headerSemanticsValid(const CompanionEnvelope& message) noexcept {
     return false;
 }
 
-bool helloPayloadValid(const CompanionEnvelope& message) noexcept {
-    return message.payloadSize >= 2 && message.payload[0] > 0 &&
-           message.payload[0] <= companionMaxSupportedVersions &&
-           message.payloadSize == static_cast<std::uint8_t>(message.payload[0] + 1);
-}
-
 bool bundlePayloadValid(const CompanionEnvelope& message) noexcept {
     char bundle[companionMaxBundleIdSize + 1]{};
     std::uint8_t length = 0;
     return readBundleIdentifier(message, bundle, sizeof(bundle), length);
 }
 
-bool capabilitiesPayloadValid(const CompanionEnvelope& message) noexcept {
-    CompanionCapability capabilities[companionMaxCapabilities]{};
-    std::uint8_t count = 0;
-    return readCapabilityList(message, capabilities, count, companionMaxCapabilities);
+bool inventoryListResponseValid(const CompanionEnvelope& message) noexcept;
+bool inventoryGetResponseValid(const CompanionEnvelope& message) noexcept;
+bool inventoryPutRequestValid(const CompanionEnvelope& message) noexcept;
+
+bool inventoryPayloadValid(const CompanionEnvelope& message) noexcept {
+    if (message.kind == CompanionKind::Request) {
+        switch (message.operation) {
+        case CompanionOperation::InventoryList: {
+            std::uint16_t start = 0;
+            return readInventoryListRequest(message, start);
+        }
+        case CompanionOperation::InventoryGet: {
+            CompanionInventoryId id{};
+            std::uint16_t offset = 0;
+            return readInventoryGetRequest(message, id, offset);
+        }
+        case CompanionOperation::InventoryDelete: {
+            CompanionInventoryId id{};
+            std::uint32_t revision = 0;
+            return readInventoryDeleteRequest(message, id, revision);
+        }
+        default:
+            return inventoryPutRequestValid(message);
+        }
+    }
+    if (message.status == CompanionStatus::Conflict)
+        return (message.operation == CompanionOperation::InventoryPut ||
+                message.operation == CompanionOperation::InventoryDelete) &&
+               message.payloadSize == 4 && read32(message.payload.data()) != 0;
+    if (message.status != CompanionStatus::Ok)
+        return message.payloadSize == 0;
+    switch (message.operation) {
+    case CompanionOperation::InventoryList:
+        return inventoryListResponseValid(message);
+    case CompanionOperation::InventoryGet:
+        return inventoryGetResponseValid(message);
+    case CompanionOperation::InventoryDelete:
+        return message.payloadSize == 0;
+    default:
+        return message.payloadSize == 6;
+    }
 }
 
 bool operationPayloadValid(const CompanionEnvelope& message) noexcept {
     switch (message.operation) {
     case CompanionOperation::None:
-        if (message.kind == CompanionKind::Hello) {
-            return helloPayloadValid(message);
-        }
-        return message.kind == CompanionKind::HelloAck && message.payloadSize == 1 &&
-               message.payload[0] >= companionProtocolVersion &&
-               message.payload[0] <= companionLatestProtocolVersion;
+        return helloPayloadValid(message);
     case CompanionOperation::Ping:
         return message.payloadSize == companionPingTokenSize;
-    case CompanionOperation::Capabilities:
-        if (message.kind == CompanionKind::Request) {
-            return message.payloadSize == 0;
-        }
-        if (message.status != CompanionStatus::Ok) {
-            return message.payloadSize == 0;
-        }
-        return capabilitiesPayloadValid(message);
     case CompanionOperation::AppActive:
-        if (message.kind == CompanionKind::Request) {
+        if (message.kind == CompanionKind::Request)
             return message.payloadSize == 0;
-        }
-        if (message.status == CompanionStatus::Ok) {
+        if (message.status == CompanionStatus::Ok)
             return bundlePayloadValid(message);
-        }
         return message.payloadSize == 0;
     case CompanionOperation::AppActivate:
-        if (message.kind == CompanionKind::Request) {
+        if (message.kind == CompanionKind::Request)
             return bundlePayloadValid(message);
-        }
         return message.payloadSize == 0;
     case CompanionOperation::AppActiveChanged:
         return message.payloadSize == 0 || bundlePayloadValid(message);
     case CompanionOperation::SystemMetrics: {
-        if (message.version < 2)
-            return false;
         if (message.kind == CompanionKind::Request || message.status != CompanionStatus::Ok)
             return message.payloadSize == 0;
         CompanionSystemMetrics metrics{};
         return readSystemMetrics(message, metrics);
     }
     case CompanionOperation::AiUsage: {
-        if (message.version < 3)
-            return false;
         if (message.kind == CompanionKind::Request || message.status != CompanionStatus::Ok)
             return message.payloadSize == 0;
         CompanionAiUsage usage{};
         return readAiUsage(message, usage);
     }
+    case CompanionOperation::SystemDetails: {
+        if (message.kind == CompanionKind::Request) {
+            SystemDetailsGroup group{};
+            return readSystemDetailsRequest(message, group);
+        }
+        if (message.status != CompanionStatus::Ok)
+            return message.payloadSize == 0;
+        CompanionSystemDetails details{};
+        return readSystemDetails(message, details);
+    }
+    case CompanionOperation::InventoryList:
+    case CompanionOperation::InventoryGet:
+    case CompanionOperation::InventoryPut:
+    case CompanionOperation::InventoryDelete:
+        return inventoryPayloadValid(message);
     }
     return false;
-}
-
-bool envelopeValid(const CompanionEnvelope& message) noexcept {
-    return message.version >= companionProtocolVersion &&
-           message.version <= companionLatestProtocolVersion &&
-           isKnownKindValue(static_cast<std::uint8_t>(message.kind)) &&
-           isKnownOperationValue(static_cast<std::uint8_t>(message.operation)) &&
-           isKnownStatusValue(static_cast<std::uint8_t>(message.status)) &&
-           operationAllowedForKind(message.kind, message.operation) &&
-           headerSemanticsValid(message) && operationPayloadValid(message);
 }
 
 bool operationAllowedForKind(CompanionKind kind, CompanionOperation operation) noexcept {
@@ -130,28 +177,36 @@ bool operationAllowedForKind(CompanionKind kind, CompanionOperation operation) n
     case CompanionKind::HelloAck:
         return operation == CompanionOperation::None;
     case CompanionKind::Request:
-        return operation == CompanionOperation::Ping ||
-               operation == CompanionOperation::Capabilities ||
-               operation == CompanionOperation::AppActive ||
-               operation == CompanionOperation::AppActivate ||
-               operation == CompanionOperation::SystemMetrics ||
-               operation == CompanionOperation::AiUsage;
     case CompanionKind::Response:
         return operation == CompanionOperation::Ping ||
-               operation == CompanionOperation::Capabilities ||
                operation == CompanionOperation::AppActive ||
                operation == CompanionOperation::AppActivate ||
                operation == CompanionOperation::SystemMetrics ||
-               operation == CompanionOperation::AiUsage;
+               operation == CompanionOperation::AiUsage ||
+               operation == CompanionOperation::SystemDetails || isInventoryOperation(operation);
     case CompanionKind::Event:
         return operation == CompanionOperation::AppActiveChanged;
     }
     return false;
 }
 
+bool envelopeValid(const CompanionEnvelope& message) noexcept {
+    return isKnownKindValue(static_cast<std::uint8_t>(message.kind)) &&
+           isKnownOperationValue(static_cast<std::uint8_t>(message.operation)) &&
+           isKnownStatusValue(static_cast<std::uint8_t>(message.status)) &&
+           operationAllowedForKind(message.kind, message.operation) &&
+           headerSemanticsValid(message) && operationPayloadValid(message);
+}
+
 bool continuationUtf8(std::uint8_t value) noexcept { return (value & 0xC0U) == 0x80U; }
 
 } // namespace
+
+bool companionResponseFailureIsIsolated(CompanionOperation operation) noexcept {
+    return operation == CompanionOperation::SystemMetrics ||
+           operation == CompanionOperation::AiUsage ||
+           operation == CompanionOperation::SystemDetails;
+}
 
 bool isKnownCompanionKind(std::uint8_t kind) noexcept { return isKnownKindValue(kind); }
 
@@ -160,6 +215,16 @@ bool isKnownCompanionOperation(std::uint8_t operation) noexcept {
 }
 
 bool isKnownCompanionStatus(std::uint8_t status) noexcept { return isKnownStatusValue(status); }
+
+bool isLegacyCompanionFrame(const std::uint8_t* data, std::size_t size) noexcept {
+    return data != nullptr && size >= companionEnvelopeSize && data[0] >= 1 &&
+           data[0] <= companionLegacyMaxVersion;
+}
+
+bool isLegacyCompanionHello(const std::uint8_t* data, std::size_t size) noexcept {
+    return isLegacyCompanionFrame(data, size) &&
+           data[1] == static_cast<std::uint8_t>(CompanionKind::Hello);
+}
 
 bool isUtf8BundleIdentifier(std::string_view value) noexcept {
     if (value.empty() || value.size() > companionMaxBundleIdSize) {
@@ -207,32 +272,12 @@ bool isUtf8BundleIdentifier(std::string_view value) noexcept {
     return true;
 }
 
-const char* companionCapabilityName(CompanionCapability capability) noexcept {
-    switch (capability) {
-    case CompanionCapability::AppActive:
-        return companionAppActiveCapabilityId;
-    case CompanionCapability::AppActivate:
-        return companionAppActivateCapabilityId;
-    case CompanionCapability::AppActiveEvents:
-        return companionAppActiveEventsCapabilityId;
-    case CompanionCapability::SystemMetrics:
-        return companionSystemMetricsCapabilityId;
-    case CompanionCapability::AiUsage:
-        return companionAiUsageCapabilityId;
-    }
-    return nullptr;
-}
-
 std::optional<CompanionEncodedMessage> encodeCompanionMessage(const CompanionEnvelope& message) {
-    if (!isKnownKindValue(static_cast<std::uint8_t>(message.kind)) ||
-        !isKnownOperationValue(static_cast<std::uint8_t>(message.operation)) ||
-        !isKnownStatusValue(static_cast<std::uint8_t>(message.status)) ||
-        message.payloadSize > companionMaxPayloadSize || !envelopeValid(message)) {
+    if (message.payloadSize > companionMaxPayloadSize || !envelopeValid(message))
         return std::nullopt;
-    }
     CompanionEncodedMessage encoded{};
     encoded.size = static_cast<std::uint16_t>(companionEnvelopeSize + message.payloadSize);
-    encoded.bytes[0] = message.version;
+    encoded.bytes[0] = companionFrameMarker;
     encoded.bytes[1] = static_cast<std::uint8_t>(message.kind);
     encoded.bytes[2] = static_cast<std::uint8_t>(message.session & 0xFFU);
     encoded.bytes[3] = static_cast<std::uint8_t>((message.session >> 8U) & 0xFFU);
@@ -240,29 +285,22 @@ std::optional<CompanionEncodedMessage> encodeCompanionMessage(const CompanionEnv
     encoded.bytes[5] = static_cast<std::uint8_t>(message.operation);
     encoded.bytes[6] = static_cast<std::uint8_t>(message.status);
     encoded.bytes[7] = message.payloadSize;
-    if (message.payloadSize > 0) {
+    if (message.payloadSize > 0)
         std::memcpy(encoded.bytes.data() + companionEnvelopeSize, message.payload.data(),
                     message.payloadSize);
-    }
     return encoded;
 }
 
 std::optional<CompanionEnvelope> decodeCompanionMessage(const std::uint8_t* data,
                                                         std::size_t size) {
-    if (data == nullptr || size < companionEnvelopeSize || size > companionMaxMessageSize) {
+    if (data == nullptr || size < companionEnvelopeSize || size > companionMaxMessageSize ||
+        data[0] != companionFrameMarker)
         return std::nullopt;
-    }
     const auto payloadSize = data[7];
-    if (size != companionEnvelopeSize + payloadSize) {
+    if (size != companionEnvelopeSize + payloadSize || !isKnownKindValue(data[1]) ||
+        !isKnownOperationValue(data[5]) || !isKnownStatusValue(data[6]))
         return std::nullopt;
-    }
-    if ((data[0] < companionProtocolVersion || data[0] > companionLatestProtocolVersion) ||
-        !isKnownKindValue(data[1]) || !isKnownOperationValue(data[5]) ||
-        !isKnownStatusValue(data[6])) {
-        return std::nullopt;
-    }
     CompanionEnvelope message{};
-    message.version = data[0];
     message.kind = static_cast<CompanionKind>(data[1]);
     message.session =
         static_cast<std::uint16_t>(data[2] | (static_cast<std::uint16_t>(data[3]) << 8U));
@@ -270,34 +308,62 @@ std::optional<CompanionEnvelope> decodeCompanionMessage(const std::uint8_t* data
     message.operation = static_cast<CompanionOperation>(data[5]);
     message.status = static_cast<CompanionStatus>(data[6]);
     message.payloadSize = payloadSize;
-    if (payloadSize > 0) {
+    if (payloadSize > 0)
         std::memcpy(message.payload.data(), data + companionEnvelopeSize, payloadSize);
-    }
-    if (!envelopeValid(message)) {
+    if (!envelopeValid(message))
         return std::nullopt;
-    }
     return message;
 }
 
-CompanionEnvelope makeHello(const std::uint8_t* versions, std::uint8_t count) {
+namespace {
+bool setHelloPayload(CompanionEnvelope& message, const CompanionHello& hello) {
+    const auto length = strnlen(hello.buildId.data(), hello.buildId.size());
+    if (length == 0 || length > companionMaxBuildIdSize ||
+        !printableAscii(hello.buildId.data(), length))
+        return false;
+    std::memcpy(message.payload.data(), hello.fingerprint.data(), companionFingerprintSize);
+    message.payload[companionFingerprintSize] = static_cast<std::uint8_t>(length);
+    std::memcpy(message.payload.data() + companionFingerprintSize + 1, hello.buildId.data(),
+                length);
+    message.payloadSize = static_cast<std::uint8_t>(companionFingerprintSize + 1 + length);
+    return true;
+}
+} // namespace
+
+std::optional<CompanionEnvelope> makeHello(const CompanionHello& hello) {
     CompanionEnvelope message{};
     message.kind = CompanionKind::Hello;
-    if (versions == nullptr || count == 0 || count > companionMaxSupportedVersions) {
-        return message;
-    }
-    message.payload[0] = count;
-    std::memcpy(message.payload.data() + 1, versions, count);
-    message.payloadSize = static_cast<std::uint8_t>(count + 1);
+    if (!setHelloPayload(message, hello))
+        return std::nullopt;
     return message;
 }
 
-CompanionEnvelope makeHelloAck(std::uint16_t session, std::uint8_t protocol) {
+std::optional<CompanionEnvelope> makeHelloAck(std::uint16_t session, CompanionStatus status,
+                                              const CompanionHello& hello) {
     CompanionEnvelope message{};
     message.kind = CompanionKind::HelloAck;
     message.session = session;
-    message.payload[0] = protocol;
-    message.payloadSize = 1;
+    message.status = status;
+    if (!setHelloPayload(message, hello) || !headerSemanticsValid(message))
+        return std::nullopt;
     return message;
+}
+
+bool readHello(const CompanionEnvelope& message, CompanionHello& hello) {
+    if ((message.kind != CompanionKind::Hello && message.kind != CompanionKind::HelloAck) ||
+        message.payloadSize < companionFingerprintSize + 2)
+        return false;
+    const auto length = message.payload[companionFingerprintSize];
+    const auto* id =
+        reinterpret_cast<const char*>(message.payload.data() + companionFingerprintSize + 1);
+    if (length == 0 || length > companionMaxBuildIdSize ||
+        message.payloadSize != companionFingerprintSize + 1 + length || !printableAscii(id, length))
+        return false;
+    CompanionHello result{};
+    std::memcpy(result.fingerprint.data(), message.payload.data(), companionFingerprintSize);
+    std::memcpy(result.buildId.data(), id, length);
+    hello = result;
+    return true;
 }
 
 CompanionEnvelope makeRequest(std::uint16_t session, std::uint8_t requestId,
@@ -331,9 +397,8 @@ CompanionEnvelope makeEvent(std::uint16_t session, CompanionOperation operation)
 
 bool setPingToken(CompanionEnvelope& message,
                   const std::array<std::uint8_t, companionPingTokenSize>& token) {
-    if (message.operation != CompanionOperation::Ping) {
+    if (message.operation != CompanionOperation::Ping)
         return false;
-    }
     std::memcpy(message.payload.data(), token.data(), token.size());
     message.payloadSize = static_cast<std::uint8_t>(token.size());
     return true;
@@ -342,53 +407,9 @@ bool setPingToken(CompanionEnvelope& message,
 bool readPingToken(const CompanionEnvelope& message,
                    std::array<std::uint8_t, companionPingTokenSize>& token) {
     if (message.operation != CompanionOperation::Ping ||
-        message.payloadSize != companionPingTokenSize) {
+        message.payloadSize != companionPingTokenSize)
         return false;
-    }
     std::memcpy(token.data(), message.payload.data(), token.size());
-    return true;
-}
-
-bool setCapabilityList(CompanionEnvelope& message, const CompanionCapability* capabilities,
-                       std::uint8_t count) {
-    if (message.operation != CompanionOperation::Capabilities || capabilities == nullptr ||
-        count == 0 || count > companionMaxCapabilities) {
-        return false;
-    }
-    message.payload[0] = count;
-    for (std::uint8_t index = 0; index < count; ++index) {
-        if (capabilities[index] == CompanionCapability::SystemMetrics && message.version < 2)
-            return false;
-        if (capabilities[index] == CompanionCapability::AiUsage && message.version < 3)
-            return false;
-        message.payload[index + 1] = static_cast<std::uint8_t>(capabilities[index]);
-    }
-    message.payloadSize = static_cast<std::uint8_t>(count + 1);
-    return true;
-}
-
-bool readCapabilityList(const CompanionEnvelope& message, CompanionCapability* capabilities,
-                        std::uint8_t& count, std::uint8_t capacity) {
-    count = 0;
-    if (message.operation != CompanionOperation::Capabilities || capabilities == nullptr ||
-        message.payloadSize < 2 || message.payload[0] == 0 ||
-        message.payloadSize != static_cast<std::uint8_t>(message.payload[0] + 1) ||
-        message.payload[0] > capacity || message.payload[0] > companionMaxCapabilities) {
-        return false;
-    }
-    for (std::uint8_t index = 0; index < message.payload[0]; ++index) {
-        const auto value = message.payload[index + 1];
-        const auto maximum = message.version >= 3   ? CompanionCapability::AiUsage
-                             : message.version >= 2 ? CompanionCapability::SystemMetrics
-                                                    : CompanionCapability::AppActiveEvents;
-        if (value < static_cast<std::uint8_t>(CompanionCapability::AppActive) ||
-            value > static_cast<std::uint8_t>(maximum)) {
-            count = 0;
-            return false;
-        }
-        capabilities[index] = static_cast<CompanionCapability>(value);
-    }
-    count = message.payload[0];
     return true;
 }
 
@@ -396,9 +417,8 @@ bool setBundleIdentifier(CompanionEnvelope& message, std::string_view bundleId) 
     if ((message.operation != CompanionOperation::AppActive &&
          message.operation != CompanionOperation::AppActivate &&
          message.operation != CompanionOperation::AppActiveChanged) ||
-        !isUtf8BundleIdentifier(bundleId)) {
+        !isUtf8BundleIdentifier(bundleId))
         return false;
-    }
     message.payload[0] = static_cast<std::uint8_t>(bundleId.size());
     std::memcpy(message.payload.data() + 1, bundleId.data(), bundleId.size());
     message.payloadSize = static_cast<std::uint8_t>(bundleId.size() + 1);
@@ -411,14 +431,12 @@ bool readBundleIdentifier(const CompanionEnvelope& message, char* destination, s
     if (destination == nullptr || capacity == 0 || message.payloadSize < 2 ||
         message.payload[0] == 0 ||
         message.payloadSize != static_cast<std::uint8_t>(message.payload[0] + 1) ||
-        message.payload[0] >= capacity) {
+        message.payload[0] >= capacity)
         return false;
-    }
     const auto view = std::string_view(reinterpret_cast<const char*>(message.payload.data() + 1),
                                        message.payload[0]);
-    if (!isUtf8BundleIdentifier(view)) {
+    if (!isUtf8BundleIdentifier(view))
         return false;
-    }
     std::memcpy(destination, view.data(), view.size());
     destination[view.size()] = '\0';
     length = static_cast<std::uint8_t>(view.size());
@@ -426,45 +444,37 @@ bool readBundleIdentifier(const CompanionEnvelope& message, char* destination, s
 }
 
 namespace {
-void write32(std::uint8_t* bytes, std::uint32_t value) {
-    for (int i = 0; i < 4; ++i)
-        bytes[i] = static_cast<std::uint8_t>(value >> (8 * i));
-}
-std::uint32_t read32(const std::uint8_t* bytes) {
-    return static_cast<std::uint32_t>(bytes[0]) | (static_cast<std::uint32_t>(bytes[1]) << 8U) |
-           (static_cast<std::uint32_t>(bytes[2]) << 16U) |
-           (static_cast<std::uint32_t>(bytes[3]) << 24U);
-}
 bool validMetrics(const CompanionSystemMetrics& value) {
-    return (value.validity & ~std::uint16_t{0x7f}) == 0 &&
+    return (value.validity & ~std::uint16_t{0x1ff}) == 0 &&
            (!(value.validity & 1U) || value.cpuPercent <= 100) &&
            (!(value.validity & 2U) ||
             (value.memoryTotalMiB > 0 && value.memoryUsedMiB <= value.memoryTotalMiB)) &&
            (!(value.validity & 4U) || (value.memoryPressure >= 1 && value.memoryPressure <= 3)) &&
            (!(value.validity & 8U) || value.diskUsedPercent <= 100) &&
            (!(value.validity & 16U) || value.batteryPercent <= 100) &&
-           (!(value.validity & 64U) || (value.thermalState >= 1 && value.thermalState <= 4));
+           (!(value.validity & 64U) || (value.thermalState >= 1 && value.thermalState <= 4)) &&
+           (!(value.validity & 128U) || (value.powerSource >= 1 && value.powerSource <= 3));
 }
 } // namespace
 
 bool setSystemMetrics(CompanionEnvelope& message, const CompanionSystemMetrics& metrics) {
     if (message.operation != CompanionOperation::SystemMetrics ||
         message.kind != CompanionKind::Response || message.status != CompanionStatus::Ok ||
-        message.version < 2 || !validMetrics(metrics))
+        !validMetrics(metrics))
         return false;
     auto* p = message.payload.data();
-    p[0] = 1;
-    p[1] = static_cast<std::uint8_t>(metrics.validity);
-    p[2] = static_cast<std::uint8_t>(metrics.validity >> 8U);
-    p[3] = metrics.cpuPercent;
-    write32(p + 4, metrics.memoryUsedMiB);
-    write32(p + 8, metrics.memoryTotalMiB);
-    p[12] = metrics.memoryPressure;
-    p[13] = metrics.diskUsedPercent;
-    p[14] = metrics.batteryPercent;
-    p[15] = metrics.thermalState;
-    write32(p + 16, metrics.downloadKiBps);
-    write32(p + 20, metrics.uploadKiBps);
+    write16(p, metrics.validity);
+    p[2] = metrics.cpuPercent;
+    write32(p + 3, metrics.memoryUsedMiB);
+    write32(p + 7, metrics.memoryTotalMiB);
+    p[11] = metrics.memoryPressure;
+    p[12] = metrics.diskUsedPercent;
+    p[13] = metrics.batteryPercent;
+    p[14] = metrics.thermalState;
+    write32(p + 15, metrics.downloadKiBps);
+    write32(p + 19, metrics.uploadKiBps);
+    p[23] = metrics.powerSource;
+    write16(p + 24, metrics.batteryMinutes);
     message.payloadSize = companionMetricsPayloadSize;
     return true;
 }
@@ -472,21 +482,22 @@ bool setSystemMetrics(CompanionEnvelope& message, const CompanionSystemMetrics& 
 bool readSystemMetrics(const CompanionEnvelope& message, CompanionSystemMetrics& metrics) {
     if (message.operation != CompanionOperation::SystemMetrics ||
         message.kind != CompanionKind::Response || message.status != CompanionStatus::Ok ||
-        message.version < 2 || message.payloadSize != companionMetricsPayloadSize ||
-        message.payload[0] != 1)
+        message.payloadSize != companionMetricsPayloadSize)
         return false;
     const auto* p = message.payload.data();
     CompanionSystemMetrics result{};
-    result.validity = static_cast<std::uint16_t>(p[1] | (std::uint16_t(p[2]) << 8U));
-    result.cpuPercent = p[3];
-    result.memoryUsedMiB = read32(p + 4);
-    result.memoryTotalMiB = read32(p + 8);
-    result.memoryPressure = p[12];
-    result.diskUsedPercent = p[13];
-    result.batteryPercent = p[14];
-    result.thermalState = p[15];
-    result.downloadKiBps = read32(p + 16);
-    result.uploadKiBps = read32(p + 20);
+    result.validity = read16(p);
+    result.cpuPercent = p[2];
+    result.memoryUsedMiB = read32(p + 3);
+    result.memoryTotalMiB = read32(p + 7);
+    result.memoryPressure = p[11];
+    result.diskUsedPercent = p[12];
+    result.batteryPercent = p[13];
+    result.thermalState = p[14];
+    result.downloadKiBps = read32(p + 15);
+    result.uploadKiBps = read32(p + 19);
+    result.powerSource = p[23];
+    result.batteryMinutes = read16(p + 24);
     if (!validMetrics(result))
         return false;
     metrics = result;
@@ -501,11 +512,10 @@ bool validAiMetric(const AiUsageMetric& metric) {
            static_cast<std::uint8_t>(metric.unit) <= 3 && metric.remainingPercent <= 100 &&
            (metric.limit == 0 || (metric.used <= metric.limit && metric.remaining <= metric.limit));
 }
-// Schema 3 (protocol v5) adds Claude and its Pro/Max plans.
-bool validAiProvider(const AiUsageProvider& provider, std::uint8_t schema) {
+bool validAiProvider(const AiUsageProvider& provider) {
     if (static_cast<std::uint8_t>(provider.provider) < 1 ||
-        static_cast<std::uint8_t>(provider.provider) > (schema >= 3 ? 3 : 2) ||
-        static_cast<std::uint8_t>(provider.plan) > (schema >= 3 ? 5 : 3) ||
+        static_cast<std::uint8_t>(provider.provider) > 3 ||
+        static_cast<std::uint8_t>(provider.plan) > 5 ||
         static_cast<std::uint8_t>(provider.freshness) < 1 ||
         static_cast<std::uint8_t>(provider.freshness) > 2 || provider.metricCount == 0 ||
         provider.metricCount > 2)
@@ -520,20 +530,18 @@ bool validAiProvider(const AiUsageProvider& provider, std::uint8_t schema) {
 bool setAiUsage(CompanionEnvelope& message, const CompanionAiUsage& usage) {
     if (message.operation != CompanionOperation::AiUsage ||
         message.kind != CompanionKind::Response || message.status != CompanionStatus::Ok ||
-        message.version < 3 || usage.providerCount > 2 ||
+        usage.providerCount > 2 ||
         (usage.state != AiUsageState::Discovering && usage.state != AiUsageState::Ready))
         return false;
     std::size_t pos = 0;
     auto* p = message.payload.data();
-    const auto schema = static_cast<std::uint8_t>(message.version - 2);
-    p[pos++] = schema;
     p[pos++] = static_cast<std::uint8_t>(usage.state);
     p[pos++] = usage.providerCount;
     write32(p + pos, usage.generation);
     pos += 4;
     for (std::uint8_t i = 0; i < usage.providerCount; ++i) {
         const auto& provider = usage.providers[i];
-        if (!validAiProvider(provider, schema) ||
+        if (!validAiProvider(provider) ||
             (i == 1 && provider.provider == usage.providers[0].provider))
             return false;
         p[pos++] = static_cast<std::uint8_t>(provider.provider);
@@ -558,34 +566,32 @@ bool setAiUsage(CompanionEnvelope& message, const CompanionAiUsage& usage) {
             write32(p + pos, metric.resetRemainingSeconds);
             pos += 4;
         }
-        if (message.version >= 4) {
-            const auto& resets = provider.resetCredits;
-            if (resets.known &&
-                (provider.provider != AiProvider::Codex || provider.plan != AiPlan::Plus ||
-                 resets.creditCount > 4 || resets.creditCount > resets.availableCount))
+        const auto& resets = provider.resetCredits;
+        if (resets.known &&
+            (provider.provider != AiProvider::Codex || provider.plan != AiPlan::Plus ||
+             resets.creditCount > 4 || resets.creditCount > resets.availableCount))
+            return false;
+        if (pos + (resets.known ? 3U : 1U) > companionMaxPayloadSize)
+            return false;
+        p[pos++] = resets.known ? 1 : 0;
+        if (!resets.known)
+            continue;
+        p[pos++] = resets.availableCount;
+        p[pos++] = resets.creditCount;
+        for (std::uint8_t j = 0; j < resets.creditCount; ++j) {
+            const auto& credit = resets.credits[j];
+            const auto length = strnlen(credit.title.data(), credit.title.size());
+            if (length == 0 || length > 24 ||
+                !isUtf8BundleIdentifier({credit.title.data(), length}) ||
+                pos + 1 + length + 8 > companionMaxPayloadSize)
                 return false;
-            if (pos + (resets.known ? 3U : 1U) > companionMaxPayloadSize)
-                return false;
-            p[pos++] = resets.known ? 1 : 0;
-            if (resets.known) {
-                p[pos++] = resets.availableCount;
-                p[pos++] = resets.creditCount;
-                for (std::uint8_t j = 0; j < resets.creditCount; ++j) {
-                    const auto& credit = resets.credits[j];
-                    const auto length = strnlen(credit.title.data(), credit.title.size());
-                    if (length == 0 || length > 24 ||
-                        !isUtf8BundleIdentifier({credit.title.data(), length}) ||
-                        pos + 1 + length + 8 > companionMaxPayloadSize)
-                        return false;
-                    p[pos++] = static_cast<std::uint8_t>(length);
-                    std::memcpy(p + pos, credit.title.data(), length);
-                    pos += length;
-                    write32(p + pos, credit.expiresAt);
-                    pos += 4;
-                    write32(p + pos, credit.expiresRemainingSeconds);
-                    pos += 4;
-                }
-            }
+            p[pos++] = static_cast<std::uint8_t>(length);
+            std::memcpy(p + pos, credit.title.data(), length);
+            pos += length;
+            write32(p + pos, credit.expiresAt);
+            pos += 4;
+            write32(p + pos, credit.expiresRemainingSeconds);
+            pos += 4;
         }
     }
     message.payloadSize = static_cast<std::uint8_t>(pos);
@@ -595,17 +601,15 @@ bool setAiUsage(CompanionEnvelope& message, const CompanionAiUsage& usage) {
 bool readAiUsage(const CompanionEnvelope& message, CompanionAiUsage& usage) {
     if (message.operation != CompanionOperation::AiUsage ||
         message.kind != CompanionKind::Response || message.status != CompanionStatus::Ok ||
-        message.version < 3 || message.payloadSize < 7 ||
-        message.payload[0] != message.version - 2 || message.payload[1] < 1 ||
-        message.payload[1] > 2 || message.payload[2] > 2)
+        message.payloadSize < 6 || message.payload[0] < 1 || message.payload[0] > 2 ||
+        message.payload[1] > 2)
         return false;
     CompanionAiUsage result{};
     const auto* p = message.payload.data();
-    result.schemaVersion = p[0];
-    result.state = static_cast<AiUsageState>(p[1]);
-    result.providerCount = p[2];
-    result.generation = read32(p + 3);
-    std::size_t pos = 7;
+    result.state = static_cast<AiUsageState>(p[0]);
+    result.providerCount = p[1];
+    result.generation = read32(p + 2);
+    std::size_t pos = 6;
     for (std::uint8_t i = 0; i < result.providerCount; ++i) {
         if (pos + 4 > message.payloadSize)
             return false;
@@ -635,40 +639,467 @@ bool readAiUsage(const CompanionEnvelope& message, CompanionAiUsage& usage) {
             metric.resetRemainingSeconds = read32(p + pos);
             pos += 4;
         }
-        if (!validAiProvider(provider, result.schemaVersion))
+        if (!validAiProvider(provider))
             return false;
-        if (message.version >= 4) {
-            if (pos >= message.payloadSize || p[pos] > 1)
+        if (pos >= message.payloadSize || p[pos] > 1)
+            return false;
+        auto& resets = provider.resetCredits;
+        resets.known = p[pos++] == 1;
+        if (!resets.known)
+            continue;
+        if (provider.provider != AiProvider::Codex || provider.plan != AiPlan::Plus ||
+            pos + 2 > message.payloadSize || p[pos + 1] > 4 || p[pos + 1] > p[pos])
+            return false;
+        resets.availableCount = p[pos++];
+        resets.creditCount = p[pos++];
+        for (std::uint8_t j = 0; j < resets.creditCount; ++j) {
+            if (pos >= message.payloadSize || p[pos] == 0 || p[pos] > 24)
                 return false;
-            auto& resets = provider.resetCredits;
-            resets.known = p[pos++] == 1;
-            if (resets.known) {
-                if (provider.provider != AiProvider::Codex || provider.plan != AiPlan::Plus ||
-                    pos + 2 > message.payloadSize || p[pos + 1] > 4 || p[pos + 1] > p[pos])
-                    return false;
-                resets.availableCount = p[pos++];
-                resets.creditCount = p[pos++];
-                for (std::uint8_t j = 0; j < resets.creditCount; ++j) {
-                    if (pos >= message.payloadSize || p[pos] == 0 || p[pos] > 24)
-                        return false;
-                    const auto length = p[pos++];
-                    if (pos + length + 8 > message.payloadSize ||
-                        !isUtf8BundleIdentifier({reinterpret_cast<const char*>(p + pos), length}))
-                        return false;
-                    auto& credit = resets.credits[j];
-                    std::memcpy(credit.title.data(), p + pos, length);
-                    pos += length;
-                    credit.expiresAt = read32(p + pos);
-                    pos += 4;
-                    credit.expiresRemainingSeconds = read32(p + pos);
-                    pos += 4;
-                }
-            }
+            const auto length = p[pos++];
+            if (pos + length + 8 > message.payloadSize ||
+                !isUtf8BundleIdentifier({reinterpret_cast<const char*>(p + pos), length}))
+                return false;
+            auto& credit = resets.credits[j];
+            std::memcpy(credit.title.data(), p + pos, length);
+            pos += length;
+            credit.expiresAt = read32(p + pos);
+            pos += 4;
+            credit.expiresRemainingSeconds = read32(p + pos);
+            pos += 4;
         }
     }
     if (pos != message.payloadSize)
         return false;
     usage = result;
+    return true;
+}
+
+namespace {
+constexpr std::uint16_t detailValidityMask(SystemDetailsGroup group) {
+    return group == SystemDetailsGroup::Power ? 0x1f : 0x0f;
+}
+bool knownDetailGroup(std::uint8_t value) {
+    return value >= static_cast<std::uint8_t>(SystemDetailsGroup::Cpu) &&
+           value <= static_cast<std::uint8_t>(SystemDetailsGroup::Memory);
+}
+bool validDetails(const CompanionSystemDetails& value) {
+    if (!knownDetailGroup(static_cast<std::uint8_t>(value.group)) ||
+        (value.validity & ~detailValidityMask(value.group)) != 0)
+        return false;
+    const auto has = [&](unsigned bit) { return (value.validity & (1U << bit)) != 0; };
+    switch (value.group) {
+    case SystemDetailsGroup::Cpu:
+        if ((has(0) && value.performancePercent > 100) ||
+            (has(1) && value.efficiencyPercent > 100) || (has(2) && value.gpuPercent > 100) ||
+            value.processCount > companionMaxDetailProcesses || (!has(3) && value.processCount))
+            return false;
+        for (std::uint8_t i = 0; i < value.processCount; ++i) {
+            const auto& process = value.processes[i];
+            const auto length = strnlen(process.name.data(), process.name.size());
+            if (process.percent > 100 || length == 0 || length > companionMaxProcessNameSize ||
+                !printableAscii(process.name.data(), length))
+                return false;
+        }
+        return true;
+    case SystemDetailsGroup::Power: {
+        if ((has(2) && value.healthPercent > 100) || (has(4) && value.peripheralPercent > 100))
+            return false;
+        const auto length = strnlen(value.peripheralName.data(), value.peripheralName.size());
+        return has(4) ? length > 0 && length <= companionMaxPeripheralNameSize &&
+                            printableAscii(value.peripheralName.data(), length)
+                      : length == 0;
+    }
+    case SystemDetailsGroup::Network:
+        return true;
+    case SystemDetailsGroup::Memory:
+        return !has(2) || (value.ssdTotalGB > 0 && value.ssdFreeGB <= value.ssdTotalGB);
+    }
+    return false;
+}
+} // namespace
+
+bool setSystemDetailsRequest(CompanionEnvelope& message, SystemDetailsGroup group) {
+    if (message.operation != CompanionOperation::SystemDetails ||
+        message.kind != CompanionKind::Request ||
+        !knownDetailGroup(static_cast<std::uint8_t>(group)))
+        return false;
+    message.payload[0] = static_cast<std::uint8_t>(group);
+    message.payloadSize = 1;
+    return true;
+}
+
+bool readSystemDetailsRequest(const CompanionEnvelope& message, SystemDetailsGroup& group) {
+    if (message.operation != CompanionOperation::SystemDetails ||
+        message.kind != CompanionKind::Request || message.payloadSize != 1 ||
+        !knownDetailGroup(message.payload[0]))
+        return false;
+    group = static_cast<SystemDetailsGroup>(message.payload[0]);
+    return true;
+}
+
+bool setSystemDetails(CompanionEnvelope& message, const CompanionSystemDetails& details) {
+    if (message.operation != CompanionOperation::SystemDetails ||
+        message.kind != CompanionKind::Response || message.status != CompanionStatus::Ok ||
+        !validDetails(details))
+        return false;
+    auto* p = message.payload.data();
+    p[0] = static_cast<std::uint8_t>(details.group);
+    write16(p + 1, details.validity);
+    std::size_t pos = 3;
+    switch (details.group) {
+    case SystemDetailsGroup::Cpu:
+        p[pos++] = details.performancePercent;
+        p[pos++] = details.efficiencyPercent;
+        p[pos++] = details.gpuPercent;
+        p[pos++] = details.processCount;
+        for (std::uint8_t i = 0; i < details.processCount; ++i) {
+            const auto& process = details.processes[i];
+            const auto length = strnlen(process.name.data(), process.name.size());
+            p[pos++] = process.percent;
+            p[pos++] = static_cast<std::uint8_t>(length);
+            std::memcpy(p + pos, process.name.data(), length);
+            pos += length;
+        }
+        break;
+    case SystemDetailsGroup::Power: {
+        write16(p + pos, details.systemDrawDeciwatts);
+        pos += 2;
+        p[pos++] = details.adapterWatts;
+        p[pos++] = details.healthPercent;
+        write16(p + pos, details.cycleCount);
+        pos += 2;
+        p[pos++] = details.peripheralPercent;
+        const auto length = strnlen(details.peripheralName.data(), details.peripheralName.size());
+        p[pos++] = static_cast<std::uint8_t>(length);
+        std::memcpy(p + pos, details.peripheralName.data(), length);
+        pos += length;
+        break;
+    }
+    case SystemDetailsGroup::Network:
+        write16(p + pos, details.internetRttMs);
+        pos += 2;
+        write16(p + pos, details.routerRttMs);
+        pos += 2;
+        p[pos++] = static_cast<std::uint8_t>(details.wifiRssiDbm);
+        write16(p + pos, details.wifiLinkMbps);
+        pos += 2;
+        break;
+    case SystemDetailsGroup::Memory:
+        for (const auto value :
+             {details.appMiB, details.wiredMiB, details.compressedMiB, details.swapUsedMiB}) {
+            write32(p + pos, value);
+            pos += 4;
+        }
+        write16(p + pos, details.ssdFreeGB);
+        pos += 2;
+        write16(p + pos, details.ssdTotalGB);
+        pos += 2;
+        write32(p + pos, details.diskReadKiBps);
+        pos += 4;
+        write32(p + pos, details.diskWriteKiBps);
+        pos += 4;
+        break;
+    }
+    message.payloadSize = static_cast<std::uint8_t>(pos);
+    return true;
+}
+
+bool readSystemDetails(const CompanionEnvelope& message, CompanionSystemDetails& details) {
+    if (message.operation != CompanionOperation::SystemDetails ||
+        message.kind != CompanionKind::Response || message.status != CompanionStatus::Ok ||
+        message.payloadSize < 3 || !knownDetailGroup(message.payload[0]))
+        return false;
+    const auto* p = message.payload.data();
+    const std::size_t size = message.payloadSize;
+    CompanionSystemDetails result{};
+    result.group = static_cast<SystemDetailsGroup>(p[0]);
+    result.validity = read16(p + 1);
+    std::size_t pos = 3;
+    switch (result.group) {
+    case SystemDetailsGroup::Cpu:
+        if (size < pos + 4)
+            return false;
+        result.performancePercent = p[pos++];
+        result.efficiencyPercent = p[pos++];
+        result.gpuPercent = p[pos++];
+        result.processCount = p[pos++];
+        if (result.processCount > companionMaxDetailProcesses)
+            return false;
+        for (std::uint8_t i = 0; i < result.processCount; ++i) {
+            if (size < pos + 2)
+                return false;
+            auto& process = result.processes[i];
+            process.percent = p[pos++];
+            const auto length = p[pos++];
+            if (length == 0 || length > companionMaxProcessNameSize || size < pos + length)
+                return false;
+            std::memcpy(process.name.data(), p + pos, length);
+            pos += length;
+        }
+        break;
+    case SystemDetailsGroup::Power: {
+        if (size < pos + 8)
+            return false;
+        result.systemDrawDeciwatts = read16(p + pos);
+        pos += 2;
+        result.adapterWatts = p[pos++];
+        result.healthPercent = p[pos++];
+        result.cycleCount = read16(p + pos);
+        pos += 2;
+        result.peripheralPercent = p[pos++];
+        const auto length = p[pos++];
+        if (length > companionMaxPeripheralNameSize || size < pos + length)
+            return false;
+        std::memcpy(result.peripheralName.data(), p + pos, length);
+        pos += length;
+        break;
+    }
+    case SystemDetailsGroup::Network:
+        if (size < pos + 7)
+            return false;
+        result.internetRttMs = read16(p + pos);
+        result.routerRttMs = read16(p + pos + 2);
+        result.wifiRssiDbm = static_cast<std::int8_t>(p[pos + 4]);
+        result.wifiLinkMbps = read16(p + pos + 5);
+        pos += 7;
+        break;
+    case SystemDetailsGroup::Memory:
+        if (size < pos + 28)
+            return false;
+        result.appMiB = read32(p + pos);
+        result.wiredMiB = read32(p + pos + 4);
+        result.compressedMiB = read32(p + pos + 8);
+        result.swapUsedMiB = read32(p + pos + 12);
+        result.ssdFreeGB = read16(p + pos + 16);
+        result.ssdTotalGB = read16(p + pos + 18);
+        result.diskReadKiBps = read32(p + pos + 20);
+        result.diskWriteKiBps = read32(p + pos + 24);
+        pos += 28;
+        break;
+    }
+    if (pos != size || !validDetails(result))
+        return false;
+    details = result;
+    return true;
+}
+
+namespace {
+
+bool chunkBoundsValid(std::uint16_t total, std::uint16_t offset, std::size_t size,
+                      std::size_t maxChunk) noexcept {
+    return total > 0 && total <= companionInventoryMaxRecordBytes && size > 0 && size <= maxChunk &&
+           offset < total && offset + size <= total;
+}
+
+bool readListEntries(const CompanionEnvelope& message, std::uint16_t& total, std::uint16_t& next,
+                     std::uint8_t& count) noexcept {
+    if (message.payloadSize < companionInventoryListHeaderSize)
+        return false;
+    const auto* bytes = message.payload.data();
+    total = read16(bytes);
+    next = read16(bytes + 2);
+    count = bytes[4];
+    std::size_t position = companionInventoryListHeaderSize;
+    for (std::uint8_t index = 0; index < count; ++index) {
+        if (position + inventoryListEntrySize(0) > message.payloadSize)
+            return false;
+        const auto valid = bytes[position + companionInventoryIdSize];
+        const auto revision = read32(bytes + position + companionInventoryIdSize + 1);
+        const auto nameLength = bytes[position + companionInventoryIdSize + 5];
+        position += inventoryListEntrySize(nameLength);
+        if (valid > 1 || position > message.payloadSize ||
+            nameLength > companionInventoryMaxNameBytes)
+            return false;
+        if ((valid == 1) != (nameLength > 0) || (valid == 1) != (revision != 0))
+            return false;
+        const std::string_view name(reinterpret_cast<const char*>(bytes + position - nameLength),
+                                    nameLength);
+        if (!core::isValidUtf8(name))
+            return false;
+    }
+    return position == message.payloadSize && next <= total && count <= total;
+}
+
+bool inventoryListResponseValid(const CompanionEnvelope& message) noexcept {
+    std::uint16_t total = 0;
+    std::uint16_t next = 0;
+    std::uint8_t count = 0;
+    return readListEntries(message, total, next, count);
+}
+
+bool inventoryGetResponseValid(const CompanionEnvelope& message) noexcept {
+    CompanionInventoryChunk chunk{};
+    return readInventoryGetResponse(message, chunk);
+}
+
+bool inventoryPutRequestValid(const CompanionEnvelope& message) noexcept {
+    CompanionInventoryChunk chunk{};
+    return readInventoryPutRequest(message, chunk);
+}
+
+} // namespace
+
+bool isInventoryOperation(CompanionOperation operation) noexcept {
+    return operation == CompanionOperation::InventoryList ||
+           operation == CompanionOperation::InventoryGet ||
+           operation == CompanionOperation::InventoryPut ||
+           operation == CompanionOperation::InventoryDelete;
+}
+
+std::size_t inventoryListEntrySize(std::size_t nameBytes) noexcept {
+    return companionInventoryIdSize + 1 + 4 + 1 + nameBytes;
+}
+
+bool setInventoryListRequest(CompanionEnvelope& message, std::uint16_t start) {
+    write16(message.payload.data(), start);
+    message.payloadSize = 2;
+    return true;
+}
+
+bool readInventoryListRequest(const CompanionEnvelope& message, std::uint16_t& start) {
+    if (message.payloadSize != 2)
+        return false;
+    start = read16(message.payload.data());
+    return true;
+}
+
+bool setInventoryListResponse(CompanionEnvelope& message, std::uint16_t total, std::uint16_t next,
+                              const CompanionInventoryListEntry* entries, std::size_t count) {
+    if (next > total || count > total || count > 255 || (count > 0 && entries == nullptr))
+        return false;
+    std::size_t size = companionInventoryListHeaderSize;
+    for (std::size_t index = 0; index < count; ++index) {
+        const auto& entry = entries[index];
+        if (entry.name.size() > companionInventoryMaxNameBytes ||
+            entry.valid != !entry.name.empty() || entry.valid != (entry.revision != 0) ||
+            !core::isValidUtf8(entry.name))
+            return false;
+        size += inventoryListEntrySize(entry.name.size());
+    }
+    if (size > companionMaxPayloadSize)
+        return false;
+    auto* bytes = message.payload.data();
+    write16(bytes, total);
+    write16(bytes + 2, next);
+    bytes[4] = static_cast<std::uint8_t>(count);
+    std::size_t position = companionInventoryListHeaderSize;
+    for (std::size_t index = 0; index < count; ++index) {
+        const auto& entry = entries[index];
+        std::memcpy(bytes + position, entry.id.data(), companionInventoryIdSize);
+        position += companionInventoryIdSize;
+        bytes[position++] = entry.valid ? 1 : 0;
+        write32(bytes + position, entry.revision);
+        position += 4;
+        bytes[position++] = static_cast<std::uint8_t>(entry.name.size());
+        if (!entry.name.empty())
+            std::memcpy(bytes + position, entry.name.data(), entry.name.size());
+        position += entry.name.size();
+    }
+    message.payloadSize = static_cast<std::uint8_t>(position);
+    return true;
+}
+
+bool setInventoryGetRequest(CompanionEnvelope& message, const CompanionInventoryId& id,
+                            std::uint16_t offset) {
+    std::memcpy(message.payload.data(), id.data(), companionInventoryIdSize);
+    write16(message.payload.data() + companionInventoryIdSize, offset);
+    message.payloadSize = companionInventoryIdSize + 2;
+    return true;
+}
+
+bool readInventoryGetRequest(const CompanionEnvelope& message, CompanionInventoryId& id,
+                             std::uint16_t& offset) {
+    if (message.payloadSize != companionInventoryIdSize + 2)
+        return false;
+    std::memcpy(id.data(), message.payload.data(), companionInventoryIdSize);
+    offset = read16(message.payload.data() + companionInventoryIdSize);
+    return offset < companionInventoryMaxRecordBytes;
+}
+
+bool setInventoryGetResponse(CompanionEnvelope& message, const CompanionInventoryChunk& chunk) {
+    if (chunk.revision == 0 || chunk.data == nullptr ||
+        !chunkBoundsValid(chunk.total, chunk.offset, chunk.size, companionInventoryGetChunkSize))
+        return false;
+    auto* bytes = message.payload.data();
+    write32(bytes, chunk.revision);
+    write16(bytes + 4, chunk.total);
+    write16(bytes + 6, chunk.offset);
+    std::memcpy(bytes + companionInventoryGetHeaderSize, chunk.data, chunk.size);
+    message.payloadSize = static_cast<std::uint8_t>(companionInventoryGetHeaderSize + chunk.size);
+    return true;
+}
+
+bool readInventoryGetResponse(const CompanionEnvelope& message, CompanionInventoryChunk& chunk) {
+    if (message.payloadSize <= companionInventoryGetHeaderSize)
+        return false;
+    const auto* bytes = message.payload.data();
+    chunk.revision = read32(bytes);
+    chunk.total = read16(bytes + 4);
+    chunk.offset = read16(bytes + 6);
+    chunk.data = bytes + companionInventoryGetHeaderSize;
+    chunk.size = message.payloadSize - companionInventoryGetHeaderSize;
+    return chunk.revision != 0 &&
+           chunkBoundsValid(chunk.total, chunk.offset, chunk.size, companionInventoryGetChunkSize);
+}
+
+bool setInventoryPutRequest(CompanionEnvelope& message, const CompanionInventoryChunk& chunk) {
+    if (chunk.revision == 0 || chunk.data == nullptr ||
+        !chunkBoundsValid(chunk.total, chunk.offset, chunk.size, companionInventoryPutChunkSize))
+        return false;
+    auto* bytes = message.payload.data();
+    std::memcpy(bytes, chunk.id.data(), companionInventoryIdSize);
+    write32(bytes + 16, chunk.revision);
+    write16(bytes + 20, chunk.total);
+    write16(bytes + 22, chunk.offset);
+    std::memcpy(bytes + companionInventoryPutHeaderSize, chunk.data, chunk.size);
+    message.payloadSize = static_cast<std::uint8_t>(companionInventoryPutHeaderSize + chunk.size);
+    return true;
+}
+
+bool readInventoryPutRequest(const CompanionEnvelope& message, CompanionInventoryChunk& chunk) {
+    if (message.payloadSize <= companionInventoryPutHeaderSize)
+        return false;
+    const auto* bytes = message.payload.data();
+    std::memcpy(chunk.id.data(), bytes, companionInventoryIdSize);
+    chunk.revision = read32(bytes + 16);
+    chunk.total = read16(bytes + 20);
+    chunk.offset = read16(bytes + 22);
+    chunk.data = bytes + companionInventoryPutHeaderSize;
+    chunk.size = message.payloadSize - companionInventoryPutHeaderSize;
+    return chunk.revision != 0 &&
+           chunkBoundsValid(chunk.total, chunk.offset, chunk.size, companionInventoryPutChunkSize);
+}
+
+bool setInventoryPutResponse(CompanionEnvelope& message, std::uint16_t received,
+                             std::uint32_t committedRevision) {
+    write16(message.payload.data(), received);
+    write32(message.payload.data() + 2, committedRevision);
+    message.payloadSize = 6;
+    return true;
+}
+
+bool setInventoryDeleteRequest(CompanionEnvelope& message, const CompanionInventoryId& id,
+                               std::uint32_t expectedRevision) {
+    std::memcpy(message.payload.data(), id.data(), companionInventoryIdSize);
+    write32(message.payload.data() + companionInventoryIdSize, expectedRevision);
+    message.payloadSize = companionInventoryIdSize + 4;
+    return true;
+}
+
+bool readInventoryDeleteRequest(const CompanionEnvelope& message, CompanionInventoryId& id,
+                                std::uint32_t& expectedRevision) {
+    if (message.payloadSize != companionInventoryIdSize + 4)
+        return false;
+    std::memcpy(id.data(), message.payload.data(), companionInventoryIdSize);
+    expectedRevision = read32(message.payload.data() + companionInventoryIdSize);
+    return true;
+}
+
+bool setInventoryConflict(CompanionEnvelope& message, std::uint32_t currentRevision) {
+    if (currentRevision == 0)
+        return false;
+    write32(message.payload.data(), currentRevision);
+    message.payloadSize = 4;
     return true;
 }
 

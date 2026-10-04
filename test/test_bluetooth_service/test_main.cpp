@@ -1298,7 +1298,7 @@ void test_bluetooth_failure_leaves_wifi_and_system_core_operational() {
     IsolationDisplay display;
     CapturingLogSink logSink;
     Logger logger(logSink, LogLevel::Info);
-    const BuildInfo buildInfo{"Test Hub", "1.0.0", "test", "test"};
+    const BuildInfo buildInfo{"Test Hub", "1.0.0", "test", "test", "2026-09-29", "2026-09-29 test"};
     IsolationBacklight backlight;
     cardputer_hub::core::DisplayPowerController displayPower(backlight);
     SystemRuntime runtime(platform, keyboard, display, displayPower, logger, buildInfo);
@@ -1707,11 +1707,16 @@ void test_companion_transport_queues_incoming_messages_and_adapter_error_keeps_h
                             static_cast<unsigned>(service.state()));
     TEST_ASSERT_EQUAL_UINT8(static_cast<unsigned>(HidTransportState::Ready),
                             static_cast<unsigned>(service.hidTransport().state()));
-    TEST_ASSERT_EQUAL_UINT8(static_cast<unsigned>(CompanionTransportState::Unavailable),
+    // A failed notify loses one message; the Mac is still subscribed, so the
+    // transport must not wait for a new subscription that may never come.
+    TEST_ASSERT_EQUAL_UINT8(static_cast<unsigned>(CompanionTransportState::Ready),
                             static_cast<unsigned>(service.companionTransport().state()));
+    adapter.companionSendResult = BluetoothCompanionAdapterResult::Sent;
+    TEST_ASSERT_EQUAL_UINT8(static_cast<unsigned>(CompanionSendResult::Sent),
+                            static_cast<unsigned>(service.companionTransport().send(first)));
 }
 
-void test_companion_incoming_overflow_keeps_bluetooth_and_hid_ready() {
+void test_companion_incoming_overflow_keeps_transport_and_later_messages() {
     FakeBluetoothAdapter adapter;
     const auto selected = bond(15);
     adapter.bondListResult.bonds = {selected};
@@ -1741,9 +1746,25 @@ void test_companion_incoming_overflow_keeps_bluetooth_and_hid_ready() {
                             static_cast<unsigned>(service.state()));
     TEST_ASSERT_EQUAL_UINT8(static_cast<unsigned>(HidTransportState::Ready),
                             static_cast<unsigned>(service.hidTransport().state()));
-    TEST_ASSERT_EQUAL_UINT8(static_cast<unsigned>(CompanionTransportState::Unavailable),
+    // Overflow drops the queued chunks only. The subscription is unchanged, so
+    // the transport stays usable and the next message arrives normally.
+    TEST_ASSERT_EQUAL_UINT8(static_cast<unsigned>(CompanionTransportState::Ready),
                             static_cast<unsigned>(service.companionTransport().state()));
     TEST_ASSERT_FALSE(service.companionTransport().receive().has_value());
+
+    CompanionPayload next{};
+    next.size = 8;
+    for (std::uint16_t index = 0; index < next.size; ++index)
+        next.bytes[index] = static_cast<std::uint8_t>(index + 40);
+    TEST_ASSERT_EQUAL_UINT8(static_cast<unsigned>(CompanionSendResult::Sent),
+                            static_cast<unsigned>(service.companionTransport().send(next)));
+    adapter.incomingCompanionChunks.insert(adapter.incomingCompanionChunks.end(),
+                                           adapter.sentCompanionChunks.begin(),
+                                           adapter.sentCompanionChunks.end());
+    service.update(std::chrono::milliseconds::zero());
+    const auto received = service.companionTransport().receive();
+    TEST_ASSERT_TRUE(received.has_value());
+    TEST_ASSERT_EQUAL_UINT8_ARRAY(next.bytes.data(), received->bytes.data(), next.size);
 }
 
 void test_bonded_reconnect_requests_security_and_restores_hid_without_pairing_at_capacity() {
@@ -1945,6 +1966,6 @@ int main() {
     RUN_TEST(test_companion_transport_sends_and_reassembles_chunks_for_selected_peer);
     RUN_TEST(test_companion_transport_drops_on_disconnect_and_host_change);
     RUN_TEST(test_companion_transport_queues_incoming_messages_and_adapter_error_keeps_hid);
-    RUN_TEST(test_companion_incoming_overflow_keeps_bluetooth_and_hid_ready);
+    RUN_TEST(test_companion_incoming_overflow_keeps_transport_and_later_messages);
     return UNITY_END();
 }

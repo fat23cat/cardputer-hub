@@ -15,18 +15,6 @@ bool isPlain(const InputEvent& event) {
     return !event.modifiers.ctrl && !event.modifiers.alt && !event.modifiers.option;
 }
 
-bool isLeft(const InputEvent& event) {
-    return (event.type == InputEventType::NamedKey && event.namedKey == NamedKey::Left) ||
-           (event.type == InputEventType::PrintableCharacter && event.character == ',' &&
-            !event.modifiers.shift);
-}
-
-bool isRight(const InputEvent& event) {
-    return (event.type == InputEventType::NamedKey && event.namedKey == NamedKey::Right) ||
-           (event.type == InputEventType::PrintableCharacter && event.character == '/' &&
-            !event.modifiers.shift);
-}
-
 } // namespace
 
 MacControlApp::MacControlApp(ActionBus& actions, HostControlService& hostControl,
@@ -69,11 +57,11 @@ void MacControlApp::update(const InputEvents& input, std::chrono::milliseconds e
 void MacControlApp::handle(const InputEvent& event) {
     if (!isPlain(event) || view_ != MacControlView::Grid)
         return;
-    if (isLeft(event)) {
+    if (core::isPageLeft(event)) {
         turnPage(-1);
         return;
     }
-    if (isRight(event)) {
+    if (core::isPageRight(event)) {
         turnPage(1);
         return;
     }

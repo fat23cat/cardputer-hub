@@ -49,6 +49,11 @@ final class CompanionMenuBarController: NSObject, NSMenuDelegate {
         menu.addItem(loginErrorItem)
         menu.addItem(.separator())
 
+        let inventoryItem = NSMenuItem(title: "Inventory", action: #selector(openInventory),
+                                       keyEquivalent: "i")
+        inventoryItem.target = self
+        menu.addItem(inventoryItem)
+
         let diagnosticsItem = NSMenuItem(title: "Diagnostics", action: nil, keyEquivalent: "")
         diagnosticsItem.submenu = diagnosticsMenu
         menu.addItem(diagnosticsItem)
@@ -110,6 +115,10 @@ final class CompanionMenuBarController: NSObject, NSMenuDelegate {
         status.onReconnect?()
     }
 
+    @objc private func openInventory() {
+        status.onOpenInventory?()
+    }
+
     @objc private func setStartAtLogin(_ sender: NSSwitch) {
         status.setStartAtLogin(sender.state == .on)
         updateMenu()
@@ -130,7 +139,7 @@ final class CompanionMenuBarController: NSObject, NSMenuDelegate {
     }
 
     private func updateMenu() {
-        header.update(title: stateTitle, detail: status.statusMetadataText ??
+        header.update(title: stateTitle, detail: status.compatibilityNotice ?? status.statusMetadataText ??
             (status.bluetoothReady ? "Waiting for Cardputer" : "Bluetooth unavailable"))
         reconnectItem.isEnabled = status.connection != .connecting
         loginRow.toggle.state = status.startAtLogin ? .on : .off
@@ -140,8 +149,8 @@ final class CompanionMenuBarController: NSObject, NSMenuDelegate {
     private func updateDiagnostics() {
         diagnosticsMenu.removeAllItems()
         addInfo("Connection: \(stateTitle)")
-        if let version = status.protocolVersion {
-            addInfo("Protocol: v\(version)")
+        if let notice = status.compatibilityNotice {
+            addInfo(notice)
         }
         if let duration = status.sessionDurationText {
             addInfo("Session: \(duration)")
@@ -154,10 +163,9 @@ final class CompanionMenuBarController: NSObject, NSMenuDelegate {
             addInfo("Session ID: \(sessionId)")
         }
 
-        addSection("Capabilities")
-        addInfo("App Control: \(availability(status.capabilities.appControl))")
-        addInfo("App Events: \(availability(status.capabilities.appEvents))")
-        addInfo("System Metrics: \(availability(status.capabilities.systemMetrics))")
+        addSection("Builds")
+        addInfo("Companion: \(status.companionBuildId)")
+        addInfo("Cardputer: \(status.firmwareBuildId ?? "—")")
 
         addSection("AI Usage Cache on Mac")
         addInfo("Codex: \(aiProviderState(.codex))")
@@ -182,18 +190,12 @@ final class CompanionMenuBarController: NSObject, NSMenuDelegate {
         }
     }
 
-    private func availability(_ available: Bool) -> String {
-        available ? "Available" : "Unavailable"
-    }
-
     private func aiProviderState(_ provider: AiProviderId) -> String {
         guard let sample = status.aiUsage.providers.first(where: { $0.provider == provider })
         else { return status.aiUsage.state == .discovering ? "Checking" : "No sample" }
         let state = sample.freshness == .fresh ? "Fresh" : "Stale"
-        // Older firmware and the two-account limit keep some providers off the Cardputer.
-        let version = status.protocolVersion ?? CompanionConstants.latestProtocolVersion
-        let sent = status.aiUsage.sentProviders(protocolVersion: version)
-            .contains { $0.provider == provider }
+        // The two-account limit keeps some providers off the Cardputer.
+        let sent = status.aiUsage.sentProviders.contains { $0.provider == provider }
         return sent ? state : "\(state), not sent to Cardputer"
     }
 

@@ -1,6 +1,7 @@
 @testable import CompanionProviders
 import CompanionCore
 import Foundation
+import Security
 
 private var failures = 0
 private func expect(_ condition: @autoclosure () -> Bool,
@@ -573,15 +574,18 @@ private final class FakeClaudeCredentials: ClaudeCredentialReading {
     private let lock = NSLock()
     private var storedResult: ClaudeCredentialResult
     private var storedReads = 0
+    private var storedInteractions: [Bool] = []
     init(_ result: ClaudeCredentialResult) { storedResult = result }
     var result: ClaudeCredentialResult {
         get { lock.lock(); defer { lock.unlock() }; return storedResult }
         set { lock.lock(); storedResult = newValue; lock.unlock() }
     }
     var reads: Int { lock.lock(); defer { lock.unlock() }; return storedReads }
-    func read() -> ClaudeCredentialResult {
+    var interactions: [Bool] { lock.lock(); defer { lock.unlock() }; return storedInteractions }
+    func read(allowInteraction: Bool) -> ClaudeCredentialResult {
         lock.lock(); defer { lock.unlock() }
         storedReads += 1
+        storedInteractions.append(allowInteraction)
         return storedResult
     }
 }
@@ -609,7 +613,7 @@ private final class BlockingClaudeCredentials: ClaudeCredentialReading {
     private let lock = NSLock()
     private var storedReads = 0
     var reads: Int { lock.lock(); defer { lock.unlock() }; return storedReads }
-    func read() -> ClaudeCredentialResult {
+    func read(allowInteraction: Bool) -> ClaudeCredentialResult {
         lock.lock(); storedReads += 1; lock.unlock()
         release.wait()
         return claudeCredential()
@@ -726,6 +730,143 @@ func claudeRecheckKeepsTokenWhenKeychainFails() {
     _ = refreshed(provider)
     expect(waitUntil { http.requests.count == 3 })
     expect(http.requests.last?.value(forHTTPHeaderField: "Authorization") == "Bearer claude-token")
+}
+
+func claudeWakeRecheckDoesNotPromptOrLoseWorkingToken() {
+    let http = FakeHTTP()
+    let clock = TestClock()
+    let credentials = FakeClaudeCredentials(claudeCredential())
+    let provider = claudeProvider(credentials, http, clock)
+    let first = refreshed(provider)
+    expect(waitUntil { http.requests.count == 1 })
+    http.respond(status: 200, object: claudeUsage)
+    expect(waitUntil { first.done })
+    // Waking after five minutes rechecks the item. Losing Keychain access
+    // must neither prompt again nor discard the valid in-memory token.
+    clock.now = Date(timeIntervalSince1970: 10_300)
+    credentials.result = .interactionRequired
+    let wake = refreshed(provider)
+    expect(waitUntil { http.requests.count == 2 && credentials.reads == 2 })
+    http.respond(status: 200, object: claudeUsage)
+    expect(waitUntil { wake.done })
+    expect(credentials.interactions == [true, false])
+    clock.now = Date(timeIntervalSince1970: 10_360)
+    _ = refreshed(provider)
+    expect(waitUntil { http.requests.count == 3 })
+    expect(http.requests.last?.value(forHTTPHeaderField: "Authorization") == "Bearer claude-token")
+    http.respond(status: 200, object: claudeUsage)
+    expect(credentials.reads == 2)
+}
+
+func legacyKeychainSilentReadRestoresInteractionOnFailure() {
+    var allowed = true
+    var changes: [Bool] = []
+    let keychain = LegacyKeychainRead(read: { _, _ in
+        expect(!allowed)
+        return errSecInteractionNotAllowed
+    }, getInteraction: { (errSecSuccess, allowed) }, setInteraction: {
+        allowed = $0; changes.append($0); return errSecSuccess
+    })
+    expect(keychain.copyMatching([:] as CFDictionary, allowInteraction: false, result: nil)
+        == errSecInteractionNotAllowed)
+    expect(allowed && changes == [false, true])
+    // A process that already disallowed interaction must stay that way.
+    allowed = false; changes = []
+    _ = keychain.copyMatching([:] as CFDictionary, allowInteraction: false, result: nil)
+    expect(!allowed && changes == [false, false])
+}
+
+func claudeSilentAuthorizationFailureIsNotUserDenial() {
+    let keychain = LegacyKeychainRead(read: { query, _ in
+        expect((query as NSDictionary)[kSecAttrService] as? String == "Claude Code-credentials")
+        return errSecAuthFailed
+    }, getInteraction: { (errSecSuccess, true) }, setInteraction: { _ in errSecSuccess })
+    let credentials = KeychainClaudeCredentials(keychain: keychain)
+    if case .denied = credentials.read(allowInteraction: true) {} else { expect(false) }
+    if case .interactionRequired = credentials.read(allowInteraction: false) {} else { expect(false) }
+}
+
+func legacyKeychainSilentReadFailsClosed() {
+    var reads = 0
+    let unavailable = LegacyKeychainRead(read: { _, _ in reads += 1; return errSecSuccess },
+        getInteraction: { (errSecNotAvailable, true) }, setInteraction: { _ in errSecSuccess })
+    expect(unavailable.copyMatching([:] as CFDictionary, allowInteraction: false, result: nil)
+        == errSecInteractionNotAllowed)
+    let cannotDisable = LegacyKeychainRead(read: { _, _ in reads += 1; return errSecSuccess },
+        getInteraction: { (errSecSuccess, true) }, setInteraction: { _ in errSecNotAvailable })
+    expect(cannotDisable.copyMatching([:] as CFDictionary, allowInteraction: false, result: nil)
+        == errSecInteractionNotAllowed)
+    expect(reads == 0)
+}
+
+func legacyKeychainCoordinatesConcurrentProviderReads() {
+    let entered = DispatchSemaphore(value: 0)
+    let release = DispatchSemaphore(value: 0)
+    let finished = DispatchGroup()
+    let silentEntered = DispatchSemaphore(value: 0)
+    let stateLock = NSLock()
+    var allowed = true
+    let keychain = LegacyKeychainRead(read: { query, _ in
+        let silent = (query as NSDictionary)["silent"] as? Bool == true
+        stateLock.lock(); let current = allowed; stateLock.unlock()
+        expect(current == !silent)
+        if silent { silentEntered.signal() }
+        else { entered.signal(); release.wait() }
+        return errSecSuccess
+    }, getInteraction: {
+        stateLock.lock(); defer { stateLock.unlock() }
+        return (errSecSuccess, allowed)
+    }, setInteraction: {
+        stateLock.lock(); allowed = $0; stateLock.unlock(); return errSecSuccess
+    })
+    // Cursor must not wait for Claude's first authorization dialog.
+    for _ in 0..<2 {
+        finished.enter()
+        DispatchQueue.global().async {
+            _ = keychain.copyMatching([:] as CFDictionary, allowInteraction: true, result: nil)
+            finished.leave()
+        }
+    }
+    expect(entered.wait(timeout: .now() + 1) == .success)
+    expect(entered.wait(timeout: .now() + 1) == .success)
+    finished.enter()
+    DispatchQueue.global().async {
+        _ = keychain.copyMatching(["silent": true] as CFDictionary,
+                                 allowInteraction: false, result: nil)
+        finished.leave()
+    }
+    expect(silentEntered.wait(timeout: .now() + 0.05) == .timedOut)
+    release.signal(); release.signal()
+    expect(finished.wait(timeout: .now() + 2) == .success)
+    stateLock.lock(); let restored = allowed; stateLock.unlock()
+    expect(restored)
+}
+
+func claudeExpiredTokenWaitsQuietlyForKeychainAccess() {
+    let http = FakeHTTP()
+    let clock = TestClock()
+    let credentials = FakeClaudeCredentials(claudeCredential())
+    let provider = claudeProvider(credentials, http, clock)
+    let first = refreshed(provider)
+    expect(waitUntil { http.requests.count == 1 })
+    http.respond(status: 200, object: claudeUsage)
+    expect(waitUntil { first.done })
+    clock.now = Date(timeIntervalSince1970: 13_600)
+    credentials.result = .interactionRequired
+    let expired = refreshed(provider)
+    expect(waitUntil { expired.done })
+    expect(expired.outcome == .unavailable && http.requests.count == 1)
+    expect(credentials.interactions == [true, false])
+    let again = refreshed(provider)
+    expect(waitUntil { again.done })
+    expect(again.outcome == .unavailable && credentials.reads == 2)
+    clock.now = Date(timeIntervalSince1970: 13_900)
+    credentials.result = claudeCredential(token: "renewed", expiresAt: Date(timeIntervalSince1970: 40_000))
+    _ = refreshed(provider)
+    expect(waitUntil { http.requests.count == 2 })
+    expect(credentials.interactions == [true, false, false])
+    expect(http.requests.last?.value(forHTTPHeaderField: "Authorization") == "Bearer renewed")
+    http.respond(status: 200, object: claudeUsage)
 }
 
 func claudeThrottlesRequestsAndServesAgedSample() {
@@ -944,7 +1085,7 @@ func collectorPublishesPersonalCodexAndClaude() {
     cursorFake.complete(cursor)
     claudeFake.complete(claude)
     expect(waitUntil { collector.snapshot()?.providers.map(\.provider) == [.codex, .cursor, .claude] })
-    expect(collector.snapshot()?.encode(protocolVersion: 5).flatMap(AiUsageSnapshot.decode)?
+    expect(collector.snapshot()?.encode().flatMap(AiUsageSnapshot.decode)?
         .providers.map(\.provider) == [.codex, .cursor])
     collector.stop()
 }
@@ -989,6 +1130,12 @@ func collectorShowsElapsedStaleWindowsAsReset() {
         claudeOmitsAbsentCredential()
         claudeCachesTokenAndRechecksKeychain()
         claudeRecheckKeepsTokenWhenKeychainFails()
+        claudeWakeRecheckDoesNotPromptOrLoseWorkingToken()
+        claudeExpiredTokenWaitsQuietlyForKeychainAccess()
+        legacyKeychainSilentReadRestoresInteractionOnFailure()
+        claudeSilentAuthorizationFailureIsNotUserDenial()
+        legacyKeychainSilentReadFailsClosed()
+        legacyKeychainCoordinatesConcurrentProviderReads()
         claudeThrottlesRequestsAndServesAgedSample()
         claudeRateLimitBacksOffWithoutFailure()
         claudeKeychainPromptIsUnavailableNotFailure()

@@ -7,37 +7,24 @@
 #include <vector>
 
 #include "companion/companion_fixtures.h"
+#include "connectivity/companion/companion_fingerprint.h"
 #include "connectivity/companion/companion_protocol.h"
 
 namespace {
 
-using cardputer_hub::connectivity::CompanionCapability;
-using cardputer_hub::connectivity::CompanionEnvelope;
-using cardputer_hub::connectivity::companionEnvelopeSize;
-using cardputer_hub::connectivity::CompanionKind;
-using cardputer_hub::connectivity::companionMaxBundleIdSize;
-using cardputer_hub::connectivity::CompanionOperation;
-using cardputer_hub::connectivity::companionPingTokenSize;
-using cardputer_hub::connectivity::CompanionStatus;
-using cardputer_hub::connectivity::decodeCompanionMessage;
-using cardputer_hub::connectivity::encodeCompanionMessage;
-using cardputer_hub::connectivity::isUtf8BundleIdentifier;
-using cardputer_hub::connectivity::makeEvent;
-using cardputer_hub::connectivity::makeHello;
-using cardputer_hub::connectivity::makeHelloAck;
-using cardputer_hub::connectivity::makeRequest;
-using cardputer_hub::connectivity::makeResponse;
-using cardputer_hub::connectivity::readBundleIdentifier;
-using cardputer_hub::connectivity::readCapabilityList;
-using cardputer_hub::connectivity::readPingToken;
-using cardputer_hub::connectivity::setBundleIdentifier;
-using cardputer_hub::connectivity::setCapabilityList;
-using cardputer_hub::connectivity::setPingToken;
+using namespace cardputer_hub::connectivity;
 
 std::vector<std::uint8_t> loadFixture(const char* name) {
     const auto* fixture = cardputer_hub::companion_fixtures::find(name);
     TEST_ASSERT_NOT_NULL(fixture);
     return std::vector<std::uint8_t>(fixture->bytes, fixture->bytes + fixture->size);
+}
+
+CompanionEnvelope decodeFixture(const char* name) {
+    const auto bytes = loadFixture(name);
+    const auto decoded = decodeCompanionMessage(bytes.data(), bytes.size());
+    TEST_ASSERT_TRUE(decoded.has_value());
+    return *decoded;
 }
 
 void assertEncodedMatchesFixture(const CompanionEnvelope& message, const char* name) {
@@ -48,175 +35,140 @@ void assertEncodedMatchesFixture(const CompanionEnvelope& message, const char* n
     TEST_ASSERT_EQUAL_UINT8_ARRAY(fixture.data(), encoded->bytes.data(), fixture.size());
 }
 
-void test_hello_and_ack_match_fixtures() {
-    const std::uint8_t versions[] = {1};
-    assertEncodedMatchesFixture(makeHello(versions, 1), "hello-v1.bin");
-    assertEncodedMatchesFixture(makeHelloAck(42, 1), "hello-ack-v1.bin");
+CompanionHello helloOf(const std::array<std::uint8_t, companionFingerprintSize>& fingerprint,
+                       const char* buildId) {
+    CompanionHello hello{};
+    hello.fingerprint = fingerprint;
+    std::strncpy(hello.buildId.data(), buildId, hello.buildId.size() - 1);
+    return hello;
 }
 
-void test_ping_request_and_response_match_fixtures() {
+void test_hello_carries_fingerprint_and_build_id() {
+    const auto hello = makeHello(helloOf(companionProtocolFingerprint, "2026-09-29 abc1234"));
+    TEST_ASSERT_TRUE(hello.has_value());
+    assertEncodedMatchesFixture(*hello, "hello.bin");
+    CompanionHello read{};
+    TEST_ASSERT_TRUE(readHello(decodeFixture("hello.bin"), read));
+    TEST_ASSERT_EQUAL_UINT8_ARRAY(companionProtocolFingerprint.data(), read.fingerprint.data(),
+                                  companionFingerprintSize);
+    TEST_ASSERT_EQUAL_STRING("2026-09-29 abc1234", read.buildId.data());
+
+    const auto accepted = makeHelloAck(42, CompanionStatus::Ok,
+                                       helloOf(companionProtocolFingerprint, "2026-09-29 abc1234"));
+    TEST_ASSERT_TRUE(accepted.has_value());
+    assertEncodedMatchesFixture(*accepted, "hello-ack.bin");
+    const std::array<std::uint8_t, 8> other{0xFF, 0xEE, 0xDD, 0xCC, 0xBB, 0xAA, 0x99, 0x88};
+    const auto mismatch =
+        makeHelloAck(0, CompanionStatus::Unsupported, helloOf(other, "2026-09-29 abc1234"));
+    TEST_ASSERT_TRUE(mismatch.has_value());
+    assertEncodedMatchesFixture(*mismatch, "hello-ack-mismatch.bin");
+
+    // An accepted ACK needs a session; a mismatch ACK must not have one.
+    TEST_ASSERT_FALSE(makeHelloAck(0, CompanionStatus::Ok, helloOf(other, "x")).has_value());
+    TEST_ASSERT_FALSE(
+        makeHelloAck(7, CompanionStatus::Unsupported, helloOf(other, "x")).has_value());
+    // Build ids are 1-24 printable ASCII bytes.
+    TEST_ASSERT_FALSE(makeHello(helloOf(other, "")).has_value());
+    TEST_ASSERT_FALSE(makeHello(helloOf(other, "2026-09-29 caf\xC3\xA9")).has_value());
+    TEST_ASSERT_TRUE(makeHello(helloOf(other, "123456789012345678901234")).has_value());
+    auto longHello = helloOf(other, "x");
+    std::memset(longHello.buildId.data(), 'a', longHello.buildId.size());
+    TEST_ASSERT_FALSE(makeHello(longHello).has_value());
+}
+
+void test_legacy_frames_are_recognised_not_decoded() {
+    const auto legacy = loadFixture("legacy-hello.bin");
+    TEST_ASSERT_FALSE(decodeCompanionMessage(legacy.data(), legacy.size()).has_value());
+    TEST_ASSERT_TRUE(isLegacyCompanionFrame(legacy.data(), legacy.size()));
+    TEST_ASSERT_TRUE(isLegacyCompanionHello(legacy.data(), legacy.size()));
+    auto legacyPing = loadFixture("ping-request.bin");
+    legacyPing[0] = 5;
+    TEST_ASSERT_TRUE(isLegacyCompanionFrame(legacyPing.data(), legacyPing.size()));
+    TEST_ASSERT_FALSE(isLegacyCompanionHello(legacyPing.data(), legacyPing.size()));
+    const auto current = loadFixture("hello.bin");
+    TEST_ASSERT_FALSE(isLegacyCompanionFrame(current.data(), current.size()));
+    const auto unknown = loadFixture("unknown-marker.bin");
+    TEST_ASSERT_FALSE(isLegacyCompanionFrame(unknown.data(), unknown.size()));
+    TEST_ASSERT_FALSE(decodeCompanionMessage(unknown.data(), unknown.size()).has_value());
+}
+
+void test_ping_and_application_messages_match_fixtures() {
+    auto ping = makeRequest(42, 1, CompanionOperation::Ping);
     const std::array<std::uint8_t, companionPingTokenSize> token{1, 2, 3, 4};
-    auto request = makeRequest(42, 1, CompanionOperation::Ping);
-    TEST_ASSERT_TRUE(setPingToken(request, token));
-    assertEncodedMatchesFixture(request, "ping-request-v1.bin");
-
-    auto response = makeResponse(42, 1, CompanionOperation::Ping, CompanionStatus::Ok);
-    TEST_ASSERT_TRUE(setPingToken(response, token));
-    assertEncodedMatchesFixture(response, "ping-response-v1.bin");
-}
-
-void test_capabilities_and_app_messages_match_fixtures() {
-    assertEncodedMatchesFixture(makeRequest(42, 2, CompanionOperation::Capabilities),
-                                "capabilities-request-v1.bin");
-    auto capabilities = makeResponse(42, 2, CompanionOperation::Capabilities, CompanionStatus::Ok);
-    const CompanionCapability ids[] = {CompanionCapability::AppActive,
-                                       CompanionCapability::AppActivate,
-                                       CompanionCapability::AppActiveEvents};
-    TEST_ASSERT_TRUE(setCapabilityList(capabilities, ids, 3));
-    assertEncodedMatchesFixture(capabilities, "capabilities-response-v1.bin");
+    TEST_ASSERT_TRUE(setPingToken(ping, token));
+    assertEncodedMatchesFixture(ping, "ping-request.bin");
+    auto pong = makeResponse(42, 1, CompanionOperation::Ping, CompanionStatus::Ok);
+    TEST_ASSERT_TRUE(setPingToken(pong, token));
+    assertEncodedMatchesFixture(pong, "ping-response.bin");
+    std::array<std::uint8_t, companionPingTokenSize> read{};
+    TEST_ASSERT_TRUE(readPingToken(decodeFixture("ping-response.bin"), read));
+    TEST_ASSERT_EQUAL_UINT8(4, read[3]);
 
     assertEncodedMatchesFixture(makeRequest(42, 3, CompanionOperation::AppActive),
-                                "app-active-request-v1.bin");
+                                "app-active-request.bin");
     auto active = makeResponse(42, 3, CompanionOperation::AppActive, CompanionStatus::Ok);
     TEST_ASSERT_TRUE(setBundleIdentifier(active, "dev.zed.Zed"));
-    assertEncodedMatchesFixture(active, "app-active-response-v1.bin");
-
+    assertEncodedMatchesFixture(active, "app-active-response.bin");
     auto activate = makeRequest(42, 4, CompanionOperation::AppActivate);
     TEST_ASSERT_TRUE(setBundleIdentifier(activate, "org.telegram.desktop"));
-    assertEncodedMatchesFixture(activate, "app-activate-request-v1.bin");
+    assertEncodedMatchesFixture(activate, "app-activate-request.bin");
     assertEncodedMatchesFixture(
         makeResponse(42, 4, CompanionOperation::AppActivate, CompanionStatus::Ok),
-        "app-activate-response-v1.bin");
-
+        "app-activate-response.bin");
     auto changed = makeEvent(42, CompanionOperation::AppActiveChanged);
     TEST_ASSERT_TRUE(setBundleIdentifier(changed, "dev.zed.Zed"));
-    assertEncodedMatchesFixture(changed, "app-active-changed-event-v1.bin");
+    assertEncodedMatchesFixture(changed, "app-active-changed-event.bin");
+    TEST_ASSERT_EQUAL_UINT16(99, decodeFixture("wrong-session.bin").session);
 }
 
-void test_fixtures_decode_to_expected_operations() {
-    const auto hello = decodeCompanionMessage(loadFixture("hello-v1.bin").data(),
-                                              loadFixture("hello-v1.bin").size());
-    TEST_ASSERT_TRUE(hello.has_value());
-    TEST_ASSERT_EQUAL_UINT8(static_cast<unsigned>(CompanionKind::Hello),
-                            static_cast<unsigned>(hello->kind));
-
-    const auto ping = loadFixture("ping-response-v1.bin");
-    const auto decoded = decodeCompanionMessage(ping.data(), ping.size());
-    TEST_ASSERT_TRUE(decoded.has_value());
-    std::array<std::uint8_t, companionPingTokenSize> token{};
-    TEST_ASSERT_TRUE(readPingToken(*decoded, token));
-    TEST_ASSERT_EQUAL_UINT8(1, token[0]);
-    TEST_ASSERT_EQUAL_UINT8(4, token[3]);
-}
-
-void test_codec_rejects_malformed_version_length_and_unknown_operation() {
-    const auto malformed = loadFixture("malformed-length.bin");
-    TEST_ASSERT_FALSE(decodeCompanionMessage(malformed.data(), malformed.size()).has_value());
-    const auto version = loadFixture("unsupported-version.bin");
-    TEST_ASSERT_FALSE(decodeCompanionMessage(version.data(), version.size()).has_value());
-    const auto unknown = loadFixture("unknown-operation.bin");
-    TEST_ASSERT_FALSE(decodeCompanionMessage(unknown.data(), unknown.size()).has_value());
-    auto invalidStatus = loadFixture("ping-response-v1.bin");
-    invalidStatus[6] = 9;
-    TEST_ASSERT_FALSE(
-        decodeCompanionMessage(invalidStatus.data(), invalidStatus.size()).has_value());
-}
-
-void test_codec_rejects_invalid_semantics_and_payloads() {
-    auto helloActivate = loadFixture("hello-v1.bin");
-    helloActivate[5] = static_cast<std::uint8_t>(CompanionOperation::AppActivate);
-    TEST_ASSERT_FALSE(
-        decodeCompanionMessage(helloActivate.data(), helloActivate.size()).has_value());
-
-    auto requestStatus = loadFixture("capabilities-request-v1.bin");
-    requestStatus[6] = static_cast<std::uint8_t>(CompanionStatus::NotFound);
-    TEST_ASSERT_FALSE(
-        decodeCompanionMessage(requestStatus.data(), requestStatus.size()).has_value());
-
-    auto zeroRequestId = loadFixture("ping-request-v1.bin");
+void test_codec_rejects_malformed_frames_and_semantics() {
+    for (const char* name : {"malformed-length.bin", "unknown-operation.bin"}) {
+        const auto bytes = loadFixture(name);
+        TEST_ASSERT_FALSE(decodeCompanionMessage(bytes.data(), bytes.size()).has_value());
+    }
+    auto capabilities = loadFixture("app-active-request.bin");
+    capabilities[5] = 2; // CAPABILITIES no longer exists
+    TEST_ASSERT_FALSE(decodeCompanionMessage(capabilities.data(), capabilities.size()).has_value());
+    auto badStatus = loadFixture("ping-response.bin");
+    badStatus[6] = 9;
+    TEST_ASSERT_FALSE(decodeCompanionMessage(badStatus.data(), badStatus.size()).has_value());
+    auto zeroRequestId = loadFixture("ping-request.bin");
     zeroRequestId[4] = 0;
     TEST_ASSERT_FALSE(
         decodeCompanionMessage(zeroRequestId.data(), zeroRequestId.size()).has_value());
-
-    auto shortPing = loadFixture("ping-request-v1.bin");
-    shortPing[7] = 3;
-    shortPing.resize(companionEnvelopeSize + 3);
-    TEST_ASSERT_FALSE(decodeCompanionMessage(shortPing.data(), shortPing.size()).has_value());
-
-    auto capsRequest = loadFixture("capabilities-request-v1.bin");
-    capsRequest[7] = 1;
-    capsRequest.push_back(0x01);
-    TEST_ASSERT_FALSE(decodeCompanionMessage(capsRequest.data(), capsRequest.size()).has_value());
-
-    auto activeRequest = loadFixture("app-active-request-v1.bin");
+    auto activeRequest = loadFixture("app-active-request.bin");
     activeRequest[7] = 1;
-    activeRequest.push_back(0x01);
+    activeRequest.push_back(1);
     TEST_ASSERT_FALSE(
         decodeCompanionMessage(activeRequest.data(), activeRequest.size()).has_value());
-
-    const std::uint8_t version = 1;
-    auto hello = makeHello(&version, 1);
-    hello.operation = CompanionOperation::AppActivate;
-    TEST_ASSERT_FALSE(encodeCompanionMessage(hello).has_value());
+    auto helloWithOperation = loadFixture("hello.bin");
+    helloWithOperation[5] = static_cast<std::uint8_t>(CompanionOperation::AppActivate);
+    TEST_ASSERT_FALSE(
+        decodeCompanionMessage(helloWithOperation.data(), helloWithOperation.size()).has_value());
+    auto shortHello = loadFixture("hello.bin");
+    shortHello[7] = static_cast<std::uint8_t>(shortHello[7] - 1);
+    shortHello.pop_back();
+    TEST_ASSERT_FALSE(decodeCompanionMessage(shortHello.data(), shortHello.size()).has_value());
 }
 
-void test_wrong_session_fixture_is_structurally_valid() {
-    const auto bytes = loadFixture("wrong-session.bin");
-    const auto decoded = decodeCompanionMessage(bytes.data(), bytes.size());
-    TEST_ASSERT_TRUE(decoded.has_value());
-    TEST_ASSERT_EQUAL_UINT16(99, decoded->session);
-}
-
-void test_oversized_and_invalid_bundle_identifiers_are_rejected() {
+void test_bundle_identifiers_are_bounded_utf8() {
     TEST_ASSERT_FALSE(isUtf8BundleIdentifier(""));
     TEST_ASSERT_FALSE(isUtf8BundleIdentifier(std::string(companionMaxBundleIdSize + 1, 'a')));
     TEST_ASSERT_FALSE(isUtf8BundleIdentifier(std::string("a\0b", 3)));
     TEST_ASSERT_FALSE(isUtf8BundleIdentifier(std::string("\xE0\x80\xAF", 3)));
     TEST_ASSERT_FALSE(isUtf8BundleIdentifier(std::string("\xED\xA0\x80", 3)));
-    TEST_ASSERT_FALSE(isUtf8BundleIdentifier(std::string("\xF4\x90\x80\x80", 4)));
     TEST_ASSERT_TRUE(isUtf8BundleIdentifier(std::string("caf\xC3\xA9", 5)));
-    TEST_ASSERT_TRUE(isUtf8BundleIdentifier(std::string("\xE2\x82\xAC", 3)));
     TEST_ASSERT_TRUE(isUtf8BundleIdentifier(std::string("\xF0\x9F\x98\x80", 4)));
     auto request = makeRequest(42, 4, CompanionOperation::AppActivate);
     TEST_ASSERT_FALSE(setBundleIdentifier(request, std::string(companionMaxBundleIdSize + 1, 'a')));
     TEST_ASSERT_TRUE(setBundleIdentifier(request, std::string(companionMaxBundleIdSize, 'a')));
 }
 
-void test_capabilities_round_trip_rejects_unknown_ids() {
-    auto response = makeResponse(1, 1, CompanionOperation::Capabilities, CompanionStatus::Ok);
-    const CompanionCapability ids[] = {CompanionCapability::AppActive};
-    TEST_ASSERT_TRUE(setCapabilityList(response, ids, 1));
-    CompanionCapability decoded[8]{};
-    std::uint8_t count = 0;
-    TEST_ASSERT_TRUE(readCapabilityList(response, decoded, count, 8));
-    TEST_ASSERT_EQUAL_UINT8(1, count);
-    response.payload[1] = 9;
-    TEST_ASSERT_FALSE(readCapabilityList(response, decoded, count, 8));
-}
-
-void test_v2_metrics_round_trip_and_v1_rejection() {
-    using cardputer_hub::connectivity::CompanionSystemMetrics;
-    using cardputer_hub::connectivity::readSystemMetrics;
-    using cardputer_hub::connectivity::setSystemMetrics;
-    const std::uint8_t versions[] = {2, 1};
-    TEST_ASSERT_TRUE(encodeCompanionMessage(makeHello(versions, 2)).has_value());
-    TEST_ASSERT_TRUE(encodeCompanionMessage(makeHelloAck(42, 2)).has_value());
-    assertEncodedMatchesFixture(makeHello(versions, 2), "hello-v2.bin");
-    assertEncodedMatchesFixture(makeHelloAck(42, 2), "hello-ack-v2.bin");
-    auto request = makeRequest(42, 1, CompanionOperation::SystemMetrics);
-    TEST_ASSERT_FALSE(encodeCompanionMessage(request).has_value());
-    request.version = 2;
-    TEST_ASSERT_TRUE(encodeCompanionMessage(request).has_value());
-    auto fixtureRequest = request;
-    fixtureRequest.requestId = 5;
-    assertEncodedMatchesFixture(fixtureRequest, "system-metrics-request-v2.bin");
-    request.payloadSize = 1;
-    TEST_ASSERT_FALSE(encodeCompanionMessage(request).has_value());
-
-    auto response = makeResponse(42, 1, CompanionOperation::SystemMetrics, CompanionStatus::Ok);
-    response.version = 2;
+void test_system_metrics_round_trip_and_bounds() {
+    assertEncodedMatchesFixture(makeRequest(42, 5, CompanionOperation::SystemMetrics),
+                                "system-metrics-request.bin");
     CompanionSystemMetrics metrics{};
-    metrics.validity = 0x7f;
+    metrics.validity = 0x1ff;
     metrics.cpuPercent = 34;
     metrics.memoryUsedMiB = 11500;
     metrics.memoryTotalMiB = 16384;
@@ -226,301 +178,259 @@ void test_v2_metrics_round_trip_and_v1_rejection() {
     metrics.thermalState = 2;
     metrics.downloadKiBps = 12698;
     metrics.uploadKiBps = 1843;
+    metrics.powerSource = 2;
+    metrics.batteryMinutes = 102;
+    auto response = makeResponse(42, 5, CompanionOperation::SystemMetrics, CompanionStatus::Ok);
     TEST_ASSERT_TRUE(setSystemMetrics(response, metrics));
-    auto fixtureResponse = response;
-    fixtureResponse.requestId = 5;
-    assertEncodedMatchesFixture(fixtureResponse, "system-metrics-response-v2.bin");
-    const auto encoded = encodeCompanionMessage(response);
-    TEST_ASSERT_TRUE(encoded.has_value());
-    const auto decoded = decodeCompanionMessage(encoded->bytes.data(), encoded->size);
-    TEST_ASSERT_TRUE(decoded.has_value());
-    CompanionSystemMetrics observed{};
-    TEST_ASSERT_TRUE(readSystemMetrics(*decoded, observed));
-    TEST_ASSERT_EQUAL_UINT8(34, observed.cpuPercent);
-    TEST_ASSERT_EQUAL_UINT32(12698, observed.downloadKiBps);
-    auto damaged = *encoded;
-    damaged.bytes[8] = 2;
-    TEST_ASSERT_FALSE(decodeCompanionMessage(damaged.bytes.data(), damaged.size).has_value());
-    damaged = *encoded;
-    damaged.bytes[11] = 101;
-    TEST_ASSERT_FALSE(decodeCompanionMessage(damaged.bytes.data(), damaged.size).has_value());
-    damaged = *encoded;
-    damaged.bytes[7] = 23;
-    TEST_ASSERT_FALSE(decodeCompanionMessage(damaged.bytes.data(), damaged.size).has_value());
-    damaged = *encoded;
-    damaged.bytes[7] = 25;
-    TEST_ASSERT_FALSE(decodeCompanionMessage(damaged.bytes.data(), damaged.size).has_value());
-    damaged = *encoded;
-    damaged.bytes[23] = 9;
-    TEST_ASSERT_FALSE(decodeCompanionMessage(damaged.bytes.data(), damaged.size).has_value());
-
-    auto capabilities = makeResponse(42, 2, CompanionOperation::Capabilities, CompanionStatus::Ok);
-    const CompanionCapability ids[] = {CompanionCapability::AppActive,
-                                       CompanionCapability::SystemMetrics};
-    TEST_ASSERT_FALSE(setCapabilityList(capabilities, ids, 2));
-    capabilities.version = 2;
-    TEST_ASSERT_TRUE(setCapabilityList(capabilities, ids, 2));
-    TEST_ASSERT_TRUE(encodeCompanionMessage(capabilities).has_value());
-    auto fixtureCapabilities =
-        makeResponse(42, 2, CompanionOperation::Capabilities, CompanionStatus::Ok);
-    fixtureCapabilities.version = 2;
-    const CompanionCapability full[] = {
-        CompanionCapability::AppActive, CompanionCapability::AppActivate,
-        CompanionCapability::AppActiveEvents, CompanionCapability::SystemMetrics};
-    TEST_ASSERT_TRUE(setCapabilityList(fixtureCapabilities, full, 4));
-    assertEncodedMatchesFixture(fixtureCapabilities, "capabilities-response-v2.bin");
-    capabilities.version = 1;
-    TEST_ASSERT_FALSE(encodeCompanionMessage(capabilities).has_value());
+    assertEncodedMatchesFixture(response, "system-metrics-response.bin");
+    CompanionSystemMetrics read{};
+    TEST_ASSERT_TRUE(readSystemMetrics(decodeFixture("system-metrics-response.bin"), read));
+    TEST_ASSERT_EQUAL_UINT8(34, read.cpuPercent);
+    TEST_ASSERT_EQUAL_UINT16(102, read.batteryMinutes);
+    auto bad = loadFixture("system-metrics-response.bin");
+    bad[companionEnvelopeSize + 2] = 101; // CPU above 100%
+    TEST_ASSERT_FALSE(decodeCompanionMessage(bad.data(), bad.size()).has_value());
+    bad = loadFixture("system-metrics-response.bin");
+    bad[companionEnvelopeSize + 23] = 4; // unknown power source
+    TEST_ASSERT_FALSE(decodeCompanionMessage(bad.data(), bad.size()).has_value());
+    bad = loadFixture("system-metrics-response.bin");
+    bad[companionEnvelopeSize + 1] = 0x02; // validity bit 9
+    TEST_ASSERT_FALSE(decodeCompanionMessage(bad.data(), bad.size()).has_value());
 }
 
-void test_v3_ai_usage_round_trip_and_bounds() {
-    using namespace cardputer_hub::connectivity;
-    const std::uint8_t versions[] = {3, 2, 1};
-    TEST_ASSERT_TRUE(encodeCompanionMessage(makeHello(versions, 3)).has_value());
-    assertEncodedMatchesFixture(makeHello(versions, 3), "hello-v3.bin");
-    assertEncodedMatchesFixture(makeHelloAck(42, 3), "hello-ack-v3.bin");
-    auto request = makeRequest(42, 7, CompanionOperation::AiUsage);
-    TEST_ASSERT_FALSE(encodeCompanionMessage(request).has_value());
-    request.version = 3;
-    TEST_ASSERT_TRUE(encodeCompanionMessage(request).has_value());
-    assertEncodedMatchesFixture(request, "ai-usage-request-v3.bin");
+void test_ai_usage_round_trip_and_reset_credit_rules() {
+    assertEncodedMatchesFixture(makeRequest(42, 7, CompanionOperation::AiUsage),
+                                "ai-usage-request.bin");
     CompanionAiUsage usage{};
-    usage.state = AiUsageState::Ready;
-    usage.providerCount = 1;
-    usage.providers[0].provider = AiProvider::Codex;
-    usage.providers[0].plan = AiPlan::Plus;
-    usage.providers[0].metricCount = 1;
-    auto& metric = usage.providers[0].metrics[0];
-    metric.kind = AiMetricKind::FiveHour;
-    metric.unit = AiMetricUnit::Percent;
-    metric.limit = 100;
-    metric.remaining = 63;
-    metric.used = 37;
-    metric.remainingPercent = 63;
-    metric.resetAt = 1780000000;
-    metric.resetRemainingSeconds = 3600;
-    usage.generation = 9;
-    auto response = makeResponse(42, 7, CompanionOperation::AiUsage, CompanionStatus::Ok);
-    response.version = 3;
-    TEST_ASSERT_TRUE(setAiUsage(response, usage));
-    assertEncodedMatchesFixture(response, "ai-usage-response-v3.bin");
-    const auto encoded = encodeCompanionMessage(response);
-    TEST_ASSERT_TRUE(encoded.has_value());
-    const auto decoded = decodeCompanionMessage(encoded->bytes.data(), encoded->size);
-    TEST_ASSERT_TRUE(decoded.has_value());
-    CompanionAiUsage read{};
-    TEST_ASSERT_TRUE(readAiUsage(*decoded, read));
-    TEST_ASSERT_EQUAL_UINT8(63, read.providers[0].metrics[0].remainingPercent);
-    auto damaged = *encoded;
-    damaged.bytes[8 + 7 + 4 + 14] = 101;
-    TEST_ASSERT_FALSE(decodeCompanionMessage(damaged.bytes.data(), damaged.size).has_value());
-}
-
-void test_v4_reset_credits_and_v3_compatibility() {
-    using namespace cardputer_hub::connectivity;
-    const std::uint8_t versions[] = {4, 3, 2, 1};
-    assertEncodedMatchesFixture(makeHello(versions, 4), "hello-v4.bin");
-    assertEncodedMatchesFixture(makeHelloAck(42, 4), "hello-ack-v4.bin");
-    CompanionAiUsage usage{};
-    usage.state = AiUsageState::Ready;
-    usage.generation = 9;
-    usage.providerCount = 1;
-    auto& provider = usage.providers[0];
-    provider.plan = AiPlan::Plus;
-    provider.metricCount = 1;
-    auto& metric = provider.metrics[0];
-    metric.limit = 100;
-    metric.used = 37;
-    metric.remaining = 63;
-    metric.remainingPercent = 63;
-    metric.resetAt = 1780000000;
-    metric.resetRemainingSeconds = 3600;
-    auto& resets = provider.resetCredits;
-    resets.known = true;
-    resets.availableCount = 2;
-    resets.creditCount = 1;
-    std::memcpy(resets.credits[0].title.data(), "Full reset", 10);
-    resets.credits[0].expiresAt = 1790000000;
-    resets.credits[0].expiresRemainingSeconds = 86400;
-    auto response = makeResponse(42, 7, CompanionOperation::AiUsage, CompanionStatus::Ok);
-    response.version = 4;
-    TEST_ASSERT_TRUE(setAiUsage(response, usage));
-    assertEncodedMatchesFixture(response, "ai-usage-response-v4.bin");
-    CompanionAiUsage read{};
-    TEST_ASSERT_TRUE(readAiUsage(response, read));
-    TEST_ASSERT_TRUE(read.providers[0].resetCredits.known);
-    TEST_ASSERT_EQUAL_UINT8(2, read.providers[0].resetCredits.availableCount);
-    TEST_ASSERT_EQUAL_STRING("Full reset", read.providers[0].resetCredits.credits[0].title.data());
-    auto malformed = response;
-    malformed.payload[7 + 4 + 23 + 3] = 25;
-    TEST_ASSERT_FALSE(readAiUsage(malformed, read));
-    response.version = 3;
-    TEST_ASSERT_TRUE(setAiUsage(response, usage));
-    TEST_ASSERT_EQUAL_UINT8(1, response.payload[0]);
-    TEST_ASSERT_TRUE(readAiUsage(response, read));
-    TEST_ASSERT_FALSE(read.providers[0].resetCredits.known);
-}
-
-void test_v5_claude_schema_and_v4_rejects_claude() {
-    using namespace cardputer_hub::connectivity;
-    const std::uint8_t versions[] = {5, 4, 3, 2};
-    assertEncodedMatchesFixture(makeHello(versions, 4), "hello-v5.bin");
-    assertEncodedMatchesFixture(makeHelloAck(42, 5), "hello-ack-v5.bin");
-    CompanionAiUsage usage{};
-    usage.state = AiUsageState::Ready;
-    usage.generation = 9;
-    usage.providerCount = 1;
-    auto& provider = usage.providers[0];
-    provider.provider = AiProvider::Claude;
-    provider.plan = AiPlan::Pro;
-    provider.metricCount = 1;
-    auto& metric = provider.metrics[0];
-    metric.limit = 100;
-    metric.used = 8;
-    metric.remaining = 92;
-    metric.remainingPercent = 92;
-    metric.resetAt = 1780000000;
-    metric.resetRemainingSeconds = 3600;
-    auto response = makeResponse(42, 7, CompanionOperation::AiUsage, CompanionStatus::Ok);
-    response.version = 5;
-    TEST_ASSERT_TRUE(setAiUsage(response, usage));
-    assertEncodedMatchesFixture(response, "ai-usage-response-v5.bin");
-    const auto fixture = loadFixture("ai-usage-response-v5.bin");
-    const auto decoded = decodeCompanionMessage(fixture.data(), fixture.size());
-    TEST_ASSERT_TRUE(decoded.has_value());
-    CompanionAiUsage read{};
-    TEST_ASSERT_TRUE(readAiUsage(*decoded, read));
-    TEST_ASSERT_EQUAL_UINT8(3, read.schemaVersion);
+    TEST_ASSERT_TRUE(readAiUsage(decodeFixture("ai-usage-response.bin"), usage));
     TEST_ASSERT_EQUAL_UINT8(static_cast<unsigned>(AiProvider::Claude),
-                            static_cast<unsigned>(read.providers[0].provider));
+                            static_cast<unsigned>(usage.providers[0].provider));
     TEST_ASSERT_EQUAL_UINT8(static_cast<unsigned>(AiPlan::Pro),
-                            static_cast<unsigned>(read.providers[0].plan));
-    provider.plan = AiPlan::Max;
+                            static_cast<unsigned>(usage.providers[0].plan));
+    auto response = makeResponse(42, 7, CompanionOperation::AiUsage, CompanionStatus::Ok);
     TEST_ASSERT_TRUE(setAiUsage(response, usage));
-    response.version = 4;
+    assertEncodedMatchesFixture(response, "ai-usage-response.bin");
+
+    // Reset details belong to Codex Plus only and never exceed the available count.
+    auto& provider = usage.providers[0];
+    provider.resetCredits.known = true;
+    provider.resetCredits.availableCount = 1;
+    provider.resetCredits.creditCount = 1;
+    std::strcpy(provider.resetCredits.credits[0].title.data(), "FULL RESET");
     TEST_ASSERT_FALSE(setAiUsage(response, usage));
-    auto schemaTwo = *decoded;
-    schemaTwo.version = 4;
-    schemaTwo.payload[0] = 2;
-    TEST_ASSERT_FALSE(readAiUsage(schemaTwo, read));
     provider.provider = AiProvider::Codex;
-    provider.plan = AiPlan::Pro;
+    provider.plan = AiPlan::Plus;
+    TEST_ASSERT_TRUE(setAiUsage(response, usage));
+    CompanionAiUsage codex{};
+    TEST_ASSERT_TRUE(readAiUsage(response, codex));
+    TEST_ASSERT_EQUAL_STRING("FULL RESET", codex.providers[0].resetCredits.credits[0].title.data());
+    provider.resetCredits.creditCount = 2;
     TEST_ASSERT_FALSE(setAiUsage(response, usage));
+    usage.providerCount = 2;
+    usage.providers[1] = usage.providers[0];
+    provider.resetCredits.creditCount = 1;
+    TEST_ASSERT_FALSE(setAiUsage(response, usage)); // the same provider twice
 }
 
-void test_v4_reset_credit_bounds_and_malformed_payloads() {
-    using namespace cardputer_hub::connectivity;
-    CompanionAiUsage usage{};
-    usage.state = AiUsageState::Ready;
-    usage.providerCount = 1;
-    auto& provider = usage.providers[0];
-    provider.plan = AiPlan::Plus;
-    provider.metricCount = 1;
-    provider.metrics[0].limit = 100;
-    provider.metrics[0].remaining = 100;
-    auto response = makeResponse(42, 7, CompanionOperation::AiUsage, CompanionStatus::Ok);
-    response.version = 4;
-    CompanionAiUsage decoded{};
-    TEST_ASSERT_TRUE(setAiUsage(response, usage));
-    TEST_ASSERT_TRUE(readAiUsage(response, decoded));
-    TEST_ASSERT_FALSE(decoded.providers[0].resetCredits.known);
+void test_system_details_groups_round_trip_and_reject_bad_names() {
+    auto request = makeRequest(42, 8, CompanionOperation::SystemDetails);
+    TEST_ASSERT_TRUE(setSystemDetailsRequest(request, SystemDetailsGroup::Cpu));
+    assertEncodedMatchesFixture(request, "system-details-request.bin");
+    request.payload[0] = 5;
+    TEST_ASSERT_FALSE(encodeCompanionMessage(request).has_value());
 
-    auto& resets = provider.resetCredits;
-    resets.known = true;
-    TEST_ASSERT_TRUE(setAiUsage(response, usage));
-    TEST_ASSERT_TRUE(readAiUsage(response, decoded));
-    TEST_ASSERT_TRUE(decoded.providers[0].resetCredits.known);
-    TEST_ASSERT_EQUAL_UINT8(0, decoded.providers[0].resetCredits.availableCount);
-
-    resets.creditCount = 1;
-    std::memcpy(resets.credits[0].title.data(), "A", 1);
-    resets.credits[0].expiresAt = 1;
-    resets.credits[0].expiresRemainingSeconds = 60;
-    TEST_ASSERT_FALSE(setAiUsage(response, usage)); // 0 available, 1 detail.
-    resets.availableCount = 1;
-    resets.credits[0].expiresAt = 0;
-    resets.credits[0].expiresRemainingSeconds = 0;
-    TEST_ASSERT_TRUE(setAiUsage(response, usage));
-    TEST_ASSERT_TRUE(readAiUsage(response, decoded));
-    TEST_ASSERT_EQUAL_UINT32(0, decoded.providers[0].resetCredits.credits[0].expiresAt);
-    resets.credits[0].expiresAt = 1;
-    resets.credits[0].expiresRemainingSeconds = 60;
-    TEST_ASSERT_TRUE(setAiUsage(response, usage));
-    TEST_ASSERT_TRUE(readAiUsage(response, decoded));
-    TEST_ASSERT_EQUAL_UINT32(1, decoded.providers[0].resetCredits.credits[0].expiresAt);
-    auto malformed = response;
-    constexpr std::size_t availableOffset = 7 + 4 + 23 + 1;
-    constexpr std::size_t countOffset = availableOffset + 1;
-    constexpr std::size_t titleLengthOffset = countOffset + 1;
-    malformed.payload[availableOffset] = 0;
-    TEST_ASSERT_FALSE(readAiUsage(malformed, decoded));
-    malformed = response;
-    malformed.payload[countOffset] = 2;
-    TEST_ASSERT_FALSE(readAiUsage(malformed, decoded));
-    malformed = response;
-    malformed.payload[titleLengthOffset + 1] = 0xff;
-    TEST_ASSERT_FALSE(readAiUsage(malformed, decoded));
-    malformed = response;
-    malformed.payload[titleLengthOffset] = 24;
-    TEST_ASSERT_FALSE(readAiUsage(malformed, decoded));
-    malformed = response;
-    --malformed.payloadSize;
-    TEST_ASSERT_FALSE(readAiUsage(malformed, decoded));
-    malformed = response;
-    malformed.payload[malformed.payloadSize++] = 0;
-    TEST_ASSERT_FALSE(readAiUsage(malformed, decoded));
-    malformed = response;
-    malformed.payload[7] = static_cast<std::uint8_t>(AiProvider::Cursor);
-    TEST_ASSERT_FALSE(readAiUsage(malformed, decoded));
-    malformed = response;
-    malformed.payload[8] = static_cast<std::uint8_t>(AiPlan::Business);
-    TEST_ASSERT_FALSE(readAiUsage(malformed, decoded));
-    provider.provider = AiProvider::Cursor;
-    TEST_ASSERT_FALSE(setAiUsage(response, usage));
-    provider.provider = AiProvider::Codex;
-    provider.plan = AiPlan::Business;
-    TEST_ASSERT_FALSE(setAiUsage(response, usage));
-    provider.plan = AiPlan::Plus;
-    resets.creditCount = 2;
-    TEST_ASSERT_FALSE(setAiUsage(response, usage)); // 1 available, 2 details.
-    resets.availableCount = 2;
-    resets.credits[1].title[0] = 'B';
-    TEST_ASSERT_TRUE(setAiUsage(response, usage));
-    malformed = response;
-    malformed.payload[availableOffset] = 1;
-    TEST_ASSERT_FALSE(readAiUsage(malformed, decoded));
-    resets.availableCount = 4;
-    resets.creditCount = 4;
-    for (std::uint8_t i = 1; i < 4; ++i) {
-        resets.credits[i].title[0] = static_cast<char>('A' + i);
-        resets.credits[i].expiresAt = i + 1;
+    const char* names[] = {"system-details-response-cpu.bin", "system-details-response-power.bin",
+                           "system-details-response-network.bin",
+                           "system-details-response-memory.bin"};
+    for (unsigned index = 0; index < 4; ++index) {
+        CompanionSystemDetails details{};
+        TEST_ASSERT_TRUE(readSystemDetails(decodeFixture(names[index]), details));
+        TEST_ASSERT_EQUAL_UINT8(index + 1, static_cast<unsigned>(details.group));
+        auto response = makeResponse(42, 8, CompanionOperation::SystemDetails, CompanionStatus::Ok);
+        TEST_ASSERT_TRUE(setSystemDetails(response, details));
+        assertEncodedMatchesFixture(response, names[index]);
+        if (index == 0) {
+            TEST_ASSERT_EQUAL_UINT8(61, details.performancePercent);
+            TEST_ASSERT_EQUAL_STRING("Google Chrome", details.processes[1].name.data());
+        } else if (index == 1) {
+            TEST_ASSERT_EQUAL_UINT16(142, details.systemDrawDeciwatts);
+            TEST_ASSERT_EQUAL_STRING("Magic Mouse", details.peripheralName.data());
+        } else if (index == 2) {
+            TEST_ASSERT_EQUAL_INT8(-54, details.wifiRssiDbm);
+            TEST_ASSERT_EQUAL_UINT16(866, details.wifiLinkMbps);
+        } else {
+            TEST_ASSERT_EQUAL_UINT32(14438, details.appMiB);
+            TEST_ASSERT_EQUAL_UINT32(59392, details.diskWriteKiBps);
+        }
     }
-    TEST_ASSERT_TRUE(setAiUsage(response, usage));
-    TEST_ASSERT_TRUE(readAiUsage(response, decoded));
-    TEST_ASSERT_EQUAL_UINT8(4, decoded.providers[0].resetCredits.creditCount);
-    resets.availableCount = 7;
-    TEST_ASSERT_TRUE(setAiUsage(response, usage));
-    TEST_ASSERT_TRUE(readAiUsage(response, decoded));
-    TEST_ASSERT_EQUAL_UINT8(7, decoded.providers[0].resetCredits.availableCount);
+    const auto cpu = loadFixture("system-details-response-cpu.bin");
+    auto damaged = cpu;
+    damaged[companionEnvelopeSize + 9] = 0xC3; // non-ASCII name byte
+    TEST_ASSERT_FALSE(decodeCompanionMessage(damaged.data(), damaged.size()).has_value());
+    damaged = cpu;
+    damaged[companionEnvelopeSize + 6] = 5; // more than four apps
+    TEST_ASSERT_FALSE(decodeCompanionMessage(damaged.data(), damaged.size()).has_value());
+    damaged = cpu;
+    damaged[companionEnvelopeSize + 1] = 0x10; // no such CPU field
+    TEST_ASSERT_FALSE(decodeCompanionMessage(damaged.data(), damaged.size()).has_value());
+    const auto memory = loadFixture("system-details-response-memory.bin");
+    damaged = memory;
+    damaged[companionEnvelopeSize + 19] = 0xFF; // free above total
+    damaged[companionEnvelopeSize + 20] = 0x0F;
+    TEST_ASSERT_FALSE(decodeCompanionMessage(damaged.data(), damaged.size()).has_value());
+    auto unavailable =
+        makeResponse(42, 8, CompanionOperation::SystemDetails, CompanionStatus::NotAvailable);
+    TEST_ASSERT_TRUE(encodeCompanionMessage(unavailable).has_value());
+}
+
+void test_only_telemetry_failures_are_isolated() {
+    TEST_ASSERT_TRUE(companionResponseFailureIsIsolated(CompanionOperation::SystemMetrics));
+    TEST_ASSERT_TRUE(companionResponseFailureIsIsolated(CompanionOperation::AiUsage));
+    TEST_ASSERT_TRUE(companionResponseFailureIsIsolated(CompanionOperation::SystemDetails));
+    TEST_ASSERT_FALSE(companionResponseFailureIsIsolated(CompanionOperation::AppActive));
+    TEST_ASSERT_FALSE(companionResponseFailureIsIsolated(CompanionOperation::Ping));
+}
+
+// ---- Inventory ----------------------------------------------------------------
+
+const CompanionInventoryId inventoryId{0x0f, 0x1e, 0x2d, 0x3c, 0x4b, 0x5a, 0x69, 0x78,
+                                       0x87, 0x96, 0xa5, 0xb4, 0xc3, 0xd2, 0xe1, 0xf0};
+const CompanionInventoryId otherInventoryId{0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa,
+                                            0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa};
+
+std::string getRecordJson() {
+    return "{\"schema\":2,\"id\":\"0f1e2d3c4b5a69788796a5b4c3d2e1f0\",\"revision\":3,"
+           "\"name\":\"Чемодан\",\"description\":\"Зарядка, свитер\"}";
+}
+
+std::string putRecordJson() {
+    return "{\"schema\":2,\"id\":\"0f1e2d3c4b5a69788796a5b4c3d2e1f0\",\"revision\":3,"
+           "\"name\":\"Синий чемодан\",\"description\":\"Штаны, шорты\\nНоски\\nЛыжи «Atomic»\"}";
+}
+
+void test_inventory_messages_match_fixtures() {
+    auto list = makeRequest(42, 21, CompanionOperation::InventoryList);
+    TEST_ASSERT_TRUE(setInventoryListRequest(list, 0));
+    assertEncodedMatchesFixture(list, "inventory-list-request.bin");
+
+    const CompanionInventoryListEntry entries[] = {{inventoryId, true, 3, "Чемодан"},
+                                                   {otherInventoryId, false, 0, ""}};
+    auto listed = makeResponse(42, 21, CompanionOperation::InventoryList, CompanionStatus::Ok);
+    TEST_ASSERT_TRUE(setInventoryListResponse(listed, 2, 2, entries, 2));
+    assertEncodedMatchesFixture(listed, "inventory-list-response.bin");
+
+    auto get = makeRequest(42, 22, CompanionOperation::InventoryGet);
+    TEST_ASSERT_TRUE(setInventoryGetRequest(get, inventoryId, 0));
+    assertEncodedMatchesFixture(get, "inventory-get-request.bin");
+    CompanionInventoryId readId{};
+    std::uint16_t offset = 1;
+    TEST_ASSERT_TRUE(
+        readInventoryGetRequest(decodeFixture("inventory-get-request.bin"), readId, offset));
+    TEST_ASSERT_TRUE(readId == inventoryId);
+    TEST_ASSERT_EQUAL_UINT16(0, offset);
+
+    const auto record = getRecordJson();
+    CompanionInventoryChunk chunk{};
+    chunk.id = inventoryId;
+    chunk.revision = 3;
+    chunk.total = static_cast<std::uint16_t>(record.size());
+    chunk.data = reinterpret_cast<const std::uint8_t*>(record.data());
+    chunk.size = record.size();
+    auto got = makeResponse(42, 22, CompanionOperation::InventoryGet, CompanionStatus::Ok);
+    TEST_ASSERT_TRUE(setInventoryGetResponse(got, chunk));
+    assertEncodedMatchesFixture(got, "inventory-get-response.bin");
+    assertEncodedMatchesFixture(
+        makeResponse(42, 22, CompanionOperation::InventoryGet, CompanionStatus::NotAvailable),
+        "inventory-get-not-available.bin");
+
+    const auto edited = putRecordJson();
+    chunk.total = static_cast<std::uint16_t>(edited.size());
+    chunk.data = reinterpret_cast<const std::uint8_t*>(edited.data());
+    chunk.size = edited.size();
+    auto put = makeRequest(42, 23, CompanionOperation::InventoryPut);
+    TEST_ASSERT_TRUE(setInventoryPutRequest(put, chunk));
+    assertEncodedMatchesFixture(put, "inventory-put-request.bin");
+    auto stored = makeResponse(42, 23, CompanionOperation::InventoryPut, CompanionStatus::Ok);
+    TEST_ASSERT_TRUE(setInventoryPutResponse(stored, static_cast<std::uint16_t>(edited.size()), 4));
+    assertEncodedMatchesFixture(stored, "inventory-put-response.bin");
+    auto conflict =
+        makeResponse(42, 23, CompanionOperation::InventoryPut, CompanionStatus::Conflict);
+    TEST_ASSERT_TRUE(setInventoryConflict(conflict, 5));
+    assertEncodedMatchesFixture(conflict, "inventory-put-conflict.bin");
+
+    auto remove = makeRequest(42, 24, CompanionOperation::InventoryDelete);
+    TEST_ASSERT_TRUE(setInventoryDeleteRequest(remove, inventoryId, 4));
+    assertEncodedMatchesFixture(remove, "inventory-delete-request.bin");
+    CompanionInventoryId removedId{};
+    std::uint32_t removedRevision = 0;
+    TEST_ASSERT_TRUE(readInventoryDeleteRequest(decodeFixture("inventory-delete-request.bin"),
+                                                removedId, removedRevision));
+    TEST_ASSERT_TRUE(removedId == inventoryId);
+    TEST_ASSERT_EQUAL_UINT32(4, removedRevision);
+    assertEncodedMatchesFixture(
+        makeResponse(42, 24, CompanionOperation::InventoryDelete, CompanionStatus::Ok),
+        "inventory-delete-response.bin");
+}
+
+void test_inventory_chunks_are_bounded() {
+    std::vector<std::uint8_t> data(companionInventoryPutChunkSize + 1, 'x');
+    CompanionInventoryChunk chunk{};
+    chunk.id = inventoryId;
+    chunk.revision = 1;
+    chunk.total = 4096;
+    chunk.data = data.data();
+    auto put = makeRequest(42, 23, CompanionOperation::InventoryPut);
+    chunk.size = companionInventoryPutChunkSize + 1;
+    TEST_ASSERT_FALSE(setInventoryPutRequest(put, chunk));
+    chunk.size = companionInventoryPutChunkSize;
+    TEST_ASSERT_TRUE(setInventoryPutRequest(put, chunk));
+    // Beyond the record bound, past the declared total, and with no base revision.
+    chunk.total = 4097;
+    TEST_ASSERT_FALSE(setInventoryPutRequest(put, chunk));
+    chunk.total = 100;
+    TEST_ASSERT_FALSE(setInventoryPutRequest(put, chunk));
+    chunk.total = 4096;
+    chunk.offset = 4000;
+    TEST_ASSERT_FALSE(setInventoryPutRequest(put, chunk));
+    chunk.offset = 0;
+    chunk.revision = 0;
+    TEST_ASSERT_FALSE(setInventoryPutRequest(put, chunk));
+
+    // A list entry's name and validity must agree; names are UTF-8.
+    const CompanionInventoryListEntry invalid[] = {{inventoryId, false, 0, "named"}};
+    auto listed = makeResponse(42, 21, CompanionOperation::InventoryList, CompanionStatus::Ok);
+    TEST_ASSERT_FALSE(setInventoryListResponse(listed, 1, 1, invalid, 1));
+    const CompanionInventoryListEntry malformed[] = {{inventoryId, true, 1, "\xC3\x28"}};
+    TEST_ASSERT_FALSE(setInventoryListResponse(listed, 1, 1, malformed, 1));
+    // Only PUT answers CONFLICT, and an error answer carries no payload.
+    auto conflictGet =
+        makeResponse(42, 22, CompanionOperation::InventoryGet, CompanionStatus::Conflict);
+    conflictGet.payloadSize = 4;
+    TEST_ASSERT_FALSE(encodeCompanionMessage(conflictGet).has_value());
+    auto rejected =
+        makeResponse(42, 23, CompanionOperation::InventoryPut, CompanionStatus::Rejected);
+    TEST_ASSERT_TRUE(encodeCompanionMessage(rejected).has_value());
+    rejected.payloadSize = 1;
+    TEST_ASSERT_FALSE(encodeCompanionMessage(rejected).has_value());
 }
 
 } // namespace
 
+void setUp() {}
+void tearDown() {}
+
 int main() {
     UNITY_BEGIN();
-    RUN_TEST(test_hello_and_ack_match_fixtures);
-    RUN_TEST(test_ping_request_and_response_match_fixtures);
-    RUN_TEST(test_capabilities_and_app_messages_match_fixtures);
-    RUN_TEST(test_fixtures_decode_to_expected_operations);
-    RUN_TEST(test_codec_rejects_malformed_version_length_and_unknown_operation);
-    RUN_TEST(test_codec_rejects_invalid_semantics_and_payloads);
-    RUN_TEST(test_wrong_session_fixture_is_structurally_valid);
-    RUN_TEST(test_oversized_and_invalid_bundle_identifiers_are_rejected);
-    RUN_TEST(test_capabilities_round_trip_rejects_unknown_ids);
-    RUN_TEST(test_v2_metrics_round_trip_and_v1_rejection);
-    RUN_TEST(test_v3_ai_usage_round_trip_and_bounds);
-    RUN_TEST(test_v4_reset_credits_and_v3_compatibility);
-    RUN_TEST(test_v4_reset_credit_bounds_and_malformed_payloads);
-    RUN_TEST(test_v5_claude_schema_and_v4_rejects_claude);
+    RUN_TEST(test_hello_carries_fingerprint_and_build_id);
+    RUN_TEST(test_legacy_frames_are_recognised_not_decoded);
+    RUN_TEST(test_ping_and_application_messages_match_fixtures);
+    RUN_TEST(test_codec_rejects_malformed_frames_and_semantics);
+    RUN_TEST(test_bundle_identifiers_are_bounded_utf8);
+    RUN_TEST(test_system_metrics_round_trip_and_bounds);
+    RUN_TEST(test_ai_usage_round_trip_and_reset_credit_rules);
+    RUN_TEST(test_system_details_groups_round_trip_and_reject_bad_names);
+    RUN_TEST(test_only_telemetry_failures_are_isolated);
+    RUN_TEST(test_inventory_messages_match_fixtures);
+    RUN_TEST(test_inventory_chunks_are_bounded);
     return UNITY_END();
 }

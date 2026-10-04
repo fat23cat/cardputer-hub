@@ -6,6 +6,7 @@
 #include "core/capabilities/capability_registry.h"
 #include "core/navigation/navigation_stack.h"
 #include "services/audio/audio_service.h"
+#include "services/companion/companion_service.h"
 #include "services/device_settings/device_settings_service.h"
 #include "services/network/network_service.h"
 
@@ -22,6 +23,8 @@ class ApplicationShell final : public core::IActionHandler {
     void update(const core::InputEvents& input, std::chrono::milliseconds elapsed = {},
                 std::optional<std::uint8_t> batteryPercent = std::nullopt, bool displayOff = false);
     core::ActionHandlingResult handle(const core::Action& action) override;
+    // Home names the side to update when the Companion is from another build.
+    void setCompanion(const services::CompanionService& companion) { companion_ = &companion; }
 
   private:
     struct HomeStatusFrame {
@@ -29,6 +32,7 @@ class ApplicationShell final : public core::IActionHandler {
         std::uint8_t bluetooth = 0;
         std::optional<std::uint8_t> batteryPercent;
         std::string connectedDeviceName;
+        bool companionMismatch = false;
     };
 
     struct SettingsFrame {
@@ -67,6 +71,7 @@ class ApplicationShell final : public core::IActionHandler {
     services::DeviceSettingsService& deviceSettings_;
     MiniAppRuntime& miniApps_;
     core::CapabilityRegistry& capabilities_;
+    const services::CompanionService* companion_ = nullptr;
     Launcher launcher_;
     core::NavigationStack navigation_;
     std::optional<HomeStatusFrame> homeStatusFrame_;

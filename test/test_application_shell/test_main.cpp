@@ -1,5 +1,6 @@
 #include "apps/hosts/host_settings.h"
 #include "apps/network/wifi_settings.h"
+#include "apps/nfc/nfc_app.h"
 #include "apps/runtime/mini_app_runtime.h"
 #include "apps/shell/application_shell.h"
 #include "apps/shell/home_ambient.h"
@@ -11,7 +12,9 @@
 #include "core/display/text_layout.h"
 #include "core/lifecycle/system_runtime.h"
 #include "services/audio/audio_service.h"
+#include "services/inventory/inventory_service.h"
 #include "services/network/network_service.h"
+#include "services/nfc/nfc_service.h"
 
 #include <algorithm>
 #include <chrono>
@@ -19,6 +22,11 @@
 #include <deque>
 #include <string>
 #include <unity.h>
+
+#include "../support/companion_session.h"
+#include "../support/fake_nfc_reader.h"
+#include "../support/memory_file_storage.h"
+#include "companion/companion_fixtures.h"
 #include <vector>
 
 using namespace cardputer_hub;
@@ -283,6 +291,12 @@ class FakeMiniApp final : public apps::IMiniApp {
             display->texts = {"MINI APP"};
         insideUpdate = false;
     }
+    bool handleBack() override {
+        ++backRequests;
+        return consumeBack;
+    }
+    bool consumeBack = false;
+    int backRequests = 0;
     Display* display = nullptr;
     core::ActionBus* bus = nullptr;
     bool closeOnEnter = false;
@@ -397,7 +411,8 @@ struct RuntimeBridge {
     RuntimeKeyboard keyboard;
     SilentLogSink sink;
     core::Logger logger{sink, core::LogLevel::Info};
-    const core::BuildInfo buildInfo{"Test Hub", "1", "test", "test"};
+    const core::BuildInfo buildInfo{"Test Hub", "1",          "test",
+                                    "test",     "2026-09-29", "2026-09-29 test"};
     core::SystemRuntime runtime;
 };
 
@@ -725,6 +740,59 @@ void test_capability_loss_returns_shell_to_launcher_without_forwarding_input() {
     TEST_ASSERT_FALSE(f.display.shows("SETTINGS"));
 }
 
+class ZeroRandom final : public core::IRandomSource {
+  public:
+    void fill(std::uint8_t* destination, std::size_t size) override {
+        std::fill(destination, destination + size, std::uint8_t{1});
+    }
+};
+
+void test_nfc_capability_loss_returns_to_launcher() {
+    Fixture f;
+    test_support::FakeNfcReader reader;
+    services::NfcService nfc(reader, f.capabilities);
+    test_support::MemoryFileStorageAdapter card;
+    core::FileStorage files(card);
+    services::RemovableStorageService storage(files, f.capabilities);
+    ZeroRandom random;
+    services::InventoryService inventory(nfc, storage, random);
+    TEST_ASSERT_TRUE(nfc.start());
+    TEST_ASSERT_TRUE(f.capabilities.isAvailable(services::nfcReaderCapabilityId));
+    apps::NfcApp nfcApp(inventory, f.display);
+    f.registerApp("nfc", nfcApp, {services::nfcReaderCapabilityId});
+    auto shell = f.makeShell();
+    shell.update({enter});
+    shell.update({enter});
+    TEST_ASSERT_TRUE(f.miniApps.hasActiveApp());
+    TEST_ASSERT_TRUE(nfc.status().scanning);
+
+    reader.present(test_support::makeNtag213(1));
+    for (int index = 0; index < 20 && nfc.state() != services::NfcServiceState::Ready; ++index) {
+        nfc.update(std::chrono::milliseconds(150));
+        shell.update({}, std::chrono::milliseconds(150));
+    }
+    shell.update({}, std::chrono::milliseconds(16));
+    TEST_ASSERT_TRUE(nfc.status().card.has_value());
+    TEST_ASSERT_TRUE(f.display.shows("BLANK TAG"));
+
+    // The unit disappears: NFC_READER is withdrawn by the service.
+    reader.readerGone = true;
+    for (int index = 0; index < 20 && nfc.state() != services::NfcServiceState::Error; ++index)
+        nfc.update(std::chrono::milliseconds(150));
+    TEST_ASSERT_FALSE(f.capabilities.isAvailable(services::nfcReaderCapabilityId));
+    shell.update({}, std::chrono::milliseconds(16));
+
+    // Existing capability-loss behavior: Mini App deactivated, Launcher visible
+    // with the reason, scanning stopped and the tag cleared.
+    TEST_ASSERT_FALSE(f.miniApps.hasActiveApp());
+    TEST_ASSERT_FALSE(nfc.status().scanning);
+    TEST_ASSERT_FALSE(nfc.status().card.has_value());
+    TEST_ASSERT_TRUE(f.display.shows("APPS"));
+    TEST_ASSERT_FALSE(f.display.shows("BLANK TAG"));
+    shell.update({}, std::chrono::milliseconds(120));
+    TEST_ASSERT_TRUE(f.display.shows("REQUIRES NFC_READER"));
+}
+
 void test_launcher_enter_activates_and_escape_returns_to_launcher() {
     Fixture f;
     f.registerApp("weather");
@@ -1033,6 +1101,61 @@ void test_mini_app_escape_plays_one_keypress_and_restores_launcher() {
     TEST_ASSERT_TRUE(f.display.shows("APPS"));
     TEST_ASSERT_EQUAL_UINT32(1, f.audioAdapter.clips.size());
     TEST_ASSERT_EQUAL_UINT32(1, keyPressCount(f.audioAdapter.clips));
+}
+
+void test_mini_app_that_consumes_back_stays_open_on_escape() {
+    Fixture f;
+    f.registerApp("system");
+    auto shell = f.makeShell();
+    shell.update({enter});
+    shell.update({enter});
+    TEST_ASSERT_TRUE(f.miniApps.hasActiveApp());
+    f.app.consumeBack = true;
+    f.audioAdapter.clips.clear();
+
+    shell.update({escape});
+
+    TEST_ASSERT_TRUE(f.miniApps.hasActiveApp());
+    TEST_ASSERT_EQUAL_INT(1, f.app.backRequests);
+    TEST_ASSERT_EQUAL_INT(0, f.app.deactivateCount);
+    // The key still gives its single click, and the app never sees Escape itself.
+    TEST_ASSERT_EQUAL_UINT32(1, keyPressCount(f.audioAdapter.clips));
+    TEST_ASSERT_TRUE(f.app.received.empty());
+}
+
+void test_input_around_a_consumed_escape_stays_with_the_mini_app() {
+    Fixture f;
+    f.registerApp("system");
+    auto shell = f.makeShell();
+    shell.update({enter});
+    shell.update({enter});
+    f.app.consumeBack = true;
+
+    shell.update({keyA, escape, keyB});
+
+    TEST_ASSERT_TRUE(f.miniApps.hasActiveApp());
+    TEST_ASSERT_EQUAL_UINT32(2, f.app.received.size());
+    TEST_ASSERT_TRUE(isPrintable(f.app.received[0], 'A'));
+    TEST_ASSERT_TRUE(isPrintable(f.app.received[1], 'B'));
+}
+
+void test_escape_closes_the_mini_app_once_it_declines_back() {
+    Fixture f;
+    f.registerApp("system");
+    auto shell = f.makeShell();
+    shell.update({enter});
+    shell.update({enter});
+    f.app.consumeBack = true;
+    shell.update({escape});
+    TEST_ASSERT_TRUE(f.miniApps.hasActiveApp());
+
+    f.app.consumeBack = false;
+    shell.update({escape});
+
+    TEST_ASSERT_FALSE(f.miniApps.hasActiveApp());
+    TEST_ASSERT_EQUAL_INT(2, f.app.backRequests);
+    TEST_ASSERT_EQUAL_INT(1, f.app.deactivateCount);
+    TEST_ASSERT_TRUE(f.display.shows("APPS"));
 }
 
 void test_mini_app_batch_plays_one_cue_per_event() {
@@ -1474,6 +1597,63 @@ void test_companion_availability_alone_keeps_home_device_row_empty() {
         }));
 }
 
+class MismatchTransport final : public connectivity::ICompanionTransport {
+  public:
+    connectivity::CompanionTransportState state() const noexcept override {
+        return connectivity::CompanionTransportState::Ready;
+    }
+    connectivity::CompanionSendResult send(const connectivity::CompanionPayload& payload) override {
+        sent.push_back(payload);
+        return connectivity::CompanionSendResult::Sent;
+    }
+    std::optional<connectivity::CompanionPayload> receive() override {
+        if (incoming.empty())
+            return std::nullopt;
+        auto payload = incoming.front();
+        incoming.pop_front();
+        return payload;
+    }
+    std::deque<connectivity::CompanionPayload> incoming;
+    std::vector<connectivity::CompanionPayload> sent;
+};
+
+void test_home_names_the_side_to_update_after_a_companion_mismatch() {
+    Fixture f;
+    MismatchTransport transport;
+    core::CapabilityRegistry companionCapabilities;
+    services::CompanionService companion(transport, companionCapabilities);
+    auto shell = f.makeShell();
+    shell.setCompanion(companion);
+    shell.update({});
+    TEST_ASSERT_FALSE(f.display.shows("UPDATE COMPANION"));
+    // A Companion built before plan 043 sends its old version-list HELLO.
+    const auto* legacy = companion_fixtures::find("legacy-hello.bin");
+    TEST_ASSERT_NOT_NULL(legacy);
+    connectivity::CompanionPayload payload{};
+    std::memcpy(payload.bytes.data(), legacy->bytes, legacy->size);
+    payload.size = static_cast<std::uint16_t>(legacy->size);
+    transport.incoming.push_back(payload);
+    companion.update(std::chrono::milliseconds(0));
+    f.display.fills.clear();
+    f.display.texts.clear();
+    shell.update({});
+    TEST_ASSERT_TRUE(f.display.shows("UPDATE COMPANION"));
+    TEST_ASSERT_TRUE(
+        std::any_of(f.display.fills.begin(), f.display.fills.end(), [](const Display::Fill& fill) {
+            return fill.position.y >= apps::homeDeviceRowOrigin.y && fill.position.y < 112 &&
+                   fill.color.red == core::palette::vermilion.red &&
+                   fill.color.green == core::palette::vermilion.green;
+        }));
+    // A dated Companion build from another protocol: host tests have no dated
+    // firmware build, so the advice is to rebuild both sides.
+    transport.incoming.push_back(
+        test_support::companionWire(test_support::companionHello("2026-09-20 fff0000", false)));
+    companion.update(std::chrono::milliseconds(0));
+    f.display.texts.clear();
+    shell.update({});
+    TEST_ASSERT_TRUE(f.display.shows("REBUILD BOTH"));
+}
+
 void test_home_ready_host_row_updates_without_moving_orb_or_actions() {
     Fixture f;
     connectivity::BluetoothBondReference bond{};
@@ -1653,6 +1833,7 @@ int main() {
     RUN_TEST(test_home_connected_device_requires_ready_and_truncates_without_mutation);
     RUN_TEST(test_bluetooth_fake_defaults_have_no_bond_or_ready_hid);
     RUN_TEST(test_companion_availability_alone_keeps_home_device_row_empty);
+    RUN_TEST(test_home_names_the_side_to_update_after_a_companion_mismatch);
     RUN_TEST(test_home_ready_host_row_updates_without_moving_orb_or_actions);
     RUN_TEST(test_home_orb_does_not_advance_while_display_off);
     RUN_TEST(test_home_entering_while_display_off_defers_ambient_frame);
@@ -1677,6 +1858,7 @@ int main() {
     RUN_TEST(test_explicit_runtime_deactivation_returns_shell_to_launcher);
     RUN_TEST(test_explicit_runtime_deactivation_restores_launcher_before_idle_update);
     RUN_TEST(test_capability_loss_returns_shell_to_launcher_without_forwarding_input);
+    RUN_TEST(test_nfc_capability_loss_returns_to_launcher);
     RUN_TEST(test_launcher_enter_activates_and_escape_returns_to_launcher);
     RUN_TEST(test_drawing_mini_app_handoff_fully_redraws_launcher_backward);
     RUN_TEST(test_capability_loss_from_launcher_uses_backward_transition_and_overlay);
@@ -1692,6 +1874,9 @@ int main() {
     RUN_TEST(test_mini_app_elapsed_advances_once_per_shell_update);
     RUN_TEST(test_mini_app_printable_event_plays_one_keypress);
     RUN_TEST(test_mini_app_escape_plays_one_keypress_and_restores_launcher);
+    RUN_TEST(test_mini_app_that_consumes_back_stays_open_on_escape);
+    RUN_TEST(test_input_around_a_consumed_escape_stays_with_the_mini_app);
+    RUN_TEST(test_escape_closes_the_mini_app_once_it_declines_back);
     RUN_TEST(test_mini_app_batch_plays_one_cue_per_event);
     RUN_TEST(test_settings_volume_steps_play_directional_cues_without_keypress);
     RUN_TEST(test_launcher_navigation_plays_one_keypress_per_event);

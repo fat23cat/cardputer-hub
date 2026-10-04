@@ -1,13 +1,51 @@
 #include "hardware/cardputer/cardputer_display_adapter.h"
+#include "core/display/display_glyphs.h"
+#include "hardware/cardputer/assets/system_font_extension.h"
 #include <M5Unified.hpp>
 #include <algorithm>
+#include <array>
 #include <cstring>
 #include <new>
+#include <string>
 
 namespace cardputer_hub::hardware {
 namespace {
 std::uint32_t toDeviceColor(core::RgbColor color) {
     return M5.Display.color888(color.red, color.green, color.blue);
+}
+
+constexpr std::size_t glyphBytes = 5;
+
+// Font0's 256 glyphs with the Cyrillic and typographic glyphs of
+// display_glyphs.h in place of its unused upper half.
+const lgfx::IFont& systemFont() {
+    static std::array<std::uint8_t, 256 * glyphBytes> table{};
+    static const std::uint8_t info[] = {0, 255, glyphBytes};
+    static const lgfx::GLCDfont font(table.data(), info, 6, 8, 7);
+    static bool built = false;
+    if (!built) {
+        std::memcpy(table.data(), fonts::Font0.chartbl, table.size());
+        for (const auto& glyph : assets::systemFontExtension) {
+            auto* columns = table.data() + glyph.code * glyphBytes;
+            if (glyph.latin != 0) {
+                std::memcpy(columns,
+                            fonts::Font0.chartbl +
+                                static_cast<std::uint8_t>(glyph.latin) * glyphBytes,
+                            glyphBytes);
+                continue;
+            }
+            for (std::size_t column = 0; column < glyphBytes; ++column) {
+                std::uint8_t bits = 0;
+                for (int row = 0; row < 8; ++row) {
+                    if (glyph.rows[row][column] == '#')
+                        bits = static_cast<std::uint8_t>(bits | (1U << row));
+                }
+                columns[column] = bits;
+            }
+        }
+        built = true;
+    }
+    return font;
 }
 } // namespace
 
@@ -141,11 +179,16 @@ void CardputerDisplayAdapter::drawText(core::PixelPosition position, const char*
     lgfx::LovyanGFX& target = frame_ && frame_->active
                                   ? static_cast<lgfx::LovyanGFX&>(frame_->canvas)
                                   : static_cast<lgfx::LovyanGFX&>(M5.Display);
-    target.setFont(&fonts::Font0);
+    // UTF-8 becomes one glyph byte per code point, drawn without the library's
+    // own UTF-8 decoding or its classic-charset shift.
+    const auto glyphs = core::displayGlyphs(text);
+    target.setFont(&systemFont());
+    target.setAttribute(lgfx::utf8_switch, 0);
+    target.setAttribute(lgfx::cp437_switch, 1);
     target.setTextColor(toDeviceColor(style.foreground), toDeviceColor(style.background));
     target.setTextSize(style.scale);
-    target.drawString(text, position.x, position.y);
+    target.drawString(glyphs.c_str(), position.x, position.y);
     if (frame_ && frame_->active)
-        frame_->damage(position, target.textWidth(text), target.fontHeight());
+        frame_->damage(position, target.textWidth(glyphs.c_str()), target.fontHeight());
 }
 } // namespace cardputer_hub::hardware

@@ -35,6 +35,10 @@ validate-idf:
 validate-submodules:
 	@test -f components/m5cardputer/upstream/src/M5Cardputer.cpp || (echo "Run: git submodule update --init --recursive" >&2; exit 2)
 	@test -f components/arduino_irremote/upstream/src/IRremote.hpp || (echo "Run: git submodule update --init --recursive" >&2; exit 2)
+	@test -f components/m5utility/upstream/src/M5Utility.hpp || (echo "Run: git submodule update --init --recursive" >&2; exit 2)
+	@test -f components/m5hal/upstream/src/M5HAL.hpp || (echo "Run: git submodule update --init --recursive" >&2; exit 2)
+	@test -f components/m5unitunified/upstream/src/M5UnitUnified.hpp || (echo "Run: git submodule update --init --recursive" >&2; exit 2)
+	@test -f components/m5unitnfc/upstream/src/M5UnitUnifiedNFC.hpp || (echo "Run: git submodule update --init --recursive" >&2; exit 2)
 
 configure: validate-idf validate-submodules
 	$(IDF_RUN) $(IDF_ARGS) reconfigure

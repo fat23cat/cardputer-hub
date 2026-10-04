@@ -31,10 +31,28 @@ public enum CompanionPresentation {
     }
 
     public static func statusMetadata(connection: CompanionConnectionPresentationState,
-                                      protocolVersion: UInt8?, lastMessageAt: Date?, now: Date) -> String? {
-        guard connection == .connected, let protocolVersion else { return nil }
-        guard let seen = lastSeen(lastMessageAt, now: now) else { return "Protocol v\(protocolVersion)" }
-        return "Protocol v\(protocolVersion) · \(seen == "Just now" ? "just now" : seen)"
+                                      firmwareBuildId: String?, lastMessageAt: Date?, now: Date) -> String? {
+        guard connection == .connected, let firmwareBuildId else { return nil }
+        let build = "Cardputer \(firmwareBuildId)"
+        guard let seen = lastSeen(lastMessageAt, now: now) else { return build }
+        return "\(build) · \(seen == "Just now" ? "just now" : seen)"
+    }
+
+    /// One line for the menu when the Cardputer and this Companion cannot talk.
+    public static func compatibilityNotice(_ compatibility: CompanionCompatibility,
+                                           companionBuildId: String) -> String? {
+        switch compatibility {
+        case .unknown, .matched:
+            return nil
+        case .noAnswer:
+            return "No answer — Cardputer firmware may be older than this Companion"
+        case .mismatch(let firmware):
+            switch CompanionMismatchAdvice(companionBuildId: companionBuildId, firmwareBuildId: firmware) {
+            case .updateCompanion: return "Update this Companion — Cardputer runs \(firmware)"
+            case .updateFirmware: return "Update Cardputer firmware (\(firmware))"
+            case .rebuildBoth: return "Rebuild firmware and Companion from one commit"
+            }
+        }
     }
 
     public static func sessionDuration(_ date: Date?, now: Date) -> String? {
@@ -45,14 +63,3 @@ public enum CompanionPresentation {
     }
 }
 
-public struct CompanionCapabilitySummary: Equatable {
-    public let appControl: Bool
-    public let appEvents: Bool
-    public let systemMetrics: Bool
-
-    public init(_ capabilities: [CompanionCapability]) {
-        appControl = capabilities.contains(.appActive) && capabilities.contains(.appActivate)
-        appEvents = capabilities.contains(.appActiveEvents)
-        systemMetrics = capabilities.contains(.systemMetrics)
-    }
-}

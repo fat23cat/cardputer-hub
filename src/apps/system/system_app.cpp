@@ -89,7 +89,7 @@ SystemApp::Frame SystemApp::capture() const {
     const auto wifi = network_.status();
     frame.wifi = systemWifiStatusText(wifi);
     frame.network = wifi.configured && !wifi.ssid.empty() ? fitValue(wifi.ssid, 16) : "NONE";
-    frame.version = firmwareBuildInfo().version;
+    frame.version = firmwareBuildInfo().buildId;
     return frame;
 }
 
@@ -116,7 +116,7 @@ void SystemApp::render(const Frame& next) {
     drawRow(70, "04", "HOST STATUS", next.hostStatus, frame_ ? &frame_->hostStatus : nullptr);
     drawRow(86, "05", "WI-FI", next.wifi, frame_ ? &frame_->wifi : nullptr);
     drawRow(102, "06", "NETWORK", next.network, frame_ ? &frame_->network : nullptr);
-    drawRow(118, "07", "VERSION", next.version, frame_ ? &frame_->version : nullptr);
+    drawRow(118, "07", "BUILD", next.version, frame_ ? &frame_->version : nullptr);
 }
 
 } // namespace cardputer_hub::apps

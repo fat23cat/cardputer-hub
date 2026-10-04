@@ -653,6 +653,20 @@ Git commit SHA
 build type
 ```
 
+Implemented: every firmware build regenerates
+`cardputer_hub_build_identity.h` through `scripts/write_build_identity.cmake`
+(a custom target in `main/CMakeLists.txt`, rewritten only when its content
+changes). It defines the build date, the short commit with `+` for uncommitted
+tracked changes, and the build ID `YYYY-MM-DD <commit>[+]`;
+`CARDPUTER_HUB_BUILD_DATE` and `CARDPUTER_HUB_COMMIT` override them for
+reproducible release builds. `firmwareBuildInfo()` exposes them, SYSTEM shows
+the build ID as `BUILD`, and HELLO_ACK sends it to the Companion.
+`scripts/package_macos_companion.sh` stamps the same build ID into the Companion's
+`CardputerBuildId` Info.plist key. The standard macOS version keys use numeric
+values: dotted build date for `CFBundleShortVersionString` and Git revision
+count for `CFBundleVersion`. Host builds without the generated header report
+`unknown` / `dev`.
+
 A future About screen may display:
 
 ```text
@@ -1042,6 +1056,13 @@ make firmware-check
 # Inspect the completed production image
 make firmware-size
 ```
+
+Companion packaging signs the complete `.app` after writing bundle metadata
+and rejects a bundle that fails strict code-signature verification. Local and
+CI builds default to ad-hoc signing, whose Keychain identity is tied to that
+binary. `CARDPUTER_COMPANION_SIGNING_IDENTITY` selects an installed signing
+certificate for a stable application identity across builds; packaging uses
+the signing identifier `org.cardputer.companion` in either case.
 
 Do not repeatedly run the full gate after edits that cannot affect its result.
 A passing gate must be repeated after a later source, configuration, dependency,

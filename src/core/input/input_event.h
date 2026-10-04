@@ -62,4 +62,18 @@ inline bool isPlainEscape(const InputEvent& event) {
     return event.type == InputEventType::PrintableCharacter && event.character == '`';
 }
 
+// Page navigation: Fn+arrow arrives as a named key, the plain physical key as
+// `,` or `/`.
+inline bool isPageLeft(const InputEvent& event) {
+    return (event.type == InputEventType::NamedKey && event.namedKey == NamedKey::Left) ||
+           (event.type == InputEventType::PrintableCharacter && event.character == ',' &&
+            !event.modifiers.shift);
+}
+
+inline bool isPageRight(const InputEvent& event) {
+    return (event.type == InputEventType::NamedKey && event.namedKey == NamedKey::Right) ||
+           (event.type == InputEventType::PrintableCharacter && event.character == '/' &&
+            !event.modifiers.shift);
+}
+
 } // namespace cardputer_hub::core

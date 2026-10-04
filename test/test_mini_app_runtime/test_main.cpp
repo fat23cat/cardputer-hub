@@ -55,6 +55,13 @@ class FakeMiniApp final : public IMiniApp {
         record("update");
     }
 
+    bool handleBack() override {
+        ++backCount;
+        return consumeBack;
+    }
+
+    bool consumeBack = false;
+    int backCount = 0;
     int activateCount = 0;
     int deactivateCount = 0;
     int updateCount = 0;
@@ -428,6 +435,63 @@ void test_required_capability_loss_deactivates_before_update() {
     TEST_ASSERT_EQUAL_INT(1, f.weather.activateCount);
 }
 
+class PlainMiniApp final : public IMiniApp {
+  public:
+    void onActivate() override {}
+    void onDeactivate() override {}
+    void update(const InputEvents&, std::chrono::milliseconds) override {}
+};
+
+void test_back_without_an_active_app_is_not_consumed() {
+    RuntimeFixture f;
+    f.registerDescriptor("weather");
+    assertResult(f.runtime.registerInstance("weather", f.weather),
+                 MiniAppInstanceRegistrationResult::Registered);
+    TEST_ASSERT_FALSE(f.runtime.handleBack());
+    TEST_ASSERT_EQUAL_INT(0, f.weather.backCount);
+}
+
+void test_back_is_offered_to_the_active_app_only() {
+    RuntimeFixture f;
+    f.registerDescriptor("weather");
+    f.registerDescriptor("devices");
+    assertResult(f.runtime.registerInstance("weather", f.weather),
+                 MiniAppInstanceRegistrationResult::Registered);
+    assertResult(f.runtime.registerInstance("devices", f.devices),
+                 MiniAppInstanceRegistrationResult::Registered);
+    assertResult(f.runtime.activate("weather"), MiniAppActivationResult::Activated);
+
+    TEST_ASSERT_FALSE(f.runtime.handleBack());
+    TEST_ASSERT_EQUAL_INT(1, f.weather.backCount);
+    TEST_ASSERT_EQUAL_INT(0, f.devices.backCount);
+}
+
+void test_an_app_that_consumes_back_stays_active() {
+    RuntimeFixture f;
+    f.registerDescriptor("weather");
+    assertResult(f.runtime.registerInstance("weather", f.weather),
+                 MiniAppInstanceRegistrationResult::Registered);
+    assertResult(f.runtime.activate("weather"), MiniAppActivationResult::Activated);
+    f.weather.consumeBack = true;
+
+    TEST_ASSERT_TRUE(f.runtime.handleBack());
+    TEST_ASSERT_TRUE(f.runtime.hasActiveApp());
+    TEST_ASSERT_EQUAL_INT(0, f.weather.deactivateCount);
+}
+
+void test_an_app_that_ignores_back_declines_it_by_default() {
+    AppRegistry apps;
+    CapabilityRegistry capabilities;
+    MiniAppRuntime runtime{apps, capabilities};
+    PlainMiniApp plain;
+    assertResult(apps.registerApp({"plain", "plain", "", "plain/home", {}}),
+                 AppRegistrationResult::Registered);
+    assertResult(runtime.registerInstance("plain", plain),
+                 MiniAppInstanceRegistrationResult::Registered);
+    assertResult(runtime.activate("plain"), MiniAppActivationResult::Activated);
+    TEST_ASSERT_FALSE(runtime.handleBack());
+}
+
 } // namespace
 
 void setUp() {}
@@ -457,5 +521,9 @@ int main() {
     RUN_TEST(test_idle_update_forwards_nothing);
     RUN_TEST(test_active_update_forwards_exact_input_and_elapsed);
     RUN_TEST(test_required_capability_loss_deactivates_before_update);
+    RUN_TEST(test_back_without_an_active_app_is_not_consumed);
+    RUN_TEST(test_back_is_offered_to_the_active_app_only);
+    RUN_TEST(test_an_app_that_consumes_back_stays_active);
+    RUN_TEST(test_an_app_that_ignores_back_declines_it_by_default);
     return UNITY_END();
 }

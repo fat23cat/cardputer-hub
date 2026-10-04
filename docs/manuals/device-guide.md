@@ -21,17 +21,18 @@ Home has **APPS** and **SETTINGS** actions at the bottom. **APPS** is selected
 each time Home opens. Press **Left** or **Right** to select an action, then
 **Enter** to open it. Plain **Tab** opens Settings directly. The
 list currently contains **SYSTEM**, a read-only status screen for battery,
-Bluetooth, the selected host, Wi-Fi, and firmware version; **POMODORO**, a
-background focus timer; **LED GALLERY**, an 8×8 matrix animation app; and **MAC CONTROL** when a live Cardputer Companion
-session is ready. **MAC STATUS** appears when that Companion supports system
-metrics. **AI USAGE** appears with a v3 or newer Companion and shows automatically
-discovered Codex, Cursor and Claude account quota. MAC CONTROL is a full-screen
+Bluetooth, the selected host, Wi-Fi, and the firmware build (date and
+commit, as `BUILD`); **POMODORO**, a
+background focus timer; **LED GALLERY**, an 8×8 matrix animation app; **NFC**, an inventory of NFC-tagged boxes and bags, when an
+M5Stack Unit NFC is connected; and **MAC CONTROL** when a live Cardputer Companion
+session is ready. **MAC STATUS** and **AI USAGE** appear with that session too;
+AI USAGE shows automatically discovered Codex, Cursor and Claude account quota. MAC CONTROL is a full-screen
 3×2 grid. Press the matching number to launch or focus that Mac app; production
 firmware binds **1** to Telegram. Empty numbered tiles do nothing. Left and
 Right move between pages when more than one page exists. A bound press expands
 that tile in blue while the Mac opens the app, then flashes green on success or
 red if the app is not found, and returns to the grid. Escape returns from
-SYSTEM, POMODORO, LED GALLERY, MAC CONTROL, MAC STATUS, or AI USAGE to Apps and from Apps to Home. If Companion disappears
+SYSTEM, POMODORO, LED GALLERY, NFC, MAC CONTROL, MAC STATUS, or AI USAGE to Apps and from Apps to Home. If Companion disappears
 while MAC CONTROL is open, the app closes and Apps returns; reconnect does not
 reopen it or repeat the last launch. Press plain **Tab** on the main keyboard
 to open the general Settings menu. Fn+Tab is inactive, and a normal G0 press
@@ -91,6 +92,99 @@ matrix uses the global LED brightness setting, 1% to 10% in 1% steps (default
 3%). The shared output path limits every app to 10%. If Pomodoro is active, its
 LED progress returns when you close Gallery.
 
+## NFC
+
+**NFC** keeps an inventory of boxes, bags and suitcases. A cheap writable NFC
+sticker on each container carries only a random ID; the container's name and
+description (what is inside) are stored on the Cardputer's **microSD card** and
+edited in the
+**Inventory** window of Cardputer Companion on the Mac. Reading a container
+needs neither the Mac, Wi-Fi nor the Internet.
+
+It needs the **M5Stack Unit NFC** (ST25R3916, SKU U216) plugged into the
+Cardputer-Adv **Grove port A** with its cable **before the device is powered on
+or reset**. Without the unit the app is listed as unavailable
+(`REQUIRES NFC_READER`) and nothing changes elsewhere. If the unit is pulled out
+while NFC is open, the app closes and Apps returns; plugging it back in makes
+NFC available again without a reset, but a unit that was not connected at
+power-on is not looked for later. The Unit NFC and the **Unit Puzzle** LED
+matrix use the same Grove port, so connect only one of them. When a Unit NFC
+answers at startup, the Puzzle output is switched off for that session.
+
+**Tags.** Use writable, unlocked **NTAG213**, NTAG215 or NTAG216 stickers
+(NFC Forum Type 2). Other cards and tags, including MIFARE Classic transport
+cards, are shown as `UNSUPPORTED TAG` and never read or written. A sticker that
+already holds other data (for example a web link) shows `TAG HOLDS OTHER DATA`
+and is not overwritten during registration; erasing it requires Fn+Del and
+confirmation. A locked sticker shows `TAG IS LOCKED`.
+
+**microSD.** Insert a FAT-formatted card. The app mounts it when NFC opens and
+shows `NO SD` in the header while no card is mounted. Records are kept under
+`cardputer-hub/inventory/records/` on the card, one file per container named by
+its ID. The firmware never formats or repairs the card. Do not edit these files
+by hand: the Cardputer refuses a damaged record (`RECORD IS DAMAGED`) and leaves
+it unchanged.
+
+**Register a container.** Open **NFC** and press **Enter** on `TAP A TAG`
+(`ENTER  NEW`), or hold a blank sticker to the antenna and press **Enter** on
+`BLANK TAG`. Type a short name of up to 32 letters, digits or symbols (the
+Cardputer keyboard types Latin text; a Cyrillic name and the description are
+written on the Mac) and press **Enter**, or Escape to cancel. You may put the
+sticker away while typing. `TAP TAG TO WRITE` then waits for any blank sticker:
+hold one to the reader and keep it there while the app writes the ID
+(`WRITING TAG`), reads it back (`CHECKING TAG`) and only then saves the record
+(`SAVING RECORD`); the container opens with `SAVED`. A sticker that is not blank
+is refused (`THIS TAG IS NOT BLANK`) and nothing is written to it; present
+another or press Escape to stop waiting. Registration needs a mounted microSD
+card (`INSERT MICROSD TO SAVE` otherwise); at most 256 containers fit
+(`INVENTORY IS FULL`). If the sticker leaves during the write,
+`TAG NOT WRITTEN, TAP AGAIN` keeps the name waiting and nothing is saved; tap
+the sticker again. If the ID was written but the record could not be saved,
+`RECORD NOT SAVED` offers **Enter** to save it again, and a later tap of that
+sticker shows `NO RECORD FOR THIS TAG` with **Enter** to create the record for
+the same ID; the sticker need not stay on the reader while you type that name.
+
+**Read a container.** Hold its sticker to the reader. The name appears at the
+top and the description below, line by line with long lines wrapped; Cyrillic
+text is shown. With more than seven lines, Up/Down (`;` / `.`) or Left/Right
+(`,` / `/`) change pages, and the page counter shows where you are. Holding
+the sticker never writes anything. Removing it leaves the container visible so
+you can read and page through its contents. Press **Escape** to close it, or
+present another sticker to replace it after that sticker is read. Erasing needs
+the original sticker to be on the reader. `MICROSD UNAVAILABLE` means the card is missing or failed:
+insert it and press **Enter** to retry. The RF field is on only while NFC is
+open.
+
+**Erase a sticker.** With an inventory sticker on the reader (a known
+container, `NO RECORD FOR THIS TAG` or `RECORD IS DAMAGED`), press **Fn+Del**.
+`ERASE THIS TAG?` asks first; **Enter** erases, Escape cancels. The app empties
+the sticker and checks it, then deletes the container's record from the
+microSD card for good; the sticker is blank again and can be registered for
+another box. If the sticker was removed, **Enter** waits for that same sticker
+to return. If a different sticker is present, remove it and bring back the
+original before pressing **Enter**; the warning disables confirmation. While a
+returned sticker is being read, wait for the check to finish before pressing
+**Enter**. `TAG DATA CHANGED` means the same sticker's contents no longer match
+what was selected; cancel and inspect it again before starting a new erase. If
+erasure cannot be verified, `ERASE UNCONFIRMED` keeps the record on microSD.
+If the sticker stays on the reader and is then read as blank, its record is
+deleted. After removing the sticker, check whether it is blank; if so, delete
+the orphaned record in the Companion. A later tap does not delete the record
+automatically. If the record could not be deleted after a verified erase,
+`RECORD NOT DELETED` says so; delete it in the Companion. Writable stickers
+with unrelated NDEF data can also be erased after confirmation, without
+deleting any inventory record. Locked or reserved areas are not erased.
+
+**Edit on the Mac.** With Cardputer Companion connected, choose **Inventory**
+in its menu (see [Inventory on the Mac](#inventory-on-the-mac)). Saved edits appear
+on the Cardputer the next time the sticker is tapped, or at once if it is on
+the reader.
+
+The ID on a sticker is a locator, not a secret: copying it to another sticker
+makes both open the same record. Physical acceptance of NFC writing, microSD
+recovery and the Cyrillic display on a Unit NFC is pending
+([plan 045](../plans/045-nfc-inventory.md#current-status)).
+
 ## Hosts and Bluetooth
 
 The Bluetooth list and saved-host action menu have no navigation footer.
@@ -121,9 +215,9 @@ The macOS **Cardputer Companion.app** is optional. Build and launch it from
 `companion/macos` as described in that directory's README. Grant Bluetooth
 permission on first launch. The
 Companion attaches to the already-paired Cardputer; it does not scan or create
-a second pairing. The menu-bar menu shows connection status, protocol, and
-last valid message; it also provides Reconnect, Start at Login, Diagnostics,
-About, and Quit. Start at Login can be enabled or disabled in the menu.
+a second pairing. The menu-bar menu shows connection status, the Cardputer
+firmware build and the last valid message; it also provides Reconnect, Start at
+Login, Inventory, Diagnostics, About, and Quit. Start at Login can be enabled or disabled in the menu.
 Closing the Mac lid, sleep,
 or a BLE drop invalidates the session; after wake and HID reconnect it attaches
 again without relaunching Companion or re-pairing.
@@ -133,29 +227,124 @@ missing, crashed, or disconnected.
 After Companion closes, its host-name row on Home disappears when the session
 is detected as unavailable, even if Bluetooth HID remains connected.
 
-MAC STATUS shows CPU, physical memory used/total, memory pressure, root-volume
-storage usage, Mac battery, download/upload rates, and thermal state. The
+Update the firmware and the Companion together, from the same checkout. Both
+carry a build ID — the build date and commit, for example
+`2026-09-29 abc1234` (`+` after the commit means uncommitted changes) — shown
+as `BUILD` in SYSTEM and under **Builds** in the Companion menu. When the two
+were built from different protocol definitions, they do not connect: Home
+shows a red dot with `UPDATE COMPANION`, `UPDATE FIRMWARE` or `REBUILD BOTH`,
+and the Companion menu names the side to update. The side with the older build
+date is the one to update; with equal dates, rebuild both. A Companion from
+before this change always shows `UPDATE COMPANION`. After updating, the
+Companion reconnects on its own after a relaunch; use **Reconnect** if it was
+already running. If the Cardputer does not answer at all, the menu says so and
+keeps retrying.
+
+### Inventory on the Mac
+
+Choose **Inventory** (⌘I while the menu is open) in the Companion menu to open
+the Inventory window. The left column lists the containers registered on the
+connected Cardputer, read from its microSD card; `Damaged record` marks a file
+the Cardputer refuses. Select a container to load it, then edit its **name**
+(up to 32 characters) and its **description** — free text with line breaks of
+up to 900 characters, for example one thing per line or a comma-separated list
+— with normal macOS text input, including Cyrillic. The window counts the
+characters as you type. Press **Save** (⌘S) to send the record; the Cardputer
+checks it and saves it as the next revision, and the window shows `Saved`.
+Spaces at the ends of lines and blank lines at the start or end are removed
+when saving. **Reload** fetches the current record and discards unsaved edits.
+Switching containers or closing the window with unsaved edits asks first.
+
+**Delete…** removes the selected container's record from the Cardputer for
+good, after a confirmation; a damaged record can be deleted the same way. The
+sticker keeps its ID: tapped later, it shows `NO RECORD FOR THIS TAG`, where it
+can be erased or given a new record.
+
+Editing needs a live Companion session and a mounted microSD card on the
+Cardputer; otherwise the window says so and disables the editor. A fresh list
+and record load are required before editing resumes. An unsaved draft stays in
+the window during reconnection. Nothing is stored as an authoritative Mac copy: a second
+Mac sees the same records once it connects to the Cardputer. Each new
+connection reads the selected record again, and a record that is no longer on
+the Cardputer is closed. If the record changed on the Cardputer since you
+loaded it (for example from the other Mac), **Save** and **Delete…** report
+the change and nothing is overwritten; **Reload** to continue. If the
+connection drops while saving, the edit stays in the window unsaved and is
+never sent again on its own; save it again after reconnecting or reload to see
+what the Cardputer kept. Physical acceptance of transfer speed and of two Macs
+is pending.
+
+MAC STATUS shows CPU, physical memory used/total, how much of the startup disk
+is used (`DISK 63% USED`), Mac battery, download/upload rates, whether memory
+is sufficient (`MEMORY OK`, `TIGHT` or `CRITICAL`, from macOS memory pressure)
+and how hot the Mac is (`TEMP OK`, `WARM`, `HOT` or `CRITICAL`, from the macOS
+thermal state; green is fine, red needs attention). The
 memory value is an estimate that counts compressed and inactive app memory but
-excludes free memory and file-backed cache.
+excludes free memory and file-backed cache. Under the CPU value a line shows
+the last 60 seconds; it grows from the right after you open the app and breaks
+only where the Mac did not answer.
 The dashboard occupies the full screen without a title or connection indicator.
 It polls roughly once per second only while open. Individual unavailable
 metrics and values older than three seconds show `--`. CPU and network rates
 may initially show `--` while the Companion establishes counter baselines.
-Press Escape to leave; the other keys do not control the dashboard. A v1
-Companion still supports MAC CONTROL but does not expose MAC STATUS. Companion
+
+The battery also shows the time to
+full charge while charging (with a green dot), the time left on battery, or
+`AC` when plugged in and not charging. Five dots at the bottom mean four more
+pages are available. Press Right (`/`) or Left (`,`), with or without Fn, to
+move between them; the pages wrap around, and MAC STATUS always opens on the
+overview:
+
+* **CPU / TOP APPS** — CPU with a 60-second line; `CORES` splits the load
+  between the fast performance cores (`FAST`) and the energy-efficient cores
+  (`EFF`) that run background work; `GPU` is graphics-chip load; below are the
+  four apps using the most CPU; `APPS IDLE` means no app uses at least 1% of the
+  Mac. An app's helper processes count toward the app. The list uses each
+  app's average over about ten seconds, and apps with nearly equal use keep
+  their places, so the order changes only when one app is clearly busier.
+  Only your own processes are listed; system processes owned by other users
+  are not.
+* **POWER** — battery percentage and segment meter, charging state with
+  `FULL IN` or `EMPTY IN` time, `POWER USE` (what the whole Mac draws right
+  now, in watts), `CHARGER` (the connected charger's rating), `BATTERY HEALTH`
+  (capacity left compared with a new battery), `CHARGE CYCLES`, and the
+  lowest-charged Apple mouse, keyboard or trackpad (`LOW` at 20% or less). A
+  Mac without a battery shows `NO BATTERY`.
+* **NETWORK** — download and upload with 60-second lines; `INTERNET PING` and
+  `ROUTER PING` are round-trip times to `1.1.1.1` and to your router (a slow
+  internet ping with a fast router ping points at the provider, both slow at
+  Wi-Fi); `WI-FI SIGNAL` is `STRONG`, `GOOD`, `WEAK` or `VERY WEAK`;
+  `WI-FI SPEED` is the current link rate in Mbit/s. The Wi-Fi network name is
+  not read, so macOS does not ask for Location access.
+* **MEMORY / DISK** — RAM in use and a bar split into `APPS` (memory your
+  apps use), `MACOS` (memory the system keeps for itself and cannot move) and
+  `COMPRESSED` (app memory macOS squeezed to make room); `SWAPPED TO DISK` is
+  memory moved to the SSD because RAM was full; `DISK FREE` is free space on
+  the startup disk in decimal GB as Finder shows it; `DISK` shows current read
+  and write speed in MB/s.
+
+A detail page updates about every two seconds; its values show `--` for the
+first two to four seconds after it opens, and again when they are more than
+six seconds old. The Mac
+measures the network only while the NETWORK page is open.
+Press Escape to leave. Companion
 loss closes MAC STATUS and reconnect does not reopen it automatically.
 
 AI USAGE has no setup screen. The Companion checks Codex, the existing
 Cursor Agent sign-in and the existing Claude Code sign-in on that Mac; an absent
 provider is omitted. Plus accounts show 5-hour and weekly limits, Business shows
 credits, Cursor Enterprise shows personal spend, and Claude Pro or Max shows its
-5-hour and weekly limits. Claude needs a Companion and firmware that both
-support protocol v5. The first time, macOS asks whether Cardputer Companion may
+5-hour and weekly limits. The first time, macOS asks whether Cardputer Companion may
 use `Claude Code-credentials`; choose **Always Allow**. Until you answer,
 Claude is not shown, and with no other account AI USAGE shows `CHECKING AI`.
 Claude values update about once a minute; if the Claude service limits
 requests, they are marked `STALE` until it allows them again. If you decline, Claude
-stays hidden for an hour, then macOS asks again. At most two providers appear,
+stays hidden for an hour, then silent checks resume. Only the first read after
+launching Companion may ask for permission; closing and opening the lid does
+not trigger another authorization prompt. If Keychain access becomes unavailable,
+Companion keeps using its current token until it expires, then shows the last
+values as `STALE` while retrying quietly every five minutes. Relaunch Companion
+to grant access again if needed. At most two providers appear,
 in the order Codex, Cursor, Claude. When Claude Code has not run for several
 hours, Claude values stay visible marked `STALE` until you use it again; a
 stale window whose reset time has passed shows 100% left and `--`. Signing out
@@ -245,6 +434,13 @@ instead of moving a list.
 | Up/Down on the RESETS page | Scroll available reset-credit details |
 | Left/Right, 1–0, Fn+1–0 in LED GALLERY | Select one of twenty effects |
 | Space in LED GALLERY | Trigger the current effect's primary action shown on the LCD |
+| Enter in NFC on `TAP A TAG`, `BLANK TAG` or `NO RECORD FOR THIS TAG` | Enter a name for a new container, or for that sticker's record |
+| Enter in the NFC name editor | Save the name; a new container then waits for a blank sticker |
+| Escape in the NFC name editor or on `TAP TAG TO WRITE` | Cancel the name or the registration |
+| Up/Down or Left/Right in an NFC container (`;` `.` `,` `/` also work) | Change description pages without wrapping |
+| Fn+Del in NFC on an inventory sticker | Ask to erase the sticker and delete its record; Enter erases, Escape cancels |
+| Enter in NFC on `RECORD NOT SAVED`, `MICROSD UNAVAILABLE` or a notice | Save again / retry the card / dismiss the notice |
+| Escape in NFC on other screens | Return to Apps (ignored while a sticker is being written) |
 | Space in POMODORO | Start, pause, or resume |
 | R in POMODORO | Reset the timer |
 | Right, S, or / in POMODORO | Skip to the next phase |
@@ -384,10 +580,15 @@ Fresh pairing, two-computer addition/switching, and reconnection to the last
 selected host after Reset/power-on were confirmed on Cardputer-Adv. Extended
 Off, report/interruption and USB hotplug acceptance remains tracked in
 [plan 017](../plans/017-hid-transport-arbitration.md#0-current-closeout-status).
-The current firmware includes Apps, SYSTEM, POMODORO, LED GALLERY, MAC CONTROL when
-Companion is ready, MAC STATUS when system telemetry is available, and AI USAGE
-with a v3 or newer Companion. It does not include profile-metadata editing or template
+The current firmware includes Apps, SYSTEM, POMODORO, LED GALLERY, NFC when a Unit NFC is
+connected at startup, MAC CONTROL when
+Companion is ready, and MAC STATUS and AI USAGE with that Companion session. It does not include profile-metadata editing or template
 resolution, Action-to-HID mappings, a Mac companion CLI/control protocol,
 Wi-Fi network scanning, or weather/VPS/Telegram features. Boot/status sound
 cues from the broader UI requirements remain planned. Unit Puzzle LED Gallery
-requires physical acceptance and tuning on the actual matrix.
+requires physical acceptance and tuning on the actual matrix. NFC inventory has
+not yet been checked on a physical Unit NFC with stickers; it writes only blank
+NTAG213/215/216 stickers and erases only inventory stickers, does not scan in
+the background or look for a Unit
+NFC connected after startup, does not take Cyrillic input on the Cardputer
+keyboard, and the Unit NFC and Unit Puzzle cannot be used together.

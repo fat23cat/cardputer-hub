@@ -1,4 +1,5 @@
 #include "hardware/esp32/bluetooth/esp32_bluetooth_adapter.h"
+#include "connectivity/companion/companion_chunk_ring.h"
 #include "connectivity/companion/companion_framer.h"
 #include "connectivity/companion/companion_protocol.h"
 #include "hardware/esp32/bluetooth/ble_peer_event_order.h"
@@ -177,10 +178,7 @@ struct AdapterContext {
     connectivity::BluetoothSecurityProperties hidSecurity{};
     std::uint8_t hidProtocolMode = 1;
     std::uint8_t hidControlPoint = 1;
-    std::array<connectivity::CompanionChunk, 16> companionIncoming{};
-    std::size_t companionIncomingHead = 0;
-    std::size_t companionIncomingTail = 0;
-    std::size_t companionIncomingCount = 0;
+    connectivity::CompanionChunkRing<connectivity::companionIncomingRingBytes> companionIncoming{};
     bool companionIncomingOverflow = false;
     StaticSemaphore_t hostStoppedStorage{};
     SemaphoreHandle_t hostStopped = nullptr;
@@ -324,11 +322,7 @@ int hidGattAccess(std::uint16_t connectionHandle, std::uint16_t, ble_gatt_access
     return BLE_ATT_ERR_UNLIKELY;
 }
 
-void clearCompanionIncomingLocked() {
-    context.companionIncomingHead = 0;
-    context.companionIncomingTail = 0;
-    context.companionIncomingCount = 0;
-}
+void clearCompanionIncomingLocked() { context.companionIncoming.clear(); }
 
 bool enqueueCompanionIncoming(os_mbuf* source) {
     connectivity::CompanionChunk chunk{};
@@ -341,16 +335,12 @@ bool enqueueCompanionIncoming(os_mbuf* source) {
     }
     chunk.size = static_cast<std::uint16_t>(length);
     portENTER_CRITICAL(&context.mutex);
-    if (context.companionIncomingCount == context.companionIncoming.size()) {
+    if (!context.companionIncoming.push(chunk.bytes.data(), chunk.size)) {
         context.companionIncomingOverflow = true;
         clearCompanionIncomingLocked();
         portEXIT_CRITICAL(&context.mutex);
         return false;
     }
-    context.companionIncoming[context.companionIncomingTail] = chunk;
-    context.companionIncomingTail =
-        (context.companionIncomingTail + 1) % context.companionIncoming.size();
-    ++context.companionIncomingCount;
     portEXIT_CRITICAL(&context.mutex);
     return true;
 }
@@ -445,10 +435,7 @@ bool initializeCompanionService() {
     loadCompanionUuid(companionDeviceToHostUuid, connectivity::companionDeviceToHostUuidBytes);
     context.companionNotifyHandle = 0;
     context.companionSubscribed = false;
-    context.companionIncoming = {};
-    context.companionIncomingHead = 0;
-    context.companionIncomingTail = 0;
-    context.companionIncomingCount = 0;
+    context.companionIncoming.clear();
     context.companionIncomingOverflow = false;
 
     constexpr ble_gatt_chr_flags secureWrite =
@@ -490,10 +477,8 @@ void deinitializeHidService() {
     context.keyboardOutputHandle = 0;
     context.consumerInputHandle = 0;
     context.companionNotifyHandle = 0;
-    context.companionIncomingCount = 0;
+    context.companionIncoming.clear();
     context.companionIncomingOverflow = false;
-    context.companionIncomingHead = 0;
-    context.companionIncomingTail = 0;
 }
 
 void enqueue(const RawEvent& event) {
@@ -549,10 +534,8 @@ void resetHidPeerState() {
     context.hidSecurity = {};
     context.hidProtocolMode = 1;
     context.hidControlPoint = 1;
-    context.companionIncomingCount = 0;
+    context.companionIncoming.clear();
     context.companionIncomingOverflow = false;
-    context.companionIncomingHead = 0;
-    context.companionIncomingTail = 0;
     portEXIT_CRITICAL(&context.mutex);
 }
 
@@ -1902,16 +1885,9 @@ Esp32BluetoothAdapter::sendCompanionChunk(connectivity::BluetoothPeerHandle hand
 
 bool Esp32BluetoothAdapter::receiveCompanionChunk(connectivity::CompanionChunk& chunk) {
     portENTER_CRITICAL(&context.mutex);
-    if (context.companionIncomingCount == 0) {
-        portEXIT_CRITICAL(&context.mutex);
-        return false;
-    }
-    chunk = context.companionIncoming[context.companionIncomingHead];
-    context.companionIncomingHead =
-        (context.companionIncomingHead + 1) % context.companionIncoming.size();
-    --context.companionIncomingCount;
+    const bool received = context.companionIncoming.pop(chunk);
     portEXIT_CRITICAL(&context.mutex);
-    return true;
+    return received;
 }
 
 bool Esp32BluetoothAdapter::takeCompanionIncomingOverflow() {

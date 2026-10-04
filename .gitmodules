@@ -4,3 +4,15 @@
 [submodule "components/arduino_irremote/upstream"]
 	path = components/arduino_irremote/upstream
 	url = https://github.com/Arduino-IRremote/Arduino-IRremote.git
+[submodule "components/m5utility/upstream"]
+	path = components/m5utility/upstream
+	url = https://github.com/m5stack/M5Utility.git
+[submodule "components/m5hal/upstream"]
+	path = components/m5hal/upstream
+	url = https://github.com/m5stack/M5HAL.git
+[submodule "components/m5unitunified/upstream"]
+	path = components/m5unitunified/upstream
+	url = https://github.com/m5stack/M5UnitUnified.git
+[submodule "components/m5unitnfc/upstream"]
+	path = components/m5unitnfc/upstream
+	url = https://github.com/m5stack/M5Unit-NFC.git

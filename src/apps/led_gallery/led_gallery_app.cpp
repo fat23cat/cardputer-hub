@@ -35,19 +35,21 @@ bool actionKey(LedGalleryEffect effect, char key) {
 } // namespace
 LedGalleryApp::LedGalleryApp(services::IndicatorService& indicator, core::IDisplayAdapter& display,
                              std::uint32_t seed)
-    : indicator_(indicator), display_(display), engine_(seed), seed_(seed ? seed : 1) {}
+    : indicator_(indicator), display_(display), seed_(seed ? seed : 1) {}
 
 void LedGalleryApp::onActivate() {
     claim_ = indicator_.acquire(services::ledGalleryIndicatorOwner,
                                 services::IndicatorPriority::ForegroundApplication);
-    engine_.reset(effect_, seed_);
+    engine_ = std::make_unique<LedGalleryEngine>(seed_);
+    engine_->reset(effect_, seed_);
     outputElapsed_ = {};
     feedback_[0] = 0;
-    claim_.setFrame(engine_.frame());
+    claim_.setFrame(engine_->frame());
     redraw_ = true;
 }
 void LedGalleryApp::onDeactivate() {
     claim_.release();
+    engine_.reset();
     outputElapsed_ = {};
     feedback_[0] = 0;
     redraw_ = true;
@@ -56,7 +58,7 @@ void LedGalleryApp::select(LedGalleryEffect effect) {
     if (effect == effect_)
         return;
     effect_ = effect;
-    engine_.reset(effect_, seed_);
+    engine_->reset(effect_, seed_);
     outputElapsed_ = {};
     feedback_[0] = 0;
     redraw_ = true;
@@ -79,6 +81,8 @@ void LedGalleryApp::draw() {
         display_.drawText({6, 76}, feedback_, ink);
 }
 void LedGalleryApp::update(const core::InputEvents& input, std::chrono::milliseconds elapsed) {
+    if (!engine_)
+        return;
     bool changedFrame = false;
     if (elapsed.count() > 0 && feedback_[0]) {
         feedbackElapsed_ += elapsed;
@@ -131,23 +135,23 @@ void LedGalleryApp::update(const core::InputEvents& input, std::chrono::millisec
             select(LedGalleryEffect::ParticleStorm);
             changedFrame = true;
         } else if (actionKey(effect_, key)) {
-            engine_.interact(key);
+            engine_->interact(key);
             changedFrame = true;
-            if (engine_.status()[0]) {
-                std::snprintf(feedback_, sizeof(feedback_), "%s", engine_.status());
+            if (engine_->status()[0]) {
+                std::snprintf(feedback_, sizeof(feedback_), "%s", engine_->status());
                 feedbackElapsed_ = {};
                 redraw_ = true;
             }
         }
     }
     if (elapsed.count() > 0) {
-        engine_.advance(elapsed);
+        engine_->advance(elapsed);
         // Cap backlog before adding it; only one current frame is ever published.
         outputElapsed_ +=
             elapsed >= ledFrameInterval ? ledFrameInterval + elapsed % ledFrameInterval : elapsed;
     }
     if (changedFrame || outputElapsed_ >= ledFrameInterval) {
-        claim_.setFrame(engine_.frame());
+        claim_.setFrame(engine_->frame());
         outputElapsed_ =
             changedFrame ? std::chrono::milliseconds{0} : outputElapsed_ % ledFrameInterval;
     }

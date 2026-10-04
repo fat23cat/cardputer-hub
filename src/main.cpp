@@ -4,6 +4,7 @@
 #include "apps/mac_control/mac_control_app.h"
 #include "apps/mac_status/mac_status_app.h"
 #include "apps/network/wifi_settings.h"
+#include "apps/nfc/nfc_app.h"
 #include "apps/pomodoro/pomodoro_app.h"
 #include "apps/runtime/mini_app_runtime.h"
 #include "apps/shell/application_shell.h"
@@ -17,7 +18,10 @@
 #include "hardware/cardputer/cardputer_puzzle_ws2812_adapter.h"
 #include "hardware/esp32/bluetooth/esp32_bluetooth_adapter.h"
 #include "hardware/esp32/esp32_nvs_storage_adapter.h"
+#include "hardware/esp32/esp32_random_source.h"
 #include "hardware/esp32/wifi/esp32_wifi_adapter.h"
+#include "hardware/nfc/st25r3916_adapter.h"
+#include "hardware/storage/microsd/cardputer_microsd_file_storage_adapter.h"
 #include "services/ai_usage/ai_usage_indicator_controller.h"
 #include "services/ai_usage/ai_usage_service.h"
 #include "services/audio/audio_service.h"
@@ -27,10 +31,14 @@
 #include "services/host_control/host_control_service.h"
 #include "services/hosts/host_service.h"
 #include "services/indicator/indicator_service.h"
+#include "services/inventory/inventory_companion_endpoint.h"
+#include "services/inventory/inventory_service.h"
 #include "services/mac_status/mac_status_service.h"
 #include "services/network/network_service.h"
+#include "services/nfc/nfc_service.h"
 #include "services/pomodoro/pomodoro_led_controller.h"
 #include "services/pomodoro/pomodoro_service.h"
+#include "services/storage/removable_storage_service.h"
 
 #include "core/lifecycle/build_info.h"
 #include "core/lifecycle/system_runtime.h"
@@ -73,6 +81,16 @@ cardputer_hub::core::ActionBus actions;
 cardputer_hub::core::AppRegistry appRegistry;
 cardputer_hub::core::CapabilityRegistry capabilities;
 cardputer_hub::apps::MiniAppRuntime miniApps(appRegistry, capabilities);
+cardputer_hub::hardware::St25r3916Adapter nfcReader(&logger);
+cardputer_hub::services::NfcService nfc(nfcReader, capabilities, &logger);
+// The microSD card is mounted on first use, never at boot.
+cardputer_hub::hardware::CardputerMicroSdFileStorageAdapter microSdAdapter;
+cardputer_hub::core::FileStorage fileStorage(microSdAdapter);
+cardputer_hub::services::RemovableStorageService removableStorage(fileStorage, capabilities,
+                                                                  &logger);
+cardputer_hub::hardware::Esp32RandomSource randomSource;
+cardputer_hub::services::InventoryService inventory(nfc, removableStorage, randomSource, &logger);
+cardputer_hub::apps::NfcApp nfcApp(inventory, display);
 cardputer_hub::apps::SystemApp systemApp(battery, hosts, network, display);
 cardputer_hub::apps::HostSettings hostSettings(hosts, actions, display);
 cardputer_hub::apps::WiFiSettings wifiSettings(network, actions, display);
@@ -81,6 +99,7 @@ cardputer_hub::services::CompanionService companion(bluetooth.companionTransport
 cardputer_hub::services::HostControlService hostControl(hosts, companion, capabilities);
 cardputer_hub::services::MacStatusService macStatus(companion);
 cardputer_hub::services::AiUsageService aiUsage(companion);
+cardputer_hub::services::InventoryCompanionEndpoint inventoryCompanion(companion, inventory);
 cardputer_hub::apps::MacControlApp macControl(actions, hostControl, display);
 cardputer_hub::apps::MacStatusApp macStatusApp(macStatus, display);
 cardputer_hub::hardware::EspPuzzleLedBackend puzzleLedBackend;
@@ -109,7 +128,15 @@ extern "C" void app_main(void) {
     (void)configuration.ensureLoaded();
     (void)deviceSettings.start();
     runtime.start();
-    (void)puzzleLeds.begin();
+    // The NFC Unit and Unit Puzzle share Grove port A. Probe for the reader
+    // before the Puzzle claims its data pin: a reader that answers owns the pins
+    // for the session, so the Puzzle output stays off; otherwise the pins are
+    // handed back untouched and the Puzzle starts as before.
+    (void)nfc.start();
+    if (nfc.readerPresent())
+        puzzleLeds.inhibit();
+    else
+        (void)puzzleLeds.begin();
     for (const auto* id : {"host.select", "host.bluetooth", "host.rename", "host.platform",
                            "host.capability", "host.mapping-template", "host.pair",
                            "host.cancel-pairing", "host.pair-response", "host.delete"}) {
@@ -133,23 +160,26 @@ extern "C" void app_main(void) {
                                    "mac-control",
                                    {cardputer_hub::connectivity::companionCapabilityId}});
     (void)miniApps.registerInstance("mac-control", macControl);
-    (void)appRegistry.registerApp(
-        {"mac-status",
-         "MAC STATUS",
-         "mac-status",
-         "mac-status",
-         {cardputer_hub::connectivity::companionSystemMetricsCapabilityId}});
+    (void)appRegistry.registerApp({"mac-status",
+                                   "MAC STATUS",
+                                   "mac-status",
+                                   "mac-status",
+                                   {cardputer_hub::connectivity::companionCapabilityId}});
     (void)miniApps.registerInstance("mac-status", macStatusApp);
     (void)appRegistry.registerApp({"ai-usage",
                                    "AI USAGE",
                                    "ai-usage",
                                    "ai-usage",
-                                   {cardputer_hub::connectivity::companionAiUsageCapabilityId}});
+                                   {cardputer_hub::connectivity::companionCapabilityId}});
     (void)miniApps.registerInstance("ai-usage", aiUsageApp);
     (void)appRegistry.registerApp({"pomodoro", "POMODORO", "pomodoro", "pomodoro", {}});
     (void)miniApps.registerInstance("pomodoro", pomodoroApp);
     (void)appRegistry.registerApp({"led-gallery", "LED GALLERY", "led-gallery", "led-gallery", {}});
     (void)miniApps.registerInstance("led-gallery", ledGallery);
+    (void)appRegistry.registerApp(
+        {"nfc", "NFC", "nfc", "nfc", {cardputer_hub::services::nfcReaderCapabilityId}});
+    (void)miniApps.registerInstance("nfc", nfcApp);
+    applicationShell.setCompanion(companion);
     battery.update(std::chrono::milliseconds(0));
     previousUpdateMilliseconds = esp_timer_get_time() / 1000;
 
@@ -160,6 +190,7 @@ extern "C" void app_main(void) {
         const auto& input = runtime.update(elapsed);
         hosts.update(elapsed);
         companion.update(elapsed);
+        inventoryCompanion.update(elapsed);
         hostControl.update();
         macStatus.update(elapsed);
         aiUsage.update(elapsed);
@@ -169,6 +200,8 @@ extern "C" void app_main(void) {
         pomodoroLed.update(elapsed);
         aiUsageIndicator.update(elapsed);
         indicator.update();
+        nfc.update(elapsed);
+        removableStorage.update(elapsed);
         if (!homeVisible) {
             if (runtime.splashFinished()) {
                 // Consume any key sampled on the frame that dismisses the splash.

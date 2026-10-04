@@ -31,6 +31,10 @@ HostControlFailure failureFor(CompanionServiceState state,
     case connectivity::CompanionStatus::NotAvailable:
         return HostControlFailure::Unavailable;
     case connectivity::CompanionStatus::Unsupported:
+    // Inventory statuses never answer application control.
+    case connectivity::CompanionStatus::Conflict:
+    case connectivity::CompanionStatus::Rejected:
+    case connectivity::CompanionStatus::StorageError:
         return HostControlFailure::ProtocolError;
     case connectivity::CompanionStatus::Malformed:
         return state == CompanionServiceState::ProtocolError ? HostControlFailure::ProtocolError

@@ -1,6 +1,7 @@
 # Cardputer Companion
 
-Menu-bar macOS agent for Cardputer Hub. It has no Dock icon or main window.
+Menu-bar macOS agent for Cardputer Hub. It has no Dock icon; its only window is
+the optional Inventory editor.
 
 ## Build
 
@@ -18,6 +19,24 @@ make companion-check
 ```
 
 `scripts/package_macos_companion.sh` creates `Cardputer Companion.app` with `LSUIElement` set so it does not appear in the Dock.
+It stamps the build ID `YYYY-MM-DD <commit>` (`+` after the commit for
+uncommitted changes) into `CardputerBuildId`. The macOS bundle version fields
+use numeric values: `CFBundleShortVersionString` is the dotted build date
+`YYYY.MM.DD`, and `CFBundleVersion` is the Git revision count. The bundle
+version falls back to `1` when Git metadata is unavailable.
+After writing all metadata, packaging signs and strictly verifies the complete
+bundle with identifier `org.cardputer.companion`. It uses an ad-hoc signature
+by default; Keychain trust for that identity is specific to the binary and may
+need authorization again after a rebuild. Set
+`CARDPUTER_COMPANION_SIGNING_IDENTITY` to an installed code-signing certificate
+identity to preserve the application's signing identity across builds.
+`CARDPUTER_HUB_BUILD_DATE` and `CARDPUTER_HUB_COMMIT` override the date and
+commit in the build ID, as for the firmware.
+
+Build the Companion and the firmware from the same checkout and install both.
+There is no protocol version negotiation: HELLO carries a fingerprint of the
+protocol definition, and builds with different fingerprints do not connect
+(see `protocol/companion/README.md`).
 
 Open `Package.swift` in Xcode to work on the same sources.
 
@@ -32,17 +51,27 @@ scan or create a second pairing. When Start at Login is enabled, macOS launches
 it through `SMAppService` at the next login.
 
 Click the computer-shaped menu-bar icon to open the Companion menu. It shows
-the Cardputer connection, negotiated protocol, and last valid message. Use
+the Cardputer connection, the firmware build ID, and how long ago the last valid
+message arrived. Use
 **Reconnect** to restart the existing BLE attach flow without
-forgetting the bond. **Start at Login** changes the actual macOS login-item
+forgetting the bond. The Companion also reconnects by itself when a session
+has received nothing from the Cardputer for 12 seconds (the Cardputer pings
+every three seconds). Messages to the Cardputer are split into chunks as large
+as the negotiated Bluetooth MTU allows. **Start at Login** changes the actual macOS login-item
 registration; it is not enabled automatically. The Diagnostics submenu shows
-session and capability state, About opens the standard macOS About window with
+session state and, under **Builds**, the Companion and Cardputer build IDs. About opens the standard macOS About window with
 the version and build, and Quit stops the Companion without changing the login
 setting. The menu uses standard AppKit menu items and a system switch, so it
 follows the current macOS appearance.
 
-The Companion offers protocol v4 with v3, v2 and v1 fallback. With v2 it advertises
-`SYSTEM_METRICS` and answers foreground polling from MAC STATUS. Sampling uses
+When the Cardputer answers HELLO with a different protocol fingerprint, the
+menu names the side to update — the one with the older build date, or both
+when the dates are equal — and the Companion stops reconnecting until you
+choose **Reconnect** after updating. When the Cardputer does not answer HELLO
+at all (firmware from before the fingerprint), the menu says the firmware may
+be older and the Companion keeps retrying.
+
+The Companion answers `SYSTEM_METRICS` foreground polling from MAC STATUS. Sampling uses
 native macOS APIs for CPU, physical memory usage estimate, memory pressure,
 root-volume usage, battery, primary-interface network rates, and thermal state.
 The RAM estimate excludes free and file-backed cache pages; compressed and
@@ -51,7 +80,7 @@ Unavailable metrics remain individually unavailable; a Mac without a battery
 can still report the other fields. The first CPU and network samples need a
 previous counter baseline. No sampling timer runs inside the Companion.
 
-With v3, the Companion also advertises `AI_USAGE`. It discovers an installed
+The Companion answers `AI_USAGE` from a cached snapshot. It discovers an installed
 Codex executable, including through the user's login shell when the GUI PATH
 does not contain it, and reads rate limits from Codex app-server. It checks the
 existing Cursor Agent Keychain session for personal usage and derives the
@@ -68,33 +97,80 @@ refresh is marked stale. Provider tokens remain on the Mac and never enter
 BLE messages or logs. Cursor usage uses a private provider adapter that may
 need updating if Cursor changes its service.
 
-With v4, Codex Plus also sends its known reset-credit count and up to four
+Codex Plus also sends its known reset-credit count and up to four
 available detail rows from the same rate-limits refresh, never more than the
 available count. Titles are uppercased and shortened to a compact display label
 on the Mac. A single failed refresh keeps the most recent sample fresh for up
-to 90 seconds; a longer gap marks it stale. The v3 AI_USAGE
-payload remains unchanged for older firmware. Reset details are read-only.
+to 90 seconds; a longer gap marks it stale. Reset details are read-only.
 
-With v5, the Companion also reads Claude subscription usage. It uses the
+The Companion also reads Claude subscription usage. It uses the
 `Claude Code-credentials` Keychain item that Claude Code already keeps and asks
 the Claude usage service for the plan-wide 5-hour and weekly windows at most
 once a minute, because that service rate-limits frequent callers. A
 rate-limit response pauses requests for its `Retry-After` time or a pause that
 doubles from one minute up to 30 minutes; the last sample stays shown for
 about two and a half minutes, then it is marked stale. The first
-read shows a macOS Keychain prompt; choose **Always Allow**. A refresh waits
+read after launching Companion may show a macOS Keychain prompt; choose
+**Always Allow**. A refresh waits
 at most five seconds for that prompt, so other providers keep updating at
 their normal rate; with no other account the Cardputer keeps showing
-`CHECKING AI` until you answer. Declining hides Claude for an hour before Companion asks
-again. The token stays in memory, and the Keychain item is checked again
-every five minutes, so signing out or switching accounts shows up within about
-that time; a failed check keeps the working token. The Companion never refreshes or
+`CHECKING AI` until you answer. Declining hides Claude for an hour before silent
+checks resume; relaunch Companion to authorize access again. Only the first
+read after launch may prompt. Wake, periodic checks, and expired-token recovery
+read the Keychain without UI. The token stays in memory, and the Keychain item
+is checked again every five minutes, so signing out or switching accounts
+normally shows up within about that time. A failed check or unavailable
+authorization keeps a working token. If authorization is needed after that
+token expires, the last sample becomes stale and silent checks retry every five
+minutes; relaunch Companion to grant access. The Companion never refreshes or
 changes that credential: while Claude Code is not running and its token has
 expired, the last sample stays visible as stale. Stale samples keep counting
 down to their reset times; a stale 5-hour or weekly window whose reset time has
-passed is shown as 100% left with an unknown next reset. Claude is omitted for
-v3/v4 firmware, and at most two providers reach the Cardputer, in the order
-Codex, Cursor, Claude; Diagnostics marks any provider the connected Cardputer
+passed is shown as 100% left with an unknown next reset. At most two providers
+reach the Cardputer, in the order Codex, Cursor, Claude; Diagnostics marks any provider the connected Cardputer
 does not receive as not sent.
 Claude usage is a private provider adapter that may need updating if the
 service changes.
+
+MAC STATUS also receives the power source and the minutes to full or
+to empty, and the Companion answers `SYSTEM_DETAILS` for the Cardputer's
+detail pages. It reads only the group the Cardputer asks for. A request is
+answered at once from that group's cached sample while a background queue
+reads the group again, so the first request after a page opens is answered
+`NOT_AVAILABLE` and a sample older than five seconds is never sent:
+
+* CPU: per-core load split into performance and efficiency clusters (from the
+  IORegistry cluster type of each CPU), GPU utilisation from the IOAccelerator
+  statistics, and the four apps using the most CPU. Process CPU time comes from `proc_pid_rusage`; processes of other users
+  are not readable without root and are skipped. Helper processes inside an
+  `.app` bundle count toward the outermost app. Each app's share is averaged
+  over about ten seconds; apps under 0.5% leave the list, and listed apps swap
+  places only when one leads by more than 1.5 percentage points.
+* Power: system power draw from the battery telemetry, adapter wattage,
+  battery health (nominal over design capacity), cycle count, and the
+  lowest-charged Apple Bluetooth mouse, keyboard or trackpad.
+* Network: round-trip time to `1.1.1.1` and to the router with an unprivileged
+  ICMP echo; a router that drops ICMP is timed with a TCP connection to port 80
+  or 443. Probes run on their own queue at most every five seconds and stop ten
+  seconds after the last NETWORK request. Wi-Fi signal and link rate come from
+  CoreWLAN without reading the network name, so no Location permission is
+  needed.
+* Memory and disk: app, wired and compressed memory, swap in use, free and
+  total space on `/` in decimal GB, and disk read/write rates from the block
+  storage counters.
+
+App and peripheral names are transliterated to plain ASCII before they are
+sent. Process CPU and disk rates need a previous sample; after ten seconds
+without a request the first answer omits them.
+
+**Inventory…** in the menu opens the Inventory window, which lists the NFC
+inventory records on the connected Cardputer's microSD card, edits a
+container's name and free-text description, and deletes records after a
+confirmation. Requests are the Mac-to-Cardputer `INVENTORY_LIST`,
+`INVENTORY_GET`, `INVENTORY_PUT` and `INVENTORY_DELETE` operations of the live
+session, one at a time with a four-second timeout; records move as canonical
+JSON in bounded chunks and every save is checked against the revision the edit
+started from. The Companion keeps no copy of the records after the session
+ends, never resends an edit after a disconnect, and enforces the same limits as
+the firmware (names 32 and descriptions 900 characters, 4 KiB). See the
+[device guide](../../docs/manuals/device-guide.md#inventory-on-the-mac).

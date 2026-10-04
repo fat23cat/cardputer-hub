@@ -1,13 +1,14 @@
 #include "services/companion/companion_service.h"
 
+#include "connectivity/companion/companion_fingerprint.h"
+#include "core/lifecycle/build_info.h"
+
 #include <cstring>
 
 namespace cardputer_hub::services {
 namespace {
 
-using connectivity::CompanionCapability;
 using connectivity::companionCapabilityId;
-using connectivity::companionCapabilityName;
 using connectivity::CompanionEnvelope;
 using connectivity::CompanionKind;
 using connectivity::companionMaxBundleIdSize;
@@ -18,30 +19,11 @@ using connectivity::CompanionStatus;
 using connectivity::CompanionTransportState;
 using connectivity::decodeCompanionMessage;
 using connectivity::encodeCompanionMessage;
-using connectivity::makeHelloAck;
 using connectivity::makeRequest;
 using connectivity::readBundleIdentifier;
-using connectivity::readCapabilityList;
 using connectivity::readPingToken;
 using connectivity::setBundleIdentifier;
 using connectivity::setPingToken;
-
-std::uint8_t selectedVersion(const CompanionEnvelope& message) {
-    if (message.kind != CompanionKind::Hello || message.payloadSize < 2 ||
-        message.payload[0] == 0 ||
-        message.payloadSize != static_cast<std::uint8_t>(message.payload[0] + 1) ||
-        message.payload[0] > connectivity::companionMaxSupportedVersions) {
-        return 0;
-    }
-    std::uint8_t selected = 0;
-    for (std::uint8_t index = 0; index < message.payload[0]; ++index) {
-        const auto version = message.payload[index + 1];
-        if (version >= connectivity::companionProtocolVersion &&
-            version <= connectivity::companionLatestProtocolVersion && version > selected)
-            selected = version;
-    }
-    return selected;
-}
 
 CompanionPayload toPayload(const connectivity::CompanionEncodedMessage& encoded) {
     CompanionPayload payload{};
@@ -50,7 +32,43 @@ CompanionPayload toPayload(const connectivity::CompanionEncodedMessage& encoded)
     return payload;
 }
 
+// Build ids start with the build date, "YYYY-MM-DD".
+bool buildDate(const char* buildId, char (&date)[11]) {
+    if (buildId == nullptr || std::strlen(buildId) < 10)
+        return false;
+    for (int index = 0; index < 10; ++index) {
+        const char c = buildId[index];
+        const bool digit = c >= '0' && c <= '9';
+        if ((index == 4 || index == 7) ? c != '-' : !digit)
+            return false;
+        date[index] = c;
+    }
+    date[10] = '\0';
+    return true;
+}
+
 } // namespace
+
+CompanionMismatchAdvice companionMismatchAdvice(const char* firmwareBuildId,
+                                                const char* peerBuildId, bool peerLegacy) {
+    if (peerLegacy)
+        return CompanionMismatchAdvice::UpdateCompanion;
+    char firmware[11]{};
+    char peer[11]{};
+    if (!buildDate(firmwareBuildId, firmware) || !buildDate(peerBuildId, peer))
+        return CompanionMismatchAdvice::RebuildBoth;
+    const auto order = std::strcmp(peer, firmware);
+    if (order < 0)
+        return CompanionMismatchAdvice::UpdateCompanion;
+    if (order > 0)
+        return CompanionMismatchAdvice::UpdateFirmware;
+    return CompanionMismatchAdvice::RebuildBoth;
+}
+
+CompanionMismatchAdvice CompanionService::mismatchAdvice() const noexcept {
+    return companionMismatchAdvice(core::firmwareBuildInfo().buildId, peerBuildId_.data(),
+                                   peerLegacy_);
+}
 
 CompanionService::CompanionService(connectivity::ICompanionTransport& transport,
                                    core::CapabilityRegistry& capabilities, core::Logger* logger)
@@ -67,24 +85,12 @@ void CompanionService::clearLiveCapabilities() {
         (void)capabilities_.removeCapability(companionCapabilityId);
         companionPublished_ = false;
     }
-    for (std::uint8_t index = 0; index < liveCapabilityCount_; ++index) {
-        if (const auto* name = companionCapabilityName(liveCapabilities_[index]); name != nullptr) {
-            (void)capabilities_.removeCapability(name);
-        }
-    }
-    liveCapabilityCount_ = 0;
-    liveCapabilities_ = {};
 }
 
 void CompanionService::publishLiveCapabilities() {
     if (!companionPublished_) {
         (void)capabilities_.registerCapability(companionCapabilityId);
         companionPublished_ = true;
-    }
-    for (std::uint8_t index = 0; index < liveCapabilityCount_; ++index) {
-        if (const auto* name = companionCapabilityName(liveCapabilities_[index]); name != nullptr) {
-            (void)capabilities_.registerCapability(name);
-        }
     }
 }
 
@@ -98,10 +104,14 @@ void CompanionService::failAllPending(CompanionStatus status) {
     }
 }
 
+void CompanionService::endSessionState() {
+    inboundCount_ = 0;
+    ++sessionEpoch_;
+}
+
 void CompanionService::completePending(PendingRequest& pending, const CompanionEnvelope& message) {
-    if (!pending.heartbeat && pending.operation != CompanionOperation::Capabilities &&
-        !(state_ == CompanionServiceState::Handshaking &&
-          pending.operation == CompanionOperation::AppActive)) {
+    if (!pending.heartbeat && !(state_ == CompanionServiceState::Handshaking &&
+                                pending.operation == CompanionOperation::AppActive)) {
         pushCompleted(pending, message);
     }
     if (pending.heartbeat) {
@@ -143,6 +153,8 @@ std::uint8_t CompanionService::pendingCount() const noexcept {
 }
 
 void CompanionService::becomeUnavailable() {
+    if (state_ != CompanionServiceState::Unavailable)
+        endSessionState();
     failAllPending(CompanionStatus::NotAvailable);
     clearLiveCapabilities();
     hasActiveBundle_ = false;
@@ -151,13 +163,31 @@ void CompanionService::becomeUnavailable() {
     heartbeatInFlight_ = false;
     sinceHeartbeat_ = {};
     sinceHeartbeatSend_ = {};
+    peerBuildId_ = {};
+    peerLegacy_ = false;
     if (state_ != CompanionServiceState::Unavailable) {
         log(core::LogLevel::Info, "session unavailable");
     }
     state_ = CompanionServiceState::Unavailable;
 }
 
+void CompanionService::enterIncompatible(const char* peerBuildId, bool legacy) {
+    endSessionState();
+    failAllPending(CompanionStatus::NotAvailable);
+    clearLiveCapabilities();
+    hasActiveBundle_ = false;
+    activeBundleLength_ = 0;
+    heartbeatInFlight_ = false;
+    session_ = 0;
+    peerBuildId_ = {};
+    std::strncpy(peerBuildId_.data(), peerBuildId, peerBuildId_.size() - 1);
+    peerLegacy_ = legacy;
+    state_ = CompanionServiceState::Incompatible;
+    log(core::LogLevel::Warning, "companion built from a different protocol");
+}
+
 void CompanionService::enterProtocolError() {
+    endSessionState();
     failAllPending(CompanionStatus::Malformed);
     clearLiveCapabilities();
     heartbeatInFlight_ = false;
@@ -174,9 +204,9 @@ bool CompanionService::sendMessage(const CompanionEnvelope& message) {
 }
 
 bool CompanionService::startHandshakeRequests() {
-    auto capabilities = makeRequest(session_, 0, CompanionOperation::Capabilities);
-    return submit(CompanionOperation::Capabilities, capabilities, false) ==
-           CompanionSubmitResult::Submitted;
+    return submit(CompanionOperation::AppActive,
+                  makeRequest(session_, 0, CompanionOperation::AppActive),
+                  false) == CompanionSubmitResult::Submitted;
 }
 
 CompanionSubmitResult CompanionService::submit(CompanionOperation operation,
@@ -202,7 +232,6 @@ CompanionSubmitResult CompanionService::submit(CompanionOperation operation,
     outgoing.kind = CompanionKind::Request;
     outgoing.operation = operation;
     outgoing.requestId = nextRequestId_;
-    outgoing.version = selectedProtocolVersion_;
     nextRequestId_ = nextRequestId_ == 255 ? 1 : static_cast<std::uint8_t>(nextRequestId_ + 1);
     if (!sendMessage(outgoing)) {
         return CompanionSubmitResult::NotReady;
@@ -237,16 +266,24 @@ CompanionSubmitResult CompanionService::activateApplication(std::string_view bun
 }
 
 CompanionSubmitResult CompanionService::requestSystemMetrics() {
-    if (state_ != CompanionServiceState::Ready || selectedProtocolVersion_ < 2 ||
-        !capabilities_.isAvailable(connectivity::companionSystemMetricsCapabilityId))
+    if (state_ != CompanionServiceState::Ready)
         return CompanionSubmitResult::NotReady;
     return submit(CompanionOperation::SystemMetrics,
                   makeRequest(session_, 0, CompanionOperation::SystemMetrics), false);
 }
 
+CompanionSubmitResult
+CompanionService::requestSystemDetails(connectivity::SystemDetailsGroup group) {
+    if (state_ != CompanionServiceState::Ready)
+        return CompanionSubmitResult::NotReady;
+    auto request = makeRequest(session_, 0, CompanionOperation::SystemDetails);
+    if (!connectivity::setSystemDetailsRequest(request, group))
+        return CompanionSubmitResult::Invalid;
+    return submit(CompanionOperation::SystemDetails, request, false);
+}
+
 CompanionSubmitResult CompanionService::requestAiUsage() {
-    if (state_ != CompanionServiceState::Ready || selectedProtocolVersion_ < 3 ||
-        !capabilities_.isAvailable(connectivity::companionAiUsageCapabilityId))
+    if (state_ != CompanionServiceState::Ready)
         return CompanionSubmitResult::NotReady;
     return submit(CompanionOperation::AiUsage,
                   makeRequest(session_, 0, CompanionOperation::AiUsage), false);
@@ -322,23 +359,39 @@ bool CompanionService::setActiveBundle(const CompanionEnvelope& message, bool al
     return true;
 }
 
+bool CompanionService::sendHelloAck(std::uint16_t session, CompanionStatus status) {
+    connectivity::CompanionHello hello{};
+    hello.fingerprint = connectivity::companionProtocolFingerprint;
+    std::strncpy(hello.buildId.data(), core::firmwareBuildInfo().buildId, hello.buildId.size() - 1);
+    const auto ack = connectivity::makeHelloAck(session, status, hello);
+    return ack.has_value() && sendMessage(*ack);
+}
+
 void CompanionService::handleHello(const CompanionEnvelope& message) {
-    const auto version = selectedVersion(message);
-    if (message.version != connectivity::companionProtocolVersion || version == 0) {
+    connectivity::CompanionHello hello{};
+    if (!connectivity::readHello(message, hello)) {
         enterProtocolError();
         return;
     }
+    if (hello.fingerprint != connectivity::companionProtocolFingerprint) {
+        // Tell the Mac which firmware it met, then accept nothing but a new HELLO.
+        (void)sendHelloAck(0, CompanionStatus::Unsupported);
+        enterIncompatible(hello.buildId.data(), false);
+        return;
+    }
+    endSessionState();
     failAllPending(CompanionStatus::NotAvailable);
     clearLiveCapabilities();
     hasActiveBundle_ = false;
+    peerBuildId_ = hello.buildId;
+    peerLegacy_ = false;
     session_ = nextSession_;
-    selectedProtocolVersion_ = version;
     nextSession_ = nextSession_ == 65535 ? 1 : static_cast<std::uint16_t>(nextSession_ + 1);
     nextRequestId_ = 1;
     heartbeatInFlight_ = false;
     sinceHeartbeat_ = {};
     sinceHeartbeatSend_ = {};
-    if (!sendMessage(makeHelloAck(session_, version))) {
+    if (!sendHelloAck(session_, CompanionStatus::Ok)) {
         becomeUnavailable();
         return;
     }
@@ -366,23 +419,6 @@ void CompanionService::handleResponse(const CompanionEnvelope& message) {
         }
         sinceHeartbeat_ = {};
         completePending(*pending, message);
-        return;
-    }
-    if (state_ == CompanionServiceState::Handshaking &&
-        pending->operation == CompanionOperation::Capabilities) {
-        if (message.status != CompanionStatus::Ok ||
-            !readCapabilityList(message, liveCapabilities_.data(), liveCapabilityCount_,
-                                connectivity::companionMaxCapabilities)) {
-            completePending(*pending, message);
-            enterProtocolError();
-            return;
-        }
-        completePending(*pending, message);
-        auto active = makeRequest(session_, 0, CompanionOperation::AppActive);
-        if (submit(CompanionOperation::AppActive, active, false) !=
-            CompanionSubmitResult::Submitted) {
-            enterProtocolError();
-        }
         return;
     }
     if (state_ == CompanionServiceState::Handshaking &&
@@ -439,34 +475,45 @@ void CompanionService::handleEvent(const CompanionEnvelope& message) {
 }
 
 void CompanionService::handleIncoming(const CompanionPayload& payload) {
-    const auto decoded = decodeCompanionMessage(payload.bytes.data(), payload.size);
+    const auto* bytes = payload.bytes.data();
+    if (connectivity::isLegacyCompanionFrame(bytes, payload.size)) {
+        // A Companion built before plan 043: say so once, never parse it.
+        if (connectivity::isLegacyCompanionHello(bytes, payload.size))
+            enterIncompatible("", true);
+        return;
+    }
+    const auto decoded = decodeCompanionMessage(bytes, payload.size);
     if (!decoded.has_value()) {
-        if (payload.size >= connectivity::companionEnvelopeSize &&
-            payload.bytes[0] == selectedProtocolVersion_ &&
-            payload.bytes[1] == static_cast<std::uint8_t>(CompanionKind::Response) &&
-            payload.bytes[5] == static_cast<std::uint8_t>(CompanionOperation::AiUsage) &&
-            (std::uint16_t(payload.bytes[2]) | (std::uint16_t(payload.bytes[3]) << 8U)) ==
-                session_) {
-            if (auto* pending = findPending(payload.bytes[4]);
-                pending != nullptr && pending->operation == CompanionOperation::AiUsage) {
-                completePending(*pending,
-                                makeResponse(session_, pending->id, CompanionOperation::AiUsage,
-                                             CompanionStatus::Malformed));
+        if (state_ == CompanionServiceState::Incompatible)
+            return;
+        const auto operation =
+            payload.size >= connectivity::companionEnvelopeSize ? bytes[5] : std::uint8_t{0};
+        const bool isolated = connectivity::isKnownCompanionOperation(operation) &&
+                              connectivity::companionResponseFailureIsIsolated(
+                                  static_cast<CompanionOperation>(operation));
+        if (isolated && bytes[0] == connectivity::companionFrameMarker &&
+            bytes[1] == static_cast<std::uint8_t>(CompanionKind::Response) &&
+            (std::uint16_t(bytes[2]) | (std::uint16_t(bytes[3]) << 8U)) == session_) {
+            if (auto* pending = findPending(bytes[4]);
+                pending != nullptr &&
+                pending->operation == static_cast<CompanionOperation>(operation)) {
+                completePending(*pending, makeResponse(session_, pending->id, pending->operation,
+                                                       CompanionStatus::Malformed));
             }
             return;
         }
-        if (state_ != CompanionServiceState::Unavailable) {
+        if (state_ != CompanionServiceState::Unavailable)
             enterProtocolError();
-        }
         return;
     }
+    if (state_ == CompanionServiceState::Incompatible && decoded->kind != CompanionKind::Hello)
+        return;
     if ((decoded->kind == CompanionKind::Response || decoded->kind == CompanionKind::Event) &&
         decoded->session != session_)
         return;
-    if (decoded->kind != CompanionKind::Hello && decoded->kind != CompanionKind::HelloAck &&
-        decoded->version != selectedProtocolVersion_) {
-        if (state_ != CompanionServiceState::Unavailable)
-            enterProtocolError();
+    if (decoded->kind == CompanionKind::Request &&
+        connectivity::isInventoryOperation(decoded->operation)) {
+        handleInboundRequest(*decoded);
         return;
     }
     switch (decoded->kind) {
@@ -481,11 +528,58 @@ void CompanionService::handleIncoming(const CompanionPayload& payload) {
         return;
     case CompanionKind::HelloAck:
     case CompanionKind::Request:
-        if (state_ != CompanionServiceState::Unavailable) {
+        if (state_ != CompanionServiceState::Unavailable)
             enterProtocolError();
-        }
         return;
     }
+}
+
+// Inventory requests from the Mac are queued for their owner. Requests from an
+// earlier session are stale and dropped; requests received during the final
+// handshake step wait for Ready.
+void CompanionService::handleInboundRequest(const CompanionEnvelope& message) {
+    // The Mac starts inventory loading as soon as it receives HELLO_ACK. Its
+    // request can arrive before our APP_ACTIVE handshake response, so hold it
+    // until the session becomes Ready.
+    if (state_ != CompanionServiceState::Ready && state_ != CompanionServiceState::Handshaking) {
+        if (state_ != CompanionServiceState::Unavailable)
+            enterProtocolError();
+        return;
+    }
+    if (message.session != session_)
+        return;
+    const CompanionInboundRequest request{message.session, message.requestId, message.operation,
+                                          message};
+    if (inboundCount_ >= inbound_.size()) {
+        // respond() is Ready-only, but the Mac can fill the queue before the
+        // final handshake response arrives. The session is already known.
+        (void)sendMessage(connectivity::makeResponse(session_, message.requestId, message.operation,
+                                                     CompanionStatus::NotAvailable));
+        return;
+    }
+    inbound_[inboundCount_++] = request;
+}
+
+std::optional<CompanionInboundRequest> CompanionService::takeInboundRequest() {
+    if (state_ != CompanionServiceState::Ready || inboundCount_ == 0)
+        return std::nullopt;
+    const auto request = inbound_[0];
+    for (std::uint8_t index = 1; index < inboundCount_; ++index)
+        inbound_[index - 1] = inbound_[index];
+    --inboundCount_;
+    return request;
+}
+
+bool CompanionService::respond(const CompanionInboundRequest& request,
+                               const CompanionEnvelope& response) {
+    if (state_ != CompanionServiceState::Ready || request.session != session_)
+        return false;
+    auto outgoing = response;
+    outgoing.kind = CompanionKind::Response;
+    outgoing.session = request.session;
+    outgoing.requestId = request.requestId;
+    outgoing.operation = request.operation;
+    return sendMessage(outgoing);
 }
 
 void CompanionService::tickPending(std::chrono::milliseconds elapsed) {
