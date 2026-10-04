@@ -59,6 +59,7 @@ ownership matrix with invariants. Do not rewrite older plans into that format.
 | [043](043-companion-lockstep-protocol.md) | Lockstep Companion protocol: fingerprint check and build identity instead of version negotiation | Software implemented; physical Cardputer-Adv acceptance pending |
 | [044](044-nfc-reader.md#current-status) | U216 NFC reader prototype and withdrawn transport-card scope | U216 detected on hardware; transport prototype removed under 045 |
 | [045](045-nfc-inventory.md#current-status) | NFC labels for personal inventory, microSD records and Mac Companion editing | Software implemented; automated gates pass; physical acceptance pending |
+| [046](046-companion-keychain-wake.md#current-status) | Companion Claude Keychain access after wake and completed-bundle signing | Software implemented; local Companion checks pass; physical acceptance pending |
 
 The work referred to historically as 013 is the approved
 [UI requirements](../UI_REQUIREMENTS.md); there is no separate plan-013 file.

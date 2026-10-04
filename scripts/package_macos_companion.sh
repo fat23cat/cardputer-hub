@@ -41,4 +41,11 @@ test -x "$APP/Contents/MacOS/CardputerCompanion"
 /usr/libexec/PlistBuddy -c 'Print :CardputerBuildId' "$APP/Contents/Info.plist" | grep -Eq '^[0-9]{4}-[0-9]{2}-[0-9]{2} '
 /usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$PLIST" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$'
 /usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$PLIST" | grep -Eq '^[0-9]+$'
+# Sign the complete bundle after writing its metadata. The linker's executable-
+# only ad-hoc signature does not seal Info.plist or bundle resources.
+# A certificate identity keeps Keychain trust stable across rebuilt binaries;
+# the default ad-hoc identity is valid only for this particular build.
+codesign --force --sign "${CARDPUTER_COMPANION_SIGNING_IDENTITY:--}" \
+    --identifier org.cardputer.companion "$APP"
+codesign --verify --deep --strict "$APP"
 echo "Packaged Cardputer Companion $BUILD_ID"

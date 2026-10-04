@@ -1996,6 +1996,19 @@ direct locations or through a bounded login-shell lookup on each unsuccessful
 discovery cycle, then uses a local app-server process. Cursor reads the existing
 Agent token through Keychain, derives its request cookie in memory, and calls
 the usage adapter over HTTPS.
+Claude reads Claude Code's existing OAuth credential, retains the token only
+in memory, and rechecks it every five minutes. Only its first read after
+Companion launches may show an authorization prompt; wake, periodic rechecks,
+and expired-token recovery must remain noninteractive. An unavailable
+authorization preserves a valid cached token; without one it reports unavailable
+and retries silently after five minutes, retaining the last usage sample as
+stale. An explicit initial denial hides the provider for an hour. Relaunching
+Companion permits authorization again. `LegacyKeychainRead` coordinates all
+Claude and Cursor reads of the file-based Keychain: interactive reads may run
+concurrently, while a silent read exclusively disables the process-wide legacy
+interaction policy and restores it before other reads proceed. This uses the
+legacy API because file-based Keychain ACL prompts do not honor the modern
+query's authentication context.
 Authentication stays on the Mac. Absent providers are omitted; a failed refresh
 retains the previous provider and marks it stale after 90 seconds without a
 successful sample. A refresh requested during an active cycle runs once after

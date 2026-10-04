@@ -13,15 +13,19 @@ enum ClaudeCredentialResult {
     case absent
     case denied
     case failed
+    case interactionRequired
 }
 
 protocol ClaudeCredentialReading {
-    func read() -> ClaudeCredentialResult
+    func read(allowInteraction: Bool) -> ClaudeCredentialResult
 }
 
 // Claude Code owns this item and refreshes its token; the Companion only reads it.
 final class KeychainClaudeCredentials: ClaudeCredentialReading {
-    func read() -> ClaudeCredentialResult {
+    private let keychain: LegacyKeychainRead
+    init(keychain: LegacyKeychainRead = .shared) { self.keychain = keychain }
+
+    func read(allowInteraction: Bool) -> ClaudeCredentialResult {
         let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: "Claude Code-credentials",
@@ -29,9 +33,13 @@ final class KeychainClaudeCredentials: ClaudeCredentialReading {
             kSecMatchLimit as String: kSecMatchLimitOne,
         ]
         var result: CFTypeRef?
-        let status = SecItemCopyMatching(query as CFDictionary, &result)
+        let status = keychain.copyMatching(query as CFDictionary,
+                                          allowInteraction: allowInteraction, result: &result)
         if status == errSecItemNotFound { return .absent }
-        if status == errSecUserCanceled || status == errSecAuthFailed { return .denied }
+        if status == errSecInteractionNotAllowed { return .interactionRequired }
+        if status == errSecUserCanceled || status == errSecAuthFailed {
+            return allowInteraction ? .denied : .interactionRequired
+        }
         guard status == errSecSuccess, let data = result as? Data,
               let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               let oauth = object["claudeAiOauth"] as? [String: Any],
@@ -60,7 +68,7 @@ private final class RefreshCompletion {
 }
 
 final class ClaudeUsageProvider: AiUsageProviderRefreshing {
-    /// A declined Keychain prompt is not repeated before this interval.
+    /// A declined initial prompt pauses even silent reads for this interval.
     static let deniedRetryInterval: TimeInterval = 3600
     /// The token lasts hours, but sign-out or an account switch must show up
     /// sooner, so the Keychain item is read again after this interval.
@@ -84,6 +92,10 @@ final class ClaudeUsageProvider: AiUsageProviderRefreshing {
     private var credential: ClaudeCredential?
     private var credentialReadAt = Date.distantPast
     private var reading = false
+    // Only the first read in this provider's lifetime may request authorization.
+    // Wake, periodic rechecks, and expired-token recovery must remain silent.
+    private var attemptedCredentialRead = false
+    private var interactionRetryAt = Date.distantPast
     private var deniedAt: Date?
     private var lastSample: (sample: AiUsageProviderSnapshot, at: Date)?
     private var nextRequestAt = Date.distantPast
@@ -117,31 +129,41 @@ final class ClaudeUsageProvider: AiUsageProviderRefreshing {
             let throttled = currentTime < nextRequestAt
             let cached = cachedOutcome(currentTime)
             lock.unlock()
-            if recheck { readKeychain(nil) }
+            if recheck { readKeychain(nil, allowInteraction: false) }
             if throttled { finish(cached) } else { request(credential, finish) }
             return
         }
         // An open Keychain prompt is waiting for the user, not failing.
         guard !reading else { lock.unlock(); finish(.waiting); return }
+        guard currentTime >= interactionRetryAt else {
+            let cached = cachedOutcome(currentTime)
+            lock.unlock(); finish(cached); return
+        }
+        let allowInteraction = !attemptedCredentialRead
+        attemptedCredentialRead = true
         reading = true
         lock.unlock()
         DispatchQueue.global(qos: .utility).asyncAfter(deadline: .now() + readTimeout) {
             finish(.waiting)
         }
-        readKeychain(finish)
+        readKeychain(finish, allowInteraction: allowInteraction)
     }
 
-    private func readKeychain(_ finish: RefreshCompletion?) {
+    private func readKeychain(_ finish: RefreshCompletion?, allowInteraction: Bool) {
         readQueue.async { [self] in
-            let result = credentials.read()
+            let result = credentials.read(allowInteraction: allowInteraction)
             lock.lock()
             reading = false
             switch result {
             case .value(let value):
                 credential = value; credentialReadAt = now(); deniedAt = nil
+                interactionRetryAt = .distantPast
             case .absent: credential = nil; deniedAt = nil
             case .denied: credential = nil; deniedAt = now()
             // Keep a still-valid token; the next recheck is due in five minutes.
+            case .interactionRequired:
+                credentialReadAt = now()
+                interactionRetryAt = now().addingTimeInterval(Self.credentialRecheckInterval)
             case .failed: if credential != nil { credentialReadAt = now() }
             }
             let throttled = now() < nextRequestAt
@@ -154,6 +176,7 @@ final class ClaudeUsageProvider: AiUsageProviderRefreshing {
             case .value where throttled: finish(cached)
             case .value(let value): request(value, finish)
             case .absent, .denied: finish(.absent)
+            case .interactionRequired: finish(cached)
             case .failed: finish(.failed)
             }
         }
