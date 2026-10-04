@@ -1057,6 +1057,13 @@ make firmware-check
 make firmware-size
 ```
 
+Companion packaging signs the complete `.app` after writing bundle metadata
+and rejects a bundle that fails strict code-signature verification. Local and
+CI builds default to ad-hoc signing, whose Keychain identity is tied to that
+binary. `CARDPUTER_COMPANION_SIGNING_IDENTITY` selects an installed signing
+certificate for a stable application identity across builds; packaging uses
+the signing identifier `org.cardputer.companion` in either case.
+
 Do not repeatedly run the full gate after edits that cannot affect its result.
 A passing gate must be repeated after a later source, configuration, dependency,
 or test change that is relevant to that gate.

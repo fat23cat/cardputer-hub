@@ -22,7 +22,8 @@ final class KeychainCursorCredentials: CursorCredentialReading {
             kSecMatchLimit as String: kSecMatchLimitOne,
         ]
         var result: CFTypeRef?
-        let status = SecItemCopyMatching(query as CFDictionary, &result)
+        let status = LegacyKeychainRead.shared.copyMatching(query as CFDictionary,
+                                                           allowInteraction: true, result: &result)
         if status == errSecItemNotFound { return .absent }
         guard status == errSecSuccess else { return .failed }
         guard let data = result as? Data,

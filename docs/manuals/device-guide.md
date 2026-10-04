@@ -339,7 +339,12 @@ use `Claude Code-credentials`; choose **Always Allow**. Until you answer,
 Claude is not shown, and with no other account AI USAGE shows `CHECKING AI`.
 Claude values update about once a minute; if the Claude service limits
 requests, they are marked `STALE` until it allows them again. If you decline, Claude
-stays hidden for an hour, then macOS asks again. At most two providers appear,
+stays hidden for an hour, then silent checks resume. Only the first read after
+launching Companion may ask for permission; closing and opening the lid does
+not trigger another authorization prompt. If Keychain access becomes unavailable,
+Companion keeps using its current token until it expires, then shows the last
+values as `STALE` while retrying quietly every five minutes. Relaunch Companion
+to grant access again if needed. At most two providers appear,
 in the order Codex, Cursor, Claude. When Claude Code has not run for several
 hours, Claude values stay visible marked `STALE` until you use it again; a
 stale window whose reset time has passed shows 100% left and `--`. Signing out
