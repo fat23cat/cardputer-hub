@@ -25,15 +25,17 @@ Bluetooth, the selected host, Wi-Fi, and the firmware build (date and
 commit, as `BUILD`); **POMODORO**, a
 background focus timer; **LED GALLERY**, an 8×8 matrix animation app; **NFC**, an inventory of NFC-tagged boxes and bags, when an
 M5Stack Unit NFC is connected; and **MAC CONTROL** when a live Cardputer Companion
-session is ready. **MAC STATUS**, **AI USAGE** and **AI STATUS** appear with that
-session too; AI USAGE shows automatically discovered Codex, Cursor and Claude
-account quota, and AI STATUS shows whether their desktop agents are working. MAC CONTROL is a full-screen
+session is ready. **MAC STATUS** and **AI** appear with that session too. AI's
+**USAGE** page shows automatically discovered Codex, Cursor and Claude account
+quota; **STATUS** shows whether their desktop agents are working. MAC CONTROL is a full-screen
 3×2 grid. Press the matching number to launch or focus that Mac app; production
 firmware binds **1** to Telegram. Empty numbered tiles do nothing. Left and
 Right move between pages when more than one page exists. A bound press expands
 that tile in blue while the Mac opens the app, then flashes green on success or
 red if the app is not found, and returns to the grid. Escape returns from
-SYSTEM, POMODORO, LED GALLERY, NFC, MAC CONTROL, MAC STATUS, AI USAGE, or AI STATUS to Apps and from Apps to Home. If Companion disappears
+SYSTEM, POMODORO, LED GALLERY, NFC, MAC CONTROL, MAC STATUS, or either main page
+of AI to Apps, and from Apps to Home. In AI's usage details, Escape first returns
+to USAGE. If Companion disappears
 while MAC CONTROL is open, the app closes and Apps returns; reconnect does not
 reopen it or repeat the last launch. Press plain **Tab** on the main keyboard
 to open the general Settings menu. Fn+Tab is inactive, and a normal G0 press
@@ -331,13 +333,28 @@ measures the network only while the NETWORK page is open.
 Press Escape to leave. Companion
 loss closes MAC STATUS and reconnect does not reopen it automatically.
 
-AI USAGE has no setup screen. The Companion checks Codex, the existing
+## AI
+
+Open **AI** in Apps. The top strip shows **STATUS** and **USAGE**; press
+Left/Right (the `,` / `/` keys also work without Fn) to cycle between the pages
+with a short slide in the direction you press. The first visit
+opens STATUS, and later visits remember your last page until a restart. All
+account and agent information remains visible below the strip. On USAGE, a red
+`!` beside STATUS means an agent needs attention; switch to STATUS to see which
+one. This mark uses fresh agent data only. Status checks continue while AI is
+open on either page or in details. Unit Puzzle follows the page you are viewing.
+Escape on a main page closes AI. Companion loss closes AI and clears its data;
+reconnecting does not reopen it.
+
+### USAGE
+
+USAGE has no setup screen. The Companion checks Codex, the existing
 Cursor Agent sign-in and the existing Claude Code sign-in on that Mac; an absent
 provider is omitted. Plus accounts show 5-hour and weekly limits, Business shows
 credits, Cursor Enterprise shows personal spend, and Claude Pro or Max shows its
 5-hour and weekly limits. The first time, macOS asks whether Cardputer Companion may
 use `Claude Code-credentials`; choose **Always Allow**. Until you answer,
-Claude is not shown, and with no other account AI USAGE shows `CHECKING AI`.
+Claude is not shown, and with no other account USAGE shows `CHECKING AI`.
 Claude values update about once a minute; if the Claude service limits
 requests, they are marked `STALE` until it allows them again. If you decline, Claude
 stays hidden for an hour, then silent checks resume. Only the first read after
@@ -350,6 +367,8 @@ in the order Codex, Cursor, Claude. When Claude Code has not run for several
 hours, Claude values stay visible marked `STALE` until you use it again; a
 stale window whose reset time has passed shows 100% left and `--`. Signing out
 of Claude Code or switching accounts shows up within about five minutes. Bars and `LEFT` percentages show remaining capacity.
+Business credits and Cursor Enterprise spend show **used / limit** in credits
+or dollars alongside the remaining percentage, its bar and the reset time.
 An unavailable reset time appears as `RESET --`.
 `STALE` marks provider data that is no longer fresh; on a single-metric screen
 it appears below the provider name. `CHECKING AI` appears during discovery and
@@ -357,7 +376,7 @@ checks again every two seconds until the Mac finishes;
 `NO AI ACCOUNTS` appears if none can be read. The Mac samples accounts every
 30 seconds and the Cardputer checks the cache every 10 seconds after discovery.
 Companion's Diagnostics submenu shows whether its own Codex, Cursor and Claude
-cache is fresh or stale. If the Mac shows fresh while AI USAGE shows `STALE`, the issue
+cache is fresh or stale. If the Mac shows fresh while USAGE shows `STALE`, the issue
 is between Companion and the device; if both show stale, inspect the provider
 refresh on the Mac. Up/Down (the `;` / `.` keys, with or without Fn) selects a visible metric for roughly three seconds
 and expands its gauge on Unit Puzzle. Otherwise Puzzle shows one full 8×8 gauge,
@@ -366,8 +385,8 @@ Each four-row gauge has purple dots at both ends; its other 30 dots show the
 remaining limit. A two-row gauge also has purple ends and 14 limit dots; the
 gauges follow the screen order from top to bottom. The dots stay visible when
 the limit reaches zero.
-The Puzzle shows these gauges only while AI USAGE is open, above Pomodoro;
-closing AI USAGE gives the matrix back, and changes made while it was closed do
+The Puzzle shows these gauges only while USAGE or its details are visible, above Pomodoro;
+switching to STATUS or closing AI gives the matrix back, and changes made while USAGE was hidden do
 not replay a low-quota or reset flash when you reopen it. Companion loss clears
 the gauge and account values; the next Mac supplies its own data.
 
@@ -386,14 +405,15 @@ keys marked Left / Right without Fn to switch to RESETS (count, short titles
 and expiry). Expiry appears in days, hours, or minutes; `EXP NOW` means it has
 elapsed, and `EXP --` means its timing is unknown. Up/Down scrolls when there
 are more than two detail rows; the `;` / `.` keys work without Fn. Enter
-returns to the main dashboard; Escape closes AI USAGE. These details are
+returns to the main dashboard; Escape in details also returns to USAGE, and
+Escape on USAGE closes AI. These details are
 read-only; RESETS appears only for Codex Plus. If one rolling window is unavailable,
 its LIMITS column shows `--` while RESETS remains accessible. Titles that the
 Cardputer font cannot show appear as `RESET CREDIT`.
 
-## AI Status
+### STATUS
 
-AI STATUS fills the screen with one colored plate for each app whose hooks
+STATUS fills the area below the navigation strip with one colored plate for each app whose hooks
 Companion has installed on the selected Mac, in the order CODEX, CLAUDE,
 CURSOR. With no hooks installed it reads `NO AI HOOKS`; until the Mac answers
 it reads `CHECKING AI`.
@@ -410,7 +430,7 @@ A wait or error in one chat stays visible while another chat of the same app
 works. A permission request shows `NEEDS YOU` only after about 15 seconds
 without an answer, so automatic approvals (such as Codex auto-review) do not
 flash it; a question or an error shows at once. `DONE` means the agent stopped, not that the result is correct. Escape
-closes AI STATUS.
+closes AI.
 
 It needs hooks in each desktop app. In the Companion menu, open **AI Agent
 Hooks** and choose **Install Codex Hooks**, **Install Claude Code Hooks** or
@@ -429,14 +449,14 @@ permission, so that chat keeps its last state until the agent process ends or
 about 15 minutes pass; a Cursor agent waiting for approval shows `WORKING`.
 Hooks in cloud agents do not reach the Mac.
 
-While AI STATUS is open, a connected Unit Puzzle shows the same apps as
+While STATUS is visible, a connected Unit Puzzle shows the same apps as
 stacked bands in the screen order Codex, Claude, Cursor: one app fills the
 matrix, two take the top and bottom four rows, three take three, three and two
 rows. With more than one app, each band starts and ends with a purple dot, as
-in AI USAGE. Blue, vermilion and green match the plates,
+in USAGE. Blue, vermilion and green match the plates,
 an old `DONE` is a dimmer green and an app with `--` is a dim grey band; with no hooks installed the matrix is
-left to Pomodoro or other owners. Closing AI
-STATUS gives the matrix back.
+left to Pomodoro or other owners. Switching to USAGE transfers the matrix to
+the quota gauges; closing AI gives it back to other owners.
 
 ## Wi-Fi
 
@@ -477,8 +497,10 @@ instead of moving a list.
 | Escape in SYSTEM | Return to Apps |
 | Escape in POMODORO | Return to Apps; the timer keeps running |
 | Escape in LED GALLERY | Return to Apps; Pomodoro LED progress returns if active |
-| Up/Down on the AI USAGE dashboard (`;` / `.` without Fn also work) | Select a row and temporarily expand its quota metric on Unit Puzzle |
-| Enter in AI USAGE with Codex Plus or Claude | Open LIMITS for the selected row's account (or the first such account); from details return to the dashboard |
+| Left/Right on AI's main pages (`,` / `/` without Fn also work) | Switch STATUS and USAGE |
+| Up/Down on AI's USAGE dashboard (`;` / `.` without Fn also work) | Select a row and temporarily expand its quota metric on Unit Puzzle |
+| Enter in AI's USAGE with Codex Plus or Claude | Open LIMITS for the selected row's account (or the first such account); from details return to the dashboard |
+| Escape in AI's LIMITS / RESETS | Return to USAGE; another Escape closes AI |
 | Left/Right in Codex Plus details | Switch LIMITS and RESETS |
 | Up/Down on the RESETS page | Scroll available reset-credit details |
 | Left/Right, 1–0, Fn+1–0 in LED GALLERY | Select one of twenty effects |
@@ -631,8 +653,8 @@ Off, report/interruption and USB hotplug acceptance remains tracked in
 [plan 017](../plans/017-hid-transport-arbitration.md#0-current-closeout-status).
 The current firmware includes Apps, SYSTEM, POMODORO, LED GALLERY, NFC when a Unit NFC is
 connected at startup, MAC CONTROL when
-Companion is ready, and MAC STATUS, AI USAGE and AI STATUS with that Companion
-session. AI STATUS has not yet been checked with the real desktop apps on
+Companion is ready, and MAC STATUS and AI with that Companion
+session. AI's STATUS page has not yet been checked with the real desktop apps on
 both Macs or on a physical Unit Puzzle. It does not include profile-metadata editing or template
 resolution, Action-to-HID mappings, a Mac companion CLI/control protocol,
 Wi-Fi network scanning, or weather/VPS/Telegram features. Boot/status sound

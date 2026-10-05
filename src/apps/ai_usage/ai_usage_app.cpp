@@ -202,6 +202,15 @@ const connectivity::AiUsageProvider* AiUsageApp::detailProvider() const {
     return nullptr;
 }
 
+bool AiUsageApp::handleBack() {
+    if (!showingDetails())
+        return false;
+    view_ = View::Main;
+    resetScroll_ = 0;
+    rendered_ = false;
+    return true;
+}
+
 void AiUsageApp::drawExpanded(const connectivity::AiUsageProvider& provider) {
     char text[72]{};
     if (view_ == View::Limits) {

@@ -124,12 +124,16 @@ refuse a peer built from another protocol definition.
 The MAC STATUS Mini App shows live Mac system metrics, charging time and four
 detail pages (CPU and top apps, power, network, memory and disk) while the
 Companion is connected; polling runs only while the app is open.
-AI USAGE shows discovered Codex/Cursor/Claude quotas from the Companion and publishes
-a remaining-quota gauge on Unit Puzzle while the Mini App is open. Provider collection
+AI combines STATUS and USAGE, switched with Left/Right, and remembers the last
+page within a firmware session. USAGE shows discovered Codex/Cursor/Claude quotas
+from the Companion and publishes a remaining-quota gauge on Unit Puzzle while
+that page or its details are visible. Provider collection
 is automatic on the Mac; firmware receives only normalized usage numbers.
-AI STATUS shows whether Codex, Claude Code and Cursor desktop agents are
+STATUS shows whether Codex, Claude Code and Cursor desktop agents are
 working, need you, or are done, from lifecycle hooks that Companion installs
-on request; only application states cross BLE.
+on request; only application states cross BLE. Status polling continues on
+USAGE, where a fresh wait/error adds `!` beside STATUS. Puzzle follows the
+visible page. Escape returns from usage details to USAGE, then closes AI.
 NFC is a personal inventory for boxes and bags: a writable NTAG213/215/216
 sticker carries only a random inventory ID, and the container's name and item
 list live as a JSON record on the Cardputer's microSD card. `NfcApp` renders

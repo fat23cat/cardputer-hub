@@ -16,6 +16,8 @@ class AiUsageApp final : public IMiniApp {
     void onActivate() override;
     void onDeactivate() override;
     void update(const core::InputEvents& input, std::chrono::milliseconds elapsed) override;
+    bool handleBack() override;
+    bool showingDetails() const noexcept { return view_ != View::Main; }
 
   private:
     enum class View : std::uint8_t { Main, Limits, Resets };

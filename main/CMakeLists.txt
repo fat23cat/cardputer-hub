@@ -21,6 +21,7 @@ set(CARDPUTER_HUB_SOURCES
     "${CMAKE_CURRENT_LIST_DIR}/../src/apps/mac_status/mac_status_app.cpp"
     "${CMAKE_CURRENT_LIST_DIR}/../src/apps/mac_status/mac_status_graphics.cpp"
     "${CMAKE_CURRENT_LIST_DIR}/../src/apps/ai_usage/ai_usage_app.cpp"
+    "${CMAKE_CURRENT_LIST_DIR}/../src/apps/ai/ai_app.cpp"
     "${CMAKE_CURRENT_LIST_DIR}/../src/apps/ai_agent_status/ai_agent_status_app.cpp"
     "${CMAKE_CURRENT_LIST_DIR}/../src/apps/nfc/nfc_app.cpp"
     "${CMAKE_CURRENT_LIST_DIR}/../src/apps/nfc/nfc_graphics.cpp"

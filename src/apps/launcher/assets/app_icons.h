@@ -68,6 +68,8 @@ inline const char* const* appIconRows(const char* iconId) {
         return macControlAppIcon;
     if (iconId != nullptr && std::strcmp(iconId, "mac-status") == 0)
         return macStatusAppIcon;
+    if (iconId != nullptr && std::strcmp(iconId, "ai") == 0)
+        return aiUsageAppIcon;
     if (iconId != nullptr && std::strcmp(iconId, "ai-usage") == 0)
         return aiUsageAppIcon;
     if (iconId != nullptr && std::strcmp(iconId, "ai-status") == 0)

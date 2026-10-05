@@ -16,7 +16,7 @@ struct AiAgentStatusSnapshot {
     connectivity::CompanionAgentStatus status{};
 };
 
-// Polls the Companion's cached AI_AGENT_STATUS while AI STATUS is open. The Mac
+// Polls the Companion's cached AI_AGENT_STATUS while AI is open, on either page. The Mac
 // keeps observing agents on its own; nothing is polled while the app is closed.
 class AiAgentStatusService {
   public:

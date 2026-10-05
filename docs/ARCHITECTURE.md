@@ -308,8 +308,9 @@ bitmap icons and MiniAppRuntime availability, and dispatches `app.open` /
 a Mini App invalidates Launcher's display cache while keeping selection and
 window. `ApplicationShell` routes each `InputEvent` to the presentation that
 is active after the previous event: Home, Settings, Launcher, or the active
-Mini App. Plain Escape is shell-owned and is never forwarded to `IMiniApp`;
-it closes the app and restores Launcher. `app.open` is owned by Launcher: it is accepted only on the Launcher
+Mini App. Plain Escape is shell-owned and is offered through `handleBack()`;
+if the app has no internal back step, it closes and restores Launcher.
+`app.open` is owned by Launcher: it is accepted only on the Launcher
 route while no Mini App is active. Mini Apps may request `app.close` and must
 not dispatch `app.open`. Generic key-click feedback is owned by
 `ApplicationShell` and is emitted once per routed `InputEvent` before
@@ -449,12 +450,32 @@ request `app.close` and must not dispatch `app.open`.
 `IMiniApp::handleBack()` lets an app with internal depth keep the plain Escape
 key: the shell offers it to the active app through `MiniAppRuntime::handleBack()`
 before closing, and an app that consumes it (NFC leaves its name entry) stays
-open. The default declines, so every other app closes on Escape as before.
+open. AI also consumes Escape in LIMITS/RESETS to return to USAGE. The default
+declines, so apps without internal depth close on Escape.
 Instances are static process-lifetime objects; the
 runtime keeps non-owning references and never constructs or destroys apps.
 Mini Apps own application-specific view state. Shared Services remain
 independently composed and are injected through explicit constructors rather
 than a runtime service locator.
+
+`AiApp` is the single `ai` / `AI` registry entry requiring `COMPANION`. It
+composes the existing `AiUsageApp` and `AiAgentStatusApp` presentations with
+their independently injected Services. Left/Right (also `,` / `/` without Fn)
+switch STATUS and USAGE; the last page survives closing within a firmware
+session. A 16-pixel navigation strip leaves 119 pixels for content. Its private
+display viewport maps the views' existing vertical coordinates into that area
+without shrinking text or changing horizontal geometry. Usage details retain
+the full 240x135 layout and local LIMITS/RESETS navigation. Escape in details
+returns to USAGE; on either main page it follows the shared app exit. The shell
+owns the display frame across all events in a tick. AI requests the shared
+slide before switching main pages, in the direction of the pressed key;
+neither AI nor its content views open or close that frame.
+`AiApp` owns agent monitoring for its entire activation, including while USAGE
+or its details are visible. The status view does not start or stop that shared
+monitoring when pages switch. A fresh NEEDS YOU state adds `!` beside STATUS
+on USAGE; stale or missing status removes it. Only the visible page owns its
+Puzzle controller. Closing or switching releases that page's claims and
+temporary focus; no inactive page replays quota feedback.
 
 Example:
 
@@ -1634,8 +1655,8 @@ Mini App / presentation helper
 ```
 
 `AiUsageIndicatorController` consumes the session-scoped `AiUsageService`
-snapshot and holds claims only between `AiUsageApp` activation and
-deactivation. Its ForegroundApplication claim shows remaining quota on the full
+snapshot and holds claims only while AI's USAGE page or its details are visible.
+Its ForegroundApplication claim shows remaining quota on the full
 8×8 matrix or in two four-row zones with purple markers at both ends and 30
 quota pixels per zone. Temporary focus and ordinary low-quota and reset feedback
 use later ForegroundApplication claims; critical quota feedback briefly uses
@@ -1643,11 +1664,11 @@ Warning. Deactivation releases every claim and forgets threshold history, so
 reopening does not replay feedback. All claims pass through the shared
 brightness limit.
 
-`AiAgentStatusIndicatorController` follows the same open-only rule with one
-ForegroundApplication claim. It shows the applications whose hooks are
+`AiAgentStatusIndicatorController` follows the same visible-page rule for STATUS
+with one ForegroundApplication claim. It shows the applications whose hooks are
 installed as gapless bands in the screen row order Codex, Claude, Cursor: one
 fills the matrix, two use rows 0–3 and 4–7, three use rows 0–2, 3–5 and 6–7.
-Split bands start and end with the AI USAGE purple marker pixel; a single
+Split bands start and end with the quota gauge's purple marker pixel; a single
 application has none. Working, needs-you and done
 use muted steel blue, vermilion and sage, done earlier a dimmer green; an
 installed application with no known state is a dim neutral band. With nothing installed or stale delivery it
@@ -1952,7 +1973,7 @@ instead of the `0xC7` marker, is recognized only to enter `Incompatible` with
 the connected device line.
 
 Firmware flattens AI provider metrics in snapshot order once, in
-`aiUsageVisibleMetrics`; AI USAGE rows, hover selection and Unit Puzzle bands
+`aiUsageVisibleMetrics`; AI's USAGE rows, hover selection and Unit Puzzle bands
 all use that order. Firmware keeps at most four Codex Plus reset-credit detail
 rows per provider and clears them with the session.
 `CompanionService` exposes operation-filtered completions:
@@ -2044,7 +2065,8 @@ remaining time corrects it promptly. A new reset identity starts a new countdown
 `AiUsageApp` and the Puzzle controller consume only the bounded snapshot; neither
 parses provider JSON or BLE envelopes.
 
-AI STATUS (plan 047) shows desktop agent activity. On the Mac, Claude Code,
+AI's STATUS page (introduced in plan 047) shows desktop agent activity. On the
+Mac, Claude Code,
 Codex and Cursor lifecycle hooks run the bundled `CardputerAgentHook` helper,
 which forwards only an allowlist (application, event, session and turn IDs,
 status, notification type, tool name, owner PID) over a private Unix-domain
@@ -2066,12 +2088,12 @@ Companion installs or removes its own hook entries only on explicit
 user action, with a backup, and `AgentStatusReport` answers AI_AGENT_STATUS
 with only the applications whose hooks are installed, rereading that set at
 most every five seconds and at once after an install or removal. Firmware `AiAgentStatusService` polls the cached
-answer once a second only while AI STATUS is open, keeps one request
-outstanding, marks delivery stale after three seconds and clears with the
+answer once a second only while AI is open (including USAGE and its details),
+keeps one request outstanding, marks delivery stale after three seconds and clears with the
 Companion session. `AiAgentStatusApp` renders one full-width state plate per installed
-application, `CHECKING AI` before the first answer and `NO AI HOOKS` when none
-is installed;
-`AiAgentStatusIndicatorController` owns the Puzzle only while the app is open;
+application inside AI's STATUS page, `CHECKING AI` before the first answer and
+`NO AI HOOKS` when none is installed;
+`AiAgentStatusIndicatorController` owns the Puzzle only while STATUS is visible;
 neither calls `CompanionService`. `app_main` updates the service and the
 controller once per loop.
 

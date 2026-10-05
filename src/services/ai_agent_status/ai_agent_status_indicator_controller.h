@@ -27,8 +27,8 @@ inline constexpr core::RgbColor agentBandMarkerLed{0xA0, 0x50, 0xD0};
 // none installed the frame is empty and the controller holds no claim.
 IndicatorFrame aiAgentStatusFrame(const connectivity::CompanionAgentStatus& status) noexcept;
 
-// Owns the Puzzle only between activate() and deactivate(), which AI STATUS
-// calls when it opens and closes.
+// Owns the Puzzle only between activate() and deactivate(), while AI's STATUS
+// page is visible.
 class AiAgentStatusIndicatorController {
   public:
     AiAgentStatusIndicatorController(AiAgentStatusService& status, IndicatorService& indicator)

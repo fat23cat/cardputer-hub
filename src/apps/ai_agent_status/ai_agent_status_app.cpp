@@ -76,13 +76,15 @@ void AiAgentStatusApp::onActivate() {
     plateCount_ = 0;
     layout_ = Layout::None;
     shown_ = {};
-    status_.startMonitoring();
+    if (manageMonitoring_)
+        status_.startMonitoring();
     indicator_.activate();
 }
 
 void AiAgentStatusApp::onDeactivate() {
     indicator_.deactivate();
-    status_.stopMonitoring();
+    if (manageMonitoring_)
+        status_.stopMonitoring();
     plates_ = {};
     layout_ = Layout::None;
 }
@@ -136,11 +138,13 @@ void AiAgentStatusApp::update(const core::InputEvents&, std::chrono::millisecond
     Layout next = layout_;
     if (fresh)
         next = snapshot.status.installedCount() == 0 ? Layout::NoHooks : Layout::Plates;
-    else if (layout_ == Layout::None || snapshot.freshness == services::AgentStatusFreshness::Empty)
+    else if (snapshot.freshness == services::AgentStatusFreshness::Empty)
         next = Layout::Checking;
+    else if (layout_ == Layout::None)
+        next = snapshot.status.installedCount() == 0 ? Layout::NoHooks : Layout::Plates;
     if (next != layout_ || (fresh && next == Layout::Plates &&
                             snapshot.status.installedApplications != shown_.installedApplications))
-        drawLayout(next, fresh ? snapshot.status : connectivity::CompanionAgentStatus{});
+        drawLayout(next, snapshot.status);
     if (layout_ != Layout::Plates)
         return;
     for (const auto application : connectivity::agentStatusOrder) {
