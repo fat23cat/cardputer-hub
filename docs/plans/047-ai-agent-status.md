@@ -205,8 +205,12 @@ Known gaps, documented rather than worked around:
   permission, so that session keeps its last state until an age cap expires.
 - Cursor exposes no observe-only approval-wait event; a waiting Cursor agent
   shows `WORKING`.
-- A `stop`/`Stop` whose turn or generation id differs from the session's
-  current one, when the provider supplies one, is ignored.
+
+A prompt-start event establishes the current turn or generation ID. Activity,
+waits and stops carrying a different ID are ignored, so a late tool result
+cannot restore an earlier turn or clear the current wait. When Companion has
+not observed a prompt (for example after restart), the first identified
+activity establishes the turn. A new prompt without an ID clears the old ID.
 
 ### Aggregation and expiry
 

@@ -68,6 +68,17 @@ public final class AgentStatusStore {
         case .working, .needsYou, .permissionRequested:
             var session = sessions[key] ?? Session(phase: .working, turn: nil, ownerPid: 0,
                                                    updatedAt: time)
+            let startsTurn = event.event == (event.application == .cursor
+                ? "beforeSubmitPrompt" : "UserPromptSubmit")
+            if startsTurn {
+                // A new prompt owns the turn, including when its ID is absent.
+                session.turn = event.turn
+            } else {
+                // Late tool results and waits must not restore an earlier turn.
+                if let current = session.turn, let turn = event.turn, current != turn { return }
+                // After a Companion restart, the first activity can establish it.
+                session.turn = event.turn ?? session.turn
+            }
             if event.transition == .permissionRequested {
                 // Stays as it is until the grace period passes unanswered.
                 if session.phase == .finished { session.phase = .working }
@@ -76,7 +87,6 @@ public final class AgentStatusStore {
                 session.phase = event.transition == .working ? .working : .needsYou
                 session.permissionRequestedAt = nil
             }
-            session.turn = event.turn ?? session.turn
             session.ownerPid = event.ownerPid > 0 ? event.ownerPid : session.ownerPid
             session.updatedAt = time
             session.pendingFinishAt = nil

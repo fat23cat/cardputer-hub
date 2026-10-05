@@ -101,6 +101,64 @@ func agentStatusChecks(_ expect: (Bool, String) -> Void, fixture: (String) -> [U
     expect(AgentHookEvent.parse(application: .codex, input: Data("not json".utf8), ownerPid: 0) == nil,
            "malformed hook input is ignored")
 
+    // An earlier turn's late tool result must not replace the current turn.
+    for application in AgentApplication.allCases {
+        var turnClock = Date(timeIntervalSince1970: 1_000)
+        let turns = AgentStatusStore(now: { turnClock }, isAlive: { _ in true })
+        let prompt = application == .cursor ? "beforeSubmitPrompt" : "UserPromptSubmit"
+        let result = application == .cursor ? "postToolUse" : "PostToolUse"
+        let stop = application == .cursor ? "stop" : "Stop"
+        turns.ingest(AgentHookEvent(application: application, event: prompt, session: "turns",
+                                    turn: "old"))
+        turns.ingest(AgentHookEvent(application: application, event: prompt, session: "turns",
+                                    turn: "current"))
+        turns.ingest(AgentHookEvent(application: application, event: result, session: "turns",
+                                    turn: "old"))
+        turns.ingest(AgentHookEvent(application: application, event: stop, session: "turns",
+                                    turn: "current", status: "completed"))
+        turnClock += AgentStatusStore.cursorStopDebounce + 0.1
+        expect(turns.states()[application] == .done,
+               "\(application.name): an old tool result cannot prevent the current turn finishing")
+
+        let wait = application == .cursor ? "stop" : "PermissionRequest"
+        turns.ingest(AgentHookEvent(application: application, event: prompt, session: "turns",
+                                    turn: "next"))
+        turns.ingest(AgentHookEvent(application: application, event: wait, session: "turns",
+                                    turn: "next", status: "error"))
+        turnClock += AgentStatusStore.permissionGrace
+        expect(turns.states()[application] == .needsYou,
+               "\(application.name): the current turn waits for the user")
+        turns.ingest(AgentHookEvent(application: application, event: result, session: "turns",
+                                    turn: "old"))
+        expect(turns.states()[application] == .needsYou,
+               "\(application.name): an old tool result cannot clear the current wait")
+        turns.ingest(AgentHookEvent(application: application, event: stop, session: "turns",
+                                    turn: "next", status: "completed"))
+        turnClock += AgentStatusStore.cursorStopDebounce + 0.1
+        expect(turns.states()[application] == .done,
+               "\(application.name): the current wait can finish after an old tool result")
+        turns.ingest(AgentHookEvent(application: application, event: wait, session: "turns",
+                                    turn: "old", status: "error"))
+        turnClock += AgentStatusStore.permissionGrace
+        expect(turns.states()[application] == .done,
+               "\(application.name): an old wait cannot revive a completed turn")
+
+        // A hook observed after restart can establish a turn without a prompt.
+        turns.ingest(AgentHookEvent(application: application, event: result, session: "restart",
+                                    turn: "observed"))
+        turns.ingest(AgentHookEvent(application: application, event: stop, session: "restart",
+                                    turn: "observed", status: "completed"))
+        turnClock += AgentStatusStore.cursorStopDebounce + 0.1
+        expect(turns.states()[application] == .done,
+               "\(application.name): activity after restart establishes the turn")
+        turns.ingest(AgentHookEvent(application: application, event: prompt, session: "restart"))
+        turns.ingest(AgentHookEvent(application: application, event: stop, session: "restart",
+                                    turn: "id-after-prompt", status: "completed"))
+        turnClock += AgentStatusStore.cursorStopDebounce + 0.1
+        expect(turns.states()[application] == .done,
+               "\(application.name): a prompt without an ID clears the preceding turn ID")
+    }
+
     // Session aggregation (S1-S12).
     var clock = Date(timeIntervalSince1970: 1_000)
     var alive: Set<Int32> = [10, 11, 20, 30]

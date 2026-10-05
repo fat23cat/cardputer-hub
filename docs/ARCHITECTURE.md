@@ -2058,7 +2058,11 @@ or 2 hours waiting without events, and aggregates per application: any wait or
 error gives NEEDS YOU, then any active run WORKING, then any finished session
 DONE (done earlier once the latest finish is ten minutes old), otherwise
 unknown. Expiry never produces NEEDS YOU or DONE. Nothing is
-persisted. Companion installs or removes its own hook entries only on explicit
+persisted. A prompt-start event establishes the current turn; activity, waits
+and stops with a different turn ID are ignored. If no prompt has been observed
+after a Companion restart, the first identified activity establishes the turn.
+A new prompt without a turn ID clears the preceding ID.
+Companion installs or removes its own hook entries only on explicit
 user action, with a backup, and `AgentStatusReport` answers AI_AGENT_STATUS
 with only the applications whose hooks are installed, rereading that set at
 most every five seconds and at once after an install or removal. Firmware `AiAgentStatusService` polls the cached
