@@ -132,6 +132,36 @@ does not receive as not sent.
 Claude usage is a private provider adapter that may need updating if the
 service changes.
 
+The Companion answers `AI_AGENT_STATUS` for AI STATUS from desktop agent
+lifecycle hooks. **AI Agent Hooks** in the menu installs or removes the hooks
+of Codex (`~/.codex/hooks.json`, or `$CODEX_HOME`), Claude Code
+(`~/.claude/settings.json`, which the desktop Code tab shares) and Cursor
+Agent Chat (`~/.cursor/hooks.json`). It changes only entries that run
+`CardputerAgentHook`, keeps `<file>.cardputer-backup`, writes atomically
+through symlinks, and refuses a file that is not plain JSON. Restart the app
+afterwards; Codex asks you to review and trust new hooks. Installing copies the
+helper to `~/Library/Application Support/Cardputer Companion/`, and each launch
+refreshes that copy, so moving or updating the app keeps hooks working.
+
+The helper forwards one event over a private socket in that folder (mode 0600)
+and exits; when Companion is not running it exits at once. It sends only the
+application, event name, session and turn IDs, status, notification type, tool
+name and the agent's process ID, never prompts, answers, paths, commands or
+e-mail, and it returns no permission decision. Companion keeps per-session
+states in memory: a question, an error or an approval request still
+unanswered after 15 seconds is NEEDS YOU (Codex auto-review and other automatic
+approvals answer sooner, so they never show), an active run
+WORKING, a finished or user-stopped run DONE, reported as done earlier once
+the latest finish is ten minutes old. A session ends with its end
+event, when its agent process exits, or after 15 minutes working or 2 hours
+waiting without events. Cursor's `stop` counts after 0.7 seconds without new
+activity. Diagnostics shows each application's hook state and last event. The
+Cardputer lists only applications whose hooks are installed; Companion rereads
+that set every few seconds and at once after an install or removal.
+Claude Code sends no hook when you interrupt a run or deny a permission, and
+Cursor has no observe-only approval event, so those cases rely on expiry or
+show WORKING.
+
 MAC STATUS also receives the power source and the minutes to full or
 to empty, and the Companion answers `SYSTEM_DETAILS` for the Cardputer's
 detail pages. It reads only the group the Cardputer asks for. A request is

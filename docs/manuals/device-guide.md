@@ -25,14 +25,15 @@ Bluetooth, the selected host, Wi-Fi, and the firmware build (date and
 commit, as `BUILD`); **POMODORO**, a
 background focus timer; **LED GALLERY**, an 8×8 matrix animation app; **NFC**, an inventory of NFC-tagged boxes and bags, when an
 M5Stack Unit NFC is connected; and **MAC CONTROL** when a live Cardputer Companion
-session is ready. **MAC STATUS** and **AI USAGE** appear with that session too;
-AI USAGE shows automatically discovered Codex, Cursor and Claude account quota. MAC CONTROL is a full-screen
+session is ready. **MAC STATUS**, **AI USAGE** and **AI STATUS** appear with that
+session too; AI USAGE shows automatically discovered Codex, Cursor and Claude
+account quota, and AI STATUS shows whether their desktop agents are working. MAC CONTROL is a full-screen
 3×2 grid. Press the matching number to launch or focus that Mac app; production
 firmware binds **1** to Telegram. Empty numbered tiles do nothing. Left and
 Right move between pages when more than one page exists. A bound press expands
 that tile in blue while the Mac opens the app, then flashes green on success or
 red if the app is not found, and returns to the grid. Escape returns from
-SYSTEM, POMODORO, LED GALLERY, NFC, MAC CONTROL, MAC STATUS, or AI USAGE to Apps and from Apps to Home. If Companion disappears
+SYSTEM, POMODORO, LED GALLERY, NFC, MAC CONTROL, MAC STATUS, AI USAGE, or AI STATUS to Apps and from Apps to Home. If Companion disappears
 while MAC CONTROL is open, the app closes and Apps returns; reconnect does not
 reopen it or repeat the last launch. Press plain **Tab** on the main keyboard
 to open the general Settings menu. Fn+Tab is inactive, and a normal G0 press
@@ -365,9 +366,10 @@ Each four-row gauge has purple dots at both ends; its other 30 dots show the
 remaining limit. A two-row gauge also has purple ends and 14 limit dots; the
 gauges follow the screen order from top to bottom. The dots stay visible when
 the limit reaches zero.
-Pomodoro and LED Gallery take priority over the resting AI gauge and ordinary
-low-quota or reset feedback. Companion loss clears the gauge and account values;
-the next Mac supplies its own data.
+The Puzzle shows these gauges only while AI USAGE is open, above Pomodoro;
+closing AI USAGE gives the matrix back, and changes made while it was closed do
+not replay a low-quota or reset flash when you reopen it. Companion loss clears
+the gauge and account values; the next Mac supplies its own data.
 
 With Codex Plus and Claude together, each account shows two rows, `5H` and
 `WK`, with the remaining percentage under `LEFT` and the time until the window
@@ -388,6 +390,53 @@ returns to the main dashboard; Escape closes AI USAGE. These details are
 read-only; RESETS appears only for Codex Plus. If one rolling window is unavailable,
 its LIMITS column shows `--` while RESETS remains accessible. Titles that the
 Cardputer font cannot show appear as `RESET CREDIT`.
+
+## AI Status
+
+AI STATUS fills the screen with one colored plate for each app whose hooks
+Companion has installed on the selected Mac, in the order CODEX, CLAUDE,
+CURSOR. With no hooks installed it reads `NO AI HOOKS`; until the Mac answers
+it reads `CHECKING AI`.
+
+| Plate | Meaning |
+| --- | --- |
+| Blue, `WORKING` | An agent is working and nothing waits for you |
+| Vermilion, `NEEDS YOU` | An agent waits for a permission or an answer, or stopped with an error |
+| Green, `DONE` | The work ended or you stopped it within the last ten minutes, and nothing is active |
+| Light grey, `DONE` | The same, but the last finish is more than ten minutes old |
+| Pale, `--` | No live session yet, hooks not firing, or no fresh answer |
+
+A wait or error in one chat stays visible while another chat of the same app
+works. A permission request shows `NEEDS YOU` only after about 15 seconds
+without an answer, so automatic approvals (such as Codex auto-review) do not
+flash it; a question or an error shows at once. `DONE` means the agent stopped, not that the result is correct. Escape
+closes AI STATUS.
+
+It needs hooks in each desktop app. In the Companion menu, open **AI Agent
+Hooks** and choose **Install Codex Hooks**, **Install Claude Code Hooks** or
+**Install Cursor Hooks**, then restart that app. Codex asks you to review and
+trust new hooks (in the CLI, `/hooks`). Companion changes only its own entries
+in `~/.claude/settings.json`, `~/.codex/hooks.json` (or `$CODEX_HOME`) and
+`~/.cursor/hooks.json`, keeps a `.cardputer-backup` copy, and refuses a file
+that is not plain JSON. **Remove … Hooks** takes them out again. Diagnostics
+lists whether each app's hooks are installed and when the last event arrived.
+A row appears within a few seconds of installing. A workplace policy can
+disable user hooks (Codex `hooks = false` or `allow_managed_hooks_only`, Cursor
+enterprise hooks); the row then stays `--`.
+
+Known gaps: Claude Code reports no event when you interrupt it or deny a
+permission, so that chat keeps its last state until the agent process ends or
+about 15 minutes pass; a Cursor agent waiting for approval shows `WORKING`.
+Hooks in cloud agents do not reach the Mac.
+
+While AI STATUS is open, a connected Unit Puzzle shows the same apps as
+stacked bands in the screen order Codex, Claude, Cursor: one app fills the
+matrix, two take the top and bottom four rows, three take three, three and two
+rows. With more than one app, each band starts and ends with a purple dot, as
+in AI USAGE. Blue, vermilion and green match the plates,
+an old `DONE` is a dimmer green and an app with `--` is a dim grey band; with no hooks installed the matrix is
+left to Pomodoro or other owners. Closing AI
+STATUS gives the matrix back.
 
 ## Wi-Fi
 
@@ -582,7 +631,9 @@ Off, report/interruption and USB hotplug acceptance remains tracked in
 [plan 017](../plans/017-hid-transport-arbitration.md#0-current-closeout-status).
 The current firmware includes Apps, SYSTEM, POMODORO, LED GALLERY, NFC when a Unit NFC is
 connected at startup, MAC CONTROL when
-Companion is ready, and MAC STATUS and AI USAGE with that Companion session. It does not include profile-metadata editing or template
+Companion is ready, and MAC STATUS, AI USAGE and AI STATUS with that Companion
+session. AI STATUS has not yet been checked with the real desktop apps on
+both Macs or on a physical Unit Puzzle. It does not include profile-metadata editing or template
 resolution, Action-to-HID mappings, a Mac companion CLI/control protocol,
 Wi-Fi network scanning, or weather/VPS/Telegram features. Boot/status sound
 cues from the broader UI requirements remain planned. Unit Puzzle LED Gallery

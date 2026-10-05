@@ -712,11 +712,12 @@ The optional `crub` deployment is an explicit exception to writing Cardputer
 Hub's standalone partition image. The separate
 [Cardputer Firmware Manager](https://github.com/fat23cat/cardputer-firmware-manager)
 owns the shared loader partition contract, while routine updates write only the
-raw Cardputer Hub application image into the existing `hub` partition at
-`0xd0000`. `make upload` follows that contract over USB: it requires
-`UPLOAD_PORT`, rejects an image larger than the 2 MiB CRUB `hub` partition, and
-writes only `build/cardputer_hub.bin` to `0xd0000`. The standalone table's
-larger application slots do not enforce that limit at build time. It must
+raw Cardputer Hub application image into the shared `extra` application slot at
+`0xd0000`, which every CRUB application uses in turn. `make upload` follows that
+contract over USB: it requires `UPLOAD_PORT`, rejects an image larger than the
+6.5 MiB `extra` slot, and writes only `build/cardputer_hub.bin` to `0xd0000`.
+The standalone table's smaller application slots already bound the image at
+build time. It must
 not run `idf.py flash` or otherwise rewrite the bootloader, partition table, or
 `otadata`. Those full-image writes install Hub's standalone table, which maps
 `hub_config` to `0x7e0000` and hides the CRUB settings that remain at
@@ -729,7 +730,7 @@ without erasing `hub_config`.
 
 The manager's checks must validate that the shared layout is non-overlapping, fits
 8 MiB, retains the loader partitions, and provides the required `hub_config`,
-`apps_nvs`, `hub`, and shared `extra` partitions. Its SD staging commands must reject
+`apps_nvs`, and shared `extra` partitions. Its SD staging commands must reject
 oversized or non-application images before they reach `crub`.
 
 Before installing a local Cardputer Hub build into the shared layout, run the

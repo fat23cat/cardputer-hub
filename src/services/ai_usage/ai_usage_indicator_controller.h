@@ -21,6 +21,9 @@ class AiUsageIndicatorController {
   public:
     AiUsageIndicatorController(AiUsageService& usage, IndicatorService& indicator)
         : usage_(usage), indicator_(indicator) {}
+    // The Puzzle belongs to AI USAGE only while its Mini App is open.
+    void activate();
+    void deactivate();
     void update(std::chrono::milliseconds elapsed);
     void focus(std::uint8_t index);
     void clearFocus();
@@ -28,6 +31,7 @@ class AiUsageIndicatorController {
 
   private:
     AiUsageGaugeMetrics overview() const noexcept;
+    void releaseAll();
     AiUsageService& usage_;
     IndicatorService& indicator_;
     IndicatorClaim background_;
@@ -36,6 +40,7 @@ class AiUsageIndicatorController {
     std::uint16_t session_ = 0;
     std::uint32_t revision_ = 0;
     std::uint8_t selected_ = 0;
+    bool active_ = false;
     std::chrono::milliseconds focusRemaining_{0};
     std::chrono::milliseconds feedbackRemaining_{0};
     std::array<std::uint8_t, 4> previousPercent_{};

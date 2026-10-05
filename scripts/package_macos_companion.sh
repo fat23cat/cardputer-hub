@@ -4,13 +4,16 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 MACOS="$ROOT/companion/macos"
 BUILD="$MACOS/.build/release/CardputerCompanion"
+HOOK_BUILD="$MACOS/.build/release/CardputerAgentHook"
 APP="$MACOS/Cardputer Companion.app"
 
 cd "$MACOS"
 swift build -c release --product CardputerCompanion
+swift build -c release --product CardputerAgentHook
 rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS"
 cp "$BUILD" "$APP/Contents/MacOS/CardputerCompanion"
+cp "$HOOK_BUILD" "$APP/Contents/MacOS/CardputerAgentHook"
 cp "$MACOS/Sources/App/Info.plist" "$APP/Contents/Info.plist"
 printf 'APPL????' > "$APP/Contents/PkgInfo"
 
@@ -34,8 +37,9 @@ PLIST="$APP/Contents/Info.plist"
 /usr/libexec/PlistBuddy -c "Add :CardputerBuildId string $BUILD_ID" "$PLIST"
 /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString $BUNDLE_SHORT_VERSION" "$PLIST"
 /usr/libexec/PlistBuddy -c "Set :CFBundleVersion $BUNDLE_VERSION" "$PLIST"
-chmod +x "$APP/Contents/MacOS/CardputerCompanion"
+chmod +x "$APP/Contents/MacOS/CardputerCompanion" "$APP/Contents/MacOS/CardputerAgentHook"
 test -x "$APP/Contents/MacOS/CardputerCompanion"
+test -x "$APP/Contents/MacOS/CardputerAgentHook"
 /usr/libexec/PlistBuddy -c 'Print :LSUIElement' "$APP/Contents/Info.plist" | grep -Fx true
 /usr/libexec/PlistBuddy -c 'Print :NSBluetoothAlwaysUsageDescription' "$APP/Contents/Info.plist" | grep -q .
 /usr/libexec/PlistBuddy -c 'Print :CardputerBuildId' "$APP/Contents/Info.plist" | grep -Eq '^[0-9]{4}-[0-9]{2}-[0-9]{2} '
@@ -45,6 +49,10 @@ test -x "$APP/Contents/MacOS/CardputerCompanion"
 # only ad-hoc signature does not seal Info.plist or bundle resources.
 # A certificate identity keeps Keychain trust stable across rebuilt binaries;
 # the default ad-hoc identity is valid only for this particular build.
+# The agent hook helper is a nested executable; it is signed first so the
+# bundle signature seals it.
+codesign --force --sign "${CARDPUTER_COMPANION_SIGNING_IDENTITY:--}" \
+    --identifier org.cardputer.companion.agent-hook "$APP/Contents/MacOS/CardputerAgentHook"
 codesign --force --sign "${CARDPUTER_COMPANION_SIGNING_IDENTITY:--}" \
     --identifier org.cardputer.companion "$APP"
 codesign --verify --deep --strict "$APP"

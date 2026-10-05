@@ -63,12 +63,37 @@ AiUsageGaugeMetrics AiUsageIndicatorController::overview() const noexcept {
     return result;
 }
 
+void AiUsageIndicatorController::activate() {
+    releaseAll();
+    active_ = true;
+}
+
+void AiUsageIndicatorController::deactivate() {
+    active_ = false;
+    releaseAll();
+}
+
+// Forgets published frames and threshold history, so reopening shows the
+// current gauge without replaying feedback for changes made while closed.
+void AiUsageIndicatorController::releaseAll() {
+    background_.release();
+    clearFocus();
+    feedback_.release();
+    feedbackRemaining_ = {};
+    feedbackKind_ = Feedback::None;
+    feedbackElapsed_ = {};
+    previousValid_.fill(false);
+    revision_ = 0;
+}
+
 void AiUsageIndicatorController::focus(std::uint8_t index) {
     const auto metrics = overview();
     if (index >= metrics.size() || metrics[index] == nullptr)
         return;
     selected_ = index;
     focusRemaining_ = std::chrono::seconds(3);
+    if (!active_)
+        return;
     if (!focus_.valid())
         focus_ =
             indicator_.acquire(aiUsageIndicatorOwner, IndicatorPriority::ForegroundApplication);
@@ -85,15 +110,10 @@ void AiUsageIndicatorController::update(std::chrono::milliseconds elapsed) {
         elapsed = {};
     if (usage_.session() != session_ || !usage_.available()) {
         session_ = usage_.session();
-        background_.release();
-        clearFocus();
-        feedback_.release();
-        feedbackRemaining_ = {};
-        feedbackKind_ = Feedback::None;
-        feedbackElapsed_ = {};
-        previousValid_.fill(false);
-        revision_ = 0;
+        releaseAll();
     }
+    if (!active_)
+        return;
     if (focusRemaining_.count() > 0) {
         focusRemaining_ =
             elapsed >= focusRemaining_ ? std::chrono::milliseconds(0) : focusRemaining_ - elapsed;
@@ -131,7 +151,8 @@ void AiUsageIndicatorController::update(std::chrono::milliseconds elapsed) {
     if (metrics[0] == nullptr)
         return;
     if (!background_.valid())
-        background_ = indicator_.acquire(aiUsageIndicatorOwner, IndicatorPriority::Idle);
+        background_ =
+            indicator_.acquire(aiUsageIndicatorOwner, IndicatorPriority::ForegroundApplication);
     background_.setFrame(aiUsageGauge(metrics));
     if (focus_.valid())
         focus_.setFrame(aiUsageGauge(metrics[selected_]));
@@ -152,9 +173,9 @@ void AiUsageIndicatorController::update(std::chrono::milliseconds elapsed) {
                                     previousReset_[i] != reset && percent > previousPercent_[i];
             if (critical || low || resetCycle) {
                 feedback_.release();
-                feedback_ =
-                    indicator_.acquire(aiUsageIndicatorOwner, critical ? IndicatorPriority::Warning
-                                                                       : IndicatorPriority::Idle);
+                feedback_ = indicator_.acquire(aiUsageIndicatorOwner,
+                                               critical ? IndicatorPriority::Warning
+                                                        : IndicatorPriority::ForegroundApplication);
                 feedbackMetric_ = *metrics[i];
                 feedbackKind_ = resetCycle ? Feedback::Reset
                                 : critical ? Feedback::Critical

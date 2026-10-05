@@ -1153,6 +1153,8 @@ var aiFixture = CompanionEnvelope()
         expect(empty.listState == .failed("The Cardputer microSD card is not available"),
                "a missing microSD card is reported")
 
+        agentStatusChecks(expect, fixture: fixture, helloAck: { helloAck(session: $0) })
+
         if failed > 0 {
             fputs("\(failed) checks failed\n", stderr)
             exit(1)

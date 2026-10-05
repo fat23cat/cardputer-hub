@@ -8,12 +8,25 @@ let package = Package(
         .executable(name: "CardputerCompanion", targets: ["CardputerCompanion"]),
         .executable(name: "CompanionCoreCheck", targets: ["CompanionCoreCheck"]),
         .executable(name: "CompanionProvidersCheck", targets: ["CompanionProvidersCheck"]),
+        .executable(name: "CardputerAgentHook", targets: ["CardputerAgentHook"]),
         .library(name: "CompanionCore", targets: ["CompanionCore"]),
         .library(name: "CompanionProviders", targets: ["CompanionProviders"]),
     ],
     targets: [
+        // Agent-status hooks: Foundation only, because the hook helper runs on
+        // every agent event and must start quickly.
+        .target(
+            name: "CompanionAgentHooks",
+            path: "Sources/CompanionAgentHooks"
+        ),
+        .executableTarget(
+            name: "CardputerAgentHook",
+            dependencies: ["CompanionAgentHooks"],
+            path: "Sources/CardputerAgentHook"
+        ),
         .target(
             name: "CompanionCore",
+            dependencies: ["CompanionAgentHooks"],
             path: "Sources/CompanionCore",
             linkerSettings: [
                 .linkedFramework("AppKit"),
@@ -21,7 +34,7 @@ let package = Package(
         ),
         .executableTarget(
             name: "CardputerCompanion",
-            dependencies: ["CompanionCore", "CompanionProviders"],
+            dependencies: ["CompanionCore", "CompanionProviders", "CompanionAgentHooks"],
             path: "Sources/App",
             exclude: ["Info.plist"],
             linkerSettings: [
@@ -35,7 +48,7 @@ let package = Package(
         ),
         .executableTarget(
             name: "CompanionCoreCheck",
-            dependencies: ["CompanionCore"],
+            dependencies: ["CompanionCore", "CompanionAgentHooks"],
             path: "Sources/CompanionCoreCheck"
         ),
         .target(

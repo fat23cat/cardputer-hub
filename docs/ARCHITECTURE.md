@@ -1634,12 +1634,24 @@ Mini App / presentation helper
 ```
 
 `AiUsageIndicatorController` consumes the session-scoped `AiUsageService`
-snapshot. Its Idle claim shows remaining quota on the full 8×8 matrix or in
-two four-row zones with purple markers at both ends and 30 quota pixels per zone.
-Temporary focus uses ForegroundApplication. Ordinary low-quota and reset feedback
-use Idle priority, so Pomodoro and LED Gallery retain the Puzzle; critical quota
-feedback briefly uses Warning. All claims pass through the shared brightness
-limit.
+snapshot and holds claims only between `AiUsageApp` activation and
+deactivation. Its ForegroundApplication claim shows remaining quota on the full
+8×8 matrix or in two four-row zones with purple markers at both ends and 30
+quota pixels per zone. Temporary focus and ordinary low-quota and reset feedback
+use later ForegroundApplication claims; critical quota feedback briefly uses
+Warning. Deactivation releases every claim and forgets threshold history, so
+reopening does not replay feedback. All claims pass through the shared
+brightness limit.
+
+`AiAgentStatusIndicatorController` follows the same open-only rule with one
+ForegroundApplication claim. It shows the applications whose hooks are
+installed as gapless bands in the screen row order Codex, Claude, Cursor: one
+fills the matrix, two use rows 0–3 and 4–7, three use rows 0–2, 3–5 and 6–7.
+Split bands start and end with the AI USAGE purple marker pixel; a single
+application has none. Working, needs-you and done
+use muted steel blue, vermilion and sage, done earlier a dimmer green; an
+installed application with no known state is a dim neutral band. With nothing installed or stale delivery it
+releases the claim.
 
 `LedGalleryApp` is a Mini App with twenty fixed-ID effects. Its engine owns
 fixed simulation buffers and deterministic randomness; the app owns selection,
@@ -1928,8 +1940,8 @@ sender's build ID `YYYY-MM-DD <commit>[+]`. The generator writes the fixtures
 and the C++ and Swift fingerprint files, so every wire change changes the
 fingerprint. A matching HELLO gets an accepted HELLO_ACK and the session becomes
 ready after the APP_ACTIVE handshake request; a live session exposes every
-operation (`SYSTEM_METRICS`, `AI_USAGE`, `SYSTEM_DETAILS`, application control,
-inventory) under the single `COMPANION` capability. A different fingerprint gets a
+operation (`SYSTEM_METRICS`, `AI_USAGE`, `SYSTEM_DETAILS`, `AI_AGENT_STATUS`,
+application control, inventory) under the single `COMPANION` capability. A different fingerprint gets a
 mismatch HELLO_ACK (session `0`, `UNSUPPORTED`) with the firmware build ID and
 moves `CompanionService` to `Incompatible`: it publishes no capability, answers
 nothing but a new HELLO, and exposes the peer build ID and
@@ -1945,12 +1957,14 @@ all use that order. Firmware keeps at most four Codex Plus reset-credit detail
 rows per provider and clears them with the session.
 `CompanionService` exposes operation-filtered completions:
 `HostControlService` consumes APP_ACTIVATE, while `MacStatusService` consumes
-SYSTEM_METRICS and SYSTEM_DETAILS and `AiUsageService` consumes AI_USAGE. Internal handshake and
+SYSTEM_METRICS and SYSTEM_DETAILS, `AiUsageService` consumes AI_USAGE, and
+`AiAgentStatusService` consumes AI_AGENT_STATUS. Internal handshake and
 heartbeat responses stay private.
 AI_USAGE can span all 16 BLE fragments, so firmware allows six seconds to
 assemble a message and six seconds for an AI_USAGE response; short operations
 retain their two-second request timeout. Telemetry responses
-(`SYSTEM_METRICS`, `AI_USAGE`, `SYSTEM_DETAILS`) change no session state, so a
+(`SYSTEM_METRICS`, `AI_USAGE`, `SYSTEM_DETAILS`, `AI_AGENT_STATUS`) change no
+session state, so a
 malformed one fails only its own request; the protocol layer declares this in
 `companionResponseFailureIsIsolated`. Any other malformed message is a
 protocol error.
@@ -2029,6 +2043,33 @@ the time remaining, while a lower reported
 remaining time corrects it promptly. A new reset identity starts a new countdown.
 `AiUsageApp` and the Puzzle controller consume only the bounded snapshot; neither
 parses provider JSON or BLE envelopes.
+
+AI STATUS (plan 047) shows desktop agent activity. On the Mac, Claude Code,
+Codex and Cursor lifecycle hooks run the bundled `CardputerAgentHook` helper,
+which forwards only an allowlist (application, event, session and turn IDs,
+status, notification type, tool name, owner PID) over a private Unix-domain
+socket and exits at once when Companion is not running; it never returns a
+permission decision. `AgentStatusStore` in the Foundation-only
+`CompanionAgentHooks` module maps events to per-session states (an approval request counts as a wait only
+after 15 seconds without another event, because auto-review and policies
+answer many without the user), removes a
+session on its end event, its owner process exit, or after 15 minutes working
+or 2 hours waiting without events, and aggregates per application: any wait or
+error gives NEEDS YOU, then any active run WORKING, then any finished session
+DONE (done earlier once the latest finish is ten minutes old), otherwise
+unknown. Expiry never produces NEEDS YOU or DONE. Nothing is
+persisted. Companion installs or removes its own hook entries only on explicit
+user action, with a backup, and `AgentStatusReport` answers AI_AGENT_STATUS
+with only the applications whose hooks are installed, rereading that set at
+most every five seconds and at once after an install or removal. Firmware `AiAgentStatusService` polls the cached
+answer once a second only while AI STATUS is open, keeps one request
+outstanding, marks delivery stale after three seconds and clears with the
+Companion session. `AiAgentStatusApp` renders one full-width state plate per installed
+application, `CHECKING AI` before the first answer and `NO AI HOOKS` when none
+is installed;
+`AiAgentStatusIndicatorController` owns the Puzzle only while the app is open;
+neither calls `CompanionService`. `app_main` updates the service and the
+controller once per loop.
 
 On macOS, `CompanionCentral` owns CoreBluetooth attach and reconnect decisions.
 `CompanionSession` owns the session generation, the last valid message time,
@@ -2548,10 +2589,10 @@ after provisioning remains a backend error rather than destructive recovery.
 The optional `crub` multiboot deployment is owned by the separate
 [Cardputer Firmware Manager](https://github.com/fat23cat/cardputer-firmware-manager),
 including its version-controlled shared partition layout and SD staging
-contract. In that layout `crub` owns the bootloader and partition table,
-Cardputer Hub occupies one OTA application partition, a shared `extra` OTA
-partition holds Codex Microputer, Bruce, or another application at a time, and
-Hub and Codex retain dedicated `hub_config` and `apps_nvs` data partitions. Cardputer Hub remains an ordinary ESP-IDF application image
+contract. In that layout `crub` owns the bootloader and partition table, one
+shared `extra` OTA partition holds Cardputer Hub, Codex Microputer, Bruce, or
+another application at a time, and Hub and Codex retain dedicated `hub_config`
+and `apps_nvs` data partitions. Cardputer Hub remains an ordinary ESP-IDF application image
 and must not attempt to replace the loader-owned table during an app-only
 update. This deployment changes packaging and boot ownership, not the Mini App,
 Service, Connectivity, or hardware-adapter layer boundaries.

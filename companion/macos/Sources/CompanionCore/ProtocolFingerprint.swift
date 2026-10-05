@@ -3,5 +3,5 @@
 /// SHA-256 of the protocol generator, first 8 bytes. HELLO carries it; a peer
 /// with a different value was built from a different protocol definition.
 public enum ProtocolFingerprint {
-    public static let bytes: [UInt8] = [0x1F, 0x80, 0xD4, 0x5B, 0xFF, 0x96, 0x39, 0xC8]
+    public static let bytes: [UInt8] = [0x4A, 0x94, 0x5E, 0x2B, 0x45, 0x23, 0x62, 0x38]
 }

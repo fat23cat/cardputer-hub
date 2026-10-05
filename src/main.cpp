@@ -1,3 +1,4 @@
+#include "apps/ai_agent_status/ai_agent_status_app.h"
 #include "apps/ai_usage/ai_usage_app.h"
 #include "apps/hosts/host_settings.h"
 #include "apps/led_gallery/led_gallery_app.h"
@@ -22,6 +23,8 @@
 #include "hardware/esp32/wifi/esp32_wifi_adapter.h"
 #include "hardware/nfc/st25r3916_adapter.h"
 #include "hardware/storage/microsd/cardputer_microsd_file_storage_adapter.h"
+#include "services/ai_agent_status/ai_agent_status_indicator_controller.h"
+#include "services/ai_agent_status/ai_agent_status_service.h"
 #include "services/ai_usage/ai_usage_indicator_controller.h"
 #include "services/ai_usage/ai_usage_service.h"
 #include "services/audio/audio_service.h"
@@ -99,6 +102,7 @@ cardputer_hub::services::CompanionService companion(bluetooth.companionTransport
 cardputer_hub::services::HostControlService hostControl(hosts, companion, capabilities);
 cardputer_hub::services::MacStatusService macStatus(companion);
 cardputer_hub::services::AiUsageService aiUsage(companion);
+cardputer_hub::services::AiAgentStatusService aiAgentStatus(companion);
 cardputer_hub::services::InventoryCompanionEndpoint inventoryCompanion(companion, inventory);
 cardputer_hub::apps::MacControlApp macControl(actions, hostControl, display);
 cardputer_hub::apps::MacStatusApp macStatusApp(macStatus, display);
@@ -107,6 +111,10 @@ cardputer_hub::hardware::PuzzleWs2812Adapter puzzleLeds(puzzleLedBackend);
 cardputer_hub::services::IndicatorService indicator(puzzleLeds);
 cardputer_hub::services::AiUsageIndicatorController aiUsageIndicator(aiUsage, indicator);
 cardputer_hub::apps::AiUsageApp aiUsageApp(aiUsage, aiUsageIndicator, display);
+cardputer_hub::services::AiAgentStatusIndicatorController aiAgentStatusIndicator(aiAgentStatus,
+                                                                                 indicator);
+cardputer_hub::apps::AiAgentStatusApp aiAgentStatusApp(aiAgentStatus, aiAgentStatusIndicator,
+                                                       display);
 cardputer_hub::services::DeviceSettingsService deviceSettings(configuration, displayPower,
                                                               indicator);
 cardputer_hub::apps::ApplicationShell applicationShell(hosts, network, actions, display,
@@ -172,6 +180,12 @@ extern "C" void app_main(void) {
                                    "ai-usage",
                                    {cardputer_hub::connectivity::companionCapabilityId}});
     (void)miniApps.registerInstance("ai-usage", aiUsageApp);
+    (void)appRegistry.registerApp({"ai-status",
+                                   "AI STATUS",
+                                   "ai-status",
+                                   "ai-status",
+                                   {cardputer_hub::connectivity::companionCapabilityId}});
+    (void)miniApps.registerInstance("ai-status", aiAgentStatusApp);
     (void)appRegistry.registerApp({"pomodoro", "POMODORO", "pomodoro", "pomodoro", {}});
     (void)miniApps.registerInstance("pomodoro", pomodoroApp);
     (void)appRegistry.registerApp({"led-gallery", "LED GALLERY", "led-gallery", "led-gallery", {}});
@@ -194,11 +208,13 @@ extern "C" void app_main(void) {
         hostControl.update();
         macStatus.update(elapsed);
         aiUsage.update(elapsed);
+        aiAgentStatus.update(elapsed);
         network.update(elapsed);
         battery.update(elapsed);
         pomodoro.update(elapsed);
         pomodoroLed.update(elapsed);
         aiUsageIndicator.update(elapsed);
+        aiAgentStatusIndicator.update();
         indicator.update();
         nfc.update(elapsed);
         removableStorage.update(elapsed);

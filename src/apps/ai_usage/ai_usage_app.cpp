@@ -175,6 +175,7 @@ void expiryText(char* out, std::size_t size, std::uint32_t expiresAt,
 } // namespace
 
 void AiUsageApp::onActivate() {
+    indicator_.activate();
     rendered_ = false;
     selected_ = false;
     selectionRemaining_ = {};
@@ -184,7 +185,7 @@ void AiUsageApp::onActivate() {
 }
 
 void AiUsageApp::onDeactivate() {
-    indicator_.clearFocus();
+    indicator_.deactivate();
     rendered_ = false;
     selected_ = false;
     view_ = View::Main;

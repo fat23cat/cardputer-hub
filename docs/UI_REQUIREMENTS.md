@@ -574,8 +574,9 @@ discovery with no usable account shows `NO AI ACCOUNTS`. Up/Down, including
 the physical `;` / `.` keys without Fn, temporarily
 selects a visible metric for a full-matrix Puzzle gauge. The resting Puzzle
 overview uses two four-row zones when two metrics are present, with two purple
-boundary pixels and 30 quota pixels per zone. It runs at Idle priority and does
-not wake the LCD. Unchanged display
+boundary pixels and 30 quota pixels per zone. The Puzzle is used only while
+AI USAGE is open, at foreground-application priority; closing the Mini App
+releases it. Unchanged display
 state does not continuously redraw.
 For Codex Plus, the main provider row adds a compact `R×N`
 badge when the reset-credit count is known, including zero. Enter opens two
@@ -605,6 +606,22 @@ unused band stays dark. A stale rolling window whose reset time has passed
 arrives as 100% left with an unknown reset and keeps the `STALE` mark. The
 empty state lists `CODEX / CURSOR / CLAUDE` with a schema 3 Companion and
 `CODEX / CURSOR` with an older one.
+AI STATUS requires the live `COMPANION` capability. It uses the full 240×135
+display without a header: one full-width plate per application whose hooks
+Companion has installed, in the order CODEX, CLAUDE, CURSOR, sharing the height
+equally (one, two or three plates) with a 2-pixel Bone line between them. Each
+plate is a state surface with the name at the left and the state at the right
+in double-size text: Blue with Bone text `WORKING`, Vermilion with Bone text
+`NEEDS YOU` (a wait or an error), Leaf with Ink text `DONE`, Light neutral with
+Ink text `DONE` once the finish is more than ten minutes old, and Pale with Ink
+text `--` when nothing is known. Labels carry the same meaning as color. Stale
+delivery presents every plate as `--`. Before the first answer the screen shows
+a centered `CHECKING AI`; with no hooks installed it shows `NO AI HOOKS` above a
+quiet Ordinal `INSTALL IN COMPANION`. Plates appear or disappear when the
+installed set changes; otherwise only a plate whose state changes is redrawn,
+and settled plates draw nothing. There is no chat list, count, refresh control,
+transition animation or Escape hint; Escape uses the shared exit. Unit Puzzle is
+used only while AI STATUS is open (see Architecture §28).
 NFC requires the live `NFC_READER` capability, so it is unavailable in Apps
 (`REQUIRES NFC_READER`) without a Unit NFC. It is a personal inventory screen
 with the header `NFC`; the header's right slot shows a quiet `NO SD` while the

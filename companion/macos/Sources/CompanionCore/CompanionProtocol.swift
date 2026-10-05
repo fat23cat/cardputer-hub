@@ -1,3 +1,4 @@
+import CompanionAgentHooks
 import Foundation
 
 public enum CompanionKind: UInt8 {
@@ -23,6 +24,7 @@ public enum CompanionOperation: UInt8 {
     case inventoryGet = 10
     case inventoryPut = 11
     case inventoryDelete = 12
+    case aiAgentStatus = 13
 
     public var isInventory: Bool {
         self == .inventoryList || self == .inventoryGet || self == .inventoryPut ||
@@ -197,7 +199,7 @@ public enum CompanionCodec {
         case .request, .response:
             return operation == .ping || operation == .appActive || operation == .appActivate ||
                 operation == .systemMetrics || operation == .aiUsage ||
-                operation == .systemDetails || operation.isInventory
+                operation == .systemDetails || operation == .aiAgentStatus || operation.isInventory
         case .event:
             return operation == .appActiveChanged
         }
@@ -249,6 +251,9 @@ public enum CompanionCodec {
             }
             if message.status != .ok { return message.payload.isEmpty }
             return SystemDetailsSample.decode(message.payload) != nil
+        case .aiAgentStatus:
+            if message.kind == .request || message.status != .ok { return message.payload.isEmpty }
+            return AgentStatusSnapshot.decode(message.payload) != nil
         case .inventoryList, .inventoryGet, .inventoryPut, .inventoryDelete:
             return InventoryWire.payloadValid(message)
         }

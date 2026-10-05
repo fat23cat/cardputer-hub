@@ -83,8 +83,8 @@ CRUB partition layout and SD staging contract. Use its `doctor`,
 multiboot firmware. Do not duplicate that layout here or tell users to bypass
 the manager before running CRUB's `uphub` command.
 
-`make upload` writes only the CRUB `hub` application at `0xd0000`. Never use
+`make upload` writes only Hub into CRUB's shared `extra` application slot at
+`0xd0000`, replacing whichever application was there. Never use
 `idf.py flash` or `make upload-standalone` on a CRUB device: that replaces the
 shared partition table and makes Hub read `hub_config` at `0x7e0000` instead of
-`0x7a0000`. The CRUB `hub` partition is 2 MiB; `make upload` refuses larger
-images because Hub's standalone table does not enforce that limit.
+`0x7a0000`. The `extra` slot is 6.5 MiB; `make upload` refuses larger images.

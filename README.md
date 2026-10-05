@@ -125,8 +125,11 @@ The MAC STATUS Mini App shows live Mac system metrics, charging time and four
 detail pages (CPU and top apps, power, network, memory and disk) while the
 Companion is connected; polling runs only while the app is open.
 AI USAGE shows discovered Codex/Cursor/Claude quotas from the Companion and publishes
-a remaining-quota gauge on Unit Puzzle at idle priority. Provider collection
+a remaining-quota gauge on Unit Puzzle while the Mini App is open. Provider collection
 is automatic on the Mac; firmware receives only normalized usage numbers.
+AI STATUS shows whether Codex, Claude Code and Cursor desktop agents are
+working, need you, or are done, from lifecycle hooks that Companion installs
+on request; only application states cross BLE.
 NFC is a personal inventory for boxes and bags: a writable NTAG213/215/216
 sticker carries only a random inventory ID, and the container's name and item
 list live as a JSON record on the Cardputer's microSD card. `NfcApp` renders
@@ -234,17 +237,18 @@ version unchanged.
 
 After safely ejecting the card and exiting `usbsd`, run `sd` so CRUB remounts
 the card and reloads its aliases. Then run `uphub` and require both `app: ok`
-and `flash complete` before launching `hub`. To install a published build
-instead, use:
+and `flash complete` before running `go`. Hub shares CRUB's `extra` slot with
+the other applications, so `uphub` replaces whichever one was installed. To
+install a published build instead, use:
 
 ```bash
 python3 -m firmware_manager release --app hub --sd /Volumes/CARDPUTER
 ```
 
 Do not copy or flash an unvalidated raw image directly.
-If the USB Serial/JTAG console does not enumerate after a CRUB `hub` launch,
+If the USB Serial/JTAG console does not enumerate after a CRUB launch,
 follow the install guide's
-[`hubfast` diagnostic boot procedure](docs/manuals/installing-firmware.md#usb-serial-diagnostics-after-a-crub-launch).
+[`gofast` diagnostic boot procedure](docs/manuals/installing-firmware.md#usb-serial-diagnostics-after-a-crub-launch).
 
 ---
 
@@ -393,8 +397,8 @@ tests and analysis.
 ## Flash
 
 Connect the Cardputer-Adv with a USB-C cable that supports data. On a CRUB
-multiboot device, write only the Hub application into the existing `hub`
-partition:
+multiboot device, write only the Hub application into CRUB's shared `extra`
+slot:
 
 ```bash
 make upload UPLOAD_PORT=<device>
@@ -403,7 +407,7 @@ make upload UPLOAD_PORT=<device>
 That command does not rewrite the bootloader, partition table, or `otadata`.
 Do not run `make upload-standalone` or `idf.py flash` on a CRUB device: those
 install Hub's standalone table and hide saved settings at `0x7a0000`.
-`make upload` refuses an image larger than the 2 MiB CRUB `hub` partition.
+`make upload` refuses an image larger than the 6.5 MiB CRUB `extra` slot.
 
 For a Hub-only device that has never used CRUB, the first installation or a
 one-time upgrade from the earlier flash layout uses
@@ -484,7 +488,7 @@ make firmware-check
                    build firmware and verify its effective ESP-IDF configuration
 make check         run all required validation
 make upload UPLOAD_PORT=<port>
-                   compile and write Hub into the CRUB hub partition only
+                   compile and write Hub into the CRUB extra slot only
 make upload-standalone
                    Hub-only factory flash; replaces the CRUB partition table
 make migrate-storage-layout UPLOAD_PORT=<device>

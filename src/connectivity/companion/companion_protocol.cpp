@@ -14,7 +14,7 @@ bool isKnownKindValue(std::uint8_t kind) noexcept {
 
 bool isKnownOperationValue(std::uint8_t operation) noexcept {
     return operation != 2 &&
-           operation <= static_cast<std::uint8_t>(CompanionOperation::InventoryDelete);
+           operation <= static_cast<std::uint8_t>(CompanionOperation::AiAgentStatus);
 }
 
 bool isKnownStatusValue(std::uint8_t status) noexcept {
@@ -152,6 +152,12 @@ bool operationPayloadValid(const CompanionEnvelope& message) noexcept {
         CompanionAiUsage usage{};
         return readAiUsage(message, usage);
     }
+    case CompanionOperation::AiAgentStatus: {
+        if (message.kind == CompanionKind::Request || message.status != CompanionStatus::Ok)
+            return message.payloadSize == 0;
+        CompanionAgentStatus status{};
+        return readAgentStatus(message, status);
+    }
     case CompanionOperation::SystemDetails: {
         if (message.kind == CompanionKind::Request) {
             SystemDetailsGroup group{};
@@ -183,7 +189,8 @@ bool operationAllowedForKind(CompanionKind kind, CompanionOperation operation) n
                operation == CompanionOperation::AppActivate ||
                operation == CompanionOperation::SystemMetrics ||
                operation == CompanionOperation::AiUsage ||
-               operation == CompanionOperation::SystemDetails || isInventoryOperation(operation);
+               operation == CompanionOperation::SystemDetails ||
+               operation == CompanionOperation::AiAgentStatus || isInventoryOperation(operation);
     case CompanionKind::Event:
         return operation == CompanionOperation::AppActiveChanged;
     }
@@ -205,7 +212,8 @@ bool continuationUtf8(std::uint8_t value) noexcept { return (value & 0xC0U) == 0
 bool companionResponseFailureIsIsolated(CompanionOperation operation) noexcept {
     return operation == CompanionOperation::SystemMetrics ||
            operation == CompanionOperation::AiUsage ||
-           operation == CompanionOperation::SystemDetails;
+           operation == CompanionOperation::SystemDetails ||
+           operation == CompanionOperation::AiAgentStatus;
 }
 
 bool isKnownCompanionKind(std::uint8_t kind) noexcept { return isKnownKindValue(kind); }
@@ -526,6 +534,52 @@ bool validAiProvider(const AiUsageProvider& provider) {
     return true;
 }
 } // namespace
+
+bool setAgentStatus(CompanionEnvelope& message, const CompanionAgentStatus& status) {
+    if (message.operation != CompanionOperation::AiAgentStatus ||
+        message.kind != CompanionKind::Response || message.status != CompanionStatus::Ok)
+        return false;
+    std::uint8_t size = 1;
+    for (const auto application : agentStatusOrder) {
+        if (!status.installed(application))
+            continue;
+        const auto state = status.state(application);
+        if (static_cast<std::uint8_t>(state) > static_cast<std::uint8_t>(AgentState::DoneEarlier))
+            return false;
+        message.payload[size++] = static_cast<std::uint8_t>(application);
+        message.payload[size++] = static_cast<std::uint8_t>(state);
+    }
+    message.payload[0] = status.installedCount();
+    message.payloadSize = size;
+    return true;
+}
+
+bool readAgentStatus(const CompanionEnvelope& message, CompanionAgentStatus& status) {
+    if (message.operation != CompanionOperation::AiAgentStatus ||
+        message.kind != CompanionKind::Response || message.status != CompanionStatus::Ok ||
+        message.payloadSize < 1)
+        return false;
+    const auto count = message.payload[0];
+    if (count > agentStatusOrder.size() || message.payloadSize != 1 + 2 * count)
+        return false;
+    CompanionAgentStatus result{};
+    std::size_t next = 0; // applications must follow the row order
+    for (std::size_t i = 0; i < count; ++i) {
+        const auto application = message.payload[1 + 2 * i];
+        const auto state = message.payload[2 + 2 * i];
+        std::size_t position = next;
+        while (position < agentStatusOrder.size() &&
+               static_cast<std::uint8_t>(agentStatusOrder[position]) != application)
+            ++position;
+        if (position == agentStatusOrder.size() ||
+            state > static_cast<std::uint8_t>(AgentState::DoneEarlier))
+            return false;
+        result.set(agentStatusOrder[position], static_cast<AgentState>(state));
+        next = position + 1;
+    }
+    status = result;
+    return true;
+}
 
 bool setAiUsage(CompanionEnvelope& message, const CompanionAiUsage& usage) {
     if (message.operation != CompanionOperation::AiUsage ||

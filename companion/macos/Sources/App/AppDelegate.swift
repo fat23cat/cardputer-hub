@@ -1,4 +1,5 @@
 import AppKit
+import CompanionAgentHooks
 import CompanionCore
 import CompanionProviders
 import CoreBluetooth
@@ -35,11 +36,11 @@ final class CompanionCentral: NSObject, CBCentralManagerDelegate, CBPeripheralDe
 
     init(applications: ApplicationControlling, metrics: SystemMetricsCollecting,
          details: SystemDetailsCollecting, aiUsage: AiUsageCollector, status: CompanionStatusStore,
-         inventory: InventoryEditorModel) {
+         inventory: InventoryEditorModel, agentStatus: AgentStatusProviding) {
         self.aiUsage = aiUsage
         self.inventory = inventory
         session = CompanionSession(applications: applications, metrics: metrics, details: details,
-                                   aiUsage: aiUsage)
+                                   aiUsage: aiUsage, agentStatus: agentStatus)
         self.status = status
         super.init()
         session.outgoing = { [weak self] bytes in self?.send(bytes) }
@@ -444,6 +445,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var status: CompanionStatusStore?
     private var menuBar: CompanionMenuBarController?
     private var inventoryWindow: InventoryWindowController?
+    private var agentHooks: AgentHookReceiver?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         installEditMenu()
@@ -451,11 +453,34 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let menuBar = CompanionMenuBarController(status: status)
         let inventory = InventoryEditorModel()
         let inventoryWindow = InventoryWindowController(model: inventory)
+        let agentEvents = AgentStatusStore()
+        let agentHooks = AgentHookReceiver(store: agentEvents)
+        let installer = AgentHookInstaller()
+        // The Cardputer lists only applications whose hooks are installed.
+        let agentStatus = AgentStatusReport(store: agentEvents) {
+            Set(AgentApplication.allCases.filter { installer.isInstalled($0) == true })
+        }
+        // Keep the helper that installed hooks run in step with this build.
+        if FileManager.default.fileExists(atPath: AgentHookPaths.helperPath) {
+            try? installer.refreshHelper()
+        }
+        status.readAgentHooks = { application in
+            (installer.isInstalled(application), agentEvents.lastEvent(application))
+        }
+        status.onSetAgentHooks = { application, install in
+            do {
+                try install ? installer.install(application) : installer.remove(application)
+                agentStatus.invalidate()
+                return nil
+            } catch {
+                return error.localizedDescription
+            }
+        }
         let central = CompanionCentral(applications: WorkspaceApplicationController(),
                                        metrics: MacSystemMetricsCollector(),
                                        details: MacSystemDetailsCollector(),
                                        aiUsage: AiUsageCollector(), status: status,
-                                       inventory: inventory)
+                                       inventory: inventory, agentStatus: agentStatus)
         status.onReconnect = { [weak central] in central?.reconnect() }
         status.onQuit = { [weak self] in self?.quit() }
         status.onOpenInventory = { [weak inventoryWindow] in inventoryWindow?.show() }
@@ -463,11 +488,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         self.menuBar = menuBar
         self.inventoryWindow = inventoryWindow
         self.central = central
+        self.agentHooks = agentHooks
+        agentHooks.start()
         central.start()
     }
 
     func applicationWillTerminate(_ notification: Notification) {
         central?.stop()
+        agentHooks?.stop()
         inventoryWindow?.close()
         menuBar?.stop()
     }

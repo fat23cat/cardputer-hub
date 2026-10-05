@@ -289,6 +289,7 @@ void test_known_icon_and_fallback_are_14_by_14() {
 
 void test_nfc_icon_is_dedicated_and_14_by_14() {
     TEST_ASSERT_TRUE(apps::assets::appIconRows("nfc") == apps::assets::nfcAppIcon);
+    TEST_ASSERT_TRUE(apps::assets::appIconRows("ai-status") == apps::assets::aiStatusAppIcon);
     TEST_ASSERT_TRUE(apps::assets::appIconRows("nfc") != apps::assets::fallbackAppIcon);
     for (int y = 0; y < apps::assets::appIconSize; ++y)
         TEST_ASSERT_EQUAL_UINT(apps::assets::appIconSize, std::strlen(apps::assets::nfcAppIcon[y]));

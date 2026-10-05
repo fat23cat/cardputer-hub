@@ -289,6 +289,13 @@ CompanionSubmitResult CompanionService::requestAiUsage() {
                   makeRequest(session_, 0, CompanionOperation::AiUsage), false);
 }
 
+CompanionSubmitResult CompanionService::requestAgentStatus() {
+    if (state_ != CompanionServiceState::Ready)
+        return CompanionSubmitResult::NotReady;
+    return submit(CompanionOperation::AiAgentStatus,
+                  makeRequest(session_, 0, CompanionOperation::AiAgentStatus), false);
+}
+
 bool CompanionService::hasPendingRequest(CompanionOperation operation) const noexcept {
     for (const auto& pending : pending_)
         if (pending.used && pending.operation == operation)

@@ -92,6 +92,9 @@ struct Fixture {
     services::IndicatorService indicator{leds};
     services::AiUsageIndicatorController gauge{usage, indicator};
 
+    // Most tests look at the Puzzle with AI USAGE open.
+    Fixture() { gauge.activate(); }
+
     // Every Companion now speaks one protocol; the argument is kept only so the
     // call sites read the same.
     void ready(int = 0) {
@@ -596,7 +599,7 @@ void test_malformed_ai_response_retains_previous_snapshot() {
     TEST_ASSERT_EQUAL_UINT8(63, f.usage.snapshot().providers[0].metrics[0].remainingPercent);
 }
 
-void test_gauge_priority_and_temporary_focus() {
+void test_open_gauge_overrides_pomodoro_and_closing_restores_it() {
     Fixture f;
     f.ready();
     f.respond(63, true);
@@ -607,23 +610,43 @@ void test_gauge_priority_and_temporary_focus() {
     frame.pixels[0] = {1, 2, 3};
     pomodoro.setFrame(frame);
     f.indicator.update();
-    TEST_ASSERT_EQUAL_STRING("pomodoro", f.indicator.resolved().owner.c_str());
-    f.gauge.focus(1);
-    f.indicator.update();
     TEST_ASSERT_EQUAL_STRING("ai-usage", f.indicator.resolved().owner.c_str());
+    f.gauge.focus(1);
     f.gauge.update(std::chrono::seconds(3));
     f.indicator.update();
-    TEST_ASSERT_EQUAL_STRING("pomodoro", f.indicator.resolved().owner.c_str());
-    auto gallery =
-        f.indicator.acquire("led-gallery", services::IndicatorPriority::ForegroundApplication);
-    gallery.setFrame(frame);
+    TEST_ASSERT_EQUAL_STRING("ai-usage", f.indicator.resolved().owner.c_str());
+    f.gauge.deactivate();
     f.indicator.update();
-    TEST_ASSERT_EQUAL_STRING("led-gallery", f.indicator.resolved().owner.c_str());
-    gallery.release();
-    pomodoro.release();
+    TEST_ASSERT_EQUAL_STRING("pomodoro", f.indicator.resolved().owner.c_str());
+    f.gauge.activate();
+    f.gauge.update({});
     f.indicator.update();
     TEST_ASSERT_EQUAL_STRING("ai-usage", f.indicator.resolved().owner.c_str());
     TEST_ASSERT_TRUE(f.indicator.maximumBrightnessPercent() <= 10);
+}
+
+void test_puzzle_is_used_only_while_ai_usage_is_open() {
+    Fixture f;
+    Display display;
+    apps::AiUsageApp app(f.usage, f.gauge, display);
+    app.onDeactivate();
+    f.ready();
+    f.respond(30, true);
+    TEST_ASSERT_FALSE(f.indicator.resolved().hasFrame);
+    f.usage.update(std::chrono::seconds(30));
+    f.respond(4, true);
+    TEST_ASSERT_FALSE(f.indicator.resolved().hasFrame);
+
+    app.onActivate();
+    f.gauge.update({});
+    f.indicator.update();
+    TEST_ASSERT_EQUAL_STRING("ai-usage", f.indicator.resolved().owner.c_str());
+    TEST_ASSERT_EQUAL_UINT8(
+        static_cast<unsigned>(services::IndicatorPriority::ForegroundApplication),
+        static_cast<unsigned>(f.indicator.resolved().priority));
+    app.onDeactivate();
+    f.indicator.update();
+    TEST_ASSERT_FALSE(f.indicator.resolved().hasFrame);
 }
 
 void test_up_and_down_select_different_puzzle_metrics() {
@@ -680,8 +703,9 @@ void test_gauge_does_not_warn_when_second_metric_changes_provider() {
     codex.metrics[1].remaining = 70;
     codex.metrics[1].remainingPercent = 70;
     f.respondValue(value);
-    TEST_ASSERT_EQUAL_UINT8(static_cast<unsigned>(services::IndicatorPriority::Idle),
-                            static_cast<unsigned>(f.indicator.resolved().priority));
+    TEST_ASSERT_EQUAL_UINT8(
+        static_cast<unsigned>(services::IndicatorPriority::ForegroundApplication),
+        static_cast<unsigned>(f.indicator.resolved().priority));
 
     f.usage.update(std::chrono::seconds(30));
     value.providerCount = 2;
@@ -696,8 +720,9 @@ void test_gauge_does_not_warn_when_second_metric_changes_provider() {
     cursor.metrics[0].remaining = 4;
     cursor.metrics[0].remainingPercent = 4;
     f.respondValue(value);
-    TEST_ASSERT_EQUAL_UINT8(static_cast<unsigned>(services::IndicatorPriority::Idle),
-                            static_cast<unsigned>(f.indicator.resolved().priority));
+    TEST_ASSERT_EQUAL_UINT8(
+        static_cast<unsigned>(services::IndicatorPriority::ForegroundApplication),
+        static_cast<unsigned>(f.indicator.resolved().priority));
 }
 
 void test_gauge_warns_when_same_metric_crosses_critical_threshold() {
@@ -710,7 +735,7 @@ void test_gauge_warns_when_same_metric_crosses_critical_threshold() {
                             static_cast<unsigned>(f.indicator.resolved().priority));
 }
 
-void test_low_and_reset_feedback_respect_pomodoro_and_gallery_priority() {
+void test_low_and_reset_feedback_stay_above_pomodoro_while_open() {
     Fixture f;
     f.ready();
     f.respond(30);
@@ -718,15 +743,12 @@ void test_low_and_reset_feedback_respect_pomodoro_and_gallery_priority() {
     frame.pixels[0] = {1, 2, 3};
     auto pomodoro =
         f.indicator.acquire("pomodoro", services::IndicatorPriority::BackgroundApplication);
-    auto gallery =
-        f.indicator.acquire("led-gallery", services::IndicatorPriority::ForegroundApplication);
     pomodoro.setFrame(frame);
-    gallery.setFrame(frame);
     f.indicator.update();
 
     f.usage.update(std::chrono::seconds(30));
     f.respond(15);
-    TEST_ASSERT_EQUAL_STRING("led-gallery", f.indicator.resolved().owner.c_str());
+    TEST_ASSERT_EQUAL_STRING("ai-usage", f.indicator.resolved().owner.c_str());
     f.gauge.update(std::chrono::milliseconds(300));
     auto value = f.usage.snapshot();
     value.providers[0].metrics[0].resetAt = 123;
@@ -738,8 +760,11 @@ void test_low_and_reset_feedback_respect_pomodoro_and_gallery_priority() {
     value.providers[0].metrics[0].remainingPercent = 70;
     f.usage.update(std::chrono::seconds(30));
     f.respondValue(value);
-    TEST_ASSERT_EQUAL_STRING("led-gallery", f.indicator.resolved().owner.c_str());
-    gallery.release();
+    TEST_ASSERT_EQUAL_STRING("ai-usage", f.indicator.resolved().owner.c_str());
+    f.gauge.update(std::chrono::milliseconds(600));
+    f.indicator.update();
+    TEST_ASSERT_EQUAL_INT(45, lit(f.indicator.resolved().frame, 0, 64));
+    f.gauge.deactivate();
     f.indicator.update();
     TEST_ASSERT_EQUAL_STRING("pomodoro", f.indicator.resolved().owner.c_str());
 }
@@ -1374,12 +1399,13 @@ int main() {
     RUN_TEST(test_app_draws_remaining_quota_only_on_change);
     RUN_TEST(test_provider_title_uses_font_safe_text_and_drawn_dot);
     RUN_TEST(test_malformed_ai_response_retains_previous_snapshot);
-    RUN_TEST(test_gauge_priority_and_temporary_focus);
+    RUN_TEST(test_open_gauge_overrides_pomodoro_and_closing_restores_it);
+    RUN_TEST(test_puzzle_is_used_only_while_ai_usage_is_open);
     RUN_TEST(test_up_and_down_select_different_puzzle_metrics);
     RUN_TEST(test_new_host_replaces_old_provider_set);
     RUN_TEST(test_gauge_does_not_warn_when_second_metric_changes_provider);
     RUN_TEST(test_gauge_warns_when_same_metric_crosses_critical_threshold);
-    RUN_TEST(test_low_and_reset_feedback_respect_pomodoro_and_gallery_priority);
+    RUN_TEST(test_low_and_reset_feedback_stay_above_pomodoro_while_open);
     RUN_TEST(test_stale_label_does_not_overlap_single_metric_provider_titles);
     RUN_TEST(test_identical_poll_keeps_revision_freshness_and_countdown);
     RUN_TEST(test_reset_countdown_does_not_rewind_on_cached_poll_or_percent_change);

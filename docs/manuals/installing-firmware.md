@@ -10,15 +10,16 @@ Bruce, or another application in CRUB's shared `extra` slot, use the separate
 [Cardputer Firmware Manager](https://github.com/fat23cat/cardputer-firmware-manager).
 Its shared `crub` partition table replaces the standalone installation layout
 described later in this guide. A device that already boots CRUB must keep that
-table: `make upload` writes only the Hub application into the `hub` partition
-at `0xd0000`, which holds at most 2 MiB. Never run `make upload-standalone`,
+table: `make upload` writes only the Hub application into the shared `extra`
+slot at `0xd0000`, which holds at most 6.5 MiB and replaces whichever
+application was installed there. Never run `make upload-standalone`,
 `idf.py flash`, or a release-asset flash of `*-partitions.bin` onto that
 device. Those commands
 install Hub's standalone table, which looks for `hub_config` at `0x7e0000` and
 hides the CRUB settings that remain at `0x7a0000`. A device provisioned with
-the earlier CRUB layout, which had a dedicated `codex` partition, follows the
-manager's one-time
-[layout migration](https://github.com/fat23cat/cardputer-firmware-manager/blob/main/docs/install-crub.md#migrate-from-the-dedicated-codex-layout)
+an earlier CRUB layout that had a dedicated `hub` or `codex` partition needs
+the manager's
+[clean installation](https://github.com/fat23cat/cardputer-firmware-manager/blob/main/docs/install-crub.md#clean-installation)
 before installing this build.
 
 With the manager cloned beside this repository, build Hub, enter `usbsd` in
@@ -37,23 +38,25 @@ version without this local suffix.
 
 For a published image, replace `local` with `release`. Safely eject the card,
 exit `usbsd`, run `sd` to remount it and reload aliases, then run `uphub` and
-wait for `app: ok` plus `flash complete`. These manager commands validate the
-ESP application descriptor and the `hub` partition size before the image can
-reach CRUB.
+wait for `app: ok` plus `flash complete`, and start Hub with `go`. These
+manager commands validate the ESP application descriptor and the `extra` slot
+size before the image can reach CRUB.
 
 ### USB Serial Diagnostics After a CRUB Launch
 
 CRUB normally initializes USB mass storage before launching an application. If
-Cardputer Hub starts through the `hub` alias but its USB Serial/JTAG console
+Cardputer Hub starts through the `go` alias but its USB Serial/JTAG console
 does not appear on the computer, stage the card once with a current Cardputer
 Firmware Manager `local` or `release` command, then run this alias in CRUB:
 
 ```text
-hubfast
+gofast
 ```
 
-Reset the Cardputer. `hubfast` changes `/.crub/boot` to launch Hub before CRUB
-initializes USB, and Hub will continue to start automatically on later resets.
+Reset the Cardputer. `gofast` changes `/.crub/boot` to launch the `extra` slot,
+where Hub is installed, before CRUB initializes USB, and Hub will continue to
+start automatically on later resets. Obsolete `hub` and `hubfast` aliases from
+an older card can be removed from `/.crub/aliases`.
 
 To restore the normal CRUB boot screen:
 
@@ -141,7 +144,7 @@ python -m serial.tools.list_ports
 ## 5. Build and Install the Firmware
 
 On a CRUB multiboot Cardputer, build Hub and write only the application image
-into the existing `hub` partition:
+into CRUB's shared `extra` slot, replacing whichever application was there:
 
 ```bash
 make upload UPLOAD_PORT=/dev/ttyACM0
@@ -150,7 +153,7 @@ make upload UPLOAD_PORT=/dev/ttyACM0
 Replace `/dev/ttyACM0` with the exact device path reported in step 4. The port
 is mandatory so this USB path cannot silently rewrite the shared partition
 table. It does not flash the bootloader, partition table, or `otadata`, and it
-refuses an image larger than the 2 MiB CRUB `hub` partition.
+refuses an image larger than the 6.5 MiB CRUB `extra` slot.
 
 Prefer the Firmware Manager SD path when installing a reviewed image: `doctor`,
 then `local --app hub` or `release --app hub`, then CRUB `uphub`. Use
@@ -191,7 +194,7 @@ configuration and is not part of a normal downgrade or routine upgrade.
 
 The first run may take several minutes while ESP-IDF downloads the locked
 managed components. `make upload` then builds the production firmware and
-writes only the Hub application to the CRUB `hub` partition.
+writes only the Hub application to the CRUB `extra` slot.
 
 If ESP-IDF cannot enter download mode:
 
@@ -296,7 +299,7 @@ Exit the serial monitor with `Ctrl+]`. Continue with the
 * If the monitor is blank, confirm the device reset and that no other program
   has the serial port open. The configured monitor speed is 115200 baud.
 * If USB serial disappears only after launching Hub through CRUB, use the
-  [`hubfast` diagnostic boot procedure](#usb-serial-diagnostics-after-a-crub-launch).
+  [`gofast` diagnostic boot procedure](#usb-serial-diagnostics-after-a-crub-launch).
 * To discard local build output and rebuild from scratch, run `make clean`,
   followed by `make upload UPLOAD_PORT=<device>` on a CRUB device. Use
   `make upload-standalone` only for a Hub-only factory image.
