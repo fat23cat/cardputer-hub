@@ -1,3 +1,4 @@
+import CompanionAgentHooks
 import Foundation
 
 public enum CompanionRequestFailure: Error, Equatable {
@@ -23,6 +24,7 @@ public final class CompanionSession: CompanionRequesting {
     private let metrics: SystemMetricsCollecting?
     private let details: SystemDetailsCollecting?
     private let aiUsage: AiUsageCollecting?
+    private let agentStatus: AgentStatusProviding?
     public let buildId: String
     private let now: () -> Date
     public var outgoing: ([UInt8]) -> Void = { _ in }
@@ -43,6 +45,7 @@ public final class CompanionSession: CompanionRequesting {
     public init(applications: ApplicationControlling, metrics: SystemMetricsCollecting? = nil,
                 details: SystemDetailsCollecting? = nil,
                 aiUsage: AiUsageCollecting? = nil,
+                agentStatus: AgentStatusProviding? = nil,
                 buildId: String = BuildIdentity.current,
                 now: @escaping () -> Date = Date.init) {
         self.buildId = buildId
@@ -50,6 +53,7 @@ public final class CompanionSession: CompanionRequesting {
         self.metrics = metrics
         self.details = details
         self.aiUsage = aiUsage
+        self.agentStatus = agentStatus
         self.now = now
         applications.observeActiveApplication { [weak self] bundle in
             self?.handleForegroundChange(bundle)
@@ -212,6 +216,18 @@ public final class CompanionSession: CompanionRequesting {
             response.operation = .aiUsage
             if let payload = aiUsage?.snapshot()?.encode() {
                 response.payload = payload
+            } else {
+                response.status = .notAvailable
+            }
+            send(response)
+        case .aiAgentStatus:
+            var response = CompanionEnvelope()
+            response.kind = .response
+            response.session = message.session
+            response.requestId = message.requestId
+            response.operation = .aiAgentStatus
+            if let snapshot = agentStatus?.agentStatus() {
+                response.payload = snapshot.encode()
             } else {
                 response.status = .notAvailable
             }

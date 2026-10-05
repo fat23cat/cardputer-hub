@@ -1,4 +1,5 @@
 import Combine
+import CompanionAgentHooks
 import CompanionCore
 import Foundation
 
@@ -19,6 +20,11 @@ final class CompanionStatusStore: ObservableObject {
     var onQuit: (() -> Void)?
     var onOpenInventory: (() -> Void)?
     var readAiUsage: (() -> AiUsageSnapshot?)?
+    /// Whether hooks are installed (nil: the configuration is not plain JSON)
+    /// and when the last hook event arrived.
+    var readAgentHooks: ((AgentApplication) -> (installed: Bool?, lastEvent: Date?))?
+    /// Installs or removes an application's hooks; returns an error message.
+    var onSetAgentHooks: ((AgentApplication, Bool) -> String?)?
 
     private let login: StartAtLoginModel
 

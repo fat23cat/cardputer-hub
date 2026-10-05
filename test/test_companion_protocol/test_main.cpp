@@ -232,6 +232,60 @@ void test_ai_usage_round_trip_and_reset_credit_rules() {
     TEST_ASSERT_FALSE(setAiUsage(response, usage)); // the same provider twice
 }
 
+void test_agent_status_round_trip_and_rejects_bad_pairs() {
+    assertEncodedMatchesFixture(makeRequest(42, 13, CompanionOperation::AiAgentStatus),
+                                "ai-agent-status-request.bin");
+    CompanionAgentStatus status{};
+    TEST_ASSERT_TRUE(readAgentStatus(decodeFixture("ai-agent-status-response.bin"), status));
+    TEST_ASSERT_TRUE(status.installed(AiProvider::Codex));
+    TEST_ASSERT_TRUE(status.installed(AiProvider::Claude));
+    TEST_ASSERT_TRUE(status.installed(AiProvider::Cursor));
+    TEST_ASSERT_EQUAL_UINT8(3, status.installedCount());
+    TEST_ASSERT_EQUAL_UINT8(static_cast<unsigned>(AgentState::DoneEarlier),
+                            static_cast<unsigned>(status.state(AiProvider::Cursor)));
+    TEST_ASSERT_EQUAL_UINT8(static_cast<unsigned>(AgentState::Working),
+                            static_cast<unsigned>(status.state(AiProvider::Codex)));
+    TEST_ASSERT_EQUAL_UINT8(static_cast<unsigned>(AgentState::NeedsYou),
+                            static_cast<unsigned>(status.state(AiProvider::Claude)));
+    auto response = makeResponse(42, 13, CompanionOperation::AiAgentStatus, CompanionStatus::Ok);
+    TEST_ASSERT_TRUE(setAgentStatus(response, status));
+    assertEncodedMatchesFixture(response, "ai-agent-status-response.bin");
+
+    CompanionAgentStatus none{};
+    TEST_ASSERT_TRUE(readAgentStatus(decodeFixture("ai-agent-status-response-none.bin"), none));
+    TEST_ASSERT_EQUAL_UINT8(0, none.installedCount());
+    auto empty = makeResponse(42, 13, CompanionOperation::AiAgentStatus, CompanionStatus::Ok);
+    TEST_ASSERT_TRUE(setAgentStatus(empty, none));
+    assertEncodedMatchesFixture(empty, "ai-agent-status-response-none.bin");
+
+    const auto wire = loadFixture("ai-agent-status-response.bin");
+    auto damaged = wire;
+    damaged[companionEnvelopeSize + 2] = 5; // no such state
+    TEST_ASSERT_FALSE(decodeCompanionMessage(damaged.data(), damaged.size()).has_value());
+    damaged = wire;
+    damaged[companionEnvelopeSize + 3] = 1; // Codex twice
+    TEST_ASSERT_FALSE(decodeCompanionMessage(damaged.data(), damaged.size()).has_value());
+    damaged = wire;
+    damaged[companionEnvelopeSize + 1] = 3; // Claude before Codex
+    damaged[companionEnvelopeSize + 3] = 1;
+    TEST_ASSERT_FALSE(decodeCompanionMessage(damaged.data(), damaged.size()).has_value());
+    damaged = wire;
+    damaged[companionEnvelopeSize + 3] = 0; // no such application
+    TEST_ASSERT_FALSE(decodeCompanionMessage(damaged.data(), damaged.size()).has_value());
+    damaged = wire;
+    damaged[companionEnvelopeSize] = 2; // count smaller than the pairs
+    TEST_ASSERT_FALSE(decodeCompanionMessage(damaged.data(), damaged.size()).has_value());
+    damaged = wire;
+    damaged[companionEnvelopeSize] = 4; // more than three applications
+    TEST_ASSERT_FALSE(decodeCompanionMessage(damaged.data(), damaged.size()).has_value());
+    auto request = makeRequest(42, 13, CompanionOperation::AiAgentStatus);
+    request.payloadSize = 1;
+    TEST_ASSERT_FALSE(encodeCompanionMessage(request).has_value());
+    TEST_ASSERT_TRUE(encodeCompanionMessage(makeResponse(42, 13, CompanionOperation::AiAgentStatus,
+                                                         CompanionStatus::NotAvailable))
+                         .has_value());
+}
+
 void test_system_details_groups_round_trip_and_reject_bad_names() {
     auto request = makeRequest(42, 8, CompanionOperation::SystemDetails);
     TEST_ASSERT_TRUE(setSystemDetailsRequest(request, SystemDetailsGroup::Cpu));
@@ -287,6 +341,7 @@ void test_only_telemetry_failures_are_isolated() {
     TEST_ASSERT_TRUE(companionResponseFailureIsIsolated(CompanionOperation::SystemMetrics));
     TEST_ASSERT_TRUE(companionResponseFailureIsIsolated(CompanionOperation::AiUsage));
     TEST_ASSERT_TRUE(companionResponseFailureIsIsolated(CompanionOperation::SystemDetails));
+    TEST_ASSERT_TRUE(companionResponseFailureIsIsolated(CompanionOperation::AiAgentStatus));
     TEST_ASSERT_FALSE(companionResponseFailureIsIsolated(CompanionOperation::AppActive));
     TEST_ASSERT_FALSE(companionResponseFailureIsIsolated(CompanionOperation::Ping));
 }
@@ -428,6 +483,7 @@ int main() {
     RUN_TEST(test_bundle_identifiers_are_bounded_utf8);
     RUN_TEST(test_system_metrics_round_trip_and_bounds);
     RUN_TEST(test_ai_usage_round_trip_and_reset_credit_rules);
+    RUN_TEST(test_agent_status_round_trip_and_rejects_bad_pairs);
     RUN_TEST(test_system_details_groups_round_trip_and_reject_bad_names);
     RUN_TEST(test_only_telemetry_failures_are_isolated);
     RUN_TEST(test_inventory_messages_match_fixtures);

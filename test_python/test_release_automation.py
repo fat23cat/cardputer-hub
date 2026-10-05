@@ -161,36 +161,31 @@ class ConfigurationPartitionMigrationTest(unittest.TestCase):
         self.assertIn("make upload UPLOAD_PORT=/dev/ttyACM0", guide)
         self.assertIn("Never run `make upload-standalone`", guide)
 
-    def test_upload_writes_only_the_crub_hub_partition(self) -> None:
+    def test_upload_writes_only_the_crub_extra_slot(self) -> None:
         makefile = MAKEFILE.read_text()
-        self.assertIn("CRUB_HUB_OFFSET := 0xd0000", makefile)
+        self.assertIn("CRUB_EXTRA_OFFSET := 0xd0000", makefile)
         self.assertIn(
-            "write_flash $(CRUB_HUB_OFFSET) $(IDF_APP_IMAGE)", makefile
+            "write_flash $(CRUB_EXTRA_OFFSET) $(IDF_APP_IMAGE)", makefile
         )
         upload_recipe, _, standalone_and_rest = makefile.partition("upload-standalone:")
         self.assertIn("upload:", upload_recipe)
         self.assertNotIn(") flash", upload_recipe)
         self.assertIn(") flash", standalone_and_rest)
-        manager_layout = ROOT.parent / "cardputer-firmware-manager" / "layouts" / "cardputer-adv-8mb.csv"
-        if manager_layout.exists():
-            with manager_layout.open(newline="") as partition_file:
-                rows = csv.reader(
-                    line for line in partition_file if not line.lstrip().startswith("#")
-                )
-                hub = next(row for row in rows if row and row[0].strip() == "hub")
-            self.assertEqual(parse_partition_value(hub[3]), 0xD0000)
+        if MANAGER_LAYOUT.exists():
+            extra = manager_partition("extra")
+            self.assertEqual(parse_partition_value(extra[3]), 0xD0000)
 
-    def test_upload_rejects_image_larger_than_the_crub_hub_partition(self) -> None:
+    def test_upload_rejects_image_larger_than_the_crub_extra_slot(self) -> None:
         makefile = MAKEFILE.read_text()
-        self.assertIn("CRUB_HUB_SIZE := 0x200000", makefile)
+        self.assertIn("CRUB_EXTRA_SIZE := 0x680000", makefile)
         before_standalone = makefile.partition("upload-standalone:")[0]
         upload_recipe = before_standalone[before_standalone.index("\nupload:") :]
         self.assertLess(
-            upload_recipe.index("$(CRUB_HUB_SIZE)"), upload_recipe.index("write_flash")
+            upload_recipe.index("$(CRUB_EXTRA_SIZE)"), upload_recipe.index("write_flash")
         )
         if MANAGER_LAYOUT.exists():
-            hub = manager_partition("hub")
-            self.assertEqual(parse_partition_value(hub[4]), 0x200000)
+            extra = manager_partition("extra")
+            self.assertEqual(parse_partition_value(extra[4]), 0x680000)
 
     def test_crub_documents_name_the_current_hub_config_offset(self) -> None:
         for document in CRUB_HUB_CONFIG_DOCUMENTS:

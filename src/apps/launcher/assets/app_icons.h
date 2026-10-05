@@ -30,6 +30,13 @@ inline constexpr const char* const aiUsageAppIcon[] = {
     " # ######## # ", " # ######## # ", " ############ ", "              ",
 };
 
+// Three status rows: a dot and a label bar each.
+inline constexpr const char* const aiStatusAppIcon[] = {
+    "              ", " ##           ", "####  ####### ", "####  ####### ", " ##           ",
+    "              ", " ##           ", "####  ####### ", "####  ####### ", " ##           ",
+    "              ", " ##           ", "####  ####### ", "####  ####### ",
+};
+
 inline constexpr const char* const pomodoroAppIcon[] = {
     "      ##      ", "     #  #     ", "   ########   ", "  ##########  ", " ############ ",
     "##############", "##############", "##############", "##############", "##############",
@@ -63,6 +70,8 @@ inline const char* const* appIconRows(const char* iconId) {
         return macStatusAppIcon;
     if (iconId != nullptr && std::strcmp(iconId, "ai-usage") == 0)
         return aiUsageAppIcon;
+    if (iconId != nullptr && std::strcmp(iconId, "ai-status") == 0)
+        return aiStatusAppIcon;
     if (iconId != nullptr && std::strcmp(iconId, "pomodoro") == 0)
         return pomodoroAppIcon;
     if (iconId != nullptr && std::strcmp(iconId, "led-gallery") == 0)

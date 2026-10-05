@@ -24,6 +24,12 @@ PING, APP_ACTIVE, APP_ACTIVATE, APP_ACTIVE_CHANGED = 1, 3, 4, 5
 SYSTEM_METRICS, AI_USAGE, SYSTEM_DETAILS = 6, 7, 8
 # Inventory operations are requested by the Mac and answered by the Cardputer.
 INVENTORY_LIST, INVENTORY_GET, INVENTORY_PUT, INVENTORY_DELETE = 9, 10, 11, 12
+AI_AGENT_STATUS = 13
+# AI_AGENT_STATUS applications (the AI_USAGE provider IDs) and states.
+AGENT_CODEX, AGENT_CURSOR, AGENT_CLAUDE = 1, 2, 3
+AGENT_UNKNOWN, AGENT_WORKING, AGENT_NEEDS_YOU, AGENT_DONE = 0, 1, 2, 3
+# Done more than ten minutes ago; the Cardputer shows it settled.
+AGENT_DONE_EARLIER = 4
 OK, NOT_AVAILABLE, NOT_FOUND, UNSUPPORTED, MALFORMED = 0, 1, 2, 3, 4
 CONFLICT, REJECTED, STORAGE_ERROR = 5, 6, 7
 INVENTORY_ID = bytes.fromhex("0f1e2d3c4b5a69788796a5b4c3d2e1f0")
@@ -126,6 +132,17 @@ def fixtures(protocol: bytes) -> dict[str, bytes]:
             RESPONSE, SESSION, 7, AI_USAGE, OK,
             bytes([2, 1]) + u32(9) + bytes([3, 4, 1, 1, 1, 1]) + u32(8) + u32(100) +
             u32(92) + bytes([92]) + u32(1780000000) + u32(3600) + bytes([0])
+        ),
+        "ai-agent-status-request.bin": envelope(REQUEST, SESSION, 13, AI_AGENT_STATUS, OK, b""),
+        # Count of applications with installed hooks (0-3), then one
+        # (application, state) pair each, in the order Codex, Claude, Cursor.
+        "ai-agent-status-response.bin": envelope(
+            RESPONSE, SESSION, 13, AI_AGENT_STATUS, OK,
+            bytes([3, AGENT_CODEX, AGENT_WORKING, AGENT_CLAUDE, AGENT_NEEDS_YOU,
+                   AGENT_CURSOR, AGENT_DONE_EARLIER])
+        ),
+        "ai-agent-status-response-none.bin": envelope(
+            RESPONSE, SESSION, 13, AI_AGENT_STATUS, OK, bytes([0])
         ),
         "system-details-request.bin": envelope(REQUEST, SESSION, 8, SYSTEM_DETAILS, OK,
                                                bytes([1])),

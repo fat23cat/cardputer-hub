@@ -74,6 +74,7 @@ class CompanionService {
     CompanionSubmitResult requestSystemMetrics();
     CompanionSubmitResult requestSystemDetails(connectivity::SystemDetailsGroup group);
     CompanionSubmitResult requestAiUsage();
+    CompanionSubmitResult requestAgentStatus();
     bool hasPendingRequest(connectivity::CompanionOperation operation) const noexcept;
     std::optional<CompanionCompletedRequest> takeCompletedRequest();
     std::optional<CompanionCompletedRequest>

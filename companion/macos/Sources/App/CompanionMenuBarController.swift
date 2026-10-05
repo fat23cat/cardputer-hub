@@ -1,5 +1,6 @@
 import AppKit
 import Combine
+import CompanionAgentHooks
 import CompanionCore
 
 /// Owns the status item and its menu. Everything except the connection header
@@ -10,6 +11,7 @@ final class CompanionMenuBarController: NSObject, NSMenuDelegate {
     private let item: NSStatusItem
     private let menu = NSMenu()
     private let diagnosticsMenu = NSMenu(title: "Diagnostics")
+    private let agentHooksMenu = NSMenu(title: "AI Agent Hooks")
     private let header = ConnectionHeaderView()
     private let loginRow = SwitchMenuRowView(title: "Start at Login")
     private let reconnectItem = NSMenuItem(title: "Reconnect", action: nil, keyEquivalent: "")
@@ -29,6 +31,9 @@ final class CompanionMenuBarController: NSObject, NSMenuDelegate {
         diagnosticsMenu.autoenablesItems = false
         diagnosticsMenu.showsStateColumn = false
         diagnosticsMenu.delegate = self
+        agentHooksMenu.autoenablesItems = false
+        agentHooksMenu.showsStateColumn = false
+        agentHooksMenu.delegate = self
 
         let headerItem = NSMenuItem()
         headerItem.view = header
@@ -53,6 +58,10 @@ final class CompanionMenuBarController: NSObject, NSMenuDelegate {
                                        keyEquivalent: "i")
         inventoryItem.target = self
         menu.addItem(inventoryItem)
+
+        let agentHooksItem = NSMenuItem(title: "AI Agent Hooks", action: nil, keyEquivalent: "")
+        agentHooksItem.submenu = agentHooksMenu
+        menu.addItem(agentHooksItem)
 
         let diagnosticsItem = NSMenuItem(title: "Diagnostics", action: nil, keyEquivalent: "")
         diagnosticsItem.submenu = diagnosticsMenu
@@ -82,6 +91,8 @@ final class CompanionMenuBarController: NSObject, NSMenuDelegate {
             updateMenu()
         } else if menu === diagnosticsMenu {
             updateDiagnostics()
+        } else if menu === agentHooksMenu {
+            updateAgentHooks()
         }
     }
 
@@ -108,6 +119,7 @@ final class CompanionMenuBarController: NSObject, NSMenuDelegate {
         item.menu = nil
         menu.delegate = nil
         diagnosticsMenu.delegate = nil
+        agentHooksMenu.delegate = nil
         NSStatusBar.system.removeStatusItem(item)
     }
 
@@ -167,6 +179,11 @@ final class CompanionMenuBarController: NSObject, NSMenuDelegate {
         addInfo("Companion: \(status.companionBuildId)")
         addInfo("Cardputer: \(status.firmwareBuildId ?? "—")")
 
+        addSection("AI Agent Hooks")
+        for application in agentApplications {
+            addInfo("\(agentName(application)): \(agentHookState(application))")
+        }
+
         addSection("AI Usage Cache on Mac")
         addInfo("Codex: \(aiProviderState(.codex))")
         addInfo("Cursor: \(aiProviderState(.cursor))")
@@ -197,6 +214,65 @@ final class CompanionMenuBarController: NSObject, NSMenuDelegate {
         // The two-account limit keeps some providers off the Cardputer.
         let sent = status.aiUsage.sentProviders.contains { $0.provider == provider }
         return sent ? state : "\(state), not sent to Cardputer"
+    }
+
+    private let agentApplications: [AgentApplication] = [.codex, .claude, .cursor]
+
+    private func agentName(_ application: AgentApplication) -> String {
+        switch application {
+        case .codex: return "Codex"
+        case .claude: return "Claude Code"
+        case .cursor: return "Cursor"
+        }
+    }
+
+    private func agentHookState(_ application: AgentApplication) -> String {
+        guard let state = status.readAgentHooks?(application) else { return "—" }
+        let installed: String
+        switch state.installed {
+        case .some(true): installed = "Installed"
+        case .some(false): installed = "Not installed"
+        case .none: installed = "Configuration is not plain JSON"
+        }
+        guard let last = state.lastEvent else { return "\(installed) · no events yet" }
+        return "\(installed) · last event \(CompanionPresentation.lastSeen(last, now: Date()) ?? "—")"
+    }
+
+    /// One action per application: install when absent, remove when present.
+    private func updateAgentHooks() {
+        agentHooksMenu.removeAllItems()
+        for application in agentApplications {
+            let installed = status.readAgentHooks?(application).installed ?? nil
+            let title: String
+            switch installed {
+            case .some(true): title = "Remove \(agentName(application)) Hooks"
+            case .some(false): title = "Install \(agentName(application)) Hooks"
+            case .none: title = "\(agentName(application)): configuration is not plain JSON"
+            }
+            let item = NSMenuItem(title: title, action: #selector(toggleAgentHooks(_:)),
+                                  keyEquivalent: "")
+            item.target = self
+            item.tag = Int(application.rawValue)
+            item.representedObject = installed == true
+            item.isEnabled = installed != nil
+            agentHooksMenu.addItem(item)
+        }
+        agentHooksMenu.addItem(.separator())
+        let note = NSMenuItem(title: "Restart the AI app after a change", action: nil,
+                              keyEquivalent: "")
+        note.isEnabled = false
+        agentHooksMenu.addItem(note)
+    }
+
+    @objc private func toggleAgentHooks(_ sender: NSMenuItem) {
+        guard let application = AgentApplication(rawValue: UInt8(sender.tag)) else { return }
+        let installed = sender.representedObject as? Bool ?? false
+        guard let message = status.onSetAgentHooks?(application, !installed) else { return }
+        NSApp.activate(ignoringOtherApps: true)
+        let alert = NSAlert()
+        alert.messageText = "Could not change \(agentName(application)) hooks"
+        alert.informativeText = message
+        alert.runModal()
     }
 
     private var stateTitle: String {

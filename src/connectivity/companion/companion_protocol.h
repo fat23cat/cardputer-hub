@@ -76,6 +76,7 @@ enum class CompanionOperation : std::uint8_t {
     InventoryGet = 10,
     InventoryPut = 11,
     InventoryDelete = 12,
+    AiAgentStatus = 13,
 };
 
 enum class CompanionStatus : std::uint8_t {
@@ -164,6 +165,49 @@ struct CompanionAiUsage {
     std::uint8_t providerCount = 0;
     std::array<AiUsageProvider, 2> providers{};
 };
+
+// AI_AGENT_STATUS: the desktop AI applications whose hooks Companion has
+// installed, keyed by the AI_USAGE provider IDs, each with one state. Unknown
+// means no live session or no hook events.
+// DoneEarlier: done more than ten minutes ago, shown settled.
+enum class AgentState : std::uint8_t {
+    Unknown = 0,
+    Working = 1,
+    NeedsYou = 2,
+    Done = 3,
+    DoneEarlier = 4
+};
+inline constexpr std::size_t companionMaxAgentStatusPayloadSize = 7;
+
+struct CompanionAgentStatus {
+    // Indexed by AiProvider value - 1. Applications that are not installed
+    // keep Unknown.
+    std::array<AgentState, 3> states{};
+    std::array<bool, 3> installedApplications{};
+    AgentState state(AiProvider application) const noexcept {
+        return states[static_cast<std::size_t>(application) - 1];
+    }
+    bool installed(AiProvider application) const noexcept {
+        return installedApplications[static_cast<std::size_t>(application) - 1];
+    }
+    std::uint8_t installedCount() const noexcept {
+        return static_cast<std::uint8_t>(installedApplications[0] + installedApplications[1] +
+                                         installedApplications[2]);
+    }
+    // Marks the application installed with this state.
+    void set(AiProvider application, AgentState value) noexcept {
+        states[static_cast<std::size_t>(application) - 1] = value;
+        installedApplications[static_cast<std::size_t>(application) - 1] = true;
+    }
+    bool operator==(const CompanionAgentStatus& other) const noexcept {
+        return states == other.states && installedApplications == other.installedApplications;
+    }
+    bool operator!=(const CompanionAgentStatus& other) const noexcept { return !(*this == other); }
+};
+
+// The Cardputer row order: Codex, Claude, Cursor.
+inline constexpr std::array<AiProvider, 3> agentStatusOrder{AiProvider::Codex, AiProvider::Claude,
+                                                            AiProvider::Cursor};
 
 struct CompanionSystemMetrics {
     std::uint16_t validity = 0;
@@ -279,6 +323,10 @@ bool setSystemMetrics(CompanionEnvelope& message, const CompanionSystemMetrics& 
 bool readSystemMetrics(const CompanionEnvelope& message, CompanionSystemMetrics& metrics);
 bool setAiUsage(CompanionEnvelope& message, const CompanionAiUsage& usage);
 bool readAiUsage(const CompanionEnvelope& message, CompanionAiUsage& usage);
+// OK response: count (0-3), then one (application, state) pair per installed
+// application in the order Codex, Claude, Cursor.
+bool setAgentStatus(CompanionEnvelope& message, const CompanionAgentStatus& status);
+bool readAgentStatus(const CompanionEnvelope& message, CompanionAgentStatus& status);
 bool setSystemDetailsRequest(CompanionEnvelope& message, SystemDetailsGroup group);
 bool readSystemDetailsRequest(const CompanionEnvelope& message, SystemDetailsGroup& group);
 bool setSystemDetails(CompanionEnvelope& message, const CompanionSystemDetails& details);

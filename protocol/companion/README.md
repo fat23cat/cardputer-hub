@@ -65,8 +65,8 @@ illegal `(kind, operation)` pairs, `status != OK` on REQUEST, EVENT and HELLO,
 HELLO with a non-zero session or request ID, a HELLO_ACK that is neither
 accepted (session non-zero, `OK`) nor mismatch (session `0`, `UNSUPPORTED`),
 REQUEST/RESPONSE with session or request ID `0`, EVENT with a non-zero request
-ID, PING payloads other than 4 bytes, non-empty APP_ACTIVE, SYSTEM_METRICS and
-AI_USAGE requests, APP_ACTIVATE requests without a valid bundle identifier,
+ID, PING payloads other than 4 bytes, non-empty APP_ACTIVE, SYSTEM_METRICS,
+AI_USAGE and AI_AGENT_STATUS requests, APP_ACTIVATE requests without a valid bundle identifier,
 and any payload that does not match its layout exactly.
 
 Frames from Companion builds before plan 043 start with a protocol version
@@ -99,6 +99,7 @@ report the mismatch; it never answers it.
 | 10 | INVENTORY_GET | REQUEST (Mac), RESPONSE (Cardputer) |
 | 11 | INVENTORY_PUT | REQUEST (Mac), RESPONSE (Cardputer) |
 | 12 | INVENTORY_DELETE | REQUEST (Mac), RESPONSE (Cardputer) |
+| 13 | AI_AGENT_STATUS | REQUEST, RESPONSE |
 
 Value `2` (the former CAPABILITIES) is unused and rejected.
 
@@ -224,6 +225,18 @@ cross BLE. Invalid AI usage response content is discarded without replacing
 the previous firmware snapshot. A new Companion session clears that snapshot
 immediately.
 
+* AI_AGENT_STATUS request: empty. `OK` response: a count (`0..3`) of the
+  applications whose hooks Companion has installed, then one (application,
+  state) pair for each, in the Cardputer row order Codex, Claude, Cursor; any
+  other order, a repeated application or a length other than `1 + 2 × count`
+  is invalid. Applications use the AI_USAGE provider IDs (`1=Codex`,
+  `2=Cursor`, `3=Claude`). A count of `0` means no hooks are installed. States are
+  `0=unknown` (no live session or no hook events), `1=working`, `2=needs you`
+  (a permission or question wait, or an execution error), `3=done` and
+  `4=done earlier` (the latest finish is more than ten minutes old).
+  `NOT_AVAILABLE` or `MALFORMED`: empty response. The Mac answers from its
+  cached hook-event store; no chat identifiers, counts, prompts or paths cross
+  BLE.
 * Inventory records are UTF-8 JSON of at most 4096 bytes,
   `{"schema":2,"id":"<32 lowercase hex>","revision":N,"name":"…","description":"…"}`
   with a name of 1–32 code points (no control or line separator characters, no
@@ -266,8 +279,8 @@ immediately.
 
 ## Failure isolation
 
-A malformed SYSTEM_METRICS, SYSTEM_DETAILS or AI_USAGE response for the current
-session is reported to the waiting app as `MALFORMED` and never ends the
+A malformed SYSTEM_METRICS, SYSTEM_DETAILS, AI_USAGE or AI_AGENT_STATUS response
+for the current session is reported to the waiting app as `MALFORMED` and never ends the
 session; other malformed frames do. A request that times out after the
 handshake fails only for its caller; the session ends when the heartbeat
 liveness window expires.
