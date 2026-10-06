@@ -159,6 +159,15 @@ Prefer the Firmware Manager SD path when installing a reviewed image: `doctor`,
 then `local --app hub` or `release --app hub`, then CRUB `uphub`. Use
 `make upload` for local USB iteration on a device that already has that layout.
 
+With the sibling manager checkout present, `make flash SD=/Volumes/CARDPUTER`
+performs doctor, builds Hub, stages it through `local --app hub`, and checks
+the card again. `make stage` stages the existing build; `make doctor` checks
+the mounted card. Safely eject it, exit CRUB `usbsd`, then run `sd`, `uphub`,
+and `go`. `make flash-usb UPLOAD_PORT=/dev/ttyACM0` is an alias for the USB
+`upload` path above. `make build`, `make check`, `make upload`, and `make monitor`
+activate the installed pinned ESP-IDF automatically; initial setup still
+requires the prerequisites in step 3. Run `make help` for the command list.
+
 For a Hub-only device that has never used CRUB, or when upgrading a Hub-only
 device that previously ran a Cardputer Hub release with no dedicated
 `hub_config` partition, run the one-time standalone storage-layout migration:

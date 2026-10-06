@@ -33,7 +33,7 @@ jobs:
       - name: Restore PlatformIO cache
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
-          path: ~/.platformio
+          path: .cache/platformio
           key: platformio-${{ runner.os }}-${{ hashFiles('uv.lock', 'platformio.ini') }}
 
       - name: Install locked tools

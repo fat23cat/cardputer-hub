@@ -1,3 +1,8 @@
+.DEFAULT_GOAL := help
+FIRMWARE_MANAGER_DIR ?= ../cardputer-firmware-manager
+WORKSPACE ?= $(abspath ..)
+SD ?= /Volumes/CARDPUTER
+COMPANION_INSTALL_DIR ?= $(HOME)/Applications
 UV ?= uv
 RUN := $(UV) run --frozen
 IDF_PY ?= idf.py
@@ -16,6 +21,16 @@ CRUB_EXTRA_OFFSET := 0xd0000
 CRUB_EXTRA_SIZE := 0x680000
 
 .PHONY: setup lock-check architecture-check validate-idf validate-submodules configure build firmware-size test format format-check lint host-check firmware-check companion-check check upload upload-standalone migrate-storage-layout monitor clean
+.PHONY: help build-idf firmware-size-idf flash stage doctor flash-usb upload-idf monitor-idf companion-build companion-run companion-install
+
+help:
+	@printf '%s\n' 'make build / check - build firmware / run all checks' 'make flash [SD=/Volumes/CARDPUTER] - build and stage on SD' 'make stage / doctor - stage existing image / validate mounted SD' 'make flash-usb UPLOAD_PORT=/dev/cu... - replace CRUB extra slot over USB' 'make monitor [UPLOAD_PORT=/dev/cu...] - serial monitor' 'make companion-build / companion-run / companion-install / companion-check'
+
+flash stage:
+	$(MAKE) -C "$(FIRMWARE_MANAGER_DIR)" $@ APP=hub WORKSPACE="$(WORKSPACE)" SD="$(SD)"
+
+doctor:
+	$(MAKE) -C "$(FIRMWARE_MANAGER_DIR)" doctor-sd SD="$(SD)"
 
 setup: validate-idf
 	$(UV) sync --frozen
@@ -43,12 +58,18 @@ validate-submodules:
 configure: validate-idf validate-submodules
 	$(IDF_RUN) $(IDF_ARGS) reconfigure
 
-build: validate-idf validate-submodules
+build:
+	bash scripts/build_firmware.sh
+
+build-idf: validate-idf validate-submodules
 	$(IDF_RUN) $(IDF_ARGS) build
 	@test -f $(IDF_APP_IMAGE)
 	@test -f $(IDF_PARTITION_IMAGE)
 
-firmware-size: validate-idf
+firmware-size:
+	bash scripts/build_firmware.sh firmware-size-idf
+
+firmware-size-idf: validate-idf
 	@test -f $(IDF_APP_IMAGE) || (echo "Run 'make build' before 'make firmware-size'." >&2; exit 2)
 	@bash -o pipefail -c '$(IDF_RUN) $(IDF_ARGS) size | tee "$(IDF_BUILD_DIR)/firmware-size.txt"'
 	@bash -o pipefail -c '$(IDF_RUN) $(IDF_ARGS) size-components | tee "$(IDF_BUILD_DIR)/firmware-size-components.txt"'
@@ -74,14 +95,29 @@ companion-check:
 	cd companion/macos && swift run CompanionProvidersCheck
 	bash scripts/package_macos_companion.sh
 
+companion-build:
+	bash scripts/package_macos_companion.sh
+
+companion-run: companion-build
+	open "companion/macos/Cardputer Companion.app"
+
+companion-install: companion-build
+	python3 scripts/install_companion.py "companion/macos/Cardputer Companion.app" "$(COMPANION_INSTALL_DIR)"
+
 firmware-check: build
 	python3 scripts/check_esp_idf_config.py "$(IDF_CONFIG_HEADER)"
 
 check: host-check firmware-check
 
-upload: validate-idf validate-submodules
+flash-usb: upload
+
+upload:
+	@test -n "$(UPLOAD_PORT)" || (echo 'UPLOAD_PORT is required.' >&2; exit 2)
+	bash scripts/build_firmware.sh upload-idf
+
+upload-idf: validate-idf validate-submodules
 	@test -n "$(UPLOAD_PORT)" || (echo "UPLOAD_PORT is required. make upload writes only CRUB's shared extra slot at $(CRUB_EXTRA_OFFSET) and does not replace the shared partition table." >&2; exit 2)
-	$(MAKE) build
+	$(MAKE) build-idf
 	@size=$$(wc -c < "$(IDF_APP_IMAGE)" | tr -d ' '); test "$$size" -le $$(($(CRUB_EXTRA_SIZE))) || (echo "$(IDF_APP_IMAGE) is $$size bytes; the CRUB extra slot holds $$(($(CRUB_EXTRA_SIZE))) bytes." >&2; exit 2)
 	esptool.py --chip esp32s3 --port "$(UPLOAD_PORT)" -b 1500000 --before default_reset --after hard_reset write_flash $(CRUB_EXTRA_OFFSET) $(IDF_APP_IMAGE)
 
@@ -94,7 +130,10 @@ migrate-storage-layout:
 	$(MAKE) upload-standalone UPLOAD_PORT="$(UPLOAD_PORT)"
 	esptool.py --chip esp32s3 --port "$(UPLOAD_PORT)" erase_region 0x7e0000 0x10000
 
-monitor: validate-idf
+monitor:
+	bash scripts/build_firmware.sh monitor-idf
+
+monitor-idf: validate-idf
 	$(IDF_RUN) $(IDF_ARGS) $(if $(UPLOAD_PORT),-p $(UPLOAD_PORT),) monitor
 
 clean: validate-idf

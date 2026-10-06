@@ -15,8 +15,16 @@ swift build -c release --product CardputerCompanion
 Or from the repository root:
 
 ```bash
+make companion-build    # signed .app bundle
 make companion-check
+make companion-run      # build and open
+make companion-install  # build and install to ~/Applications
 ```
+
+Quit an already-running Companion before opening the rebuilt bundle.
+Installation verifies a fresh copy before replacing the previous bundle;
+`COMPANION_INSTALL_DIR=/Applications` selects a different writable destination.
+It does not launch the application or enable Start at Login.
 
 `scripts/package_macos_companion.sh` creates `Cardputer Companion.app` with `LSUIElement` set so it does not appear in the Dock.
 It stamps the build ID `YYYY-MM-DD <commit>` (`+` after the commit for

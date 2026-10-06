@@ -45,4 +45,7 @@ fi
 
 # shellcheck disable=SC1091
 source "${hub_idf_path}/export.sh"
-exec make -C "${hub_project}" build
+if [[ "$#" -eq 0 ]]; then
+  set -- build-idf
+fi
+exec make -C "${hub_project}" "$@"
