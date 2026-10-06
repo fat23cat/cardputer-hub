@@ -26,6 +26,7 @@ class AiApp final : public IMiniApp {
     class ContentDisplay final : public core::IDisplayAdapter {
       public:
         explicit ContentDisplay(AiApp& owner) : owner_(owner) {}
+        void beginTransition(core::SlideDirection direction) override;
         void clear(core::RgbColor color) override;
         void fillRectangle(core::PixelPosition position, std::int32_t width, std::int32_t height,
                            core::RgbColor color) override;

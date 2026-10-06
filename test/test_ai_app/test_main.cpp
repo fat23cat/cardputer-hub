@@ -344,6 +344,33 @@ void test_detail_arrows_are_local_and_escape_returns_to_usage() {
     TEST_ASSERT_FALSE(f.app.handleBack());
 }
 
+void test_detail_slides_follow_keys_and_keep_the_shell_frame_open() {
+    Fixture f;
+    f.open();
+    f.answerUsage(plusUsage());
+    f.press(key(core::NamedKey::Right));
+    f.press(key(core::NamedKey::Enter));
+    for (const auto& event :
+         {key(core::NamedKey::Right), key(core::NamedKey::Left), character('/'), character(',')}) {
+        f.display.reset();
+        const auto count = f.display.transitions.size();
+        f.display.beginFrame();
+        f.app.update({event}, {});
+        TEST_ASSERT_TRUE(f.display.frameActive);
+        TEST_ASSERT_EQUAL_UINT(count + 1, f.display.transitions.size());
+        const bool backward = event.namedKey == core::NamedKey::Left || event.character == ',';
+        TEST_ASSERT_EQUAL_INT(backward ? core::SlideDirection::Backward
+                                       : core::SlideDirection::Forward,
+                              f.display.transitions.back());
+        TEST_ASSERT_FALSE(f.display.has("AI"));
+        f.display.endFrame();
+    }
+    f.press(character('/'));
+    const auto count = f.display.transitions.size();
+    f.press(character('.'));
+    TEST_ASSERT_EQUAL_UINT(count, f.display.transitions.size());
+}
+
 void test_hidden_status_updates_attention_without_redrawing_quota() {
     Fixture f;
     f.open();
@@ -421,6 +448,7 @@ int main() {
     RUN_TEST(test_usage_refresh_preserves_header_when_attention_is_unchanged);
     RUN_TEST(test_switch_pages_preserves_work_quota_fields_and_puzzle_ownership);
     RUN_TEST(test_detail_arrows_are_local_and_escape_returns_to_usage);
+    RUN_TEST(test_detail_slides_follow_keys_and_keep_the_shell_frame_open);
     RUN_TEST(test_hidden_status_updates_attention_without_redrawing_quota);
     RUN_TEST(test_modified_horizontal_keys_do_not_switch_pages);
     RUN_TEST(test_new_companion_never_reuses_previous_host_quota_or_attention);

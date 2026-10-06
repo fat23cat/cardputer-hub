@@ -1029,6 +1029,27 @@ but developers should not have to memorize long toolchain-specific commands.
 `host-check` and `firmware-check` may expose those categories separately for
 parallel CI, while `check` remains their local umbrella.
 
+The local command entry point is `make help` (also the default `make` goal).
+`build`, `firmware-check`/`check`, `firmware-size`, `monitor`, and
+`upload`/`flash-usb` activate the installed pinned IDF through
+`scripts/build_firmware.sh`; its default internal goal is `build-idf` to avoid
+recursion. Toolchain installation remains an explicit setup step.
+PlatformIO's core packages use the persistent project-local `.cache/platformio`
+directory so another firmware's PlatformIO cannot replace pinned analysis tools.
+Keep this cache and the existing `.pio/` build cache between checks.
+`flash` and `stage` delegate SD distribution to the sibling firmware manager
+with `APP=hub` and run its doctor before and after staging. They accept
+`SD`, `WORKSPACE`, and `FIRMWARE_MANAGER_DIR`; no shared layout is duplicated.
+`flash-usb` retains `upload`'s CRUB extra-slot-only contract and requires
+`UPLOAD_PORT`.
+
+On macOS, `companion-build` packages the signed application, `companion-run`
+builds and opens the bundle, and `companion-install` builds and copies a
+verified bundle to `COMPANION_INSTALL_DIR` (default `~/Applications`). Installation
+stages and verifies a fresh copy before replacing an existing application.
+Quit the running app before launching the new version. These commands do not
+modify login-item registration; `companion-check` remains the full Companion gate.
+
 Use narrow commands while iterating, then run the applicable CI-equivalent gate
 once after the last material change. Examples:
 

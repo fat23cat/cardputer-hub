@@ -123,8 +123,10 @@ use a deliberate second line.
 
 Normal Font0 labels and instructions use the shared 1.20× system text scale
 defined in `src/core/display/text_layout.h`. Layout and truncation use its
-rounded text metrics; intentional 2× headings and Micro 5 bitmap graphics keep
-their own sizes. The fractional Font0 raster must be reviewed on the physical
+per-glyph M5GFX 16.16 rounding: a glyph advances 7 pixels and is 9 pixels high
+at 1.20×. Native drawing captures use the same rounding. Intentional 2× headings
+and Micro 5 bitmap graphics keep their own sizes. The fractional Font0 raster
+must be reviewed on the physical
 Cardputer display before choosing any further scale change.
 
 ## 5. Layout and Components
@@ -222,7 +224,9 @@ The common motion grammar is:
 * direct key feedback reaches its full visual response on the first rendered
   frame after contact, then eases out;
 * vertical list focus changes immediately while rows remain stationary;
-* Home's bottom action focus uses a damped horizontal spring;
+* Home's bottom action focus uses a damped horizontal spring; text and its
+  opaque background invert only inside the moving plate, including partial
+  intersections with either label;
 * horizontal page changes use one short cubic-eased slide, approximately
   220 ms on the target hardware;
 * full-screen takeovers grow from the element or region that originated the
@@ -601,6 +605,8 @@ and an unknown expiry shows `EXP --`. A missing rolling window shows `--` in
 its LIMITS column; reset details remain available. Titles outside the display
 font use `RESET CREDIT`. The physical `,` / `/` keys switch
 detail pages without Fn; the physical `;` / `.` keys scroll RESETS without Fn.
+LIMITS/RESETS switches use the common directional slide; scrolling rows remains
+immediate.
 Logical arrow keys also work. Enter returns to
 the dashboard. Details use the full 240×135 display without the main navigation
 strip. Both detail pages show `STALE` when the provider data is stale.

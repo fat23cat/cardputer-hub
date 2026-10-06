@@ -203,8 +203,9 @@ idf.py --version
 Do not install project-specific ESP32 or M5Stack libraries globally. The
 ESP-IDF component manager resolves the exact production graph from
 `main/idf_component.yml` and `dependencies.lock`; Git submodules retain the
-exact pinned hardware-support sources. Re-source ESP-IDF's `export.sh` in each
-new terminal before running firmware commands.
+exact pinned hardware-support sources. The short build/check/upload/monitor
+commands activate ESP-IDF automatically. Source its `export.sh` before calling
+`make setup`, `make configure`, or ESP-IDF commands directly.
 
 ---
 
@@ -258,14 +259,46 @@ follow the install guide's
 
 ## Build
 
+Run `make` or `make help` for the short command list. No Node.js or npm is needed.
+
 ```bash
 make build
 make firmware-size
+make check
+make flash SD=/Volumes/CARDPUTER
+make stage SD=/Volumes/CARDPUTER
+make doctor SD=/Volumes/CARDPUTER
 ```
 
-External orchestrators such as Cardputer Firmware Manager use the self-contained
-wrapper `scripts/build_firmware.sh`; interactive development may continue to
-activate ESP-IDF and call `make build` directly.
+`make build`, `make check`, `make firmware-size`, `make monitor`, and
+`make flash-usb UPLOAD_PORT=/dev/cu.usbmodem...` activate the installed pinned
+ESP-IDF automatically through `scripts/build_firmware.sh`. Initial dependency
+installation is still required (see Local Setup).
+Host tests and analysis keep their PlatformIO packages in `.cache/platformio`
+to avoid conflicts with the tool versions used by other firmware repositories.
+
+`make flash` builds and stages Hub on the mounted FAT32 card through the sibling
+`cardputer-firmware-manager`; `make stage` stages the existing image. Both run
+the manager's doctor before and after staging. Safely eject the card, leave
+CRUB `usbsd`, then run `sd`, `uphub`, and `go` on the Cardputer. USB flashing
+uses Hub's existing `upload` command and writes only CRUB's shared `extra` slot.
+`SD` defaults to `/Volumes/CARDPUTER`; `FIRMWARE_MANAGER_DIR` overrides the
+manager checkout path and `WORKSPACE` overrides the parent of the firmware
+repositories. `make -n flash` shows the commands without staging an image.
+
+Companion commands also run from this repository root:
+
+```bash
+make companion-build
+make companion-check
+make companion-run
+make companion-install
+```
+
+Installation defaults to `~/Applications/Cardputer Companion.app`; override
+with `COMPANION_INSTALL_DIR=/Applications` if that directory is writable.
+Quit a running Companion before launching a rebuilt or installed version.
+Installation does not launch the app or enable Start at Login.
 
 `make firmware-size` inspects that completed production build without creating
 a second firmware variant. It prints ESP-IDF's application/partition summary

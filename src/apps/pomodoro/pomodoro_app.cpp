@@ -29,11 +29,6 @@ bool isSkip(const InputEvent& event) {
             (event.character == '/' && !event.modifiers.shift));
 }
 
-std::int32_t displayedSeconds(const PomodoroSnapshot& snapshot) {
-    if (snapshot.remaining.count() <= 0)
-        return 0;
-    return static_cast<std::int32_t>((snapshot.remaining.count() + 999) / 1000);
-}
 } // namespace
 
 PomodoroApp::PomodoroApp(PomodoroService& pomodoro, IDisplayAdapter& display)
@@ -62,19 +57,9 @@ void PomodoroApp::handle(const InputEvent& event) {
         pomodoro_.skip();
 }
 
-PomodoroApp::Frame PomodoroApp::capture() const {
-    const auto snapshot = pomodoro_.snapshot();
-    return {snapshot.runState, snapshot.phase, displayedSeconds(snapshot),
-            pomodoroCycleDisplay(snapshot), pomodoroLcdFilledSegments(snapshot)};
-}
-
 void PomodoroApp::render() {
-    const auto next = capture();
-    if (frame_ && frame_->runState == next.runState && frame_->phase == next.phase &&
-        frame_->remainingSeconds == next.remainingSeconds && frame_->cycle == next.cycle &&
-        frame_->progress == next.progress)
-        return;
-    drawPomodoroScreen(display_, pomodoro_.snapshot());
+    const auto next = pomodoro_.snapshot();
+    drawPomodoroScreen(display_, next, frame_ ? &*frame_ : nullptr);
     frame_ = next;
 }
 

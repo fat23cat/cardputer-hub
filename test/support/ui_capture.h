@@ -37,6 +37,9 @@ class UiCapture {
              << unsigned(style.foreground.green) << ' ' << unsigned(style.foreground.blue) << ' '
              << unsigned(style.background.red) << ' ' << unsigned(style.background.green) << ' '
              << unsigned(style.background.blue) << ' ' << std::quoted(value);
+        if (style.clip)
+            line << " clip " << style.clip->origin.x << ' ' << style.clip->origin.y << ' '
+                 << style.clip->width << ' ' << style.clip->height;
         commands_.push_back(line.str());
     }
 

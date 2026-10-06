@@ -1,6 +1,7 @@
 #include "apps/mac_control/mac_control_graphics.h"
 
 #include "apps/hosts/assets/micro5_digits.h"
+#include "core/display/monochrome_bitmap.h"
 #include "core/display/palette.h"
 #include "core/display/text_layout.h"
 
@@ -16,12 +17,8 @@ void glyph(IDisplayAdapter& display, PixelPosition position, char digit, RgbColo
     if (index == std::string_view::npos)
         return;
     const auto& bits = micro5_digits::kGlyphs[0][index];
-    for (int y = 0; y < micro5_digits::kHeight; ++y) {
-        for (int x = 0; x < micro5_digits::kWidth; ++x) {
-            if (bits[y * micro5_digits::kStride + x / 8] & (0x80U >> (x % 8)))
-                display.fillRectangle({position.x + x, position.y + y}, 1, 1, color);
-        }
-    }
+    drawMonochromeBitmap(display, position, bits, micro5_digits::kWidth, micro5_digits::kHeight,
+                         micro5_digits::kStride, color);
 }
 
 void tileLabel(IDisplayAdapter& display, MacControlTileRect tile, std::int32_t y, const char* text,

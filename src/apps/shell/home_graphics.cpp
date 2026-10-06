@@ -113,15 +113,26 @@ void drawHomeActions(core::IDisplayAdapter& display, std::int32_t plateX) {
     display.fillRectangle({0, 112}, 240, 1, core::palette::ink);
     display.fillRectangle({119, 113}, 1, 22, core::palette::ink);
     display.fillRectangle({plateX, 116}, 112, 16, core::palette::ink);
-    const auto drawAction = [&](int x, int width, const char* label, bool onPlate) {
-        const core::RgbColor background = onPlate ? core::palette::ink : core::palette::bone;
-        const core::RgbColor foreground = onPlate ? core::palette::bone : core::palette::ink;
-        display.drawText({core::centeredTextX(label, x, width), 120}, label,
-                         {foreground, background, core::systemTextScale});
+    const auto drawAction = [&](int x, int width, const char* label) {
+        const core::PixelPosition position{core::centeredTextX(label, x, width), 120};
+        const auto labelRight = position.x + core::systemTextWidth(label);
+        const auto drawPart = [&](int left, int right, bool selected) {
+            if (left >= right || labelRight <= left || position.x >= right)
+                return;
+            display.drawText(position, label,
+                             {selected ? core::palette::bone : core::palette::ink,
+                              selected ? core::palette::ink : core::palette::bone,
+                              core::systemTextScale,
+                              core::PixelRectangle{{left, 116}, right - left, 16}});
+        };
+        // Disjoint clips also avoid repainting letters in the wrong colour on
+        // the direct-draw fallback, where intermediate passes reach the LCD.
+        drawPart(0, plateX, false);
+        drawPart(plateX, plateX + 112, true);
+        drawPart(plateX + 112, 240, false);
     };
-    const bool settingsOnPlate = plateX >= 64;
-    drawAction(0, 119, "APPS", !settingsOnPlate);
-    drawAction(120, 120, "SETTINGS", settingsOnPlate);
+    drawAction(0, 119, "APPS");
+    drawAction(120, 120, "SETTINGS");
 }
 
 void drawHomeBattery(core::IDisplayAdapter& display, std::optional<std::uint8_t> batteryPercent) {

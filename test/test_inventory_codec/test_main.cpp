@@ -375,7 +375,8 @@ void test_every_display_glyph_has_a_font_glyph() {
 
 void test_layout_measures_and_wraps_by_code_point() {
     TEST_ASSERT_EQUAL_INT(systemTextWidth("ABCD"), systemTextWidth("Ёжик"));
-    TEST_ASSERT_EQUAL_STRING("Тёплый...", fitSystemText("Тёплый свитер", 9 * 7.2f + 1).c_str());
+    TEST_ASSERT_EQUAL_STRING("Тёплый...",
+                             fitSystemText("Тёплый свитер", 9 * textGlyphWidth() + 1).c_str());
 
     const auto lines = wrapText("Зарядка для ноутбука и мышь", 12);
     TEST_ASSERT_EQUAL_UINT(3, lines.size());
@@ -384,6 +385,13 @@ void test_layout_measures_and_wraps_by_code_point() {
     TEST_ASSERT_EQUAL_STRING("мышь", lines[2].c_str());
     for (const auto& line : wrapText("Электрокардиограф переносной", 8))
         TEST_ASSERT_TRUE(utf8Length(line) <= 8);
+}
+
+void test_layout_truncates_utf8_with_a_character_budget() {
+    TEST_ASSERT_EQUAL_STRING("", fitSystemTextColumns("Тёплый свитер", 0).c_str());
+    TEST_ASSERT_EQUAL_STRING("Тёп", fitSystemTextColumns("Тёплый свитер", 3).c_str());
+    TEST_ASSERT_EQUAL_STRING("Тёплый...", fitSystemTextColumns("Тёплый свитер", 9).c_str());
+    TEST_ASSERT_EQUAL_STRING("Ёж", fitSystemTextColumns("Ёж", 2).c_str());
 }
 
 } // namespace
@@ -409,5 +417,6 @@ int main() {
     RUN_TEST(test_display_glyphs_cover_russian_and_typography);
     RUN_TEST(test_every_display_glyph_has_a_font_glyph);
     RUN_TEST(test_layout_measures_and_wraps_by_code_point);
+    RUN_TEST(test_layout_truncates_utf8_with_a_character_budget);
     return UNITY_END();
 }

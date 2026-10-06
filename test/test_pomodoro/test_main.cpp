@@ -188,6 +188,67 @@ void test_activates_without_led_and_idle_lcd_progress() {
     TEST_ASSERT_EQUAL(24, pomodoroLcdFilledSegments(pomodoro.snapshot()));
     TEST_ASSERT_EQUAL_UINT8(1, pomodoroCycleDisplay(pomodoro.snapshot()));
 }
+
+void test_countdown_and_pause_repaint_only_changed_regions() {
+    Display display;
+    PomodoroService pomodoro({61s, 5s, 15s});
+    PomodoroApp app(pomodoro, display);
+    app.onActivate();
+    app.update({space}, {});
+    const auto fullClears = display.frames;
+    display.rectangles.clear();
+    display.texts.clear();
+    pomodoro.update(1s);
+    app.update({}, {});
+    TEST_ASSERT_EQUAL_INT(fullClears, display.frames);
+    TEST_ASSERT_TRUE(display.texts.empty());
+    TEST_ASSERT_FALSE(display.rectangles.empty());
+    for (const auto& rectangle : display.rectangles) {
+        TEST_ASSERT_GREATER_OR_EQUAL_INT(143, rectangle.position.x);
+        TEST_ASSERT_LESS_OR_EQUAL_INT(163, rectangle.position.x + rectangle.width);
+        TEST_ASSERT_GREATER_OR_EQUAL_INT(36, rectangle.position.y);
+        TEST_ASSERT_LESS_OR_EQUAL_INT(64, rectangle.position.y + rectangle.height);
+    }
+    display.rectangles.clear();
+    pomodoro.update(1s); // 01:00 -> 00:59 changes three digits.
+    app.update({}, {});
+    const auto erasedDigits = std::count_if(display.rectangles.begin(), display.rectangles.end(),
+                                            [](const Display::Rectangle& rectangle) {
+                                                return rectangle.position.y == 36 &&
+                                                       rectangle.width == 20 &&
+                                                       rectangle.height == 28;
+                                            });
+    TEST_ASSERT_EQUAL_UINT(3, erasedDigits);
+    display.rectangles.clear();
+    pomodoro.update(2s); // The last progress segment becomes empty.
+    app.update({}, {});
+    TEST_ASSERT_TRUE(std::any_of(display.rectangles.begin(), display.rectangles.end(),
+                                 [](const Display::Rectangle& rectangle) {
+                                     return rectangle.position.x == 219 &&
+                                            rectangle.position.y == 88 && rectangle.width == 8 &&
+                                            rectangle.height == 6 &&
+                                            rectangle.color.red == palette::pale.red;
+                                 }));
+    display.capture.save("pomodoro-countdown");
+    display.rectangles.clear();
+    app.update({space}, {});
+    TEST_ASSERT_EQUAL_INT(fullClears, display.frames);
+    TEST_ASSERT_TRUE(display.shows("PAUSED"));
+    TEST_ASSERT_EQUAL_UINT(1, display.rectangles.size());
+    TEST_ASSERT_EQUAL_INT(118, display.rectangles[0].position.y);
+    display.rectangles.clear();
+    app.update({skipKey}, {});
+    TEST_ASSERT_EQUAL_INT(fullClears, display.frames);
+    TEST_ASSERT_TRUE(display.shows("SHORT BREAK"));
+    const auto leafSegments = std::count_if(display.rectangles.begin(), display.rectangles.end(),
+                                            [](const Display::Rectangle& rectangle) {
+                                                return rectangle.position.y == 88 &&
+                                                       rectangle.width == 8 &&
+                                                       rectangle.color.green == palette::leaf.green;
+                                            });
+    TEST_ASSERT_EQUAL_UINT(24, leafSegments);
+    display.capture.save("pomodoro-break");
+}
 } // namespace
 
 void setUp() {}
@@ -200,5 +261,6 @@ int main() {
     RUN_TEST(test_deactivate_does_not_stop_service_and_reopen_renders_snapshot);
     RUN_TEST(test_remaining_formats_as_mm_ss_and_clamps_overflow);
     RUN_TEST(test_activates_without_led_and_idle_lcd_progress);
+    RUN_TEST(test_countdown_and_pause_repaint_only_changed_regions);
     return UNITY_END();
 }

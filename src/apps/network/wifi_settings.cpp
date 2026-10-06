@@ -54,10 +54,7 @@ void WiFiSettings::activate() {
 bool WiFiSettings::modal() const { return view_ != View::Status; }
 
 std::string WiFiSettings::fitSsid(const std::string& ssid) const {
-    constexpr std::size_t maximum = 16;
-    if (ssid.size() <= maximum)
-        return ssid;
-    return ssid.substr(0, maximum - 3) + "...";
+    return fitSystemTextColumns(ssid, 16);
 }
 
 std::string WiFiSettings::visibleEditor(const std::string& text) const {

@@ -17,9 +17,7 @@ std::string uppercase(std::string text) {
 
 std::string fitValue(std::string text, std::size_t maximum) {
     text = uppercase(std::move(text));
-    if (text.size() <= maximum)
-        return text;
-    return text.substr(0, maximum - 3) + "...";
+    return fitSystemTextColumns(text, maximum);
 }
 
 const char* hostStatusText(services::HostConnectionStatus status) {

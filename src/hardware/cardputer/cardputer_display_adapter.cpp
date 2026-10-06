@@ -187,8 +187,23 @@ void CardputerDisplayAdapter::drawText(core::PixelPosition position, const char*
     target.setAttribute(lgfx::cp437_switch, 1);
     target.setTextColor(toDeviceColor(style.foreground), toDeviceColor(style.background));
     target.setTextSize(style.scale);
+    auto left = position.x;
+    auto top = position.y;
+    auto right = position.x + target.textWidth(glyphs.c_str());
+    auto bottom = position.y + target.fontHeight();
+    if (style.clip) {
+        left = std::max<std::int32_t>({left, style.clip->origin.x, 0});
+        top = std::max<std::int32_t>({top, style.clip->origin.y, 0});
+        right = std::min<std::int32_t>({right, style.clip->origin.x + style.clip->width, 240});
+        bottom = std::min<std::int32_t>({bottom, style.clip->origin.y + style.clip->height, 135});
+        if (left >= right || top >= bottom)
+            return;
+        target.setClipRect(left, top, right - left, bottom - top);
+    }
     target.drawString(glyphs.c_str(), position.x, position.y);
+    if (style.clip)
+        target.clearClipRect();
     if (frame_ && frame_->active)
-        frame_->damage(position, target.textWidth(glyphs.c_str()), target.fontHeight());
+        frame_->damage({left, top}, right - left, bottom - top);
 }
 } // namespace cardputer_hub::hardware

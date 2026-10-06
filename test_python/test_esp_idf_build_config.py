@@ -470,7 +470,8 @@ class EspIdfBuildConfigurationTests(unittest.TestCase):
         self.assertIn("esp-idf-v5.5.5", wrapper)
         self.assertIn("build-tools/idf-tools-v5.5.5", wrapper)
         self.assertIn('source "${hub_idf_path}/export.sh"', wrapper)
-        self.assertIn('exec make -C "${hub_project}" build', wrapper)
+        self.assertIn('set -- build-idf', wrapper)
+        self.assertIn('exec make -C "${hub_project}" "$@"', wrapper)
 
     def test_firmware_manager_local_build_embeds_local_date_and_time(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:
@@ -515,6 +516,28 @@ class EspIdfBuildConfigurationTests(unittest.TestCase):
         self.assertEqual("9.8.7", release_result.stdout.strip().splitlines()[-1])
         self.assertIn("CARDPUTER_HUB_VERSION_OVERRIDE", self.read("Makefile"))
         self.assertIn("CARDPUTER_HUB_VERSION_OVERRIDE", self.read("main/CMakeLists.txt"))
+
+    def test_idf_wrapper_forwards_target_and_arguments_without_building(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            temporary = pathlib.Path(temporary_directory)
+            idf = temporary / "IDF with spaces"
+            commands = temporary / "bin"
+            idf.mkdir()
+            commands.mkdir()
+            (idf / "export.sh").write_text(":\n")
+            fake_make = commands / "make"
+            fake_make.write_text('#!/usr/bin/env bash\nprintf "%s\\n" "$@"\n')
+            fake_make.chmod(0o755)
+            environment = os.environ.copy()
+            environment["CARDPUTER_HUB_IDF_PATH"] = str(idf)
+            environment["PATH"] = f"{commands}:{environment['PATH']}"
+            result = subprocess.run(
+                ["bash", str(ROOT / "scripts/build_firmware.sh"), "monitor-idf",
+                 "UPLOAD_PORT=/dev/port with spaces"],
+                env=environment, capture_output=True, text=True, check=True,
+            )
+            self.assertEqual(result.stdout.splitlines(),
+                             ["-C", str(ROOT), "monitor-idf", "UPLOAD_PORT=/dev/port with spaces"])
 
     def test_ci_parallelizes_host_checks_and_firmware_build(self) -> None:
         workflow = self.read(".github/workflows/ci.yml")

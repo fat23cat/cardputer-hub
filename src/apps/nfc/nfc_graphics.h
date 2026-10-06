@@ -13,7 +13,7 @@ namespace cardputer_hub::apps {
 inline constexpr char nfcAppId[] = "nfc";
 // Description lines between the header rule and the footer.
 inline constexpr std::size_t nfcDescriptionLinesPerPage = 7;
-// System-font glyphs between the 6-pixel margins: (240 - 12) / 7.2.
+// Keep 31 columns within the 6-pixel margins at the shared system text scale.
 inline constexpr std::size_t nfcTextColumns = 31;
 
 // A state screen: a title, up to three body lines and an optional footer.

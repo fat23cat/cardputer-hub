@@ -402,7 +402,8 @@ screen shows the number of available reset credits. Its absence means that
 the count is unavailable; `R×0` means none remain. Press Enter for LIMITS
 (two separate columns for used, left and reset timing). Press the `,` / `/`
 keys marked Left / Right without Fn to switch to RESETS (count, short titles
-and expiry). Expiry appears in days, hours, or minutes; `EXP NOW` means it has
+and expiry), with a short slide in the pressed direction. Expiry appears in days,
+hours, or minutes; `EXP NOW` means it has
 elapsed, and `EXP --` means its timing is unknown. Up/Down scrolls when there
 are more than two detail rows; the `;` / `.` keys work without Fn. Enter
 returns to the main dashboard; Escape in details also returns to USAGE, and

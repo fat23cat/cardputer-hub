@@ -2,6 +2,7 @@
 
 #include "core/display/slide_transition.h"
 #include <cstdint>
+#include <optional>
 
 namespace cardputer_hub::core {
 
@@ -16,10 +17,18 @@ struct PixelPosition {
     std::int32_t y;
 };
 
+struct PixelRectangle {
+    PixelPosition origin;
+    std::int32_t width;
+    std::int32_t height;
+};
+
 struct TextStyle {
     RgbColor foreground;
     RgbColor background;
     float scale;
+    // Optional screen-coordinate scissor, including the opaque glyph background.
+    std::optional<PixelRectangle> clip = std::nullopt;
 };
 
 class IDisplayAdapter {
