@@ -159,6 +159,43 @@ func agentStatusChecks(_ expect: (Bool, String) -> Void, fixture: (String) -> [U
                "\(application.name): a prompt without an ID clears the preceding turn ID")
     }
 
+    // Claude's late tool results must not revive a turn that already finished.
+    for turn: String? in [nil, "prompt"] {
+        let completed = AgentStatusStore(isAlive: { _ in true })
+        completed.ingest(AgentHookEvent(application: .claude, event: "UserPromptSubmit",
+                                        session: "completed", turn: turn))
+        completed.ingest(AgentHookEvent(application: .claude, event: "Stop",
+                                        session: "completed", turn: turn))
+        for result in ["PostToolUse", "PostToolUseFailure"] {
+            completed.ingest(AgentHookEvent(application: .claude, event: result,
+                                            session: "completed", turn: turn))
+            expect(completed.states()[.claude] == .done,
+                   "Claude: a late \(result) cannot revive a finished prompt")
+        }
+        // A Stop hook may continue the agentic loop: a newly started tool is
+        // evidence of resumed work, even when the prompt ID stays the same.
+        completed.ingest(AgentHookEvent(application: .claude, event: "PreToolUse",
+                                        session: "completed", turn: turn, toolName: "Bash"))
+        expect(completed.states()[.claude] == .working,
+               "Claude: a newly started tool resumes work after a Stop hook")
+    }
+
+    let idle = AgentStatusStore(isAlive: { _ in true })
+    idle.ingest(AgentHookEvent(application: .claude, event: "UserPromptSubmit",
+                               session: "idle", turn: "prompt"))
+    idle.ingest(AgentHookEvent(application: .claude, event: "Notification", session: "idle",
+                               turn: "old", notificationType: "idle_prompt"))
+    expect(idle.states()[.claude] == .working,
+           "Claude: an old idle notification cannot finish the current prompt")
+    idle.ingest(AgentHookEvent(application: .claude, event: "Notification", session: "idle",
+                               turn: "prompt", notificationType: "idle_prompt"))
+    expect(idle.states()[.claude] == .done,
+           "Claude: its idle notification recovers a missed Stop event")
+    idle.ingest(AgentHookEvent(application: .claude, event: "UserPromptSubmit",
+                               session: "idle", turn: "next"))
+    expect(idle.states()[.claude] == .working,
+           "Claude: the next prompt starts work after an idle notification")
+
     // Session aggregation (S1-S12).
     var clock = Date(timeIntervalSince1970: 1_000)
     var alive: Set<Int32> = [10, 11, 20, 30]
@@ -188,8 +225,8 @@ func agentStatusChecks(_ expect: (Bool, String) -> Void, fixture: (String) -> [U
     expect(state(.claude) == .working, "the next tool event resumes work")
     event(.claude, "PreToolUse", "a", tool: "AskUserQuestion")
     expect(state(.claude) == .needsYou, "a question needs you")
-    event(.claude, "Notification", "a", notification: "idle_prompt")
-    expect(state(.claude) == .needsYou, "idle notifications change nothing")
+    event(.claude, "Notification", "a", notification: "auth_success")
+    expect(state(.claude) == .needsYou, "unrelated notifications change nothing")
     event(.claude, "Stop", "a", turn: "p0")
     expect(state(.claude) == .needsYou, "a stop for an earlier turn is ignored")
     event(.claude, "PostToolUse", "a")

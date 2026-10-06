@@ -2092,6 +2092,11 @@ persisted. A prompt-start event establishes the current turn; activity, waits
 and stops with a different turn ID are ignored. If no prompt has been observed
 after a Companion restart, the first identified activity establishes the turn.
 A new prompt without a turn ID clears the preceding ID.
+After Claude finishes, late `PostToolUse` and `PostToolUseFailure` results do
+not revive the completed session; a new prompt or `PreToolUse` can resume it,
+including when a Stop hook continues the same prompt. Claude's `idle_prompt`
+notification also marks that turn finished, recovering a missed Stop event;
+the same turn-ID checks apply to this completion signal.
 Companion installs or removes its own hook entries only on explicit
 user action, with a backup, and `AgentStatusReport` answers AI_AGENT_STATUS
 with only the applications whose hooks are installed, rereading that set at
