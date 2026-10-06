@@ -110,8 +110,11 @@ extension AgentHookEvent {
             case "StopFailure":
                 return .needsYou
             case "Notification":
-                return notificationType == "permission_prompt" ||
-                    notificationType == "elicitation_dialog" ? .needsYou : .ignored
+                switch notificationType {
+                case "permission_prompt", "elicitation_dialog": return .needsYou
+                case "idle_prompt": return .finished
+                default: return .ignored
+                }
             case "Stop":
                 return .finished
             case "SessionEnd":

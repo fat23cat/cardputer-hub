@@ -164,7 +164,10 @@ WORKING, a finished or user-stopped run DONE, reported as done earlier once
 the latest finish is ten minutes old. A session ends with its end
 event, when its agent process exits, or after 15 minutes working or 2 hours
 waiting without events. Cursor's `stop` counts after 0.7 seconds without new
-activity. Diagnostics shows each application's hook state and last event. The
+activity. Claude's late tool results do not restore WORKING after a finish;
+a new prompt or newly started tool can resume it. Its `idle_prompt`
+notification also recovers a missed Stop event. Diagnostics shows each
+application's hook state and last event. The
 Cardputer lists only applications whose hooks are installed; Companion rereads
 that set every few seconds and at once after an install or removal.
 Claude Code sends no hook when you interrupt a run or deny a permission, and

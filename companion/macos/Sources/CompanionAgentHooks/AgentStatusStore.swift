@@ -79,6 +79,10 @@ public final class AgentStatusStore {
                 // After a Companion restart, the first activity can establish it.
                 session.turn = event.turn ?? session.turn
             }
+            // A result can arrive after Claude's Stop. Only a new prompt or
+            // newly started tool proves that the completed session resumed.
+            if event.application == .claude, session.phase == .finished,
+               event.event == "PostToolUse" || event.event == "PostToolUseFailure" { return }
             if event.transition == .permissionRequested {
                 // Stays as it is until the grace period passes unanswered.
                 if session.phase == .finished { session.phase = .working }

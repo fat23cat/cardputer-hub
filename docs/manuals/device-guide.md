@@ -433,6 +433,11 @@ without an answer, so automatic approvals (such as Codex auto-review) do not
 flash it; a question or an error shows at once. `DONE` means the agent stopped, not that the result is correct. Escape
 closes AI.
 
+Claude's late tool results do not restore `WORKING` after a finished response.
+If its completion event was missed, Claude's idle notification can recover
+`DONE` about a minute later, when no background agent is running and you have
+not entered another prompt.
+
 It needs hooks in each desktop app. In the Companion menu, open **AI Agent
 Hooks** and choose **Install Codex Hooks**, **Install Claude Code Hooks** or
 **Install Cursor Hooks**, then restart that app. Codex asks you to review and
