@@ -565,9 +565,22 @@ is shortened before it would touch its right-aligned value. A peripheral battery
 20% or less shows `LOW` in Vermilion. It repaints changed regions only. Escape
 uses the shared Mini App exit path. Capability loss closes it through
 MiniAppRuntime.
-AI USAGE requires the live `COMPANION` capability. It uses the full 240×135
-display without an internal title, host label, connection chrome, cards, or
-footer. It shows only discovered providers, presents bars as remaining quota,
+AI is one Launcher entry requiring the live `COMPANION` capability. Its main
+pages have a 16-pixel navigation strip: `AI`, `STATUS`, `USAGE`, and Left/Right
+marks. The current page uses Ink/Bone inversion; the other label is Ordinal.
+Left/Right, including `,` / `/` without Fn, cycle the two pages with the shared
+220 ms slide in the direction of the pressed key. The last page
+is remembered within a firmware session; first entry opens STATUS. On USAGE,
+a Vermilion `!` beside STATUS means at least one agent has a fresh NEEDS YOU
+state. Agent polling continues throughout AI, including usage details; stale
+or missing delivery removes that mark. Companion loss closes AI through the
+shared capability gate. Reconnect does not reopen it.
+USAGE uses the remaining 119 pixels without additional host label, connection
+chrome, cards, or footer. Existing text sizes and horizontal alignment remain;
+vertical spacing fits the content area. It keeps every existing field: provider
+and plan, used/limit credits or money, remaining percent and bars, reset time,
+freshness, and reset-credit count when available. It shows only discovered
+providers, presents bars as remaining quota,
 labels the value `LEFT`, and marks 0–4% remaining with `!`. A stale provider
 has a visible `STALE` label. Initial discovery shows `CHECKING AI`; completed
 discovery with no usable account shows `NO AI ACCOUNTS`. Up/Down, including
@@ -575,8 +588,8 @@ the physical `;` / `.` keys without Fn, temporarily
 selects a visible metric for a full-matrix Puzzle gauge. The resting Puzzle
 overview uses two four-row zones when two metrics are present, with two purple
 boundary pixels and 30 quota pixels per zone. The Puzzle is used only while
-AI USAGE is open, at foreground-application priority; closing the Mini App
-releases it. Unchanged display
+USAGE or its details are visible, at foreground-application priority; switching
+to STATUS or closing AI releases it. Unchanged display
 state does not continuously redraw.
 For Codex Plus, the main provider row adds a compact `R×N`
 badge when the reset-credit count is known, including zero. Enter opens two
@@ -589,9 +602,10 @@ its LIMITS column; reset details remain available. Titles outside the display
 font use `RESET CREDIT`. The physical `,` / `/` keys switch
 detail pages without Fn; the physical `;` / `.` keys scroll RESETS without Fn.
 Logical arrow keys also work. Enter returns to
-the dashboard. Both detail pages show `STALE` when the provider data is stale.
-Escape remains the shared Mini App exit. Business and Cursor
-screens retain their existing layout and behavior.
+the dashboard. Details use the full 240×135 display without the main navigation
+strip. Both detail pages show `STALE` when the provider data is stale.
+Escape in details returns to USAGE; Escape on either main page uses the shared
+Mini App exit. Business and Cursor screens retain their fields and behavior.
 A provider with two rolling windows shown beside a second
 provider (for example Codex Plus and Claude) uses one compact row per window:
 `5H`/`WK`, bar, right-aligned remaining percent, and reset time. The provider
@@ -606,10 +620,10 @@ unused band stays dark. A stale rolling window whose reset time has passed
 arrives as 100% left with an unknown reset and keeps the `STALE` mark. The
 empty state lists `CODEX / CURSOR / CLAUDE` with a schema 3 Companion and
 `CODEX / CURSOR` with an older one.
-AI STATUS requires the live `COMPANION` capability. It uses the full 240×135
-display without a header: one full-width plate per application whose hooks
+STATUS uses the content area beneath AI's navigation strip: one full-width
+plate per application whose hooks
 Companion has installed, in the order CODEX, CLAUDE, CURSOR, sharing the height
-equally (one, two or three plates) with a 2-pixel Bone line between them. Each
+equally (one, two or three plates) with a thin Bone line between them. Each
 plate is a state surface with the name at the left and the state at the right
 in double-size text: Blue with Bone text `WORKING`, Vermilion with Bone text
 `NEEDS YOU` (a wait or an error), Leaf with Ink text `DONE`, Light neutral with
@@ -620,8 +634,10 @@ a centered `CHECKING AI`; with no hooks installed it shows `NO AI HOOKS` above a
 quiet Ordinal `INSTALL IN COMPANION`. Plates appear or disappear when the
 installed set changes; otherwise only a plate whose state changes is redrawn,
 and settled plates draw nothing. There is no chat list, count, refresh control,
-transition animation or Escape hint; Escape uses the shared exit. Unit Puzzle is
-used only while AI STATUS is open (see Architecture §28).
+animation on status updates or Escape hint; Escape uses the shared exit. Unit Puzzle is
+used only while STATUS is visible (see Architecture §28). Switching pages
+releases the previous controller's claims before activating the next one;
+temporary quota focus and feedback do not replay when returning to USAGE.
 NFC requires the live `NFC_READER` capability, so it is unavailable in Apps
 (`REQUIRES NFC_READER`) without a Unit NFC. It is a personal inventory screen
 with the header `NFC`; the header's right slot shows a quiet `NO SD` while the

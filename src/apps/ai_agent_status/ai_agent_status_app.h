@@ -19,8 +19,9 @@ class AiAgentStatusApp final : public IMiniApp {
   public:
     AiAgentStatusApp(services::AiAgentStatusService& status,
                      services::AiAgentStatusIndicatorController& indicator,
-                     core::IDisplayAdapter& display)
-        : status_(status), indicator_(indicator), display_(display) {}
+                     core::IDisplayAdapter& display, bool manageMonitoring = true)
+        : status_(status), indicator_(indicator), display_(display),
+          manageMonitoring_(manageMonitoring) {}
     void onActivate() override;
     void onDeactivate() override;
     void update(const core::InputEvents& input, std::chrono::milliseconds elapsed) override;
@@ -47,6 +48,8 @@ class AiAgentStatusApp final : public IMiniApp {
     // The applications that own plates; kept through stale periods.
     connectivity::CompanionAgentStatus shown_{};
     std::uint32_t generation_ = 0;
+    // AiApp owns monitoring across both pages; a standalone view owns its own.
+    bool manageMonitoring_;
 };
 
 } // namespace cardputer_hub::apps

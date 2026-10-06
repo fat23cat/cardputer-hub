@@ -1,5 +1,4 @@
-#include "apps/ai_agent_status/ai_agent_status_app.h"
-#include "apps/ai_usage/ai_usage_app.h"
+#include "apps/ai/ai_app.h"
 #include "apps/hosts/host_settings.h"
 #include "apps/led_gallery/led_gallery_app.h"
 #include "apps/mac_control/mac_control_app.h"
@@ -110,11 +109,10 @@ cardputer_hub::hardware::EspPuzzleLedBackend puzzleLedBackend;
 cardputer_hub::hardware::PuzzleWs2812Adapter puzzleLeds(puzzleLedBackend);
 cardputer_hub::services::IndicatorService indicator(puzzleLeds);
 cardputer_hub::services::AiUsageIndicatorController aiUsageIndicator(aiUsage, indicator);
-cardputer_hub::apps::AiUsageApp aiUsageApp(aiUsage, aiUsageIndicator, display);
 cardputer_hub::services::AiAgentStatusIndicatorController aiAgentStatusIndicator(aiAgentStatus,
                                                                                  indicator);
-cardputer_hub::apps::AiAgentStatusApp aiAgentStatusApp(aiAgentStatus, aiAgentStatusIndicator,
-                                                       display);
+cardputer_hub::apps::AiApp aiApp(aiUsage, aiUsageIndicator, aiAgentStatus, aiAgentStatusIndicator,
+                                 display);
 cardputer_hub::services::DeviceSettingsService deviceSettings(configuration, displayPower,
                                                               indicator);
 cardputer_hub::apps::ApplicationShell applicationShell(hosts, network, actions, display,
@@ -174,18 +172,9 @@ extern "C" void app_main(void) {
                                    "mac-status",
                                    {cardputer_hub::connectivity::companionCapabilityId}});
     (void)miniApps.registerInstance("mac-status", macStatusApp);
-    (void)appRegistry.registerApp({"ai-usage",
-                                   "AI USAGE",
-                                   "ai-usage",
-                                   "ai-usage",
-                                   {cardputer_hub::connectivity::companionCapabilityId}});
-    (void)miniApps.registerInstance("ai-usage", aiUsageApp);
-    (void)appRegistry.registerApp({"ai-status",
-                                   "AI STATUS",
-                                   "ai-status",
-                                   "ai-status",
-                                   {cardputer_hub::connectivity::companionCapabilityId}});
-    (void)miniApps.registerInstance("ai-status", aiAgentStatusApp);
+    (void)appRegistry.registerApp(
+        {"ai", "AI", "ai", "ai", {cardputer_hub::connectivity::companionCapabilityId}});
+    (void)miniApps.registerInstance("ai", aiApp);
     (void)appRegistry.registerApp({"pomodoro", "POMODORO", "pomodoro", "pomodoro", {}});
     (void)miniApps.registerInstance("pomodoro", pomodoroApp);
     (void)appRegistry.registerApp({"led-gallery", "LED GALLERY", "led-gallery", "led-gallery", {}});

@@ -132,8 +132,9 @@ does not receive as not sent.
 Claude usage is a private provider adapter that may need updating if the
 service changes.
 
-The Companion answers `AI_AGENT_STATUS` for AI STATUS from desktop agent
-lifecycle hooks. **AI Agent Hooks** in the menu installs or removes the hooks
+The Companion answers `AI_AGENT_STATUS` for AI's STATUS page and its USAGE
+attention indicator from desktop agent lifecycle hooks. **AI Agent Hooks** in
+the menu installs or removes the hooks
 of Codex (`~/.codex/hooks.json`, or `$CODEX_HOME`), Claude Code
 (`~/.claude/settings.json`, which the desktop Code tab shares) and Cursor
 Agent Chat (`~/.cursor/hooks.json`). It changes only entries that run

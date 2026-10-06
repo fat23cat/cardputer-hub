@@ -1070,6 +1070,25 @@ void test_work_usage_renders_business_credits_and_cursor_spend() {
                      display.labels.end());
 }
 
+void test_escape_returns_from_usage_details_without_closing() {
+    Fixture f;
+    f.ready(4);
+    f.respondValue(personalUsage(64, 81, 35, 88));
+    Display display;
+    apps::AiUsageApp app(f.usage, f.gauge, display);
+    app.onActivate();
+    app.update({}, {});
+    TEST_ASSERT_FALSE(app.handleBack());
+    const core::InputEvent enter{core::InputEventType::NamedKey, 0, core::NamedKey::Enter, {}};
+    app.update({enter}, {});
+    TEST_ASSERT_TRUE(app.handleBack());
+    display.labels.clear();
+    app.update({}, {});
+    TEST_ASSERT_TRUE(std::find(display.labels.begin(), display.labels.end(), "LEFT") !=
+                     display.labels.end());
+    TEST_ASSERT_FALSE(app.handleBack());
+}
+
 void test_plus_reset_details_navigation_and_session_clear() {
     Fixture f;
     f.ready(4);
@@ -1413,6 +1432,7 @@ int main() {
     RUN_TEST(test_remaining_percent_is_right_aligned_in_all_layouts);
     RUN_TEST(test_home_then_work_replaces_provider_set_and_puzzle);
     RUN_TEST(test_work_usage_renders_business_credits_and_cursor_spend);
+    RUN_TEST(test_escape_returns_from_usage_details_without_closing);
     RUN_TEST(test_plus_reset_details_navigation_and_session_clear);
     RUN_TEST(test_plus_reset_details_remain_available_with_one_window);
     RUN_TEST(test_plus_reset_expiry_formats_short_intervals);
