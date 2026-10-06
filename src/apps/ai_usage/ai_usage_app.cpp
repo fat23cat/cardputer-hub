@@ -477,6 +477,8 @@ void AiUsageApp::update(const core::InputEvents& input, std::chrono::millisecond
                 (event.type == core::InputEventType::PrintableCharacter && !event.modifiers.fn &&
                  (event.character == ',' || event.character == '/'));
             if (horizontal && detailProvider() != nullptr && plus(*detailProvider())) {
+                display_.beginTransition(core::isPageLeft(event) ? core::SlideDirection::Backward
+                                                                 : core::SlideDirection::Forward);
                 view_ = view_ == View::Limits ? View::Resets : View::Limits;
                 resetScroll_ = 0;
                 rendered_ = false;

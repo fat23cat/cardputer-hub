@@ -2,7 +2,6 @@
 
 #include "core/text/utf8.h"
 
-#include <cmath>
 #include <cstdint>
 #include <string>
 #include <string_view>
@@ -15,16 +14,24 @@ constexpr float systemTextScale = 1.20f;
 constexpr float systemGlyphNativeWidth = 6.0f;
 constexpr float systemGlyphNativeHeight = 8.0f;
 
-// Text is UTF-8. Every code point is one fixed-width glyph of the system font
-// (see display_glyphs.h), so widths count code points, not bytes.
+// M5GFX GLCD fonts quantize each glyph independently using 16.16 scale.
+inline std::int32_t scaledGlyphExtent(std::int32_t pixels, float scale) {
+    return (pixels * static_cast<std::int32_t>(65536.0f * scale)) >> 16;
+}
+
+inline std::int32_t textGlyphWidth(float scale = systemTextScale) {
+    return scaledGlyphExtent(static_cast<std::int32_t>(systemGlyphNativeWidth), scale);
+}
+
+// Text is UTF-8; every code point advances by one quantized glyph.
 inline std::int32_t textWidth(const char* text, float scale) {
-    return static_cast<std::int32_t>(std::ceil(utf8Length(text) * systemGlyphNativeWidth * scale));
+    return static_cast<std::int32_t>(utf8Length(text)) * textGlyphWidth(scale);
 }
 
 inline std::int32_t systemTextWidth(const char* text) { return textWidth(text, systemTextScale); }
 
 inline std::int32_t systemTextHeight() {
-    return static_cast<std::int32_t>(std::ceil(systemGlyphNativeHeight * systemTextScale));
+    return scaledGlyphExtent(static_cast<std::int32_t>(systemGlyphNativeHeight), systemTextScale);
 }
 
 inline std::int32_t centeredTextX(const char* text, std::int32_t left, std::int32_t width,
@@ -33,18 +40,23 @@ inline std::int32_t centeredTextX(const char* text, std::int32_t left, std::int3
 }
 
 inline std::size_t systemTextMaxCharacters(std::int32_t availableWidth) {
-    if (availableWidth <= 0)
+    const auto width = textGlyphWidth();
+    if (availableWidth <= 0 || width <= 0)
         return 0;
-    return static_cast<std::size_t>(availableWidth / (systemGlyphNativeWidth * systemTextScale));
+    return static_cast<std::size_t>(availableWidth / width);
 }
 
-inline std::string fitSystemText(const std::string& text, std::int32_t availableWidth) {
-    const auto maximum = systemTextMaxCharacters(availableWidth);
+// Character budgets count UTF-8 code points, independent of the font scale.
+inline std::string fitSystemTextColumns(const std::string& text, std::size_t maximum) {
     if (utf8Length(text) <= maximum)
         return text;
     if (maximum <= 3)
         return utf8Prefix(text, maximum);
     return utf8Prefix(text, maximum - 3) + "...";
+}
+
+inline std::string fitSystemText(const std::string& text, std::int32_t availableWidth) {
+    return fitSystemTextColumns(text, systemTextMaxCharacters(availableWidth));
 }
 
 inline std::int32_t rightAlignedTextX(const char* text,

@@ -1,6 +1,7 @@
 #include "apps/pomodoro/pomodoro_graphics.h"
 
 #include "apps/hosts/assets/micro5_digits.h"
+#include "core/display/monochrome_bitmap.h"
 #include "core/display/palette.h"
 #include "core/display/text_layout.h"
 
@@ -32,12 +33,8 @@ void drawGlyph(IDisplayAdapter& display, PixelPosition position, char digit, Rgb
     if (index == std::string_view::npos)
         return;
     const auto& bits = micro5_digits::kGlyphs[0][index];
-    for (int y = 0; y < micro5_digits::kHeight; ++y) {
-        for (int x = 0; x < micro5_digits::kWidth; ++x) {
-            if (bits[y * micro5_digits::kStride + x / 8] & (0x80U >> (x % 8)))
-                display.fillRectangle({position.x + x, position.y + y}, 1, 1, color);
-        }
-    }
+    drawMonochromeBitmap(display, position, bits, micro5_digits::kWidth, micro5_digits::kHeight,
+                         micro5_digits::kStride, color);
 }
 
 void drawCentered(IDisplayAdapter& display, std::int32_t y, const char* text, TextStyle style) {
@@ -93,39 +90,66 @@ void formatPomodoroRemaining(const PomodoroSnapshot& snapshot, char (&text)[6]) 
     text[5] = '\0';
 }
 
-void drawPomodoroScreen(IDisplayAdapter& display, const PomodoroSnapshot& snapshot) {
-    display.clear(palette::bone);
+void drawPomodoroScreen(IDisplayAdapter& display, const PomodoroSnapshot& snapshot,
+                        const PomodoroSnapshot* previous) {
+    if (!previous)
+        display.clear(palette::bone);
     const TextStyle ink{palette::ink, palette::bone, systemTextScale};
     const TextStyle ordinal{palette::ordinal, palette::bone, systemTextScale};
-    display.drawText({6, 6}, pomodoroPhaseLabel(snapshot.phase), ink);
-    char cycle[8] = {};
-    std::snprintf(cycle, sizeof(cycle), "%u / 4",
-                  static_cast<unsigned>(pomodoroCycleDisplay(snapshot)));
-    display.drawText({rightAlignedTextX(cycle), 6}, cycle, ordinal);
+    if (!previous || previous->phase != snapshot.phase ||
+        pomodoroCycleDisplay(*previous) != pomodoroCycleDisplay(snapshot)) {
+        if (previous)
+            display.fillRectangle({0, 0}, 240, 21, palette::bone);
+        display.drawText({6, 6}, pomodoroPhaseLabel(snapshot.phase), ink);
+        char cycle[8] = {};
+        std::snprintf(cycle, sizeof(cycle), "%u / 4",
+                      static_cast<unsigned>(pomodoroCycleDisplay(snapshot)));
+        display.drawText({rightAlignedTextX(cycle), 6}, cycle, ordinal);
+    }
 
     char remaining[6] = {};
     formatPomodoroRemaining(snapshot, remaining);
+    char oldRemaining[6] = {};
+    if (previous)
+        formatPomodoroRemaining(*previous, oldRemaining);
     auto x = timerX;
-    for (int i = 0; i < 2; ++i) {
-        drawGlyph(display, {x, timerY}, remaining[i], palette::ink);
-        x += digitStride;
-    }
-    display.fillRectangle({x + 2, timerY + 8}, 2, 2, palette::ink);
-    display.fillRectangle({x + 2, timerY + 18}, 2, 2, palette::ink);
-    x += colonWidth;
-    for (int i = 3; i < 5; ++i) {
-        drawGlyph(display, {x, timerY}, remaining[i], palette::ink);
+    for (int i = 0; i < 5; ++i) {
+        if (i == 2) {
+            if (!previous) {
+                display.fillRectangle({x + 2, timerY + 8}, 2, 2, palette::ink);
+                display.fillRectangle({x + 2, timerY + 18}, 2, 2, palette::ink);
+            }
+            x += colonWidth;
+            continue;
+        }
+        if (!previous || oldRemaining[i] != remaining[i]) {
+            if (previous)
+                display.fillRectangle({x, timerY}, micro5_digits::kWidth, micro5_digits::kHeight,
+                                      palette::bone);
+            drawGlyph(display, {x, timerY}, remaining[i], palette::ink);
+        }
         x += digitStride;
     }
 
     const auto filled = pomodoroLcdFilledSegments(snapshot);
     const auto fillColor = snapshot.phase == PomodoroPhase::Work ? palette::blue : palette::leaf;
+    const auto previousFilled = previous ? pomodoroLcdFilledSegments(*previous) : 0;
+    const auto previousFillColor =
+        previous && previous->phase == PomodoroPhase::Work ? palette::blue : palette::leaf;
     for (std::int32_t i = 0; i < pomodoroLcdSegments; ++i) {
+        const auto color = i < filled ? fillColor : palette::pale;
+        const auto previousColor = i < previousFilled ? previousFillColor : palette::pale;
+        if (previous && color.red == previousColor.red && color.green == previousColor.green &&
+            color.blue == previousColor.blue)
+            continue;
         const auto segmentX = progressX + i * (segmentWidth + segmentGap);
-        display.fillRectangle({segmentX, progressY}, segmentWidth, progressHeight,
-                              i < filled ? fillColor : palette::pale);
+        display.fillRectangle({segmentX, progressY}, segmentWidth, progressHeight, color);
     }
 
+    if (previous && previous->runState == snapshot.runState)
+        return;
+    if (previous)
+        display.fillRectangle({0, 118}, 240, systemTextHeight(), palette::bone);
     if (snapshot.runState == PomodoroRunState::Paused)
         drawCentered(display, 118, "PAUSED", ink);
     else if (snapshot.runState == PomodoroRunState::Idle)

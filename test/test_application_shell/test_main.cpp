@@ -17,6 +17,7 @@
 #include "services/nfc/nfc_service.h"
 
 #include <algorithm>
+#include <array>
 #include <chrono>
 #include <cmath>
 #include <deque>
@@ -540,6 +541,70 @@ void test_home_focus_plate_moves_and_settles_inside_action_bar() {
     TEST_ASSERT_FALSE(homeFocusPlateX(f.display).has_value());
     shell.update({}, std::chrono::milliseconds(20));
     TEST_ASSERT_FALSE(homeFocusPlateX(f.display).has_value());
+}
+
+// Isolate opaque text backgrounds: glyph strokes cannot repair the plate's
+// silhouette when a label is only partly covered.
+class TextBackgroundDisplay final : public core::IDisplayAdapter {
+  public:
+    void clear(core::RgbColor color) override {
+        pixels.fill(color);
+        textWrites.fill(0);
+    }
+    void fillRectangle(core::PixelPosition position, std::int32_t width, std::int32_t height,
+                       core::RgbColor color) override {
+        for (int y = position.y; y < position.y + height; ++y)
+            for (int x = position.x; x < position.x + width; ++x)
+                pixels[y * 240 + x] = color;
+    }
+    void drawText(core::PixelPosition position, const char* text, core::TextStyle style) override {
+        int left = position.x, top = position.y;
+        int right = left + core::textWidth(text, style.scale);
+        int bottom = top + core::scaledGlyphExtent(8, style.scale);
+        if (style.clip) {
+            left = std::max(left, style.clip->origin.x);
+            top = std::max(top, style.clip->origin.y);
+            right = std::min(right, style.clip->origin.x + style.clip->width);
+            bottom = std::min(bottom, style.clip->origin.y + style.clip->height);
+        }
+        if (right > left && bottom > top)
+            fillRectangle({left, top}, right - left, bottom - top, style.background);
+        for (int y = top; y < bottom; ++y)
+            for (int x = left; x < right; ++x)
+                ++textWrites[y * 240 + x];
+    }
+    std::array<core::RgbColor, 240 * 135> pixels{};
+    std::array<std::uint8_t, 240 * 135> textWrites{};
+};
+
+void test_home_moving_plate_has_no_text_background_holes_or_protrusions() {
+    TextBackgroundDisplay display;
+    for (const int plateX : {4, 32, 63, 64, 96, 124}) {
+        display.clear(core::palette::bone);
+        apps::drawHomeActions(display, plateX);
+        for (int y = 120; y < 129; ++y)
+            for (int x = 0; x < 240; ++x) {
+                const auto expected = (x >= plateX && x < plateX + 112) || x == 119
+                                          ? core::palette::ink
+                                          : core::palette::bone;
+                const auto actual = display.pixels[y * 240 + x];
+                TEST_ASSERT_EQUAL_UINT8(expected.red, actual.red);
+                TEST_ASSERT_EQUAL_UINT8(expected.green, actual.green);
+                TEST_ASSERT_EQUAL_UINT8(expected.blue, actual.blue);
+            }
+    }
+}
+
+void test_home_labels_do_not_overpaint_the_same_pixels_on_a_direct_display() {
+    TextBackgroundDisplay display;
+    for (const int plateX : {4, 32, 63, 64, 96, 124}) {
+        display.clear(core::palette::bone);
+        apps::drawHomeActions(display, plateX);
+        for (const auto writes : display.textWrites)
+            TEST_ASSERT_LESS_OR_EQUAL_UINT8(1, writes);
+        TEST_ASSERT_EQUAL_UINT8(1, display.textWrites[120 * 240 + 45]);
+        TEST_ASSERT_EQUAL_UINT8(1, display.textWrites[120 * 240 + 152]);
+    }
 }
 
 void test_settings_focus_jumps_to_next_row() {
@@ -1847,6 +1912,8 @@ int main() {
     RUN_TEST(test_home_enter_opens_launcher_and_tab_still_opens_settings);
     RUN_TEST(test_home_focus_activates_settings_and_resets_on_return);
     RUN_TEST(test_home_focus_plate_moves_and_settles_inside_action_bar);
+    RUN_TEST(test_home_moving_plate_has_no_text_background_holes_or_protrusions);
+    RUN_TEST(test_home_labels_do_not_overpaint_the_same_pixels_on_a_direct_display);
     RUN_TEST(test_settings_focus_jumps_to_next_row);
     RUN_TEST(test_bluetooth_list_focus_jumps_to_next_row);
     RUN_TEST(test_wifi_list_focus_jumps_to_next_row);

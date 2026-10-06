@@ -2,6 +2,7 @@
 
 #include "apps/hosts/assets/micro5_digits.h"
 #include "core/display/contextual_footer.h"
+#include "core/display/monochrome_bitmap.h"
 #include "core/display/palette.h"
 #include "core/display/text_layout.h"
 #include <algorithm>
@@ -235,13 +236,8 @@ void HostSettings::digits(const std::string& value) {
         if (c >= '0' && c <= '9') {
             constexpr std::string_view sheetCharacters = "1234560789";
             const auto& glyph = micro5_digits::kGlyphs[0][sheetCharacters.find(c)];
-            for (int y = 0; y < micro5_digits::kHeight; ++y) {
-                for (int x = 0; x < micro5_digits::kWidth; ++x) {
-                    if (glyph[y * micro5_digits::kStride + x / 8] & (0x80U >> (x % 8))) {
-                        display_.fillRectangle({left + x, 52 + y}, 1, 1, palette::ink);
-                    }
-                }
-            }
+            drawMonochromeBitmap(display_, {left, 52}, glyph, micro5_digits::kWidth,
+                                 micro5_digits::kHeight, micro5_digits::kStride, palette::ink);
         }
         left += 24;
     }
@@ -293,8 +289,12 @@ void HostSettings::renderList() {
         display_.fillRectangle({6, 20}, 228, 1, palette::ink);
     }
     if (full || next.status != listFrame_->status) {
-        if (!full)
-            display_.fillRectangle({174, 6}, 60, systemTextHeight(), palette::bone);
+        if (!full) {
+            const auto left = std::min(rightAlignedTextX(listFrame_->status.c_str()),
+                                       rightAlignedTextX(next.status.c_str()));
+            display_.fillRectangle({left, 6}, headerStatusRight - left, systemTextHeight(),
+                                   palette::bone);
+        }
         display_.drawText({rightAlignedTextX(next.status.c_str()), 6}, next.status.c_str(), normal);
     }
     for (std::size_t slot = 0; slot < next.labels.size(); ++slot) {

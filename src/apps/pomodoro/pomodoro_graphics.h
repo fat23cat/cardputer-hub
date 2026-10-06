@@ -17,6 +17,7 @@ pomodoroCycleDisplay(const services::PomodoroSnapshot& snapshot) noexcept;
 pomodoroLcdFilledSegments(const services::PomodoroSnapshot& snapshot) noexcept;
 void formatPomodoroRemaining(const services::PomodoroSnapshot& snapshot, char (&text)[6]) noexcept;
 
-void drawPomodoroScreen(core::IDisplayAdapter& display, const services::PomodoroSnapshot& snapshot);
+void drawPomodoroScreen(core::IDisplayAdapter& display, const services::PomodoroSnapshot& snapshot,
+                        const services::PomodoroSnapshot* previous = nullptr);
 
 } // namespace cardputer_hub::apps

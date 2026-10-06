@@ -9,8 +9,10 @@
 #include <deque>
 #include <optional>
 #include <string>
+#include <string_view>
 #include <vector>
 
+#include "apps/hosts/assets/micro5_digits.h"
 #include "apps/hosts/host_settings.h"
 #include "apps/mac_control/mac_control_app.h"
 #include "apps/network/wifi_settings.h"
@@ -329,6 +331,28 @@ void test_slot_numbers_and_paging_model() {
     TEST_ASSERT_TRUE(macControlCanMoveNext(0, pages.size()));
     TEST_ASSERT_TRUE(macControlCanMovePrevious(1));
     TEST_ASSERT_FALSE(macControlCanMoveNext(1, pages.size()));
+}
+
+void test_micro5_digits_preserve_the_bitmap_with_fewer_draw_calls() {
+    constexpr std::string_view sheet = "1234560789";
+    for (std::size_t digit = 0; digit < sheet.size(); ++digit) {
+        Display display;
+        drawMacControlDigit(display, {0, 0}, sheet[digit], palette::ink);
+        bool pixels[micro5_digits::kHeight][micro5_digits::kWidth]{};
+        for (const auto& rectangle : display.rectangles)
+            for (int y = rectangle.position.y; y < rectangle.position.y + rectangle.height; ++y)
+                for (int x = rectangle.position.x; x < rectangle.position.x + rectangle.width; ++x)
+                    pixels[y][x] = true;
+        unsigned foreground = 0;
+        const auto& mask = micro5_digits::kGlyphs[0][digit];
+        for (int y = 0; y < micro5_digits::kHeight; ++y)
+            for (int x = 0; x < micro5_digits::kWidth; ++x) {
+                const bool filled = mask[y * micro5_digits::kStride + x / 8] & (0x80U >> (x % 8));
+                TEST_ASSERT_EQUAL(filled, pixels[y][x]);
+                foreground += filled;
+            }
+        TEST_ASSERT_LESS_THAN_UINT(foreground, display.rectangles.size());
+    }
 }
 
 void test_production_page_binds_telegram_to_slot_one() {
@@ -925,6 +949,7 @@ void tearDown() {}
 int main() {
     UNITY_BEGIN();
     RUN_TEST(test_slot_numbers_and_paging_model);
+    RUN_TEST(test_micro5_digits_preserve_the_bitmap_with_fewer_draw_calls);
     RUN_TEST(test_production_page_binds_telegram_to_slot_one);
     RUN_TEST(test_registry_requires_companion_and_renders_grid);
     RUN_TEST(test_direct_keys_and_paging);

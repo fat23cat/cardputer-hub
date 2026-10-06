@@ -287,6 +287,19 @@ void test_wifi_status_text_distinguishes_enabled_and_configured() {
     TEST_ASSERT_EQUAL_STRING("OFF", apps::systemWifiStatusText(status));
 }
 
+void test_unicode_network_name_is_not_truncated_by_bytes() {
+    Fixture f;
+    f.setWifi(false, "Лаборатория", connectivity::WifiAdapterState::Disconnected);
+    f.app.onActivate();
+    f.app.update({}, {});
+    TEST_ASSERT_TRUE(f.display.shows("Лаборатория"));
+    f.setWifi(false, "Лаборатория ABCDEF", connectivity::WifiAdapterState::Disconnected);
+    f.app.update({}, {});
+    TEST_ASSERT_TRUE(f.display.shows("Лаборатория A..."));
+    for (const auto& text : f.display.texts)
+        TEST_ASSERT_TRUE(core::isValidUtf8(text));
+}
+
 void test_unchanged_snapshots_do_not_repaint() {
     Fixture f;
     f.batteryAdapter.value = 81;
@@ -351,6 +364,7 @@ int main() {
     RUN_TEST(test_host_name_and_status_changes);
     RUN_TEST(test_wifi_states_and_network_name);
     RUN_TEST(test_wifi_status_text_distinguishes_enabled_and_configured);
+    RUN_TEST(test_unicode_network_name_is_not_truncated_by_bytes);
     RUN_TEST(test_unchanged_snapshots_do_not_repaint);
     RUN_TEST(test_one_value_change_updates_presentation);
     RUN_TEST(test_lifecycle_through_runtime);

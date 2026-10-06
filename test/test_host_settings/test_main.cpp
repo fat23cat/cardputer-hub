@@ -92,6 +92,9 @@ class Display final : public core::IDisplayAdapter {
              << unsigned(style.foreground.green) << ' ' << unsigned(style.foreground.blue) << ' '
              << unsigned(style.background.red) << ' ' << unsigned(style.background.green) << ' '
              << unsigned(style.background.blue) << ' ' << std::quoted(value);
+        if (style.clip)
+            line << " clip " << style.clip->origin.x << ' ' << style.clip->origin.y << ' '
+                 << style.clip->width << ' ' << style.clip->height;
         commands.push_back(line.str());
         dirty = true;
     }
@@ -121,12 +124,17 @@ class Display final : public core::IDisplayAdapter {
     std::vector<DrawnText> drawnTexts;
 };
 void test_fractional_system_text_metrics_and_capture() {
-    TEST_ASSERT_EQUAL_INT32(8, core::systemTextWidth("A"));
-    TEST_ASSERT_EQUAL_INT32(10, core::systemTextHeight());
-    TEST_ASSERT_EQUAL_INT32(226, core::rightAlignedTextX("A"));
+    TEST_ASSERT_EQUAL_INT32(7, core::systemTextWidth("A"));
+    TEST_ASSERT_EQUAL_INT32(70, core::systemTextWidth("CONNECTING"));
+    TEST_ASSERT_EQUAL_INT32(9, core::systemTextHeight());
+    TEST_ASSERT_EQUAL_INT32(227, core::rightAlignedTextX("A"));
+    TEST_ASSERT_EQUAL_UINT(16, core::systemTextMaxCharacters(112));
     Display display;
     display.drawText({0, 0}, "A", {core::palette::ink, core::palette::bone, core::systemTextScale});
     TEST_ASSERT_TRUE(display.commands.back().find(" 1.20 ") != std::string::npos);
+    display.clear(core::palette::bone);
+    apps::drawHomeActions(display, 64);
+    display.capture("home-plate-midpoint");
 }
 class Actions final : public core::IActionHandler {
   public:
@@ -453,6 +461,29 @@ void test_bluetooth_header_status_is_right_aligned() {
     const auto connecting = f.display.textAt("CONNECTING", 6);
     TEST_ASSERT_TRUE(connecting.has_value());
     TEST_ASSERT_EQUAL_INT32(core::rightAlignedTextX("CONNECTING"), connecting->x);
+}
+
+void test_shorter_bluetooth_status_erases_the_previous_label() {
+    Fixture f;
+    auto value = f.config.value();
+    value.host.activeHost = 8;
+    TEST_ASSERT_TRUE(f.config.save(value) == services::ConfigurationResult::Success);
+    f.adapter.hardwareExpected = true;
+    f.adapter.bonded.push_back(value.host.hosts.front().bond);
+    TEST_ASSERT_TRUE(f.hosts.start() == services::HostResult::Success);
+    TEST_ASSERT_TRUE(f.hosts.setEnabled(true) == services::HostResult::Success);
+    f.ui.update({});
+    const auto previous = f.display.textAt("CONNECTING", 6);
+    TEST_ASSERT_TRUE(previous.has_value());
+    f.display.rectangles.clear();
+    TEST_ASSERT_TRUE(f.hosts.setEnabled(false) == services::HostResult::Success);
+    f.ui.update({});
+    TEST_ASSERT_TRUE(std::any_of(f.display.rectangles.begin(), f.display.rectangles.end(),
+                                 [&](const Display::Rectangle& rectangle) {
+                                     return rectangle.position.y == 6 &&
+                                            rectangle.position.x <= previous->x &&
+                                            rectangle.position.x + rectangle.width >= 234;
+                                 }));
 }
 
 void test_home_bluetooth_status_change_redraws_only_the_bt_slot() {
@@ -1036,6 +1067,7 @@ int main() {
     RUN_TEST(test_rename_input_redraws_once_and_unchanged_rename_state_stays_idle);
     RUN_TEST(test_host_status_changes_redraw_only_status_and_bluetooth_row);
     RUN_TEST(test_bluetooth_header_status_is_right_aligned);
+    RUN_TEST(test_shorter_bluetooth_status_erases_the_previous_label);
     RUN_TEST(test_home_bluetooth_status_change_redraws_only_the_bt_slot);
     RUN_TEST(test_home_hides_pairing_text_while_bluetooth_settings_shows_it);
     RUN_TEST(test_pairing_prompt_change_redraws_pairing_content_then_stays_idle);

@@ -359,9 +359,14 @@ or request display wake.
 The display contract adds optional `beginFrame`/`endFrame` grouping. The Cardputer
 adapter lazily creates a 240×135 RGB565 canvas after board initialization, tracks
 drawing damage, and presents only the completed clipped region at frame end.
-No drawing and no active transition means no transfer. `SlideTransition` in
-System Core provides bounded, testable 220 ms cubic timing and pixel composition
-for interruption. Views request forward/backward presentation through the
+No drawing and no active transition means no transfer.
+`TextStyle` optionally carries a screen-coordinate clip rectangle. It clips
+both glyph foreground and opaque background, and only that intersection counts
+as drawing damage. Home draws inverted text inside the moving focus plate and
+normal text outside it, with disjoint clips: a text pixel is painted only once
+even on the direct-draw fallback.
+`SlideTransition` in System Core provides bounded, testable 220 ms cubic timing
+and pixel composition for interruption. Views request forward/backward presentation through the
 optional display transition contract, before replacing page content; the shell
 supplies monotonic elapsed time each frame. UI navigation semantics remain in
 the shell/HostSettings, and LCD snapshot memory and presentation remain in the
@@ -464,11 +469,14 @@ their independently injected Services. Left/Right (also `,` / `/` without Fn)
 switch STATUS and USAGE; the last page survives closing within a firmware
 session. A 16-pixel navigation strip leaves 119 pixels for content. Its private
 display viewport maps the views' existing vertical coordinates into that area
-without shrinking text or changing horizontal geometry. Usage details retain
-the full 240x135 layout and local LIMITS/RESETS navigation. Escape in details
+without shrinking text or changing horizontal geometry. A text clip follows
+the glyph's translation, preserving its size and its offset relative to the
+text; rectangle geometry uses the content area's vertical scale. Usage details
+retain the full 240x135 layout and local LIMITS/RESETS navigation. Escape in details
 returns to USAGE; on either main page it follows the shared app exit. The shell
 owns the display frame across all events in a tick. AI requests the shared
-slide before switching main pages, in the direction of the pressed key;
+slide before switching main pages or Codex Plus LIMITS/RESETS details, in the
+direction of the pressed key. The content viewport forwards transition requests;
 neither AI nor its content views open or close that frame.
 `AiApp` owns agent monitoring for its entire activation, including while USAGE
 or its details are visible. The status view does not start or stop that shared
@@ -2837,7 +2845,13 @@ spaces fall back to their ASCII shapes and anything else to a box glyph.
 `CardputerDisplayAdapter` draws those bytes with a Font0-derived GLCD table
 whose upper half comes from `hardware/cardputer/assets/system_font_extension.h`
 (original 5×8 artwork; letters shaped like Latin ones reuse Font0), with the
-library's UTF-8 decoding off.
+library's UTF-8 decoding off. Layout and native previews use the same per-glyph
+16.16 quantization as M5GFX (7-pixel advance and 9-pixel height at 1.20×), rather
+than rounding the width of the whole string. System and Wi-Fi network labels
+truncate through the shared code-point-aware `fitSystemTextColumns` helper.
+`fitSystemText` converts a pixel budget to columns and delegates to that helper.
+`core/display/monochrome_bitmap.h` draws packed bitmap masks as horizontal
+foreground spans; Micro 5 digits in pairing, MAC CONTROL and POMODORO share it.
 
 `IBacklightAdapter` is a hardware-neutral 8-bit level boundary where 0 is off
 and 255 is the adapter's maximum. `CardputerBacklightAdapter` is the only code
@@ -3114,7 +3128,10 @@ reports existing Service snapshots and does not treat enabled Wi-Fi without a
 configured network as `OFF`. MAC CONTROL requires a live `COMPANION`
 capability and launches or focuses Telegram through `host.app.activate`.
 `POMODORO` has no required capabilities; `PomodoroService` continues while the
-Mini App is closed. Service lifecycle composition remains open.
+Mini App is closed. Its presentation retains the previous snapshot and erases
+and redraws only changed timer digits, progress segments, header or footer.
+Reopening builds one complete frame; unchanged visible state causes no drawing.
+Service lifecycle composition remains open.
 
 - [x] MiniApp runtime interface and lifecycle foundation.
 - [x] AppRegistry-driven Launcher integration.

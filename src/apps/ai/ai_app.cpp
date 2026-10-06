@@ -49,9 +49,17 @@ void AiApp::ContentDisplay::fillRectangle(core::PixelPosition position, std::int
     owner_.display_.fillRectangle({position.x, top}, width, mappedHeight, color);
 }
 
+void AiApp::ContentDisplay::beginTransition(core::SlideDirection direction) {
+    owner_.display_.beginTransition(direction);
+}
+
 void AiApp::ContentDisplay::drawText(core::PixelPosition position, const char* text,
                                      core::TextStyle style) {
-    owner_.display_.drawText({position.x, mapY(position.y)}, text, style);
+    const core::PixelPosition mapped{position.x, mapY(position.y)};
+    // Glyphs keep their size; translate their clip by the same offset.
+    if (style.clip)
+        style.clip->origin.y += mapped.y - position.y;
+    owner_.display_.drawText(mapped, text, style);
 }
 
 bool AiApp::hasHeader() const { return page_ != Page::Usage || !usageView_.showingDetails(); }

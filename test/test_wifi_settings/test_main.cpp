@@ -433,6 +433,21 @@ void test_wifi_settings_shows_connected_status_and_rssi() {
     TEST_ASSERT_EQUAL_INT32(core::rightAlignedTextX("CONNECTED"), connected->x);
 }
 
+void test_wifi_status_keeps_a_unicode_ssid_intact() {
+    Fixture f;
+    f.storeWifi(true, "Лаборатория");
+    f.reachWifi(connectivity::WifiAdapterState::Connected);
+    f.wifiSettings.activate();
+    f.wifiSettings.update({});
+    TEST_ASSERT_TRUE(f.display.shows("Лаборатория"));
+    f.storeWifi(true, "Лаборатория ABCDEF");
+    f.reachWifi(connectivity::WifiAdapterState::Connected);
+    f.wifiSettings.update({});
+    TEST_ASSERT_TRUE(f.display.shows("Лаборатория A..."));
+    for (const auto& text : f.display.texts)
+        TEST_ASSERT_TRUE(core::isValidUtf8(text));
+}
+
 void test_wifi_settings_hides_rssi_when_disconnected_and_toggle_persists() {
     Fixture f;
     f.storeWifi(false);
@@ -494,20 +509,20 @@ void test_editor_keeps_long_credentials_on_screen() {
     f.wifiSettings.update({enter});
     const std::string ssid(services::NetworkService::maximumSsidLength, 'A');
     type(f.wifiSettings, ssid + "Z");
-    TEST_ASSERT_TRUE(f.display.shows((std::string(30, 'A') + "_").c_str()));
+    TEST_ASSERT_TRUE(f.display.shows((std::string(31, 'A') + "_").c_str()));
     f.wifiSettings.update({backspace});
-    TEST_ASSERT_TRUE(f.display.shows((std::string(30, 'A') + "_").c_str()));
+    TEST_ASSERT_TRUE(f.display.shows((std::string(31, 'A') + "_").c_str()));
     type(f.wifiSettings, "A");
     f.wifiSettings.update({enter});
 
     type(f.wifiSettings, std::string(63, 'b'));
-    TEST_ASSERT_TRUE(f.display.shows((std::string(29, '*') + "b_").c_str()));
+    TEST_ASSERT_TRUE(f.display.shows((std::string(30, '*') + "b_").c_str()));
     f.wifiSettings.update({}, apps::WiFiSettings::passphraseRevealDuration);
-    TEST_ASSERT_TRUE(f.display.shows((std::string(30, '*') + "_").c_str()));
+    TEST_ASSERT_TRUE(f.display.shows((std::string(31, '*') + "_").c_str()));
     f.wifiSettings.update({backspace});
-    TEST_ASSERT_TRUE(f.display.shows((std::string(30, '*') + "_").c_str()));
+    TEST_ASSERT_TRUE(f.display.shows((std::string(31, '*') + "_").c_str()));
     type(f.wifiSettings, "b");
-    TEST_ASSERT_TRUE(f.display.shows((std::string(29, '*') + "b_").c_str()));
+    TEST_ASSERT_TRUE(f.display.shows((std::string(30, '*') + "b_").c_str()));
     TEST_ASSERT_FALSE(
         f.display.shows("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"));
     f.wifiSettings.update({enter});
@@ -519,9 +534,9 @@ void test_editor_keeps_long_credentials_on_screen() {
     type(psk.wifiSettings, "Hidden");
     psk.wifiSettings.update({enter});
     type(psk.wifiSettings, std::string(64, 'a'));
-    TEST_ASSERT_TRUE(psk.display.shows((std::string(29, '*') + "a_").c_str()));
+    TEST_ASSERT_TRUE(psk.display.shows((std::string(30, '*') + "a_").c_str()));
     psk.wifiSettings.update({}, apps::WiFiSettings::passphraseRevealDuration);
-    TEST_ASSERT_TRUE(psk.display.shows((std::string(30, '*') + "_").c_str()));
+    TEST_ASSERT_TRUE(psk.display.shows((std::string(31, '*') + "_").c_str()));
     psk.wifiSettings.update({enter});
     TEST_ASSERT_TRUE(psk.network.status().configured);
     TEST_ASSERT_EQUAL_STRING("Hidden", psk.network.status().ssid.c_str());
@@ -741,6 +756,7 @@ int main() {
     RUN_TEST(test_home_wifi_redraws_only_on_semantic_changes);
     RUN_TEST(test_settings_opens_wifi_forward_and_returns_backward);
     RUN_TEST(test_wifi_settings_shows_connected_status_and_rssi);
+    RUN_TEST(test_wifi_status_keeps_a_unicode_ssid_intact);
     RUN_TEST(test_wifi_settings_hides_rssi_when_disconnected_and_toggle_persists);
     RUN_TEST(test_unconfigured_wifi_opens_configure_on_the_first_enter);
     RUN_TEST(test_focus_keeps_change_and_forget_when_signal_row_appears);
