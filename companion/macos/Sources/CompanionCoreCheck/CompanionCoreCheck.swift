@@ -1154,6 +1154,7 @@ var aiFixture = CompanionEnvelope()
                "a missing microSD card is reported")
 
         agentStatusChecks(expect, fixture: fixture, helloAck: { helloAck(session: $0) })
+        statusPageChecks(expect, fixture: fixture, helloAck: { helloAck(session: $0) })
 
         if failed > 0 {
             fputs("\(failed) checks failed\n", stderr)

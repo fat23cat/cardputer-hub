@@ -134,6 +134,9 @@ working, need you, or are done, from lifecycle hooks that Companion installs
 on request; only application states cross BLE. Status polling continues on
 USAGE, where a fresh wait/error adds `!` beside STATUS. Puzzle follows the
 visible page. Escape returns from usage details to USAGE, then closes AI.
+SERVICES HEALTH shows the public status pages of GitHub, Anthropic, OpenAI and Cursor
+while it is open. The Cardputer fetches them over HTTPS when Wi-Fi is connected,
+and through the Companion otherwise. A page that gets worse plays a fault cue.
 NFC is a personal inventory for boxes and bags: a writable NTAG213/215/216
 sticker carries only a random inventory ID, and the container's name and item
 list live as a JSON record on the Cardputer's microSD card. `NfcApp` renders

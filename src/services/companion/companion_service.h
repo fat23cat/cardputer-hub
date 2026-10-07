@@ -53,6 +53,8 @@ class CompanionService {
   public:
     static constexpr auto requestTimeout = std::chrono::seconds(2);
     static constexpr auto aiUsageRequestTimeout = std::chrono::seconds(6);
+    // The Mac fetches the page over the internet first (8 s limit there).
+    static constexpr auto serviceStatusRequestTimeout = std::chrono::seconds(10);
     static constexpr auto heartbeatInterval = std::chrono::seconds(3);
     static constexpr auto livenessTimeout = std::chrono::seconds(9);
 
@@ -75,6 +77,7 @@ class CompanionService {
     CompanionSubmitResult requestSystemDetails(connectivity::SystemDetailsGroup group);
     CompanionSubmitResult requestAiUsage();
     CompanionSubmitResult requestAgentStatus();
+    CompanionSubmitResult requestServiceStatus(std::string_view url);
     bool hasPendingRequest(connectivity::CompanionOperation operation) const noexcept;
     std::optional<CompanionCompletedRequest> takeCompletedRequest();
     std::optional<CompanionCompletedRequest>

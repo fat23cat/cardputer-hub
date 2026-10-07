@@ -9,7 +9,8 @@
 
 namespace cardputer_hub::services {
 
-enum class AudioCue : std::uint8_t { KeyPress, StepLeft, StepRight };
+// Fault: an incident started, such as a status page getting worse.
+enum class AudioCue : std::uint8_t { KeyPress, StepLeft, StepRight, Fault };
 enum class AudioResult : std::uint8_t { Success, InvalidVolume, StorageError, AdapterError };
 
 class AudioService final : public core::IActionHandler {
@@ -18,6 +19,9 @@ class AudioService final : public core::IActionHandler {
     static constexpr std::size_t keyClipLength = 1280;
     static constexpr std::size_t stepClipLength = 1760;
     static constexpr std::size_t keyVariantCount = 8;
+    static constexpr std::size_t faultClipLength = 6400;
+    // Four keys; consecutive faults never repeat one.
+    static constexpr std::size_t faultVariantCount = 4;
 
     AudioService(ConfigurationService& configuration, core::IAudioAdapter& adapter) noexcept
         : configuration_(configuration), adapter_(adapter) {}
@@ -32,6 +36,7 @@ class AudioService final : public core::IActionHandler {
     ConfigurationService& configuration_;
     core::IAudioAdapter& adapter_;
     std::size_t nextKeyVariant_ = 0;
+    std::size_t nextFaultVariant_ = 0;
     bool started_ = false;
 };
 

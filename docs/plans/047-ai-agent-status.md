@@ -13,6 +13,10 @@ app's hook loading and workplace hook policy remain unverified.
 AI USAGE was changed in the same work to use Unit Puzzle only while it is
 open, matching AI STATUS.
 
+Superseded on **2026-10-07**: the Claude Code interruption gap (section 5,
+S7) is closed by reading only the transcript tail for Claude's interruption
+marker; `docs/ARCHITECTURE.md` owns the current rule.
+
 ## 1. Goal
 
 Provide one glanceable **AI STATUS** Mini App showing whether Codex, Claude Code,

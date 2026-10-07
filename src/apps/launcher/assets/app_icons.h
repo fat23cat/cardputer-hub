@@ -55,6 +55,13 @@ inline constexpr const char* const nfcAppIcon[] = {
     "      #   #   ", "          #   ", "         #    ", "              ",
 };
 
+// A pulse line: the services' heartbeat.
+inline constexpr const char* const serviceStatusAppIcon[] = {
+    "              ", "    ##        ", "    ##        ", "   ####       ", "   ####       ",
+    "   ## ##      ", "####  ##  ####", "####  ##  ####", "      ## ##   ", "       ####   ",
+    "       ####   ", "        ##    ", "        ##    ", "              ",
+};
+
 inline constexpr const char* const fallbackAppIcon[] = {
     " ############ ", " #          # ", " # ######## # ", " # #      # # ", " # #      # # ",
     " # #      # # ", " # #      # # ", " # #      # # ", " # ######## # ", " #          # ",
@@ -80,6 +87,8 @@ inline const char* const* appIconRows(const char* iconId) {
         return ledGalleryAppIcon;
     if (iconId != nullptr && std::strcmp(iconId, "nfc") == 0)
         return nfcAppIcon;
+    if (iconId != nullptr && std::strcmp(iconId, "service-status") == 0)
+        return serviceStatusAppIcon;
     return fallbackAppIcon;
 }
 

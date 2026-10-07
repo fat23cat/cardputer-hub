@@ -140,6 +140,13 @@ does not receive as not sent.
 Claude usage is a private provider adapter that may need updating if the
 service changes.
 
+The Companion answers `SERVICE_STATUS` for the Cardputer's SERVICES HEALTH app when
+the Cardputer has no Wi-Fi or its own fetch failed: it fetches the public
+status page the Cardputer names (an `https://` Statuspage `status.json`, such
+as GitHub's), within 8 seconds and without cookies or credentials, and returns
+only the level and a short description. It reaches the internet for nothing
+else.
+
 The Companion answers `AI_AGENT_STATUS` for AI's STATUS page and its USAGE
 attention indicator from desktop agent lifecycle hooks. **AI Agent Hooks** in
 the menu installs or removes the hooks
@@ -155,8 +162,9 @@ refreshes that copy, so moving or updating the app keeps hooks working.
 The helper forwards one event over a private socket in that folder (mode 0600)
 and exits; when Companion is not running it exits at once. It sends only the
 application, event name, session and turn IDs, status, notification type, tool
-name and the agent's process ID, never prompts, answers, paths, commands or
-e-mail, and it returns no permission decision. Companion keeps per-session
+name, the agent's process ID and, for Claude Code only, the transcript path,
+never prompts, answers, other paths, commands or e-mail, and it returns no
+permission decision. Companion keeps per-session
 states in memory: a question, an error or an approval request still
 unanswered after 15 seconds is NEEDS YOU (Codex auto-review and other automatic
 approvals answer sooner, so they never show), an active run
@@ -170,9 +178,13 @@ notification also recovers a missed Stop event. Diagnostics shows each
 application's hook state and last event. The
 Cardputer lists only applications whose hooks are installed; Companion rereads
 that set every few seconds and at once after an install or removal.
-Claude Code sends no hook when you interrupt a run or deny a permission, and
-Cursor has no observe-only approval event, so those cases rely on expiry or
-show WORKING.
+Claude Code sends no hook when you interrupt a run or deny a permission, so
+once an unfinished Claude session has been quiet for 10 seconds Companion reads
+the last 128 KiB of its transcript every 5 seconds for Claude's
+`[Request interrupted by user]` marker and, if the last main-conversation
+message is that marker and no older than the latest event, marks the session
+DONE. Nothing else from the transcript is kept, logged or sent. Cursor has no
+observe-only approval event, so a waiting Cursor agent shows WORKING.
 
 MAC STATUS also receives the power source and the minutes to full or
 to empty, and the Companion answers `SYSTEM_DETAILS` for the Cardputer's

@@ -296,6 +296,15 @@ CompanionSubmitResult CompanionService::requestAgentStatus() {
                   makeRequest(session_, 0, CompanionOperation::AiAgentStatus), false);
 }
 
+CompanionSubmitResult CompanionService::requestServiceStatus(std::string_view url) {
+    if (state_ != CompanionServiceState::Ready)
+        return CompanionSubmitResult::NotReady;
+    auto message = makeRequest(session_, 0, CompanionOperation::ServiceStatus);
+    if (!connectivity::setServiceStatusRequest(message, url))
+        return CompanionSubmitResult::Invalid;
+    return submit(CompanionOperation::ServiceStatus, message, false);
+}
+
 bool CompanionService::hasPendingRequest(CompanionOperation operation) const noexcept {
     for (const auto& pending : pending_)
         if (pending.used && pending.operation == operation)
@@ -594,9 +603,10 @@ void CompanionService::tickPending(std::chrono::milliseconds elapsed) {
         if (!pending.used) {
             continue;
         }
-        const auto timeout = pending.operation == CompanionOperation::AiUsage
-                                 ? aiUsageRequestTimeout
-                                 : requestTimeout;
+        const auto timeout =
+            pending.operation == CompanionOperation::AiUsage         ? aiUsageRequestTimeout
+            : pending.operation == CompanionOperation::ServiceStatus ? serviceStatusRequestTimeout
+                                                                     : requestTimeout;
         if (elapsed >= timeout - pending.elapsed) {
             const auto handshake =
                 state_ == CompanionServiceState::Handshaking && !pending.heartbeat;

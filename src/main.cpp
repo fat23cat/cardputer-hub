@@ -7,6 +7,7 @@
 #include "apps/nfc/nfc_app.h"
 #include "apps/pomodoro/pomodoro_app.h"
 #include "apps/runtime/mini_app_runtime.h"
+#include "apps/service_status/service_status_app.h"
 #include "apps/shell/application_shell.h"
 #include "apps/shell/ui_scheduler.h"
 #include "apps/system/system_app.h"
@@ -19,6 +20,7 @@
 #include "hardware/esp32/bluetooth/esp32_bluetooth_adapter.h"
 #include "hardware/esp32/esp32_nvs_storage_adapter.h"
 #include "hardware/esp32/esp32_random_source.h"
+#include "hardware/esp32/http/esp32_http_client.h"
 #include "hardware/esp32/wifi/esp32_wifi_adapter.h"
 #include "hardware/nfc/st25r3916_adapter.h"
 #include "hardware/storage/microsd/cardputer_microsd_file_storage_adapter.h"
@@ -40,6 +42,7 @@
 #include "services/nfc/nfc_service.h"
 #include "services/pomodoro/pomodoro_led_controller.h"
 #include "services/pomodoro/pomodoro_service.h"
+#include "services/service_status/service_status_service.h"
 #include "services/storage/removable_storage_service.h"
 
 #include "core/lifecycle/build_info.h"
@@ -123,6 +126,10 @@ cardputer_hub::services::PomodoroLedController pomodoroLed(pomodoro, indicator, 
                                                            &displayPower);
 cardputer_hub::apps::PomodoroApp pomodoroApp(pomodoro, display);
 cardputer_hub::apps::LedGalleryApp ledGallery(indicator, display);
+cardputer_hub::hardware::Esp32HttpClient httpClient;
+cardputer_hub::services::ServiceStatusService serviceStatus(httpClient, wifiConnectivity, companion,
+                                                            capabilities, &audio);
+cardputer_hub::apps::ServiceStatusApp serviceStatusApp(serviceStatus, actions, display);
 cardputer_hub::apps::UiScheduler uiScheduler;
 std::int64_t previousUpdateMilliseconds = 0;
 bool homeVisible = false;
@@ -155,6 +162,8 @@ extern "C" void app_main(void) {
     for (const auto* id : {"network.set-enabled", "network.configure", "network.forget"})
         (void)actions.registerHandler(id, network);
     (void)actions.registerHandler(cardputer_hub::services::hostAppActivateActionId, hostControl);
+    (void)actions.registerHandler(cardputer_hub::services::serviceStatusRefreshActionId,
+                                  serviceStatus);
     (void)hosts.start();
     (void)network.start();
     (void)audio.start();
@@ -175,6 +184,13 @@ extern "C" void app_main(void) {
     (void)appRegistry.registerApp(
         {"ai", "AI", "ai", "ai", {cardputer_hub::connectivity::companionCapabilityId}});
     (void)miniApps.registerInstance("ai", aiApp);
+    // Opens only while a status page can be reached over Wi-Fi or the Companion.
+    (void)appRegistry.registerApp({cardputer_hub::apps::serviceStatusAppId,
+                                   "SERVICES HEALTH",
+                                   cardputer_hub::apps::serviceStatusAppId,
+                                   cardputer_hub::apps::serviceStatusAppId,
+                                   {cardputer_hub::services::serviceStatusLinkCapabilityId}});
+    (void)miniApps.registerInstance(cardputer_hub::apps::serviceStatusAppId, serviceStatusApp);
     (void)appRegistry.registerApp({"pomodoro", "POMODORO", "pomodoro", "pomodoro", {}});
     (void)miniApps.registerInstance("pomodoro", pomodoroApp);
     (void)appRegistry.registerApp({"led-gallery", "LED GALLERY", "led-gallery", "led-gallery", {}});
@@ -199,6 +215,7 @@ extern "C" void app_main(void) {
         aiUsage.update(elapsed);
         aiAgentStatus.update(elapsed);
         network.update(elapsed);
+        serviceStatus.update(elapsed);
         battery.update(elapsed);
         pomodoro.update(elapsed);
         pomodoroLed.update(elapsed);

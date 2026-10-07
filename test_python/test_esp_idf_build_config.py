@@ -174,6 +174,7 @@ class EspIdfBuildConfigurationTests(unittest.TestCase):
         valid_header = "\n".join(
             (
                 "#define CONFIG_COMPILER_OPTIMIZATION_SIZE 1",
+                "#define CONFIG_MBEDTLS_CERTIFICATE_BUNDLE 1",
                 "#define CONFIG_ESP_WIFI_ENABLE_WPA3_SAE 1",
             )
         )
@@ -194,6 +195,10 @@ class EspIdfBuildConfigurationTests(unittest.TestCase):
 
             invalid_cases = (
                 ("", "CONFIG_COMPILER_OPTIMIZATION_SIZE must be enabled"),
+                (
+                    "#define CONFIG_COMPILER_OPTIMIZATION_SIZE 1\n",
+                    "CONFIG_MBEDTLS_CERTIFICATE_BUNDLE must be enabled",
+                ),
                 (
                     valid_header + "\n#define CONFIG_ESP_WIFI_SOFTAP_SUPPORT 1\n",
                     "CONFIG_ESP_WIFI_SOFTAP_SUPPORT must be disabled",
@@ -425,6 +430,7 @@ class EspIdfBuildConfigurationTests(unittest.TestCase):
             "        aiUsage.update(elapsed);\n"
             "        aiAgentStatus.update(elapsed);\n"
             "        network.update(elapsed);\n"
+            "        serviceStatus.update(elapsed);\n"
             "        battery.update(elapsed);\n"
             "        pomodoro.update(elapsed);\n"
             "        pomodoroLed.update(elapsed);\n"

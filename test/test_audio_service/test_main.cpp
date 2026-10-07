@@ -137,6 +137,25 @@ void test_directional_volume_cues_release_to_digital_silence() {
     }
 }
 
+void test_fault_cue_rotates_four_keys_and_releases_to_digital_silence() {
+    Fixture fixture;
+    TEST_ASSERT_TRUE(fixture.configuration.load() == services::ConfigurationResult::Success);
+    TEST_ASSERT_TRUE(fixture.audio.start() == services::AudioResult::Success);
+    for (int index = 0; index < 5; ++index)
+        TEST_ASSERT_TRUE(fixture.audio.play(services::AudioCue::Fault));
+    const auto& clips = fixture.adapter.clips;
+    for (std::size_t index = 0; index < clips.size(); ++index) {
+        TEST_ASSERT_EQUAL_UINT(6400, clips[index].sampleCount);
+        TEST_ASSERT_EQUAL_UINT32(16000, clips[index].sampleRate);
+        TEST_ASSERT_TRUE(std::all_of(clips[index].samples + clips[index].sampleCount - 128,
+                                     clips[index].samples + clips[index].sampleCount,
+                                     [](std::int16_t sample) { return sample == 0; }));
+        if (index > 0)
+            TEST_ASSERT_NOT_EQUAL(clips[index - 1].samples, clips[index].samples);
+    }
+    TEST_ASSERT_EQUAL_PTR(clips[0].samples, clips[4].samples);
+}
+
 void test_volume_is_persistent_in_ten_percent_steps_and_zero_mutes_playback() {
     Fixture fixture;
     TEST_ASSERT_TRUE(fixture.configuration.load() == services::ConfigurationResult::Success);
@@ -281,6 +300,7 @@ int main() {
     RUN_TEST(test_every_key_click_variant_releases_to_digital_silence);
     RUN_TEST(test_active_interface_cue_is_not_interrupted_or_queued);
     RUN_TEST(test_directional_volume_cues_release_to_digital_silence);
+    RUN_TEST(test_fault_cue_rotates_four_keys_and_releases_to_digital_silence);
     RUN_TEST(test_volume_is_persistent_in_ten_percent_steps_and_zero_mutes_playback);
     RUN_TEST(test_volume_changes_preserve_wifi_configuration);
     RUN_TEST(test_invalid_or_unpersisted_volume_does_not_change_live_output);

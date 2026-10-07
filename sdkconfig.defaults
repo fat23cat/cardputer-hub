@@ -52,6 +52,11 @@ CONFIG_ESP_COEX_SW_COEXIST_ENABLE=y
 # The product is a Wi-Fi station; it does not host an access point.
 CONFIG_ESP_WIFI_SOFTAP_SUPPORT=n
 
+# SERVICES reads public status pages over HTTPS and verifies them against the
+# ESP-IDF certificate bundle.
+CONFIG_MBEDTLS_CERTIFICATE_BUNDLE=y
+CONFIG_MBEDTLS_CERTIFICATE_BUNDLE_DEFAULT_FULL=y
+
 # Enterprise authentication is outside the supported personal-network scope.
 CONFIG_ESP_WIFI_ENTERPRISE_SUPPORT=n
 
