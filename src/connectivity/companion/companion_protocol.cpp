@@ -2,6 +2,7 @@
 
 #include "core/text/utf8.h"
 
+#include <algorithm>
 #include <cstring>
 
 namespace cardputer_hub::connectivity {
@@ -14,7 +15,7 @@ bool isKnownKindValue(std::uint8_t kind) noexcept {
 
 bool isKnownOperationValue(std::uint8_t operation) noexcept {
     return operation != 2 &&
-           operation <= static_cast<std::uint8_t>(CompanionOperation::AiAgentStatus);
+           operation <= static_cast<std::uint8_t>(CompanionOperation::ServiceStatus);
 }
 
 bool isKnownStatusValue(std::uint8_t status) noexcept {
@@ -158,6 +159,16 @@ bool operationPayloadValid(const CompanionEnvelope& message) noexcept {
         CompanionAgentStatus status{};
         return readAgentStatus(message, status);
     }
+    case CompanionOperation::ServiceStatus: {
+        if (message.kind == CompanionKind::Request) {
+            char url[companionMaxStatusUrlSize + 1]{};
+            return readServiceStatusRequest(message, url, sizeof(url));
+        }
+        if (message.status != CompanionStatus::Ok)
+            return message.payloadSize == 0;
+        CompanionServiceStatus status{};
+        return readServiceStatus(message, status);
+    }
     case CompanionOperation::SystemDetails: {
         if (message.kind == CompanionKind::Request) {
             SystemDetailsGroup group{};
@@ -190,7 +201,8 @@ bool operationAllowedForKind(CompanionKind kind, CompanionOperation operation) n
                operation == CompanionOperation::SystemMetrics ||
                operation == CompanionOperation::AiUsage ||
                operation == CompanionOperation::SystemDetails ||
-               operation == CompanionOperation::AiAgentStatus || isInventoryOperation(operation);
+               operation == CompanionOperation::AiAgentStatus ||
+               operation == CompanionOperation::ServiceStatus || isInventoryOperation(operation);
     case CompanionKind::Event:
         return operation == CompanionOperation::AppActiveChanged;
     }
@@ -213,7 +225,8 @@ bool companionResponseFailureIsIsolated(CompanionOperation operation) noexcept {
     return operation == CompanionOperation::SystemMetrics ||
            operation == CompanionOperation::AiUsage ||
            operation == CompanionOperation::SystemDetails ||
-           operation == CompanionOperation::AiAgentStatus;
+           operation == CompanionOperation::AiAgentStatus ||
+           operation == CompanionOperation::ServiceStatus;
 }
 
 bool isKnownCompanionKind(std::uint8_t kind) noexcept { return isKnownKindValue(kind); }
@@ -534,6 +547,79 @@ bool validAiProvider(const AiUsageProvider& provider) {
     return true;
 }
 } // namespace
+
+bool isServiceStatusUrl(std::string_view url) noexcept {
+    constexpr std::string_view scheme = "https://";
+    return url.size() > scheme.size() && url.size() <= companionMaxStatusUrlSize &&
+           url.substr(0, scheme.size()) == scheme && printableAscii(url.data(), url.size()) &&
+           url.find(' ') == std::string_view::npos;
+}
+
+bool setServiceStatusRequest(CompanionEnvelope& message, std::string_view url) {
+    if (message.operation != CompanionOperation::ServiceStatus ||
+        message.kind != CompanionKind::Request || !isServiceStatusUrl(url))
+        return false;
+    message.payload[0] = static_cast<std::uint8_t>(url.size());
+    std::memcpy(message.payload.data() + 1, url.data(), url.size());
+    message.payloadSize = static_cast<std::uint8_t>(url.size() + 1);
+    return true;
+}
+
+bool readServiceStatusRequest(const CompanionEnvelope& message, char* destination,
+                              std::size_t capacity) {
+    if (message.operation != CompanionOperation::ServiceStatus ||
+        message.kind != CompanionKind::Request || message.payloadSize < 1)
+        return false;
+    const auto length = message.payload[0];
+    if (message.payloadSize != 1 + length || destination == nullptr || capacity <= length)
+        return false;
+    const std::string_view url(reinterpret_cast<const char*>(message.payload.data() + 1), length);
+    if (!isServiceStatusUrl(url))
+        return false;
+    std::memcpy(destination, url.data(), length);
+    destination[length] = '\0';
+    return true;
+}
+
+bool setServiceStatus(CompanionEnvelope& message, ServiceStatusLevel level,
+                      std::string_view description) {
+    if (message.operation != CompanionOperation::ServiceStatus ||
+        message.kind != CompanionKind::Response || message.status != CompanionStatus::Ok ||
+        level == ServiceStatusLevel::Unknown ||
+        static_cast<std::uint8_t>(level) > static_cast<std::uint8_t>(ServiceStatusLevel::Critical))
+        return false;
+    auto length = std::min(description.size(), companionMaxStatusDescriptionSize);
+    while (length > 0 && length < description.size() &&
+           continuationUtf8(static_cast<std::uint8_t>(description[length])))
+        --length;
+    if (!core::isValidUtf8(description.substr(0, length)))
+        return false;
+    message.payload[0] = static_cast<std::uint8_t>(level);
+    message.payload[1] = static_cast<std::uint8_t>(length);
+    std::memcpy(message.payload.data() + 2, description.data(), length);
+    message.payloadSize = static_cast<std::uint8_t>(length + 2);
+    return true;
+}
+
+bool readServiceStatus(const CompanionEnvelope& message, CompanionServiceStatus& status) {
+    if (message.operation != CompanionOperation::ServiceStatus ||
+        message.kind != CompanionKind::Response || message.status != CompanionStatus::Ok ||
+        message.payloadSize < 2)
+        return false;
+    const auto level = message.payload[0];
+    const auto length = message.payload[1];
+    if (level == 0 || level > static_cast<std::uint8_t>(ServiceStatusLevel::Critical) ||
+        length > companionMaxStatusDescriptionSize || message.payloadSize != 2 + length)
+        return false;
+    const std::string_view text(reinterpret_cast<const char*>(message.payload.data() + 2), length);
+    if (!core::isValidUtf8(text))
+        return false;
+    CompanionServiceStatus result{};
+    result.level = static_cast<ServiceStatusLevel>(level);
+    std::memcpy(result.description.data(), text.data(), length);
+    status = result;
+    return true;
+}
 
 bool setAgentStatus(CompanionEnvelope& message, const CompanionAgentStatus& status) {
     if (message.operation != CompanionOperation::AiAgentStatus ||

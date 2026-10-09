@@ -292,8 +292,12 @@ reference gestures are used when Settings changes sound volume. All clips are
 generated as bounded constant PCM assets during development, so startup only
 initializes the audio adapter and M5Unified plays them asynchronously. Settings
 exposes `Sound volume` immediately below Wi-Fi; Left/Right adjust 0-100 in
-ten-percent steps, 0 is mute, and the value persists. Boot, menu-open/apply,
-attention, success, error, idle, and broader state-driven cues remain pending.
+ten-percent steps, 0 is mute, and the value persists. The reference error
+gesture is delivered as the `Fault` cue for SERVICES HEALTH: its descending, slightly
+roughened sweep without the takeover bed, 0.4 s, in four transpositions
+(−4, 0, +3, +6 semitones) that rotate so consecutive faults never repeat a key.
+Boot, menu-open/apply, attention, success, idle, and broader state-driven cues
+remain pending.
 
 Any source code adapted from the reference repository must retain the notices
 required by its
@@ -697,6 +701,24 @@ record cannot be erased without its tag. Removing a tag ends an erase
 confirmation; name entry goes on without the tag. Capability loss closes the app
 through MiniAppRuntime. Physical review of the Cyrillic glyphs on the 240×135
 display is pending.
+SERVICES HEALTH requires the `WIFI_OR_COMPANION` capability, published while
+Wi-Fi is connected or a Companion session is ready and withdrawn only after
+both have been gone for 20 s; losing it closes the app through MiniAppRuntime. It uses the standard list screen: the header
+`SERVICES HEALTH` with a quiet Ordinal right status (`CHECKING` during a round,
+otherwise the time since the last round in ten-second steps, `0 SEC AGO` to
+`50 SEC AGO`; the route is not shown), a one-pixel rule, and four fixed rows `01`–`04` (GITHUB,
+ANTHROPIC, OPENAI, CURSOR) with a right-aligned level: `OK`, `MAINT`, `MINOR`,
+`MAJOR`, `CRITICAL`, `--` (not checked or no connection) or `ERROR`. A 7×7
+square left of the value repeats the level in Leaf (OK), Blue (MAINT) or
+Vermilion (MINOR and worse); the label alone carries the meaning. The rows are
+a status board, not a list to navigate: there is no selection plate. Below the
+rows, an Ink line names a problem (`NO WI-FI OR COMPANION`, `<NAME> UNREACHABLE`,
+`<NAME> NOT READABLE`, `N PAGES FAILED`) and is empty otherwise; the page's own
+summary (`All Systems Operational`) only repeats the level and is not shown.
+Only changed regions repaint, so the waiting screen redraws just the header
+status once every ten seconds; there is no animation and no key hint. R requests a new
+round through the Action Bus. A page that worsens to MINOR or above plays the
+fault cue once per round while the app is open (§7).
 Idle dimming, the final off fade and wake-input consumption are implemented for
 every screen and Mini App from the shared runtime input path; physical
 acceptance on Cardputer-Adv is pending. Remaining semantic

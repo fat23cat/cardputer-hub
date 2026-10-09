@@ -36,11 +36,13 @@ final class CompanionCentral: NSObject, CBCentralManagerDelegate, CBPeripheralDe
 
     init(applications: ApplicationControlling, metrics: SystemMetricsCollecting,
          details: SystemDetailsCollecting, aiUsage: AiUsageCollector, status: CompanionStatusStore,
-         inventory: InventoryEditorModel, agentStatus: AgentStatusProviding) {
+         inventory: InventoryEditorModel, agentStatus: AgentStatusProviding,
+         statusPages: StatusPageFetching) {
         self.aiUsage = aiUsage
         self.inventory = inventory
         session = CompanionSession(applications: applications, metrics: metrics, details: details,
-                                   aiUsage: aiUsage, agentStatus: agentStatus)
+                                   aiUsage: aiUsage, agentStatus: agentStatus,
+                                   statusPages: statusPages)
         self.status = status
         super.init()
         session.outgoing = { [weak self] bytes in self?.send(bytes) }
@@ -480,7 +482,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                                        metrics: MacSystemMetricsCollector(),
                                        details: MacSystemDetailsCollector(),
                                        aiUsage: AiUsageCollector(), status: status,
-                                       inventory: inventory, agentStatus: agentStatus)
+                                       inventory: inventory, agentStatus: agentStatus,
+                                       statusPages: URLSessionStatusPageFetcher())
         status.onReconnect = { [weak central] in central?.reconnect() }
         status.onQuit = { [weak self] in self?.quit() }
         status.onOpenInventory = { [weak inventoryWindow] in inventoryWindow?.show() }

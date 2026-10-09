@@ -20,6 +20,14 @@ public final class AgentStatusStore {
     /// follows within this time: auto-review, policies and other hooks answer
     /// many requests without the user.
     public static let permissionGrace: TimeInterval = 15
+    /// Claude Code reports no event when the user stops a run, so an
+    /// unfinished Claude session this quiet has its transcript checked, at
+    /// most once per `interruptRecheck`.
+    public static let interruptQuiet: TimeInterval = 10
+    public static let interruptRecheck: TimeInterval = 5
+    /// An interruption marker may precede the latest event by this much.
+    /// Older markers belong to an earlier turn.
+    public static let interruptSlack: TimeInterval = 1
 
     private enum Phase { case working, needsYou, finished }
 
@@ -36,18 +44,23 @@ public final class AgentStatusStore {
         var pendingFinishAt: Date?
         var finishedAt: Date?
         var permissionRequestedAt: Date?
+        var transcriptPath: String?
+        var transcriptCheckedAt: Date?
     }
 
     private let now: () -> Date
     private let isAlive: (Int32) -> Bool
+    private let interruptedAt: (String) -> Date?
     private let lock = NSLock()
     private var sessions: [Key: Session] = [:]
     private var lastEvents: [AgentApplication: Date] = [:]
 
     public init(now: @escaping () -> Date = Date.init,
-                isAlive: @escaping (Int32) -> Bool = AgentStatusStore.processAlive) {
+                isAlive: @escaping (Int32) -> Bool = AgentStatusStore.processAlive,
+                interruptedAt: @escaping (String) -> Date? = ClaudeTranscript.interruptedAt) {
         self.now = now
         self.isAlive = isAlive
+        self.interruptedAt = interruptedAt
     }
 
     public static func processAlive(_ pid: Int32) -> Bool {
@@ -92,6 +105,8 @@ public final class AgentStatusStore {
                 session.permissionRequestedAt = nil
             }
             session.ownerPid = event.ownerPid > 0 ? event.ownerPid : session.ownerPid
+            session.transcriptPath = event.transcriptPath ?? session.transcriptPath
+            session.transcriptCheckedAt = nil
             session.updatedAt = time
             session.pendingFinishAt = nil
             session.finishedAt = nil
@@ -102,6 +117,7 @@ public final class AgentStatusStore {
             // A delayed stop for an earlier turn must not finish the current one.
             if let current = session.turn, let turn = event.turn, current != turn { return }
             session.ownerPid = event.ownerPid > 0 ? event.ownerPid : session.ownerPid
+            session.transcriptPath = event.transcriptPath ?? session.transcriptPath
             session.updatedAt = time
             session.permissionRequestedAt = nil
             if event.application == .cursor {
@@ -129,6 +145,20 @@ public final class AgentStatusStore {
                 session.phase = .finished
                 session.finishedAt = pending
                 session.pendingFinishAt = nil
+                sessions[key] = session
+            }
+            if key.application == .claude, session.phase != .finished,
+               let path = session.transcriptPath,
+               time.timeIntervalSince(session.updatedAt) >= Self.interruptQuiet,
+               session.transcriptCheckedAt.map({ time.timeIntervalSince($0) >= Self.interruptRecheck })
+                   ?? true {
+                session.transcriptCheckedAt = time
+                if let interrupted = interruptedAt(path),
+                   interrupted >= session.updatedAt.addingTimeInterval(-Self.interruptSlack) {
+                    session.phase = .finished
+                    session.finishedAt = min(interrupted, time)
+                    session.permissionRequestedAt = nil
+                }
                 sessions[key] = session
             }
             if let requested = session.permissionRequestedAt,

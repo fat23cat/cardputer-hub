@@ -67,6 +67,7 @@ accepted (session non-zero, `OK`) nor mismatch (session `0`, `UNSUPPORTED`),
 REQUEST/RESPONSE with session or request ID `0`, EVENT with a non-zero request
 ID, PING payloads other than 4 bytes, non-empty APP_ACTIVE, SYSTEM_METRICS,
 AI_USAGE and AI_AGENT_STATUS requests, APP_ACTIVATE requests without a valid bundle identifier,
+SERVICE_STATUS requests without an https URL,
 and any payload that does not match its layout exactly.
 
 Frames from Companion builds before plan 043 start with a protocol version
@@ -100,6 +101,7 @@ report the mismatch; it never answers it.
 | 11 | INVENTORY_PUT | REQUEST (Mac), RESPONSE (Cardputer) |
 | 12 | INVENTORY_DELETE | REQUEST (Mac), RESPONSE (Cardputer) |
 | 13 | AI_AGENT_STATUS | REQUEST, RESPONSE |
+| 14 | SERVICE_STATUS | REQUEST, RESPONSE |
 
 Value `2` (the former CAPABILITIES) is unused and rejected.
 
@@ -237,6 +239,16 @@ immediately.
   `NOT_AVAILABLE` or `MALFORMED`: empty response. The Mac answers from its
   cached hook-event store; no chat identifiers, counts, prompts or paths cross
   BLE.
+* SERVICE_STATUS request: URL length (`1..200`), then an `https://` URL of
+  printable ASCII with a host. The Cardputer sends it for a public Atlassian
+  Statuspage `/api/v2/status.json` when it has no Wi-Fi, or when its own fetch
+  failed. The Mac fetches that URL (8 s limit) and reads `status.indicator` and
+  `status.description`. `OK` response: a level (`1=operational`,
+  `2=maintenance`, `3=minor`, `4=major`, `5=critical`, in severity order; `0`
+  is never sent), a description length (`0..48`) and the UTF-8 description,
+  cut at a character boundary. `NOT_AVAILABLE`: empty; the page could not be
+  fetched or had no known indicator. The answer is sent only while the
+  session that asked is live; firmware waits ten seconds for it.
 * Inventory records are UTF-8 JSON of at most 4096 bytes,
   `{"schema":2,"id":"<32 lowercase hex>","revision":N,"name":"…","description":"…"}`
   with a name of 1–32 code points (no control or line separator characters, no
@@ -279,7 +291,8 @@ immediately.
 
 ## Failure isolation
 
-A malformed SYSTEM_METRICS, SYSTEM_DETAILS, AI_USAGE or AI_AGENT_STATUS response
+A malformed SYSTEM_METRICS, SYSTEM_DETAILS, AI_USAGE, AI_AGENT_STATUS or
+SERVICE_STATUS response
 for the current session is reported to the waiting app as `MALFORMED` and never ends the
 session; other malformed frames do. A request that times out after the
 handshake fails only for its caller; the session ends when the heartbeat

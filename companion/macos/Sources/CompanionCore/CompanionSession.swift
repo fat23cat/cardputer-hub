@@ -25,6 +25,7 @@ public final class CompanionSession: CompanionRequesting {
     private let details: SystemDetailsCollecting?
     private let aiUsage: AiUsageCollecting?
     private let agentStatus: AgentStatusProviding?
+    private let statusPages: StatusPageFetching?
     public let buildId: String
     private let now: () -> Date
     public var outgoing: ([UInt8]) -> Void = { _ in }
@@ -46,6 +47,7 @@ public final class CompanionSession: CompanionRequesting {
                 details: SystemDetailsCollecting? = nil,
                 aiUsage: AiUsageCollecting? = nil,
                 agentStatus: AgentStatusProviding? = nil,
+                statusPages: StatusPageFetching? = nil,
                 buildId: String = BuildIdentity.current,
                 now: @escaping () -> Date = Date.init) {
         self.buildId = buildId
@@ -54,6 +56,7 @@ public final class CompanionSession: CompanionRequesting {
         self.details = details
         self.aiUsage = aiUsage
         self.agentStatus = agentStatus
+        self.statusPages = statusPages
         self.now = now
         applications.observeActiveApplication { [weak self] bundle in
             self?.handleForegroundChange(bundle)
@@ -232,6 +235,29 @@ public final class CompanionSession: CompanionRequesting {
                 response.status = .notAvailable
             }
             send(response)
+        case .serviceStatus:
+            var response = CompanionEnvelope()
+            response.kind = .response
+            response.session = message.session
+            response.requestId = message.requestId
+            response.operation = .serviceStatus
+            guard let url = ServiceStatusWire.requestURL(message.payload), let statusPages else {
+                response.status = .notAvailable
+                send(response)
+                return
+            }
+            // The page is fetched over the internet; the answer belongs to the
+            // session that asked and is dropped if that session has ended.
+            statusPages.fetch(url) { [weak self] report in
+                guard let self, self.session == response.session else { return }
+                var answer = response
+                if let report {
+                    answer.payload = report.encode()
+                } else {
+                    answer.status = .notAvailable
+                }
+                self.send(answer)
+            }
         case .appActive:
             var response = CompanionEnvelope()
             response.kind = .response

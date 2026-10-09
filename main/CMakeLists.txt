@@ -29,6 +29,8 @@ set(CARDPUTER_HUB_SOURCES
     "${CMAKE_CURRENT_LIST_DIR}/../src/apps/led_gallery/led_gallery_engine.cpp"
     "${CMAKE_CURRENT_LIST_DIR}/../src/apps/pomodoro/pomodoro_app.cpp"
     "${CMAKE_CURRENT_LIST_DIR}/../src/apps/pomodoro/pomodoro_graphics.cpp"
+    "${CMAKE_CURRENT_LIST_DIR}/../src/apps/service_status/service_status_app.cpp"
+    "${CMAKE_CURRENT_LIST_DIR}/../src/apps/service_status/service_status_graphics.cpp"
     "${CMAKE_CURRENT_LIST_DIR}/../src/apps/shell/application_shell.cpp"
     "${CMAKE_CURRENT_LIST_DIR}/../src/services/configuration/configuration_service.cpp"
     "${CMAKE_CURRENT_LIST_DIR}/../src/services/device_settings/device_settings_service.cpp"
@@ -49,6 +51,8 @@ set(CARDPUTER_HUB_SOURCES
     "${CMAKE_CURRENT_LIST_DIR}/../src/services/ai_usage/ai_usage_indicator_controller.cpp"
     "${CMAKE_CURRENT_LIST_DIR}/../src/services/ai_agent_status/ai_agent_status_service.cpp"
     "${CMAKE_CURRENT_LIST_DIR}/../src/services/ai_agent_status/ai_agent_status_indicator_controller.cpp"
+    "${CMAKE_CURRENT_LIST_DIR}/../src/services/service_status/service_status_service.cpp"
+    "${CMAKE_CURRENT_LIST_DIR}/../src/services/service_status/status_page.cpp"
     "${CMAKE_CURRENT_LIST_DIR}/../src/services/inventory/inventory_companion_endpoint.cpp"
     "${CMAKE_CURRENT_LIST_DIR}/../src/services/inventory/inventory_id.cpp"
     "${CMAKE_CURRENT_LIST_DIR}/../src/services/inventory/inventory_record.cpp"
@@ -81,6 +85,7 @@ set(CARDPUTER_HUB_SOURCES
     "${CMAKE_CURRENT_LIST_DIR}/../src/hardware/esp32/bluetooth/esp32_bluetooth_adapter.cpp"
     "${CMAKE_CURRENT_LIST_DIR}/../src/hardware/esp32/esp32_nvs_storage_adapter.cpp"
     "${CMAKE_CURRENT_LIST_DIR}/../src/hardware/esp32/esp32_random_source.cpp"
+    "${CMAKE_CURRENT_LIST_DIR}/../src/hardware/esp32/http/esp32_http_client.cpp"
     "${CMAKE_CURRENT_LIST_DIR}/../src/hardware/nfc/st25r3916_adapter.cpp"
     "${CMAKE_CURRENT_LIST_DIR}/../src/hardware/esp32/wifi/esp32_wifi_adapter.cpp"
     "${CMAKE_CURRENT_LIST_DIR}/../src/hardware/storage/microsd/cardputer_microsd_file_storage_adapter.cpp"
@@ -98,6 +103,7 @@ idf_component_register(
         driver
         esp_event
         esp_hid
+        esp_http_client
         esp_netif
         esp_wifi
         fatfs

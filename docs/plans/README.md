@@ -62,6 +62,7 @@ ownership matrix with invariants. Do not rewrite older plans into that format.
 | [046](046-companion-keychain-wake.md#current-status) | Companion Claude Keychain access after wake and completed-bundle signing | Software implemented; local Companion checks pass; physical acceptance pending |
 | [047](047-ai-agent-status.md#current-status) | AI STATUS: desktop-agent activity through Companion on the LCD and an adaptive Unit Puzzle view | Software implemented; automated gates pass; hook check and physical acceptance pending |
 | [048](048-combined-ai-app.md#current-status) | Combined AI application with STATUS/USAGE navigation and preserved quota details | Software implemented; local gates pass; physical acceptance pending |
+| [049](049-service-status.md#current-status) | SERVICES HEALTH: GitHub, Anthropic, OpenAI and Cursor status pages over Wi-Fi or through Companion, with a fault cue | Software implemented; local gates pass; physical acceptance pending |
 
 The work referred to historically as 013 is the approved
 [UI requirements](../UI_REQUIREMENTS.md); there is no separate plan-013 file.

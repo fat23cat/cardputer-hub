@@ -1,12 +1,16 @@
 import Foundation
 
 /// One hook event reduced to the fields needed for status. Prompts, answers,
-/// paths, commands, tool input and output, and e-mail are never read.
+/// working directories, commands, tool input and output, and e-mail are never
+/// read. Claude's transcript path is kept so Companion can notice a user's
+/// interruption, which Claude Code reports with no hook.
 public struct AgentHookEvent: Equatable {
     /// Longest kept string field, in characters.
     public static let maxFieldLength = 128
     /// Largest message the helper sends to Companion.
     public static let maxWireBytes = 2048
+    /// Longest kept transcript path, in UTF-8 bytes; longer paths are dropped.
+    public static let maxPathLength = 1024
 
     public var application: AgentApplication
     public var event: String
@@ -15,12 +19,14 @@ public struct AgentHookEvent: Equatable {
     public var status: String?
     public var notificationType: String?
     public var toolName: String?
+    /// Claude Code's absolute `.jsonl` transcript path, or nil.
+    public var transcriptPath: String?
     /// The agent process that ran the hook, or 0 when unknown.
     public var ownerPid: Int32
 
     public init(application: AgentApplication, event: String, session: String, turn: String? = nil,
                 status: String? = nil, notificationType: String? = nil, toolName: String? = nil,
-                ownerPid: Int32 = 0) {
+                transcriptPath: String? = nil, ownerPid: Int32 = 0) {
         self.application = application
         self.event = event
         self.session = session
@@ -28,6 +34,7 @@ public struct AgentHookEvent: Equatable {
         self.status = status
         self.notificationType = notificationType
         self.toolName = toolName
+        self.transcriptPath = transcriptPath
         self.ownerPid = ownerPid
     }
 
@@ -48,7 +55,9 @@ public struct AgentHookEvent: Equatable {
             session: sessionKeys.lazy.compactMap { field(object, $0) }.first ?? "",
             turn: field(object, turnKey), status: field(object, "status"),
             notificationType: field(object, "notification_type"),
-            toolName: field(object, "tool_name"), ownerPid: max(0, ownerPid))
+            toolName: field(object, "tool_name"),
+            transcriptPath: application == .claude ? path(object, "transcript_path") : nil,
+            ownerPid: max(0, ownerPid))
     }
 
     /// The compact JSON the helper sends over the local socket.
@@ -59,7 +68,9 @@ public struct AgentHookEvent: Equatable {
         object["status"] = status
         object["notification"] = notificationType
         object["tool"] = toolName
-        guard let data = try? JSONSerialization.data(withJSONObject: object),
+        object["transcript"] = transcriptPath
+        guard let data = try? JSONSerialization.data(withJSONObject: object,
+                                                     options: .withoutEscapingSlashes),
               data.count <= Self.maxWireBytes else { return nil }
         return data
     }
@@ -74,12 +85,21 @@ public struct AgentHookEvent: Equatable {
         self.init(application: application, event: event, session: session,
                   turn: Self.field(object, "turn"), status: Self.field(object, "status"),
                   notificationType: Self.field(object, "notification"),
-                  toolName: Self.field(object, "tool"), ownerPid: Int32(pid))
+                  toolName: Self.field(object, "tool"),
+                  transcriptPath: application == .claude ? Self.path(object, "transcript") : nil,
+                  ownerPid: Int32(pid))
     }
 
     private static func field(_ object: [String: Any], _ key: String) -> String? {
         guard let value = object[key] as? String, !value.isEmpty else { return nil }
         return String(value.prefix(maxFieldLength))
+    }
+
+    /// A path is never truncated: a shortened path could name another file.
+    private static func path(_ object: [String: Any], _ key: String) -> String? {
+        guard let value = object[key] as? String, value.hasPrefix("/"), value.hasSuffix(".jsonl"),
+              value.utf8.count <= maxPathLength else { return nil }
+        return value
     }
 }
 

@@ -286,6 +286,54 @@ void test_agent_status_round_trip_and_rejects_bad_pairs() {
                          .has_value());
 }
 
+void test_service_status_round_trip_and_rejects_bad_urls() {
+    auto request = makeRequest(42, 14, CompanionOperation::ServiceStatus);
+    TEST_ASSERT_TRUE(
+        setServiceStatusRequest(request, "https://www.githubstatus.com/api/v2/status.json"));
+    assertEncodedMatchesFixture(request, "service-status-request.bin");
+    char url[companionMaxStatusUrlSize + 1]{};
+    TEST_ASSERT_TRUE(
+        readServiceStatusRequest(decodeFixture("service-status-request.bin"), url, sizeof(url)));
+    TEST_ASSERT_EQUAL_STRING("https://www.githubstatus.com/api/v2/status.json", url);
+    auto plain = makeRequest(42, 14, CompanionOperation::ServiceStatus);
+    TEST_ASSERT_FALSE(setServiceStatusRequest(plain, "http://www.githubstatus.com/"));
+    TEST_ASSERT_FALSE(setServiceStatusRequest(plain, "https://"));
+    TEST_ASSERT_FALSE(setServiceStatusRequest(plain, std::string(201, 'a')));
+    auto wire = loadFixture("service-status-request.bin");
+    wire[companionEnvelopeSize + 1 + 4] = ':'; // "https" becomes "http:"
+    TEST_ASSERT_FALSE(decodeCompanionMessage(wire.data(), wire.size()).has_value());
+
+    CompanionServiceStatus status{};
+    TEST_ASSERT_TRUE(readServiceStatus(decodeFixture("service-status-response.bin"), status));
+    TEST_ASSERT_EQUAL_UINT8(static_cast<unsigned>(ServiceStatusLevel::Minor),
+                            static_cast<unsigned>(status.level));
+    TEST_ASSERT_EQUAL_STRING("Partially Degraded Service", status.description.data());
+    auto response = makeResponse(42, 14, CompanionOperation::ServiceStatus, CompanionStatus::Ok);
+    TEST_ASSERT_TRUE(
+        setServiceStatus(response, ServiceStatusLevel::Minor, "Partially Degraded Service"));
+    assertEncodedMatchesFixture(response, "service-status-response.bin");
+    TEST_ASSERT_TRUE(decodeFixture("service-status-not-available.bin").status ==
+                     CompanionStatus::NotAvailable);
+
+    // A long description is cut whole characters short of 48 bytes.
+    const std::string longText = std::string(47, 'x') + "\xC3\xA9tat";
+    TEST_ASSERT_TRUE(setServiceStatus(response, ServiceStatusLevel::Major, longText));
+    TEST_ASSERT_EQUAL_UINT8(2 + 47, response.payloadSize);
+    TEST_ASSERT_FALSE(setServiceStatus(response, ServiceStatusLevel::Unknown, ""));
+
+    const auto good = loadFixture("service-status-response.bin");
+    auto damaged = good;
+    damaged[companionEnvelopeSize] = 0; // Unknown is never sent
+    TEST_ASSERT_FALSE(decodeCompanionMessage(damaged.data(), damaged.size()).has_value());
+    damaged = good;
+    damaged[companionEnvelopeSize] = 6; // no such level
+    TEST_ASSERT_FALSE(decodeCompanionMessage(damaged.data(), damaged.size()).has_value());
+    damaged = good;
+    damaged[companionEnvelopeSize + 1] = 3; // length disagrees with the payload
+    TEST_ASSERT_FALSE(decodeCompanionMessage(damaged.data(), damaged.size()).has_value());
+    TEST_ASSERT_TRUE(companionResponseFailureIsIsolated(CompanionOperation::ServiceStatus));
+}
+
 void test_system_details_groups_round_trip_and_reject_bad_names() {
     auto request = makeRequest(42, 8, CompanionOperation::SystemDetails);
     TEST_ASSERT_TRUE(setSystemDetailsRequest(request, SystemDetailsGroup::Cpu));
@@ -484,6 +532,7 @@ int main() {
     RUN_TEST(test_system_metrics_round_trip_and_bounds);
     RUN_TEST(test_ai_usage_round_trip_and_reset_credit_rules);
     RUN_TEST(test_agent_status_round_trip_and_rejects_bad_pairs);
+    RUN_TEST(test_service_status_round_trip_and_rejects_bad_urls);
     RUN_TEST(test_system_details_groups_round_trip_and_reject_bad_names);
     RUN_TEST(test_only_telemetry_failures_are_isolated);
     RUN_TEST(test_inventory_messages_match_fixtures);

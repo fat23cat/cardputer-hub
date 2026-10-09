@@ -30,6 +30,11 @@ AGENT_CODEX, AGENT_CURSOR, AGENT_CLAUDE = 1, 2, 3
 AGENT_UNKNOWN, AGENT_WORKING, AGENT_NEEDS_YOU, AGENT_DONE = 0, 1, 2, 3
 # Done more than ten minutes ago; the Cardputer shows it settled.
 AGENT_DONE_EARLIER = 4
+# SERVICE_STATUS: the Cardputer names a Statuspage `status.json` URL and the Mac
+# fetches it when the Cardputer has no Wi-Fi. Levels in severity order.
+SERVICE_STATUS = 14
+LEVEL_OPERATIONAL, LEVEL_MAINTENANCE, LEVEL_MINOR, LEVEL_MAJOR, LEVEL_CRITICAL = 1, 2, 3, 4, 5
+GITHUB_STATUS_URL = "https://www.githubstatus.com/api/v2/status.json"
 OK, NOT_AVAILABLE, NOT_FOUND, UNSUPPORTED, MALFORMED = 0, 1, 2, 3, 4
 CONFLICT, REJECTED, STORAGE_ERROR = 5, 6, 7
 INVENTORY_ID = bytes.fromhex("0f1e2d3c4b5a69788796a5b4c3d2e1f0")
@@ -144,6 +149,17 @@ def fixtures(protocol: bytes) -> dict[str, bytes]:
         "ai-agent-status-response-none.bin": envelope(
             RESPONSE, SESSION, 13, AI_AGENT_STATUS, OK, bytes([0])
         ),
+        # URL length (1), then an https URL (printable ASCII, at most 200 bytes).
+        "service-status-request.bin": envelope(REQUEST, SESSION, 14, SERVICE_STATUS, OK,
+                                               bundle(GITHUB_STATUS_URL)),
+        # Level (1-5), description length (0-48), UTF-8 description.
+        "service-status-response.bin": envelope(
+            RESPONSE, SESSION, 14, SERVICE_STATUS, OK,
+            bytes([LEVEL_MINOR]) + bundle("Partially Degraded Service")
+        ),
+        # The page could not be fetched or read.
+        "service-status-not-available.bin": envelope(RESPONSE, SESSION, 14, SERVICE_STATUS,
+                                                     NOT_AVAILABLE, b""),
         "system-details-request.bin": envelope(REQUEST, SESSION, 8, SYSTEM_DETAILS, OK,
                                                bytes([1])),
         # group, validity, then the group body.

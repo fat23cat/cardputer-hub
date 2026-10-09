@@ -41,6 +41,11 @@ bool AudioService::play(AudioCue cue) {
         nextKeyVariant_ = (nextKeyVariant_ + 1) % keyVariantCount;
         return adapter_.play({audio_assets::keyClips[index], keyClipLength, sampleRate});
     }
+    if (cue == AudioCue::Fault) {
+        const auto index = nextFaultVariant_;
+        nextFaultVariant_ = (nextFaultVariant_ + 1) % faultVariantCount;
+        return adapter_.play({audio_assets::faultClips[index], faultClipLength, sampleRate});
+    }
     const auto index = cue == AudioCue::StepLeft ? 0U : 1U;
     return adapter_.play({audio_assets::stepClips[index], stepClipLength, sampleRate});
 }

@@ -77,6 +77,7 @@ enum class CompanionOperation : std::uint8_t {
     InventoryPut = 11,
     InventoryDelete = 12,
     AiAgentStatus = 13,
+    ServiceStatus = 14,
 };
 
 enum class CompanionStatus : std::uint8_t {
@@ -209,6 +210,29 @@ struct CompanionAgentStatus {
 inline constexpr std::array<AiProvider, 3> agentStatusOrder{AiProvider::Codex, AiProvider::Claude,
                                                             AiProvider::Cursor};
 
+// SERVICE_STATUS: the Cardputer names an https Statuspage `status.json` URL and
+// the Mac fetches it for a Cardputer without Wi-Fi. Unknown is never sent; it
+// is the Cardputer's state before an answer and after a failure. The other
+// values are in severity order.
+enum class ServiceStatusLevel : std::uint8_t {
+    Unknown = 0,
+    Operational = 1,
+    Maintenance = 2,
+    Minor = 3,
+    Major = 4,
+    Critical = 5,
+};
+inline constexpr std::size_t companionMaxStatusUrlSize = 200;
+inline constexpr std::size_t companionMaxStatusDescriptionSize = 48;
+
+struct CompanionServiceStatus {
+    ServiceStatusLevel level = ServiceStatusLevel::Unknown;
+    std::array<char, companionMaxStatusDescriptionSize + 1> description{};
+};
+
+// An https URL of printable ASCII, at most companionMaxStatusUrlSize bytes.
+bool isServiceStatusUrl(std::string_view url) noexcept;
+
 struct CompanionSystemMetrics {
     std::uint16_t validity = 0;
     std::uint8_t cpuPercent = 0;
@@ -327,6 +351,15 @@ bool readAiUsage(const CompanionEnvelope& message, CompanionAiUsage& usage);
 // application in the order Codex, Claude, Cursor.
 bool setAgentStatus(CompanionEnvelope& message, const CompanionAgentStatus& status);
 bool readAgentStatus(const CompanionEnvelope& message, CompanionAgentStatus& status);
+// SERVICE_STATUS request: URL length (1), URL. OK response: level (1-5),
+// description length (0-48), UTF-8 description. Any other status is empty.
+bool setServiceStatusRequest(CompanionEnvelope& message, std::string_view url);
+bool readServiceStatusRequest(const CompanionEnvelope& message, char* destination,
+                              std::size_t capacity);
+// A description longer than 48 bytes is cut at a UTF-8 boundary.
+bool setServiceStatus(CompanionEnvelope& message, ServiceStatusLevel level,
+                      std::string_view description);
+bool readServiceStatus(const CompanionEnvelope& message, CompanionServiceStatus& status);
 bool setSystemDetailsRequest(CompanionEnvelope& message, SystemDetailsGroup group);
 bool readSystemDetailsRequest(const CompanionEnvelope& message, SystemDetailsGroup& group);
 bool setSystemDetails(CompanionEnvelope& message, const CompanionSystemDetails& details);

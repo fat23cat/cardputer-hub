@@ -23,7 +23,8 @@ each time Home opens. Press **Left** or **Right** to select an action, then
 list currently contains **SYSTEM**, a read-only status screen for battery,
 Bluetooth, the selected host, Wi-Fi, and the firmware build (date and
 commit, as `BUILD`); **POMODORO**, a
-background focus timer; **LED GALLERY**, an 8×8 matrix animation app; **NFC**, an inventory of NFC-tagged boxes and bags, when an
+background focus timer; **SERVICES HEALTH**, the public status of GitHub,
+Anthropic, OpenAI and Cursor; **LED GALLERY**, an 8×8 matrix animation app; **NFC**, an inventory of NFC-tagged boxes and bags, when an
 M5Stack Unit NFC is connected; and **MAC CONTROL** when a live Cardputer Companion
 session is ready. **MAC STATUS** and **AI** appear with that session too. AI's
 **USAGE** page shows automatically discovered Codex, Cursor and Claude account
@@ -33,7 +34,7 @@ firmware binds **1** to Telegram. Empty numbered tiles do nothing. Left and
 Right move between pages when more than one page exists. A bound press expands
 that tile in blue while the Mac opens the app, then flashes green on success or
 red if the app is not found, and returns to the grid. Escape returns from
-SYSTEM, POMODORO, LED GALLERY, NFC, MAC CONTROL, MAC STATUS, or either main page
+SYSTEM, POMODORO, SERVICES HEALTH, LED GALLERY, NFC, MAC CONTROL, MAC STATUS, or either main page
 of AI to Apps, and from Apps to Home. In AI's usage details, Escape first returns
 to USAGE. If Companion disappears
 while MAC CONTROL is open, the app closes and Apps returns; reconnect does not
@@ -450,9 +451,10 @@ A row appears within a few seconds of installing. A workplace policy can
 disable user hooks (Codex `hooks = false` or `allow_managed_hooks_only`, Cursor
 enterprise hooks); the row then stays `--`.
 
-Known gaps: Claude Code reports no event when you interrupt it or deny a
-permission, so that chat keeps its last state until the agent process ends or
-about 15 minutes pass; a Cursor agent waiting for approval shows `WORKING`.
+When you stop a Claude Code run or deny a permission, the Claude row shows
+`DONE` about 10–15 seconds later: Claude Code sends no event for this, so
+Companion notices the interruption note Claude writes at the end of the chat
+transcript. Known gap: a Cursor agent waiting for approval shows `WORKING`.
 Hooks in cloud agents do not reach the Mac.
 
 While STATUS is visible, a connected Unit Puzzle shows the same apps as
@@ -463,6 +465,38 @@ in USAGE. Blue, vermilion and green match the plates,
 an old `DONE` is a dimmer green and an app with `--` is a dim grey band; with no hooks installed the matrix is
 left to Pomodoro or other owners. Switching to USAGE transfers the matrix to
 the quota gauges; closing AI gives it back to other owners.
+
+## SERVICES HEALTH
+
+**SERVICES HEALTH** shows the public status pages of GitHub, Anthropic (Claude),
+OpenAI and Cursor, one row each. It opens only while Wi-Fi is connected or
+Cardputer Companion is connected; otherwise Apps shows it unavailable with
+`REQUIRES WIFI_OR_COMPANION`. If both stay away for about 20 seconds while it is
+open, it closes and Apps returns; a shorter dropout keeps it open.
+
+Opening the app checks every page at once, one after another, and then again
+every minute while it stays open. Nothing is checked while SERVICES HEALTH is closed,
+and closing it stops a check in progress. Press **R** to check again now.
+
+Each row shows the page's level: `OK`, `MAINT` (planned maintenance), `MINOR`,
+`MAJOR` or `CRITICAL`, with a green, blue or vermilion mark. `--` means not
+checked yet or no connection; `ERROR` means the page could not be fetched or
+read. The header's right corner shows `CHECKING` during a round, then how long
+ago the last check finished in ten-second steps: `0 SEC AGO`, `10 SEC AGO` …
+`50 SEC AGO`, until the next check starts. Below the list, one line
+names a problem when there is one (`NO WI-FI OR COMPANION`,
+`GITHUB UNREACHABLE`, `ANTHROPIC NOT READABLE` or `2 PAGES FAILED`). There is
+no row selection.
+
+When Wi-Fi is connected, the Cardputer fetches the pages itself over HTTPS.
+Without Wi-Fi, or when its own fetch fails, it asks Cardputer Companion, and the
+Mac fetches the page instead; that needs a Companion built from the same
+release.
+
+When a page gets worse than the last level seen since startup, to `MINOR` or
+above, SERVICES HEALTH plays a short descending fault sound, at most once per round
+and only while the app is open. Recovery, planned maintenance and the first
+check after startup are silent. The LED is not used.
 
 ## Wi-Fi
 
@@ -518,6 +552,8 @@ instead of moving a list.
 | Fn+Del in NFC on an inventory sticker | Ask to erase the sticker and delete its record; Enter erases, Escape cancels |
 | Enter in NFC on `RECORD NOT SAVED`, `MICROSD UNAVAILABLE` or a notice | Save again / retry the card / dismiss the notice |
 | Escape in NFC on other screens | Return to Apps (ignored while a sticker is being written) |
+| R in SERVICES HEALTH | Check every status page again now |
+| Escape in SERVICES HEALTH | Return to Apps; checks stop |
 | Space in POMODORO | Start, pause, or resume |
 | R in POMODORO | Reset the timer |
 | Right, S, or / in POMODORO | Skip to the next phase |
@@ -657,14 +693,17 @@ Fresh pairing, two-computer addition/switching, and reconnection to the last
 selected host after Reset/power-on were confirmed on Cardputer-Adv. Extended
 Off, report/interruption and USB hotplug acceptance remains tracked in
 [plan 017](../plans/017-hid-transport-arbitration.md#0-current-closeout-status).
-The current firmware includes Apps, SYSTEM, POMODORO, LED GALLERY, NFC when a Unit NFC is
+The current firmware includes Apps, SYSTEM, POMODORO, SERVICES HEALTH, LED GALLERY, NFC when a Unit NFC is
 connected at startup, MAC CONTROL when
 Companion is ready, and MAC STATUS and AI with that Companion
 session. AI's STATUS page has not yet been checked with the real desktop apps on
-both Macs or on a physical Unit Puzzle. It does not include profile-metadata editing or template
+both Macs or on a physical Unit Puzzle. SERVICES HEALTH has not yet been checked on a
+physical Cardputer over Wi-Fi or through the Companion; it reads only the four
+built-in status pages, which cannot be changed on the device. It does not include profile-metadata editing or template
 resolution, Action-to-HID mappings, a Mac companion CLI/control protocol,
-Wi-Fi network scanning, or weather/VPS/Telegram features. Boot/status sound
-cues from the broader UI requirements remain planned. Unit Puzzle LED Gallery
+Wi-Fi network scanning, or weather/VPS/Telegram features. Boot and other status
+sound cues from the broader UI requirements remain planned; only SERVICES HEALTH's fault
+cue is delivered. Unit Puzzle LED Gallery
 requires physical acceptance and tuning on the actual matrix. NFC inventory has
 not yet been checked on a physical Unit NFC with stickers; it writes only blank
 NTAG213/215/216 stickers and erases only inventory stickers, does not scan in

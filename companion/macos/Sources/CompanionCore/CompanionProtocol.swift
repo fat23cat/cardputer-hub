@@ -25,6 +25,8 @@ public enum CompanionOperation: UInt8 {
     case inventoryPut = 11
     case inventoryDelete = 12
     case aiAgentStatus = 13
+    /// The Cardputer names a status page; the Mac fetches it (plan 049).
+    case serviceStatus = 14
 
     public var isInventory: Bool {
         self == .inventoryList || self == .inventoryGet || self == .inventoryPut ||
@@ -199,7 +201,8 @@ public enum CompanionCodec {
         case .request, .response:
             return operation == .ping || operation == .appActive || operation == .appActivate ||
                 operation == .systemMetrics || operation == .aiUsage ||
-                operation == .systemDetails || operation == .aiAgentStatus || operation.isInventory
+                operation == .systemDetails || operation == .aiAgentStatus ||
+                operation == .serviceStatus || operation.isInventory
         case .event:
             return operation == .appActiveChanged
         }
@@ -254,6 +257,10 @@ public enum CompanionCodec {
         case .aiAgentStatus:
             if message.kind == .request || message.status != .ok { return message.payload.isEmpty }
             return AgentStatusSnapshot.decode(message.payload) != nil
+        case .serviceStatus:
+            if message.kind == .request { return ServiceStatusWire.requestURL(message.payload) != nil }
+            if message.status != .ok { return message.payload.isEmpty }
+            return StatusPageReport.decode(message.payload) != nil
         case .inventoryList, .inventoryGet, .inventoryPut, .inventoryDelete:
             return InventoryWire.payloadValid(message)
         }

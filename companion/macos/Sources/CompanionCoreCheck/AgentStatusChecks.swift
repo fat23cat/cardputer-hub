@@ -89,8 +89,21 @@ func agentStatusChecks(_ expect: (Bool, String) -> Void, fixture: (String) -> [U
     expect(parsed?.session == "s1" && parsed?.turn == "p1" && parsed?.ownerPid == 77,
            "hook parsing keeps session, turn and owner")
     expect(!wire.contains("secret") && !wire.contains("/Users") && !wire.contains("rm -rf") &&
-           !wire.contains("example.com") && !wire.contains("jsonl"),
-           "hook wire carries no prompt, path, command or e-mail")
+           !wire.contains("example.com"),
+           "hook wire carries no prompt, working directory, command or e-mail")
+    expect(parsed?.transcriptPath == "/x.jsonl", "Claude hooks keep the transcript path")
+    for (path, reason) in [("x.jsonl", "a relative"), ("/x.txt", "a non-JSONL"),
+                           ("/" + String(repeating: "a", count: AgentHookEvent.maxPathLength) + ".jsonl",
+                            "an overlong")] {
+        let other = #"{"hook_event_name":"Stop","session_id":"s1","transcript_path":"\#(path)"}"#
+        expect(AgentHookEvent.parse(application: .claude, input: Data(other.utf8),
+                                    ownerPid: 0)?.transcriptPath == nil,
+               "\(reason) transcript path is dropped")
+    }
+    let codexInput = #"{"hook_event_name":"Stop","session_id":"s1","transcript_path":"/x.jsonl"}"#
+    expect(AgentHookEvent.parse(application: .codex, input: Data(codexInput.utf8),
+                                ownerPid: 0)?.transcriptPath == nil,
+           "only Claude transcript paths are kept")
     expect(parsed.flatMap { $0.wireData() }.flatMap(AgentHookEvent.init(wire:)) == parsed,
            "hook wire round trip")
     expect(AgentHookEvent(wire: Data(repeating: 0x20, count: AgentHookEvent.maxWireBytes + 1)) == nil,
@@ -195,6 +208,8 @@ func agentStatusChecks(_ expect: (Bool, String) -> Void, fixture: (String) -> [U
                                session: "idle", turn: "next"))
     expect(idle.states()[.claude] == .working,
            "Claude: the next prompt starts work after an idle notification")
+
+    claudeInterruptionChecks(expect)
 
     // Session aggregation (S1-S12).
     var clock = Date(timeIntervalSince1970: 1_000)
@@ -320,4 +335,109 @@ func agentStatusChecks(_ expect: (Bool, String) -> Void, fixture: (String) -> [U
         shapeRejected = true
     }
     expect(shapeRejected, "an unexpected hooks shape is refused")
+}
+
+/// Claude Code sends no hook when the user stops a run, so a quiet session's
+/// transcript tail is checked for the interruption marker.
+private func claudeInterruptionChecks(_ expect: (Bool, String) -> Void) {
+    let directory = FileManager.default.temporaryDirectory
+        .appendingPathComponent("agent-transcripts-\(UUID().uuidString)")
+    try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: directory) }
+    func transcript(_ name: String, _ lines: [String], prefix: String = "") -> String {
+        let url = directory.appendingPathComponent(name + ".jsonl")
+        try? Data((prefix + lines.joined(separator: "\n") + "\n").utf8).write(to: url)
+        return url.path
+    }
+    let toolUse = #"{"type":"assistant","isSidechain":false,"message":{"role":"assistant","content":[{"type":"tool_use","name":"Bash"}]},"timestamp":"2026-10-07T20:23:30.000Z"}"#
+    let denied = #"{"type":"user","isSidechain":false,"message":{"role":"user","content":[{"type":"tool_result","content":"The user doesn't want to proceed"}]},"timestamp":"2026-10-07T20:23:35.000Z"}"#
+    func marker(_ text: String = "[Request interrupted by user]", sidechain: Bool = false,
+                at time: String = "2026-10-07T20:23:36.806Z") -> String {
+        #"{"type":"user","isSidechain":\#(sidechain),"message":{"role":"user","content":[{"type":"text","text":"\#(text)"}]},"timestamp":"\#(time)"}"#
+    }
+    let prompt = #"{"type":"user","isSidechain":false,"message":{"role":"user","content":"next task"},"timestamp":"2026-10-07T20:24:00.000Z"}"#
+    let metadata = [#"{"type":"queue-operation","operation":"enqueue"}"#,
+                    #"{"type":"last-prompt","lastPrompt":"x"}"#,
+                    #"{"type":"system","subtype":"stop_hook_summary"}"#]
+    let interruptedAt = ISO8601DateFormatter.fractional.date(from: "2026-10-07T20:23:36.806Z")
+
+    expect(ClaudeTranscript.interruptedAt(path: transcript("plain", [toolUse, denied, marker()]))
+           == interruptedAt, "a trailing interruption marker is found with its time")
+    expect(ClaudeTranscript.interruptedAt(
+        path: transcript("tool", [toolUse, marker("[Request interrupted by user for tool use]")]))
+           != nil, "an interruption during tool use is found")
+    expect(ClaudeTranscript.interruptedAt(path: transcript("metadata", [marker()] + metadata))
+           == interruptedAt, "metadata after the marker is skipped")
+    expect(ClaudeTranscript.interruptedAt(path: transcript("resumed", [marker(), prompt])) == nil,
+           "a later prompt hides an earlier interruption")
+    expect(ClaudeTranscript.interruptedAt(path: transcript("answered", [marker(), toolUse])) == nil,
+           "later assistant output hides an earlier interruption")
+    expect(ClaudeTranscript.interruptedAt(path: transcript("sidechain",
+                                                           [toolUse, marker(sidechain: true)])) == nil,
+           "a subagent interruption is not the session's")
+    expect(ClaudeTranscript.interruptedAt(
+        path: transcript("quoted", [marker("please explain [Request interrupted by user]")])) == nil,
+           "a prompt quoting the marker is not an interruption")
+    expect(ClaudeTranscript.interruptedAt(path: transcript("partial", [marker()]) + ".missing") == nil,
+           "a missing transcript is not an interruption")
+    let large = String(repeating: "x", count: ClaudeTranscript.tailBytes * 2)
+    expect(ClaudeTranscript.interruptedAt(
+        path: transcript("large", [marker()], prefix: #"{"type":"user","text":""# + large + "\"}\n"))
+           == interruptedAt, "only the transcript tail is read")
+    expect(ClaudeTranscript.interruptedAt(
+        path: transcript("torn", [marker(), #"{"type":"assistant","mess"#])) == interruptedAt,
+           "a torn last line is skipped")
+
+    // The store asks only about quiet, unfinished Claude sessions.
+    var clock = interruptedAt!.addingTimeInterval(-5)
+    var probes: [String] = []
+    var answer: Date? = interruptedAt
+    let store = AgentStatusStore(now: { clock }, isAlive: { _ in true }, interruptedAt: {
+        probes.append($0)
+        return answer
+    })
+    store.ingest(AgentHookEvent(application: .claude, event: "UserPromptSubmit", session: "stopped",
+                                turn: "p1", transcriptPath: "/t/stopped.jsonl"))
+    store.ingest(AgentHookEvent(application: .codex, event: "UserPromptSubmit", session: "other",
+                                turn: "t1"))
+    store.ingest(AgentHookEvent(application: .claude, event: "UserPromptSubmit", session: "pathless",
+                                turn: "p2"))
+    clock += AgentStatusStore.interruptQuiet - 1
+    expect(store.states()[.claude] == .working && probes.isEmpty,
+           "an active Claude session is not checked")
+    clock += 1
+    answer = interruptedAt!.addingTimeInterval(-AgentStatusStore.interruptQuiet)
+    expect(store.states()[.claude] == .working && probes == ["/t/stopped.jsonl"],
+           "an interruption older than the latest event is ignored")
+    answer = interruptedAt
+    _ = store.states()
+    expect(probes.count == 1, "a quiet session is rechecked only after a pause")
+    clock += AgentStatusStore.interruptRecheck
+    _ = store.states()
+    expect(probes == ["/t/stopped.jsonl", "/t/stopped.jsonl"],
+           "sessions without a transcript path and other applications are not checked")
+    store.ingest(AgentHookEvent(application: .claude, event: "Stop", session: "pathless", turn: "p2"))
+    expect(store.states() == [.claude: .done, .codex: .working, .cursor: .unknown],
+           "a reported interruption finishes only that Claude session")
+    clock += AgentStatusStore.interruptQuiet + AgentStatusStore.interruptRecheck
+    _ = store.states()
+    expect(probes.count == 2, "finished sessions are not checked")
+
+    // A denied permission request in Claude Desktop also ends with the marker.
+    clock += 60
+    store.ingest(AgentHookEvent(application: .claude, event: "UserPromptSubmit", session: "stopped",
+                                turn: "p3", transcriptPath: "/t/stopped.jsonl"))
+    store.ingest(AgentHookEvent(application: .claude, event: "PermissionRequest", session: "stopped",
+                                turn: "p3", toolName: "Bash"))
+    answer = clock.addingTimeInterval(AgentStatusStore.interruptQuiet - 1)
+    clock += AgentStatusStore.interruptQuiet
+    expect(store.states()[.claude] == .done, "a denied permission request finishes the turn")
+}
+
+private extension ISO8601DateFormatter {
+    static let fractional: ISO8601DateFormatter = {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return formatter
+    }()
 }

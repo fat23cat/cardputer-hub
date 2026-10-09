@@ -681,6 +681,21 @@ delivery, priority, fallback, replay, and handoff require a later approved plan
 after a second concrete transport is justified. USB remains fixed Serial/JTAG
 diagnostics until such a plan explicitly revises that boundary.
 
+`IHttpClient` under `connectivity/http` is the outbound HTTPS boundary: one GET
+at a time, run off the main loop, polled through `state()` (`Idle`, `Running`,
+`Done`, `Failed`), with a body of at most 2 KiB. `start()` answers `Started`,
+`Busy` (an earlier, possibly abandoned, request still holds the client) or
+`Failed` (the request cannot run), so a caller never mistakes a dead client for
+a busy one. `Esp32HttpClient` implements it with `esp_http_client`, the
+ESP-IDF certificate bundle and its own task. ESP-IDF's timeout covers single
+socket operations only, so the client also enforces its own deadline: 4 s per
+operation and none started after 10 s, so a request ends about 14 s after it
+connects. DNS resolution inside the connect is bounded only by lwIP's retries,
+so callers route around a client that stays `Busy`. The client's task runs on
+CPU1 at priority 1, away from the UI loop on CPU0, and follows at most three
+redirects, only to https. It knows nothing about what it fetches. Choosing Wi-Fi or the Companion for a
+status page is `ServiceStatusService` data routing, not a transport router.
+
 The shared HID boundary is `IHidTransport` under `connectivity/hid`. It accepts
 only hardware-neutral six-key keyboard reports or one Consumer Page usage,
 reports explicit `Unavailable`, `Starting`, `Ready`, `Busy`, and `Error`
@@ -926,6 +941,7 @@ Services
 ├── MediaService
 ├── IndicatorService
 ├── PomodoroService
+├── ServiceStatusService
 ├── NfcService
 ├── InventoryService
 ├── RemovableStorageService
@@ -1064,6 +1080,35 @@ Action stays Handled even when the domain operation fails; the result remains
 visible on `status().lastResult`. System UI and Home consume this Service
 boundary only. Manual SSID/passphrase configuration is available; discovery
 and scanning remain later work.
+
+`ServiceStatusService` (plan 049) owns SERVICES HEALTH's status pages: a fixed table
+of public Atlassian Statuspage `/api/v2/status.json` URLs (GitHub, Anthropic,
+OpenAI, Cursor), the check round, the route of each check, the parsed level
+and description (`parseStatusPage`), and the fault cue. It checks only while
+`ServiceStatusApp` has called `setActive(true)`: at once, then a round per
+minute, one page at a time, plus `service-status.refresh` through the Action
+Bus. Each page is fetched through `IHttpClient` while Connectivity
+`WiFiService` is `Connected`; without Wi-Fi, or after that fetch fails, it is
+requested from the Companion with SERVICE_STATUS. With neither, the page is
+marked `NoConnection` without a request. The service publishes
+`WIFI_OR_COMPANION` while either route exists, on every update whether or not
+the app is open; SERVICES HEALTH requires it, so the app cannot open without a
+route and closes when both disappear. A failed check clears the shown level
+but keeps the last known level of this boot; a page that becomes worse than
+that, to minor or above, plays `AudioCue::Fault` at most once per round.
+Closing the app abandons the round: the HTTP request is dropped and a late
+Companion answer is discarded. Reopening never stacks SERVICE_STATUS: while one
+is still pending, the service waits for its answer or timeout instead of
+taking another of the Companion's four request slots, which the heartbeat
+needs. A direct fetch still running after 15 s, or one that cannot start, is
+treated as a Wi-Fi failure and goes to the Companion or fails. While the client
+is still held by an abandoned request, the page goes to the Companion, or
+fails after 15 s without one. `WIFI_OR_COMPANION` is withdrawn only after both
+routes have been gone for 20 s, so a Wi-Fi retry or a Companion re-handshake
+does not close the open app. A fault cue refused by a busy speaker is retried
+for two seconds. `app_main` alone calls `update()`; the Mini App
+reads `snapshot()` and never touches `IHttpClient`, `CompanionService` or
+`AudioService`.
 
 ---
 
@@ -1970,7 +2015,7 @@ and the C++ and Swift fingerprint files, so every wire change changes the
 fingerprint. A matching HELLO gets an accepted HELLO_ACK and the session becomes
 ready after the APP_ACTIVE handshake request; a live session exposes every
 operation (`SYSTEM_METRICS`, `AI_USAGE`, `SYSTEM_DETAILS`, `AI_AGENT_STATUS`,
-application control, inventory) under the single `COMPANION` capability. A different fingerprint gets a
+`SERVICE_STATUS`, application control, inventory) under the single `COMPANION` capability. A different fingerprint gets a
 mismatch HELLO_ACK (session `0`, `UNSUPPORTED`) with the firmware build ID and
 moves `CompanionService` to `Incompatible`: it publishes no capability, answers
 nothing but a new HELLO, and exposes the peer build ID and
@@ -1987,12 +2032,15 @@ rows per provider and clears them with the session.
 `CompanionService` exposes operation-filtered completions:
 `HostControlService` consumes APP_ACTIVATE, while `MacStatusService` consumes
 SYSTEM_METRICS and SYSTEM_DETAILS, `AiUsageService` consumes AI_USAGE, and
-`AiAgentStatusService` consumes AI_AGENT_STATUS. Internal handshake and
+`AiAgentStatusService` consumes AI_AGENT_STATUS, and `ServiceStatusService`
+consumes SERVICE_STATUS. Internal handshake and
 heartbeat responses stay private.
 AI_USAGE can span all 16 BLE fragments, so firmware allows six seconds to
 assemble a message and six seconds for an AI_USAGE response; short operations
-retain their two-second request timeout. Telemetry responses
-(`SYSTEM_METRICS`, `AI_USAGE`, `SYSTEM_DETAILS`, `AI_AGENT_STATUS`) change no
+retain their two-second request timeout. SERVICE_STATUS waits ten seconds,
+because the Mac fetches the page from the internet first. Telemetry responses
+(`SYSTEM_METRICS`, `AI_USAGE`, `SYSTEM_DETAILS`, `AI_AGENT_STATUS`,
+`SERVICE_STATUS`) change no
 session state, so a
 malformed one fails only its own request; the protocol layer declares this in
 `companionResponseFailureIsIsolated`. Any other malformed message is a
@@ -2077,7 +2125,8 @@ AI's STATUS page (introduced in plan 047) shows desktop agent activity. On the
 Mac, Claude Code,
 Codex and Cursor lifecycle hooks run the bundled `CardputerAgentHook` helper,
 which forwards only an allowlist (application, event, session and turn IDs,
-status, notification type, tool name, owner PID) over a private Unix-domain
+status, notification type, tool name, owner PID, and Claude's absolute `.jsonl`
+transcript path, never truncated) over a private Unix-domain
 socket and exits at once when Companion is not running; it never returns a
 permission decision. `AgentStatusStore` in the Foundation-only
 `CompanionAgentHooks` module maps events to per-session states (an approval request counts as a wait only
@@ -2097,6 +2146,13 @@ not revive the completed session; a new prompt or `PreToolUse` can resume it,
 including when a Stop hook continues the same prompt. Claude's `idle_prompt`
 notification also marks that turn finished, recovering a missed Stop event;
 the same turn-ID checks apply to this completion signal.
+Claude Code sends no hook when the user stops a run or denies a permission. An
+unfinished Claude session quiet for 10 seconds therefore has its transcript
+tail (at most 128 KiB, rechecked every 5 seconds until the next event) read by
+`ClaudeTranscript`: if the last main-conversation message is Claude's
+`[Request interrupted by user]` marker, timestamped no earlier than one second
+before the session's latest event, the session is finished. Only that boolean
+and time are kept; transcript content is never stored, logged or forwarded.
 Companion installs or removes its own hook entries only on explicit
 user action, with a backup, and `AgentStatusReport` answers AI_AGENT_STATUS
 with only the applications whose hooks are installed, rereading that set at
@@ -2372,6 +2428,12 @@ identity, operation, and bounded payload before dispatch. Responses and events
 receive the same validation. A command must be allowlisted; a generic shell,
 script, AppleScript, or arbitrary operating-system invocation endpoint is not
 part of the initial protocol.
+
+SERVICE_STATUS is the one request that makes the Mac reach the internet: the
+Cardputer names an `https://` URL, and the Mac performs a single bounded GET
+(8 s, 64 KiB, an ephemeral session with no cookies or credentials) and returns
+only the parsed level and a description of at most 48 bytes, never the body.
+Plain HTTP, other schemes and malformed URLs are rejected while decoding.
 
 The macOS companion must request only the operating-system permissions required
 by an enabled capability and expose failure or denial explicitly. Bluetooth
