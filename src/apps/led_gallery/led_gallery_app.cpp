@@ -1,6 +1,8 @@
 #include "apps/led_gallery/led_gallery_app.h"
 
+#include "core/display/contextual_footer.h"
 #include "core/display/palette.h"
+#include "core/display/screen_header.h"
 #include "core/display/text_layout.h"
 
 #include <cctype>
@@ -9,10 +11,10 @@
 namespace cardputer_hub::apps {
 namespace {
 constexpr std::chrono::milliseconds ledFrameInterval{50};
-
-bool plain(const core::InputEvent& event) {
-    return !event.modifiers.ctrl && !event.modifiers.alt && !event.modifiers.option;
-}
+constexpr float effectNameScale = 2.0f;
+constexpr std::int32_t effectNameY = 42;
+constexpr std::int32_t feedbackY = 74;
+constexpr std::int32_t actionsY = 109;
 bool actionKey(LedGalleryEffect effect, char key) {
     const char lower = static_cast<char>(std::tolower(static_cast<unsigned char>(key)));
     if (effect == LedGalleryEffect::ParticleStorm)
@@ -64,21 +66,29 @@ void LedGalleryApp::select(LedGalleryEffect effect) {
     redraw_ = true;
 }
 void LedGalleryApp::draw() {
-    display_.clear(core::palette::bone);
-    const core::TextStyle ink{core::palette::ink, core::palette::bone, core::systemTextScale};
-    const core::TextStyle muted{core::palette::ordinal, core::palette::bone, core::systemTextScale};
-    display_.drawText({6, 6}, "LED GALLERY", ink);
+    using namespace core;
+    display_.clear(palette::bone);
+    const TextStyle ink{palette::ink, palette::bone, systemTextScale};
+    const TextStyle muted{palette::ordinal, palette::bone, systemTextScale};
     char number[8];
     const auto index = static_cast<unsigned>(effect_);
     std::snprintf(number, sizeof(number), "%02u/20", index + 1);
-    display_.drawText({20, 35}, number, {core::palette::blue, core::palette::bone, 2});
-    display_.drawText({105, 42}, ledGalleryEffects[index].name, ink);
-    display_.drawText({6, 121}, "< > EFFECT", muted);
-    display_.drawText({94, 121}, "1-0 / FN+1-0", muted);
-    if (ledGalleryEffects[index].actions)
-        display_.drawText({6, 107}, ledGalleryEffects[index].actions, muted);
+    drawScreenHeader(display_, "LED GALLERY", number);
+    const char* name = ledGalleryEffects[index].name;
+    display_.drawText({centeredTextX(name, 0, 240, effectNameScale), effectNameY}, name,
+                      {palette::ink, palette::bone, effectNameScale});
     if (feedback_[0])
-        display_.drawText({6, 76}, feedback_, ink);
+        display_.drawText({centeredTextX(feedback_, 0, 240), feedbackY}, feedback_, ink);
+    if (ledGalleryEffects[index].actions)
+        display_.drawText({screenHeaderMarginX, actionsY}, ledGalleryEffects[index].actions, muted);
+    drawContextualFooter(display_, "< > EFFECT", "1-0 / FN+1-0");
+}
+
+void LedGalleryApp::step(int delta) {
+    const auto count = static_cast<unsigned>(ledGalleryEffects.size());
+    const auto index = static_cast<unsigned>(effect_);
+    select(static_cast<LedGalleryEffect>(delta < 0 ? (index + count - 1U) % count
+                                                   : (index + 1U) % count));
 }
 void LedGalleryApp::update(const core::InputEvents& input, std::chrono::milliseconds elapsed) {
     if (!engine_)
@@ -92,7 +102,7 @@ void LedGalleryApp::update(const core::InputEvents& input, std::chrono::millisec
         }
     }
     for (const auto& event : input) {
-        if (!plain(event))
+        if (!core::isPlainInput(event))
             continue;
         if (event.type == core::InputEventType::NamedKey) {
             if (event.modifiers.shift)
@@ -102,16 +112,8 @@ void LedGalleryApp::update(const core::InputEvents& input, std::chrono::millisec
                 select(static_cast<LedGalleryEffect>(10 + static_cast<unsigned>(event.namedKey) -
                                                      static_cast<unsigned>(core::NamedKey::F1)));
                 changedFrame = true;
-                continue;
-            }
-            if (event.modifiers.fn)
-                continue;
-            if (event.namedKey == core::NamedKey::Left || event.namedKey == core::NamedKey::Right) {
-                const auto index = static_cast<unsigned>(effect_);
-                select(static_cast<LedGalleryEffect>(
-                    event.namedKey == core::NamedKey::Left
-                        ? (index + ledGalleryEffects.size() - 1U) % ledGalleryEffects.size()
-                        : (index + 1U) % ledGalleryEffects.size()));
+            } else if (core::isPageLeft(event) || core::isPageRight(event)) {
+                step(core::isPageLeft(event) ? -1 : 1);
                 changedFrame = true;
             }
             continue;
@@ -122,11 +124,8 @@ void LedGalleryApp::update(const core::InputEvents& input, std::chrono::millisec
             changedFrame = true;
         } else if (event.modifiers.fn) {
             continue;
-        } else if (!event.modifiers.shift && (key == ',' || key == '/')) {
-            const auto index = static_cast<unsigned>(effect_);
-            select(static_cast<LedGalleryEffect>(
-                key == ',' ? (index + ledGalleryEffects.size() - 1U) % ledGalleryEffects.size()
-                           : (index + 1U) % ledGalleryEffects.size()));
+        } else if (core::isPageLeft(event) || core::isPageRight(event)) {
+            step(core::isPageLeft(event) ? -1 : 1);
             changedFrame = true;
         } else if (!event.modifiers.shift && key >= '1' && key <= '9') {
             select(static_cast<LedGalleryEffect>(key - '1'));

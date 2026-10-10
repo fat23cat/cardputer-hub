@@ -2,6 +2,7 @@
 
 #include "core/display/contextual_footer.h"
 #include "core/display/palette.h"
+#include "core/display/screen_header.h"
 #include "core/display/text_layout.h"
 
 #include <algorithm>
@@ -13,8 +14,6 @@ namespace {
 
 constexpr std::int32_t marginX = 6;
 constexpr std::int32_t rightEdge = 234;
-constexpr std::int32_t headerY = 6;
-constexpr std::int32_t ruleY = 20;
 constexpr std::int32_t firstLineY = 26;
 constexpr std::int32_t messageTitleY = 44;
 constexpr std::int32_t messageBodyY = 64;
@@ -25,13 +24,7 @@ constexpr std::int32_t editorLimitY = 76;
 void drawHeader(IDisplayAdapter& display, const std::string& title, const std::string& status,
                 RgbColor statusColor) {
     display.clear(palette::bone);
-    const auto shown = fitSystemText(title, rightEdge - marginX - systemTextWidth(status.c_str()) -
-                                                (status.empty() ? 0 : 8));
-    display.drawText({marginX, headerY}, shown.c_str(),
-                     {palette::ink, palette::bone, systemTextScale});
-    if (!status.empty())
-        display.drawText({rightAlignedTextX(status.c_str(), headerStatusRight), headerY},
-                         status.c_str(), {statusColor, palette::bone, systemTextScale});
+    drawScreenHeader(display, title, status, statusColor);
 }
 
 } // namespace
@@ -87,7 +80,6 @@ void drawNfcRecord(IDisplayAdapter& display, const services::InventoryRecord& re
     if (registered)
         status = status.empty() ? "SAVED" : "SAVED " + status;
     drawHeader(display, record.name, status, registered ? palette::leaf : palette::ordinal);
-    display.fillRectangle({marginX, ruleY}, rightEdge - marginX, 1, palette::ink);
     const TextStyle ink{palette::ink, palette::bone, systemTextScale};
     const TextStyle quiet{palette::ordinal, palette::bone, systemTextScale};
     if (detached)
@@ -113,7 +105,6 @@ void drawNfcRecord(IDisplayAdapter& display, const services::InventoryRecord& re
 void drawNfcNameEntry(IDisplayAdapter& display, const std::string& title, const std::string& draft,
                       std::size_t maxLength) {
     drawHeader(display, title, {}, palette::ordinal);
-    display.fillRectangle({marginX, ruleY}, rightEdge - marginX, 1, palette::ink);
     const TextStyle quiet{palette::ordinal, palette::bone, systemTextScale};
     const TextStyle ink{palette::ink, palette::bone, systemTextScale};
     display.drawText({marginX, 30}, "SHORT NAME FOR THE CONTAINER", quiet);

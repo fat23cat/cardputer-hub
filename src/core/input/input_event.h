@@ -53,6 +53,11 @@ struct InputEvent {
 
 using InputEvents = std::vector<InputEvent>;
 
+// Ctrl, Alt and Option turn a key into a shortcut that apps do not handle.
+inline bool isPlainInput(const InputEvent& event) {
+    return !event.modifiers.ctrl && !event.modifiers.alt && !event.modifiers.option;
+}
+
 inline bool isPlainEscape(const InputEvent& event) {
     if (event.modifiers.ctrl || event.modifiers.alt || event.modifiers.option ||
         event.modifiers.shift)
@@ -73,6 +78,20 @@ inline bool isPageLeft(const InputEvent& event) {
 inline bool isPageRight(const InputEvent& event) {
     return (event.type == InputEventType::NamedKey && event.namedKey == NamedKey::Right) ||
            (event.type == InputEventType::PrintableCharacter && event.character == '/' &&
+            !event.modifiers.shift);
+}
+
+// List navigation: Fn+arrow arrives as a named key, the plain physical key as
+// `;` or `.`.
+inline bool isListUp(const InputEvent& event) {
+    return (event.type == InputEventType::NamedKey && event.namedKey == NamedKey::Up) ||
+           (event.type == InputEventType::PrintableCharacter && event.character == ';' &&
+            !event.modifiers.shift);
+}
+
+inline bool isListDown(const InputEvent& event) {
+    return (event.type == InputEventType::NamedKey && event.namedKey == NamedKey::Down) ||
+           (event.type == InputEventType::PrintableCharacter && event.character == '.' &&
             !event.modifiers.shift);
 }
 

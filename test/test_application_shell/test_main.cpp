@@ -21,6 +21,7 @@
 #include <chrono>
 #include <cmath>
 #include <deque>
+#include <optional>
 #include <string>
 #include <unity.h>
 
@@ -111,6 +112,7 @@ class Display final : public core::IDisplayAdapter {
     void clear(core::RgbColor) override {
         ++frames;
         texts.clear();
+        textStyles.clear();
         dirty = true;
     }
     void fillRectangle(core::PixelPosition position, std::int32_t width, std::int32_t height,
@@ -133,12 +135,20 @@ class Display final : public core::IDisplayAdapter {
         TEST_ASSERT_TRUE(position.x + core::textWidth(value, style.scale) <= 240);
         TEST_ASSERT_TRUE(position.y + std::ceil(8 * style.scale) <= 135);
         texts.push_back(value);
+        textStyles.push_back(style);
         dirty = true;
     }
     bool shows(const char* value) const {
         return std::find(texts.begin(), texts.end(), value) != texts.end();
     }
+    std::optional<core::TextStyle> styleOf(const char* value) const {
+        for (std::size_t index = texts.size(); index-- > 0;)
+            if (texts[index] == value)
+                return textStyles[index];
+        return std::nullopt;
+    }
     std::vector<std::string> texts;
+    std::vector<core::TextStyle> textStyles;
     std::vector<core::SlideDirection> transitions;
     int frames = 0;
     int presentations = 0;
@@ -625,6 +635,18 @@ void test_settings_focus_jumps_to_next_row() {
     shell.update({}, std::chrono::milliseconds(400));
     TEST_ASSERT_TRUE(f.display.fills.empty());
     TEST_ASSERT_TRUE(f.display.texts.empty());
+}
+
+void test_settings_unselected_ordinals_are_quiet() {
+    Fixture f;
+    auto shell = f.makeShell();
+    shell.update({tab});
+    const auto selected = f.display.styleOf("01");
+    const auto unselected = f.display.styleOf("02");
+    TEST_ASSERT_TRUE(selected && unselected);
+    TEST_ASSERT_EQUAL_UINT8(core::palette::bone.red, selected->foreground.red);
+    TEST_ASSERT_EQUAL_UINT8(core::palette::ordinal.red, unselected->foreground.red);
+    TEST_ASSERT_EQUAL_UINT8(core::palette::ink.red, f.display.styleOf("Wi-Fi")->foreground.red);
 }
 
 void test_bluetooth_list_focus_jumps_to_next_row() {
@@ -1915,6 +1937,7 @@ int main() {
     RUN_TEST(test_home_moving_plate_has_no_text_background_holes_or_protrusions);
     RUN_TEST(test_home_labels_do_not_overpaint_the_same_pixels_on_a_direct_display);
     RUN_TEST(test_settings_focus_jumps_to_next_row);
+    RUN_TEST(test_settings_unselected_ordinals_are_quiet);
     RUN_TEST(test_bluetooth_list_focus_jumps_to_next_row);
     RUN_TEST(test_wifi_list_focus_jumps_to_next_row);
     RUN_TEST(test_home_focus_plate_pauses_while_display_off);

@@ -1,6 +1,7 @@
 #include "apps/system/system_app.h"
 
 #include "core/display/palette.h"
+#include "core/display/screen_header.h"
 #include "core/display/text_layout.h"
 #include "core/lifecycle/build_info.h"
 
@@ -93,18 +94,18 @@ SystemApp::Frame SystemApp::capture() const {
 
 void SystemApp::render(const Frame& next) {
     const TextStyle normal{palette::ink, palette::bone, systemTextScale};
+    const TextStyle quiet{palette::ordinal, palette::bone, systemTextScale};
     const bool full = !frame_;
     if (full) {
         display_.clear(palette::bone);
-        display_.drawText({6, 6}, "SYSTEM", normal);
-        display_.fillRectangle({6, 20}, 228, 1, palette::ink);
+        drawScreenHeader(display_, "SYSTEM");
     }
     const auto drawRow = [&](std::int32_t y, const char* ordinal, const char* label,
                              const std::string& value, const std::string* previous) {
         if (!full && previous != nullptr && *previous == value)
             return;
         display_.fillRectangle({6, y}, 228, 16, palette::bone);
-        display_.drawText({10, y + 3}, ordinal, normal);
+        display_.drawText({10, y + 3}, ordinal, quiet);
         display_.drawText({30, y + 3}, label, normal);
         display_.drawText({rightAlignedTextX(value.c_str()), y + 3}, value.c_str(), normal);
     };

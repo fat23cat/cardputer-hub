@@ -6,28 +6,12 @@ using namespace services;
 
 namespace {
 
-bool isPlain(const InputEvent& event) {
-    return !event.modifiers.ctrl && !event.modifiers.alt && !event.modifiers.option;
-}
-
 bool isNamed(const InputEvent& event, NamedKey key) {
-    return isPlain(event) && !event.modifiers.shift && event.type == InputEventType::NamedKey &&
-           event.namedKey == key;
+    return isPlainInput(event) && !event.modifiers.shift &&
+           event.type == InputEventType::NamedKey && event.namedKey == key;
 }
 
 bool isEnter(const InputEvent& event) { return isNamed(event, NamedKey::Enter); }
-
-bool isUp(const InputEvent& event) {
-    return (event.type == InputEventType::NamedKey && event.namedKey == NamedKey::Up) ||
-           (event.type == InputEventType::PrintableCharacter && event.character == ';' &&
-            !event.modifiers.shift);
-}
-
-bool isDown(const InputEvent& event) {
-    return (event.type == InputEventType::NamedKey && event.namedKey == NamedKey::Down) ||
-           (event.type == InputEventType::PrintableCharacter && event.character == '.' &&
-            !event.modifiers.shift);
-}
 
 bool isBusy(InventoryScreen screen) {
     return screen == InventoryScreen::Writing || screen == InventoryScreen::Verifying ||
@@ -121,7 +105,7 @@ void NfcApp::syncWithInventory() {
 }
 
 void NfcApp::handle(const InputEvent& event) {
-    if (!isPlain(event))
+    if (!isPlainInput(event))
         return;
     auto& view = *view_;
     if (view.editing) {
@@ -131,10 +115,10 @@ void NfcApp::handle(const InputEvent& event) {
     const auto& status = inventory_.status();
     if (view.detached && view.retainedRecord) {
         const auto pages = nfcPageCount(nfcDescriptionLines(*view.retainedRecord).size());
-        if ((isPageRight(event) || isDown(event)) && view.page + 1 < pages) {
+        if ((isPageRight(event) || isListDown(event)) && view.page + 1 < pages) {
             display_.beginTransition(SlideDirection::Forward);
             ++view.page;
-        } else if ((isPageLeft(event) || isUp(event)) && view.page > 0) {
+        } else if ((isPageLeft(event) || isListUp(event)) && view.page > 0) {
             display_.beginTransition(SlideDirection::Backward);
             --view.page;
         }
@@ -147,10 +131,10 @@ void NfcApp::handle(const InputEvent& event) {
     switch (status.screen) {
     case InventoryScreen::Known: {
         const auto pages = nfcPageCount(nfcDescriptionLines(*status.record).size());
-        if ((isPageRight(event) || isDown(event)) && view.page + 1 < pages) {
+        if ((isPageRight(event) || isListDown(event)) && view.page + 1 < pages) {
             display_.beginTransition(SlideDirection::Forward);
             ++view.page;
-        } else if ((isPageLeft(event) || isUp(event)) && view.page > 0) {
+        } else if ((isPageLeft(event) || isListUp(event)) && view.page > 0) {
             display_.beginTransition(SlideDirection::Backward);
             --view.page;
         }

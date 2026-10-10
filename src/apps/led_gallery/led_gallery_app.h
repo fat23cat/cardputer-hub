@@ -21,6 +21,8 @@ class LedGalleryApp final : public IMiniApp {
 
   private:
     void select(LedGalleryEffect effect);
+    // Moves to the previous (-1) or next (+1) effect, wrapping at the ends.
+    void step(int delta);
     void draw();
     services::IndicatorService& indicator_;
     core::IDisplayAdapter& display_;

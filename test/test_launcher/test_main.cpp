@@ -321,6 +321,26 @@ void test_selected_icon_is_inverted() {
     TEST_ASSERT_FALSE(ink);
 }
 
+void test_unselected_ordinals_are_quiet() {
+    Fixture f;
+    f.registerApp("system", "SYSTEM", "system");
+    f.registerApp("weather", "WEATHER", "");
+    f.bind("system", f.first);
+    f.launcher.activate();
+    f.tick();
+    std::optional<core::TextStyle> selected;
+    std::optional<core::TextStyle> unselected;
+    for (const auto& text : f.display.drawnTexts) {
+        if (text.value == "01")
+            selected = text.style;
+        if (text.value == "02")
+            unselected = text.style;
+    }
+    TEST_ASSERT_TRUE(selected && unselected);
+    TEST_ASSERT_EQUAL_UINT8(core::palette::bone.red, selected->foreground.red);
+    TEST_ASSERT_EQUAL_UINT8(core::palette::ordinal.red, unselected->foreground.red);
+}
+
 void test_availability_indicators_use_leaf_and_vermilion() {
     Fixture f;
     f.registerApp("ready", "READY", "");
@@ -477,6 +497,7 @@ int main() {
     RUN_TEST(test_known_icon_and_fallback_are_14_by_14);
     RUN_TEST(test_nfc_icon_is_dedicated_and_14_by_14);
     RUN_TEST(test_selected_icon_is_inverted);
+    RUN_TEST(test_unselected_ordinals_are_quiet);
     RUN_TEST(test_availability_indicators_use_leaf_and_vermilion);
     RUN_TEST(test_unavailable_enter_keeps_selection_and_shows_reason);
     RUN_TEST(test_missing_instance_and_unknown_reasons);

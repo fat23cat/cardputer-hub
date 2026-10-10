@@ -3,14 +3,6 @@
 #include "core/display/palette.h"
 
 namespace cardputer_hub::apps {
-namespace {
-using core::InputEvent;
-
-bool isPlain(const InputEvent& event) {
-    return !event.modifiers.ctrl && !event.modifiers.alt && !event.modifiers.option;
-}
-} // namespace
-
 void MacStatusApp::onActivate() {
     view_ = std::make_unique<View>();
     service_.startMonitoring();
@@ -50,7 +42,7 @@ void MacStatusApp::update(const core::InputEvents& input, std::chrono::milliseco
         view_->drawn = false;
     }
     for (const auto& event : input) {
-        if (!pages || !isPlain(event))
+        if (!pages || !core::isPlainInput(event))
             continue;
         if (core::isPageLeft(event))
             turnPage(-1);

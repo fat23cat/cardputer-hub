@@ -1,6 +1,7 @@
 #include "apps/service_status/service_status_graphics.h"
 
 #include "core/display/palette.h"
+#include "core/display/screen_header.h"
 #include "core/display/text_layout.h"
 
 #include <algorithm>
@@ -12,8 +13,7 @@ using services::StatusProblem;
 
 namespace {
 constexpr std::int32_t marginX = 6;
-constexpr std::int32_t headerY = 6;
-constexpr std::int32_t ruleY = 20;
+constexpr std::int32_t headerY = screenHeaderTextY;
 constexpr std::int32_t firstRowY = 27;
 constexpr std::int32_t rowPitch = 18;
 constexpr std::int32_t captionY = 101;
@@ -131,19 +131,14 @@ ServiceStatusFrame serviceStatusFrame(const services::ServiceStatusSnapshot& sna
 void drawServiceStatus(IDisplayAdapter& display, const ServiceStatusFrame& next,
                        const ServiceStatusFrame* previous) {
     const bool full = previous == nullptr;
-    const TextStyle normal{palette::ink, palette::bone, systemTextScale};
     if (full) {
         display.clear(palette::bone);
-        display.drawText({marginX, headerY}, title, normal);
-        display.fillRectangle({marginX, ruleY}, 240 - 2 * marginX, 1, palette::ink);
-    }
-    if (full || next.status != previous->status) {
-        if (!full) {
-            const auto left = std::min(rightAlignedTextX(previous->status.c_str()),
-                                       rightAlignedTextX(next.status.c_str()));
-            display.fillRectangle({left, headerY}, headerStatusRight - left, systemTextHeight(),
-                                  palette::bone);
-        }
+        drawScreenHeader(display, title, next.status);
+    } else if (next.status != previous->status) {
+        const auto left = std::min(rightAlignedTextX(previous->status.c_str()),
+                                   rightAlignedTextX(next.status.c_str()));
+        display.fillRectangle({left, headerY}, headerStatusRight - left, systemTextHeight(),
+                              palette::bone);
         display.drawText({rightAlignedTextX(next.status.c_str()), headerY}, next.status.c_str(),
                          {palette::ordinal, palette::bone, systemTextScale});
     }

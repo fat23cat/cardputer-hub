@@ -1,8 +1,10 @@
 #include "apps/pomodoro/pomodoro_graphics.h"
 
 #include "apps/hosts/assets/micro5_digits.h"
+#include "core/display/contextual_footer.h"
 #include "core/display/monochrome_bitmap.h"
 #include "core/display/palette.h"
+#include "core/display/screen_header.h"
 #include "core/display/text_layout.h"
 
 #include <algorithm>
@@ -26,6 +28,9 @@ constexpr std::int32_t segmentGap = 1;
 constexpr std::int32_t progressWidth =
     pomodoroLcdSegments * segmentWidth + (pomodoroLcdSegments - 1) * segmentGap;
 constexpr std::int32_t progressX = (240 - progressWidth) / 2;
+// Below the progress bar: the PAUSED label and the footer hint.
+constexpr std::int32_t runStateY = 104;
+constexpr std::int32_t pausedY = 106;
 
 void drawGlyph(IDisplayAdapter& display, PixelPosition position, char digit, RgbColor color) {
     constexpr std::string_view sheet = "1234560789";
@@ -95,16 +100,14 @@ void drawPomodoroScreen(IDisplayAdapter& display, const PomodoroSnapshot& snapsh
     if (!previous)
         display.clear(palette::bone);
     const TextStyle ink{palette::ink, palette::bone, systemTextScale};
-    const TextStyle ordinal{palette::ordinal, palette::bone, systemTextScale};
     if (!previous || previous->phase != snapshot.phase ||
         pomodoroCycleDisplay(*previous) != pomodoroCycleDisplay(snapshot)) {
         if (previous)
-            display.fillRectangle({0, 0}, 240, 21, palette::bone);
-        display.drawText({6, 6}, pomodoroPhaseLabel(snapshot.phase), ink);
+            display.fillRectangle({0, 0}, 240, screenHeaderHeight, palette::bone);
         char cycle[8] = {};
-        std::snprintf(cycle, sizeof(cycle), "%u / 4",
+        std::snprintf(cycle, sizeof(cycle), "%u/4",
                       static_cast<unsigned>(pomodoroCycleDisplay(snapshot)));
-        display.drawText({rightAlignedTextX(cycle), 6}, cycle, ordinal);
+        drawScreenHeader(display, pomodoroPhaseLabel(snapshot.phase), cycle);
     }
 
     char remaining[6] = {};
@@ -149,13 +152,15 @@ void drawPomodoroScreen(IDisplayAdapter& display, const PomodoroSnapshot& snapsh
     if (previous && previous->runState == snapshot.runState)
         return;
     if (previous)
-        display.fillRectangle({0, 118}, 240, systemTextHeight(), palette::bone);
-    if (snapshot.runState == PomodoroRunState::Paused)
-        drawCentered(display, 118, "PAUSED", ink);
-    else if (snapshot.runState == PomodoroRunState::Idle)
-        drawCentered(display, 118, "SPACE  START", ordinal);
-    else
-        drawCentered(display, 118, "SPACE  PAUSE", ordinal);
+        display.fillRectangle({0, runStateY}, 240, 135 - runStateY, palette::bone);
+    if (snapshot.runState == PomodoroRunState::Paused) {
+        drawCentered(display, pausedY, "PAUSED", ink);
+        drawContextualFooter(display, "", "SPACE  RESUME");
+    } else if (snapshot.runState == PomodoroRunState::Idle) {
+        drawContextualFooter(display, "", "SPACE  START");
+    } else {
+        drawContextualFooter(display, "", "SPACE  PAUSE");
+    }
 }
 
 } // namespace cardputer_hub::apps

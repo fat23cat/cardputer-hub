@@ -10,13 +10,6 @@ namespace cardputer_hub::apps {
 using namespace core;
 using namespace services;
 
-namespace {
-bool isPlain(const InputEvent& event) {
-    return !event.modifiers.ctrl && !event.modifiers.alt && !event.modifiers.option;
-}
-
-} // namespace
-
 MacControlApp::MacControlApp(ActionBus& actions, HostControlService& hostControl,
                              IDisplayAdapter& display, std::vector<MacControlPage> pages)
     : actions_(actions), hostControl_(hostControl), display_(display), pages_(std::move(pages)) {
@@ -55,7 +48,7 @@ void MacControlApp::update(const InputEvents& input, std::chrono::milliseconds e
 }
 
 void MacControlApp::handle(const InputEvent& event) {
-    if (!isPlain(event) || view_ != MacControlView::Grid)
+    if (!isPlainInput(event) || view_ != MacControlView::Grid)
         return;
     if (core::isPageLeft(event)) {
         turnPage(-1);

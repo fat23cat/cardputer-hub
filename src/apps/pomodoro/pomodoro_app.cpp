@@ -5,22 +5,18 @@ using namespace core;
 using namespace services;
 
 namespace {
-bool isPlain(const InputEvent& event) {
-    return !event.modifiers.ctrl && !event.modifiers.alt && !event.modifiers.option;
-}
-
 bool isSpace(const InputEvent& event) {
-    return isPlain(event) && event.type == InputEventType::PrintableCharacter &&
+    return isPlainInput(event) && event.type == InputEventType::PrintableCharacter &&
            event.character == ' ';
 }
 
 bool isReset(const InputEvent& event) {
-    return isPlain(event) && event.type == InputEventType::PrintableCharacter &&
+    return isPlainInput(event) && event.type == InputEventType::PrintableCharacter &&
            (event.character == 'r' || event.character == 'R');
 }
 
 bool isSkip(const InputEvent& event) {
-    if (!isPlain(event))
+    if (!isPlainInput(event))
         return false;
     if (event.type == InputEventType::NamedKey && event.namedKey == NamedKey::Right)
         return true;

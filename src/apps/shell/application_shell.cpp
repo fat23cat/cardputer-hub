@@ -19,22 +19,6 @@ constexpr std::uint8_t volumeRow = 2;
 constexpr std::uint8_t timeoutRow = 3;
 constexpr std::uint8_t screenBrightnessRow = 4;
 constexpr std::uint8_t ledBrightnessRow = 5;
-
-bool isUnmodified(const InputEvent& event) {
-    return !event.modifiers.ctrl && !event.modifiers.alt && !event.modifiers.option;
-}
-
-bool isLeft(const InputEvent& event) {
-    return (event.type == InputEventType::NamedKey && event.namedKey == NamedKey::Left) ||
-           (event.type == InputEventType::PrintableCharacter && event.character == ',' &&
-            !event.modifiers.shift);
-}
-
-bool isRight(const InputEvent& event) {
-    return (event.type == InputEventType::NamedKey && event.namedKey == NamedKey::Right) ||
-           (event.type == InputEventType::PrintableCharacter && event.character == '/' &&
-            !event.modifiers.shift);
-}
 } // namespace
 
 ApplicationShell::ApplicationShell(services::HostService& hosts, services::NetworkService& network,
@@ -108,10 +92,11 @@ void ApplicationShell::applyMiniAppUpdate(const InputEvents& input,
 }
 
 void ApplicationShell::playInputFeedback(const InputEvent& event) {
-    const bool adjustable = atSettings() && isUnmodified(event) &&
-                            settingsSelection_ >= volumeRow && (isLeft(event) || isRight(event));
+    const bool adjustable = atSettings() && isPlainInput(event) &&
+                            settingsSelection_ >= volumeRow &&
+                            (isPageLeft(event) || isPageRight(event));
     if (adjustable) {
-        const bool right = isRight(event);
+        const bool right = isPageRight(event);
         const char* id = "audio.volume.step";
         int value = audio_.volume(), minimum = 0, maximum = 100, step = 10;
         if (settingsSelection_ == timeoutRow) {
@@ -161,7 +146,7 @@ void ApplicationShell::routeMiniAppEvent(const InputEvent& event) {
 }
 
 void ApplicationShell::routeSystemEvent(const InputEvent& event) {
-    const bool plain = isUnmodified(event);
+    const bool plain = isPlainInput(event);
     const bool settingsChord = plain && !event.modifiers.shift && !event.modifiers.fn &&
                                event.type == InputEventType::NamedKey &&
                                event.namedKey == NamedKey::Tab &&
@@ -177,8 +162,8 @@ void ApplicationShell::routeSystemEvent(const InputEvent& event) {
         (void)actions_.dispatch(
             {homeSettingsFocused_ ? "ui.settings" : "ui.launcher", "shell", {}});
     } else if (atHome() && plain && !event.modifiers.shift && !event.modifiers.fn &&
-               (isLeft(event) || isRight(event))) {
-        homeSettingsFocused_ = isRight(event);
+               (isPageLeft(event) || isPageRight(event))) {
+        homeSettingsFocused_ = isPageRight(event);
         homePlateMotion_.setTarget(homeSettingsFocused_ ? 1.0f : 0.0f);
     } else if (atLauncher()) {
         launcher_.update({event});
@@ -187,14 +172,8 @@ void ApplicationShell::routeSystemEvent(const InputEvent& event) {
     } else if (atBluetooth()) {
         settings_.update({event});
     } else if (atSettings() && plain) {
-        const bool up =
-            (event.type == InputEventType::NamedKey && event.namedKey == NamedKey::Up) ||
-            (event.type == InputEventType::PrintableCharacter && event.character == ';' &&
-             !event.modifiers.shift);
-        const bool down =
-            (event.type == InputEventType::NamedKey && event.namedKey == NamedKey::Down) ||
-            (event.type == InputEventType::PrintableCharacter && event.character == '.' &&
-             !event.modifiers.shift);
+        const bool up = isListUp(event);
+        const bool down = isListDown(event);
         if (up || down) {
             const auto nextSelection = static_cast<std::uint8_t>(
                 down ? std::min<int>(settingsSelection_ + 1, settingsRowCount - 1)
@@ -349,6 +328,7 @@ void ApplicationShell::renderSettings() {
     const bool full = !settingsFrame_;
     const TextStyle normal{palette::ink, palette::bone, systemTextScale};
     const TextStyle selected{palette::bone, palette::ink, systemTextScale};
+    const TextStyle quiet{palette::ordinal, palette::bone, systemTextScale};
     if (full) {
         display_.clear(palette::bone);
         display_.drawText({6, 6}, "SETTINGS", normal);
@@ -370,7 +350,7 @@ void ApplicationShell::renderSettings() {
         const bool focused = settingsSelection_ == index;
         const auto style = focused ? selected : normal;
         display_.fillRectangle({6, y}, 228, 16, focused ? palette::ink : palette::bone);
-        display_.drawText({10, y + 3}, ordinal, style);
+        display_.drawText({10, y + 3}, ordinal, focused ? selected : quiet);
         display_.drawText({30, y + 3}, label, style);
         if (!value.empty())
             display_.drawText({rightAlignedTextX(value.c_str(), 230), y + 3}, value.c_str(), style);

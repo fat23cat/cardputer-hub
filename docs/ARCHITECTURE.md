@@ -1734,10 +1734,10 @@ engine is heap-allocated on activation and released on deactivation (about
 2 KB); only the selected effect survives closing and reopening within a
 firmware session. LED
 frames are published at roughly 20 FPS and continue while the LCD is dim or
-off. Left/Right navigate the full registry; digits 1–0 select effects 1–10 and
+off. Left/Right (Fn+arrow or `,` / `/`) navigate the full registry; digits 1–0 select effects 1–10 and
 Fn+digits select 11–20 (physical Fn+digits arrive as F1–F10 key events).
 Effect-specific keys are routed only after global selection. The LCD shows
-`NN/20`, a stable global navigation row, an optional metadata-driven action row,
+`NN/20` in the standard header, the effect name, a stable global navigation row, an optional metadata-driven action row,
 and short-lived interaction feedback. R/r has no reset meaning. No timer changes
 the selected effect. Releasing
 the claim restores the latest lower-priority frame, including Pomodoro. Physical

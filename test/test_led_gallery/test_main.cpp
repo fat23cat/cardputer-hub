@@ -1,6 +1,7 @@
 #include "../support/ui_capture.h"
 #include "apps/led_gallery/led_gallery_app.h"
 #include "apps/led_gallery/led_gallery_engine.h"
+#include "core/display/palette.h"
 #include "core/display/text_layout.h"
 #include <algorithm>
 #include <array>
@@ -100,7 +101,9 @@ class FakeDisplay : public IDisplayAdapter {
         ++clears;
         texts.clear();
         textPositions.clear();
+        textStyles.clear();
         arrowPositions.clear();
+        rectangles.clear();
         arrows = 0;
     }
     void fillRectangle(PixelPosition position, std::int32_t width, std::int32_t height,
@@ -108,6 +111,7 @@ class FakeDisplay : public IDisplayAdapter {
         capture.rectangle(position, width, height, color);
         ++arrows;
         arrowPositions.push_back(position);
+        rectangles.push_back({position, width, height, color});
     }
     void drawText(PixelPosition position, const char* value, TextStyle style) override {
         TEST_ASSERT_TRUE(position.x >= 0 && position.y >= 0);
@@ -116,6 +120,7 @@ class FakeDisplay : public IDisplayAdapter {
         capture.text(position, value, style);
         texts.emplace_back(value);
         textPositions.push_back(position);
+        textStyles.push_back(style);
     }
     bool shows(const char* text) const {
         for (const auto& item : texts)
@@ -130,12 +135,37 @@ class FakeDisplay : public IDisplayAdapter {
                 return textPositions[i];
         return {-1, -1};
     }
+    TextStyle styleOf(const char* text) const {
+        for (std::size_t i = 0; i < texts.size(); ++i)
+            if (texts[i] == text)
+                return textStyles[i];
+        return {};
+    }
+    bool hasRule() const {
+        for (const auto& rectangle : rectangles)
+            if (rectangle.position.x == 6 && rectangle.position.y == 20 && rectangle.width == 228 &&
+                rectangle.height == 1)
+                return true;
+        return false;
+    }
+    struct Rectangle {
+        PixelPosition position;
+        std::int32_t width;
+        std::int32_t height;
+        RgbColor color;
+    };
     int clears = 0;
     int arrows = 0;
     std::vector<std::string> texts;
     std::vector<PixelPosition> textPositions;
+    std::vector<TextStyle> textStyles;
     std::vector<PixelPosition> arrowPositions;
+    std::vector<Rectangle> rectangles;
 };
+bool sameColor(RgbColor expected, RgbColor actual) {
+    return expected.red == actual.red && expected.green == actual.green &&
+           expected.blue == actual.blue;
+}
 InputEvent key(char c) { return {InputEventType::PrintableCharacter, c, {}, {}}; }
 InputEvent arrow(NamedKey k) { return {InputEventType::NamedKey, 0, k, {}}; }
 InputEvent fnDigit(int digit) {
@@ -393,15 +423,25 @@ void test_contextual_lcd_hints_and_no_r_reset() {
     TEST_ASSERT_TRUE(display.shows("01/20"));
     TEST_ASSERT_TRUE(display.shows("< > EFFECT"));
     TEST_ASSERT_TRUE(display.shows("1-0 / FN+1-0"));
-    TEST_ASSERT_EQUAL(121, display.positionOf("< > EFFECT").y);
-    TEST_ASSERT_EQUAL(121, display.positionOf("1-0 / FN+1-0").y);
+    TEST_ASSERT_TRUE(display.hasRule());
+    // The counter is quiet header metadata; the effect name is the dominant value.
+    TEST_ASSERT_EQUAL(6, display.positionOf("01/20").y);
+    TEST_ASSERT_EQUAL(rightAlignedTextX("01/20"), display.positionOf("01/20").x);
+    TEST_ASSERT_TRUE(sameColor(palette::ordinal, display.styleOf("01/20").foreground));
+    TEST_ASSERT_EQUAL_FLOAT(2.0f, display.styleOf("PLASMA").scale);
+    TEST_ASSERT_TRUE(sameColor(palette::ink, display.styleOf("PLASMA").foreground));
+    TEST_ASSERT_EQUAL(centeredTextX("PLASMA", 0, 240, 2.0f), display.positionOf("PLASMA").x);
+    TEST_ASSERT_EQUAL(123, display.positionOf("< > EFFECT").y);
+    TEST_ASSERT_EQUAL(6, display.positionOf("< > EFFECT").x);
+    TEST_ASSERT_EQUAL(123, display.positionOf("1-0 / FN+1-0").y);
+    TEST_ASSERT_EQUAL(rightAlignedTextX("1-0 / FN+1-0"), display.positionOf("1-0 / FN+1-0").x);
     TEST_ASSERT_FALSE(display.shows("SPACE RIPPLE"));
     TEST_ASSERT_FALSE(display.shows("SPACE BURST"));
     TEST_ASSERT_FALSE(display.shows("R RESET"));
     app.update({key('9')}, 0ms);
     TEST_ASSERT_TRUE(display.shows("SPACE RIPPLE"));
     TEST_ASSERT_FALSE(display.shows("SPACE BURST"));
-    TEST_ASSERT_EQUAL(107, display.positionOf("SPACE RIPPLE").y);
+    TEST_ASSERT_EQUAL(109, display.positionOf("SPACE RIPPLE").y);
     TEST_ASSERT_TRUE(display.positionOf("SPACE RIPPLE").y < display.positionOf("1-0 / FN+1-0").y);
     app.update({key('0')}, 0ms);
     TEST_ASSERT_TRUE(display.shows("KEY BURST  SPACE BURST"));
@@ -451,6 +491,7 @@ void test_second_bank_and_feedback() {
     TEST_ASSERT_TRUE(display.shows("A/D WIND  W/S HEAT  SPACE FLASH"));
     app.update({key('d')}, 0ms);
     TEST_ASSERT_TRUE(display.shows("WIND 1"));
+    TEST_ASSERT_EQUAL(centeredTextX("WIND 1", 0, 240), display.positionOf("WIND 1").x);
     app.update({}, 1100ms);
     TEST_ASSERT_FALSE(display.shows("WIND 1"));
     TEST_ASSERT_EQUAL_UINT8(12, static_cast<unsigned>(app.currentEffect()));
@@ -525,18 +566,27 @@ void test_permanent_entities_survive_real_elapsed_time() {
                                   ledGalleryEffects[static_cast<unsigned>(effect)].name);
     }
 }
-void test_fn_named_non_digits_are_ignored() {
+// Fn+`,` / Fn+`/` arrive as named arrows with Fn held, as in every other app.
+void test_fn_arrows_switch_effects_and_other_fn_named_keys_are_ignored() {
     FakeLed led;
     FakeDisplay display;
     IndicatorService indicator(led);
     LedGalleryApp app(indicator, display, 3);
     app.onActivate();
-    for (auto named : {NamedKey::Left, NamedKey::Right, NamedKey::F11, NamedKey::Up}) {
+    for (auto named : {NamedKey::F11, NamedKey::Up, NamedKey::Down}) {
         auto event = arrow(named);
         event.modifiers.fn = true;
         app.update({event}, 0ms);
         TEST_ASSERT_EQUAL_UINT8(0, static_cast<unsigned>(app.currentEffect()));
     }
+    auto left = arrow(NamedKey::Left);
+    left.modifiers.fn = true;
+    app.update({left}, 0ms);
+    TEST_ASSERT_EQUAL_UINT8(19, static_cast<unsigned>(app.currentEffect()));
+    auto right = arrow(NamedKey::Right);
+    right.modifiers.fn = true;
+    app.update({right, right}, 0ms);
+    TEST_ASSERT_EQUAL_UINT8(1, static_cast<unsigned>(app.currentEffect()));
     app.onDeactivate();
 }
 void test_fire_controls_and_wind_strength() {
@@ -995,7 +1045,7 @@ int main() {
     RUN_TEST(test_space_feedback_describes_the_action);
     RUN_TEST(test_new_effects_are_bounded_and_reproducible);
     RUN_TEST(test_permanent_entities_survive_real_elapsed_time);
-    RUN_TEST(test_fn_named_non_digits_are_ignored);
+    RUN_TEST(test_fn_arrows_switch_effects_and_other_fn_named_keys_are_ignored);
     RUN_TEST(test_fire_controls_and_wind_strength);
     RUN_TEST(test_rule_seed_and_bounded_controls);
     RUN_TEST(test_rule_automatic_reseed_is_visible_and_used);
