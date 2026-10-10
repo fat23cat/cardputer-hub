@@ -1,4 +1,5 @@
 #include "../support/ui_capture.h"
+#include "core/display/palette.h"
 #include "core/display/text_layout.h"
 #include <unity.h>
 
@@ -44,12 +45,16 @@ class Display final : public IDisplayAdapter {
         capture.clear(color);
         ++frames;
         texts.clear();
+        headerRules = 0;
     }
     void fillRectangle(PixelPosition position, std::int32_t width, std::int32_t height,
                        RgbColor color) override {
         capture.rectangle(position, width, height, color);
         TEST_ASSERT_TRUE(position.x >= 0 && position.y >= 0 && width > 0 && height > 0);
         TEST_ASSERT_TRUE(position.x + width <= 240 && position.y + height <= 135);
+        if (position.x == 6 && position.y == 20 && width == 228 && height == 1 &&
+            color.red == palette::ink.red)
+            ++headerRules;
     }
     void drawText(PixelPosition position, const char* value, TextStyle style) override {
         capture.text(position, value, style);
@@ -71,6 +76,7 @@ class Display final : public IDisplayAdapter {
     std::vector<std::string> texts;
     std::vector<SlideDirection> transitions;
     int frames = 0;
+    int headerRules = 0;
 };
 
 class FixedRandom final : public IRandomSource {
@@ -167,6 +173,7 @@ void test_waiting_screen_is_drawn_once_and_scans_only_while_open() {
     TEST_ASSERT_TRUE(f.display.shows("NFC"));
     TEST_ASSERT_TRUE(f.display.shows("TAP A TAG"));
     TEST_ASSERT_TRUE(f.display.shows("ENTER  NEW"));
+    TEST_ASSERT_EQUAL_INT(1, f.display.headerRules);
     TEST_ASSERT_FALSE(f.display.shows("NO SD"));
     const auto frames = f.display.frames;
     for (int index = 0; index < 50; ++index)
@@ -370,6 +377,7 @@ void test_erase_asks_first_then_empties_the_tag_and_deletes_the_record() {
     f.press(fnDelete);
     f.display.capture.save("nfc_erase_confirm");
     TEST_ASSERT_TRUE(f.display.shows("ERASE THIS TAG?"));
+    TEST_ASSERT_EQUAL_INT(1, f.display.headerRules);
     TEST_ASSERT_TRUE(f.display.shows("ITS RECORD IS DELETED"));
     TEST_ASSERT_TRUE(f.display.shows("ESC  CANCEL"));
     TEST_ASSERT_TRUE(f.display.shows("ENTER  ERASE"));

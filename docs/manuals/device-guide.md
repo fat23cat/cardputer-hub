@@ -65,7 +65,9 @@ active app; the normal idle dim/off cycle then starts again.
 
 ## Pomodoro
 
-**POMODORO** is always available in Apps. Space starts, pauses, and resumes.
+**POMODORO** is always available in Apps. Space starts, pauses, and resumes;
+the hint at the bottom right names what Space does next, and a paused timer
+shows `PAUSED`.
 `R` resets. Right, `S`, or `/` skip to the next phase. The timer continues
 after you leave the app: 25-minute focus, 5-minute short breaks, and a
 15-minute long break after every fourth focus. Phase changes play a sound.
@@ -82,10 +84,12 @@ Plasma, Lava, Kaleidoscope, Aurora, Warp, Comets, Fireflies, Vortex,
 Ripple, Particle Storm, Game of Life, Reaction Diffusion, Fire, Gravity Well,
 Swarm, Falling Sand, Langton's Ant, Tetris Dream, Rule Machine, and Electric Storm.
 Falling Sand fills the matrix, fades when it is full, then begins again.
-Right selects the next effect; Left selects the previous one, wrapping at the
-ends. `1`–`9` select effects 1–9, `0` selects effect 10, and Fn with the same
-digits selects effects 11–20. The LCD shows `NN/20`, the global navigation row
-at the bottom, and effect-specific controls above it only when available. Space
+Right (`/`) selects the next effect and Left (`,`) the previous one, with or
+without Fn, wrapping at the ends. `1`–`9` select effects 1–9, `0` selects
+effect 10, and Fn with the same digits selects effects 11–20. The LCD shows
+`NN/20` at the top right, the effect name in large letters, the global
+navigation row at the bottom, and effect-specific controls above it only when
+available. Space
 triggers the shown primary action. WASD and G have effect-specific meanings shown on the LCD;
 other printable keys, including R/r, add smaller bursts in Particle Storm.
 Escape returns

@@ -198,20 +198,14 @@ void WiFiSettings::handleEditor(const InputEvent& event) {
 
 void WiFiSettings::handleStatus(const InputEvent& event,
                                 const services::WifiStatusSnapshot& status) {
-    const bool plain = !event.modifiers.ctrl && !event.modifiers.alt && !event.modifiers.option;
-    if (!plain)
+    if (!isPlainInput(event))
         return;
     const auto visible = rows(status);
     if (visible.empty())
         return;
     auto focus = resolveFocus(visible);
-    const bool up = (event.type == InputEventType::NamedKey && event.namedKey == NamedKey::Up) ||
-                    (event.type == InputEventType::PrintableCharacter && event.character == ';' &&
-                     !event.modifiers.shift);
-    const bool down =
-        (event.type == InputEventType::NamedKey && event.namedKey == NamedKey::Down) ||
-        (event.type == InputEventType::PrintableCharacter && event.character == '.' &&
-         !event.modifiers.shift);
+    const bool up = isListUp(event);
+    const bool down = isListDown(event);
     const bool escape = isPlainEscape(event);
     if (up && focus > 0)
         focusedKind_ = visible[focus - 1].kind;

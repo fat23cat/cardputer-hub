@@ -36,6 +36,8 @@ class Display final : public IDisplayAdapter {
         capture.clear(color);
         ++frames;
         texts.clear();
+        positions.clear();
+        styles.clear();
         rectangles.clear();
         dirty = true;
     }
@@ -54,10 +56,31 @@ class Display final : public IDisplayAdapter {
         TEST_ASSERT_TRUE(position.x + core::textWidth(value, style.scale) <= 240);
         TEST_ASSERT_TRUE(position.y + std::ceil(8 * style.scale) <= 135);
         texts.push_back(value);
+        positions.push_back(position);
+        styles.push_back(style);
         dirty = true;
     }
     bool shows(const char* value) const {
         return std::find(texts.begin(), texts.end(), value) != texts.end();
+    }
+    PixelPosition positionOf(const char* value) const {
+        for (std::size_t index = texts.size(); index-- > 0;)
+            if (texts[index] == value)
+                return positions[index];
+        return {-1, -1};
+    }
+    TextStyle styleOf(const char* value) const {
+        for (std::size_t index = texts.size(); index-- > 0;)
+            if (texts[index] == value)
+                return styles[index];
+        return {};
+    }
+    bool hasRule() const {
+        return std::any_of(rectangles.begin(), rectangles.end(), [](const Rectangle& rectangle) {
+            return rectangle.position.x == 6 && rectangle.position.y == 20 &&
+                   rectangle.width == 228 && rectangle.height == 1 &&
+                   rectangle.color.red == palette::ink.red;
+        });
     }
     test_support::UiCapture capture;
     struct Rectangle {
@@ -67,6 +90,8 @@ class Display final : public IDisplayAdapter {
         RgbColor color;
     };
     std::vector<std::string> texts;
+    std::vector<PixelPosition> positions;
+    std::vector<TextStyle> styles;
     std::vector<Rectangle> rectangles;
     int frames = 0;
     int presentations = 0;
@@ -94,8 +119,14 @@ void test_initial_view_and_space_pause_resume_reset_skip() {
     app.update({}, {});
     display.capture.save("pomodoro");
     TEST_ASSERT_TRUE(display.shows("FOCUS"));
-    TEST_ASSERT_TRUE(display.shows("1 / 4"));
+    TEST_ASSERT_TRUE(display.hasRule());
+    TEST_ASSERT_TRUE(display.shows("1/4"));
+    TEST_ASSERT_EQUAL_INT(rightAlignedTextX("1/4"), display.positionOf("1/4").x);
     TEST_ASSERT_TRUE(display.shows("SPACE  START"));
+    // The hint uses the shared right footer slot.
+    TEST_ASSERT_EQUAL_INT(123, display.positionOf("SPACE  START").y);
+    TEST_ASSERT_EQUAL_INT(rightAlignedTextX("SPACE  START"), display.positionOf("SPACE  START").x);
+    TEST_ASSERT_EQUAL_UINT8(palette::ordinal.red, display.styleOf("SPACE  START").foreground.red);
 
     app.update({space}, {});
     TEST_ASSERT_EQUAL_UINT8(static_cast<unsigned>(PomodoroRunState::Running),
@@ -106,6 +137,10 @@ void test_initial_view_and_space_pause_resume_reset_skip() {
     TEST_ASSERT_EQUAL_UINT8(static_cast<unsigned>(PomodoroRunState::Paused),
                             static_cast<unsigned>(pomodoro.snapshot().runState));
     TEST_ASSERT_TRUE(display.shows("PAUSED"));
+    TEST_ASSERT_EQUAL_UINT8(palette::ink.red, display.styleOf("PAUSED").foreground.red);
+    TEST_ASSERT_EQUAL_INT(123, display.positionOf("SPACE  RESUME").y);
+    TEST_ASSERT_EQUAL_INT(rightAlignedTextX("SPACE  RESUME"),
+                          display.positionOf("SPACE  RESUME").x);
 
     app.update({space}, {});
     TEST_ASSERT_EQUAL_UINT8(static_cast<unsigned>(PomodoroRunState::Running),
@@ -235,7 +270,7 @@ void test_countdown_and_pause_repaint_only_changed_regions() {
     TEST_ASSERT_EQUAL_INT(fullClears, display.frames);
     TEST_ASSERT_TRUE(display.shows("PAUSED"));
     TEST_ASSERT_EQUAL_UINT(1, display.rectangles.size());
-    TEST_ASSERT_EQUAL_INT(118, display.rectangles[0].position.y);
+    TEST_ASSERT_EQUAL_INT(104, display.rectangles[0].position.y);
     display.rectangles.clear();
     app.update({skipKey}, {});
     TEST_ASSERT_EQUAL_INT(fullClears, display.frames);

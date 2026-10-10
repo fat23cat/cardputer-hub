@@ -58,11 +58,12 @@ authored for this exact raster rather than treated as a scaled desktop UI.
 LED Gallery uses the normal LCD palette for its resting labels; its external
 8×8 matrix content may use procedural full RGB and HSV hues at a shared 3%
 brightness cap. The LCD does not mirror the matrix animation. Its resting
-screen shows `NN/20`, the effect name, and a stable bottom row with sequential
-navigation and both direct-selection banks (`1-0 / FN+1-0`). This global row
-stays at the lower edge. An action row appears above it only when the selected
+screen uses the standard header with a quiet `NN/20` counter, shows the effect
+name as the dominant double-size Ink value, and keeps a stable footer row with
+sequential navigation on the left and both direct-selection banks
+(`1-0 / FN+1-0`) on the right. This global row stays at the lower edge. An action row appears above it only when the selected
 effect has actions; its labels come from the effect registry. Temporary feedback
-for parameter changes appears in the otherwise empty center and expires after
+for parameter changes appears centered below the name and expires after
 about one second. There is no reset
 hint or permanent action row for passive effects.
 
@@ -138,6 +139,14 @@ Most functional screens should use three stable horizontal zones:
 2. a content area that owns the remaining height;
 3. a compact footer only on temporary transactional views.
 
+The standard header (`core/display/screen_header.h`) places the Ink title at
+(6, 6), an optional quiet Ordinal status or counter right-aligned to x 234, and
+a one-pixel Ink rule from x 6 to 234 at y 20. The title is shortened before it
+would touch the status. Every screen of an app that shows a header shows this
+one, including state and message screens; counters use `N/M` without spaces.
+Dense dashboards (MAC STATUS details) and AI's page tabs keep their 16-pixel
+strip because the full header would not leave room for their rows.
+
 Persistent list and status screens (Home, Settings, the Bluetooth list, the
 host action list, and Wi-Fi Settings status) do not show standard Escape or
 Enter key hints. Do not add ESC BACK, ESC HOME, or ENTER SELECT to ordinary
@@ -148,7 +157,16 @@ views may show a compact footer when it clarifies how to cancel or complete
 the current operation. Left is cancel or back; right is confirm or apply.
 Hints must name a real action in the current state; omit an unavailable
 confirm action rather than showing it as if active. Use the quiet Ordinal
-token so the footer stays secondary to the content.
+token so the footer stays secondary to the content. Every footer uses the
+shared footer slots (`drawContextualFooter`, baseline y 123). A persistent
+screen whose primary control is not Escape or Enter may show it in the same
+slots, as POMODORO does with Space and LED GALLERY with its effect selection.
+
+Mini Apps share the navigation keys: Left/Right are Fn+arrow or the plain `,` /
+`/` keys, and Up/Down are Fn+arrow or the plain `;` / `.` keys
+(`core/input/input_event.h`). Ordered sets (MAC STATUS pages, AI pages, LED
+effects) wrap at the ends; a document's pages (an NFC description) and MAC
+CONTROL pages stop there.
 
 The unmarked Escape key (backtick without Fn) and Fn+backtick both go back or
 cancel. Enter still confirms. A text field may treat backtick as a typed
@@ -175,7 +193,8 @@ Information hierarchy must remain visible without extra containers:
 
 * titles and primary labels use Ink on Bone;
 * ordinals, inactive instructions, and reference metadata use the quieter
-  Ordinal token while remaining legible at 10% brightness;
+  Ordinal token while remaining legible at 10% brightness; this includes the
+  row numbers of Apps, Settings and SYSTEM;
 * the selected item uses a solid Ink plate with Bone content;
 * values align to a stable right edge, and labels must not move when values
   change;
@@ -544,7 +563,10 @@ version visible throughout, and advances without blocking background work.
 The version sits below its label and wraps onto a second line when needed, clear
 of the segmented progress indicator.
 The AppRegistry-driven Launcher, its immediate vertical list selection, the
-SYSTEM Mini App, and the MAC CONTROL 3×2 numeric grid are implemented. MAC
+SYSTEM Mini App, and the MAC CONTROL 3×2 numeric grid are implemented.
+POMODORO uses the standard header with the phase as its title and a quiet `N/4`
+cycle counter. Its right footer slot shows `SPACE  START`, `SPACE  PAUSE`, or,
+while paused, `SPACE  RESUME` beneath a centered Ink `PAUSED`. MAC
 CONTROL has no internal chrome: bound tiles show a number and label; unbound
 tiles keep only the number. Digit keys 1–6 activate the current page slot, Left/Right slide
 between pages. A bound press waits on the resting grid; success lights that

@@ -4,6 +4,7 @@
 #include "core/app_registry/app_registry.h"
 #include "core/audio/audio_adapter.h"
 #include "core/capabilities/capability_registry.h"
+#include "core/display/palette.h"
 #include "core/display/text_layout.h"
 #include "core/lifecycle/build_info.h"
 #include "core/power/battery_adapter.h"
@@ -46,6 +47,7 @@ class Display final : public core::IDisplayAdapter {
         capture.clear(color);
         ++frames;
         texts.clear();
+        styles.clear();
         dirty = true;
     }
     void fillRectangle(core::PixelPosition position, std::int32_t width, std::int32_t height,
@@ -62,13 +64,21 @@ class Display final : public core::IDisplayAdapter {
         TEST_ASSERT_TRUE(position.x + core::textWidth(value, style.scale) <= 240);
         TEST_ASSERT_TRUE(position.y + std::ceil(8 * style.scale) <= 135);
         texts.push_back(value);
+        styles.push_back(style);
         dirty = true;
+    }
+    core::TextStyle styleOf(const char* value) const {
+        for (std::size_t index = 0; index < texts.size(); ++index)
+            if (texts[index] == value)
+                return styles[index];
+        return {};
     }
     bool shows(const char* value) const {
         return std::find(texts.begin(), texts.end(), value) != texts.end();
     }
     cardputer_hub::test_support::UiCapture capture;
     std::vector<std::string> texts;
+    std::vector<core::TextStyle> styles;
     int frames = 0;
     int presentations = 0;
     bool dirty = false;
@@ -213,6 +223,10 @@ void test_battery_values() {
     f.app.update({}, {});
     f.display.capture.save("system");
     TEST_ASSERT_TRUE(f.display.shows("--%"));
+    // Ordinals are quiet reference marks; labels and values stay Ink.
+    TEST_ASSERT_EQUAL_UINT8(core::palette::ordinal.red, f.display.styleOf("01").foreground.red);
+    TEST_ASSERT_EQUAL_UINT8(core::palette::ordinal.red, f.display.styleOf("07").foreground.red);
+    TEST_ASSERT_EQUAL_UINT8(core::palette::ink.red, f.display.styleOf("BATTERY").foreground.red);
     f.batteryAdapter.value = 81;
     f.battery.update(std::chrono::milliseconds(0));
     f.app.update({}, {});

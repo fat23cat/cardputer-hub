@@ -14,22 +14,6 @@ using namespace core;
 namespace {
 constexpr int overlayHiddenY = -launcherHeaderHeight;
 
-bool isPlain(const InputEvent& event) {
-    return !event.modifiers.ctrl && !event.modifiers.alt && !event.modifiers.option;
-}
-
-bool isUp(const InputEvent& event) {
-    return (event.type == InputEventType::NamedKey && event.namedKey == NamedKey::Up) ||
-           (event.type == InputEventType::PrintableCharacter && event.character == ';' &&
-            !event.modifiers.shift);
-}
-
-bool isDown(const InputEvent& event) {
-    return (event.type == InputEventType::NamedKey && event.namedKey == NamedKey::Down) ||
-           (event.type == InputEventType::PrintableCharacter && event.character == '.' &&
-            !event.modifiers.shift);
-}
-
 std::string ordinal(std::size_t index) {
     char text[3] = {};
     const auto value = static_cast<unsigned>(std::min<std::size_t>(index + 1, 99));
@@ -97,13 +81,13 @@ void Launcher::update(const InputEvents& input, std::chrono::milliseconds elapse
 }
 
 void Launcher::handle(const InputEvent& event) {
-    if (!isPlain(event))
+    if (!isPlainInput(event))
         return;
-    if (isUp(event)) {
+    if (isListUp(event)) {
         moveSelection(-1);
         return;
     }
-    if (isDown(event)) {
+    if (isListDown(event)) {
         moveSelection(1);
         return;
     }
@@ -289,7 +273,8 @@ void Launcher::render() {
                 const bool inverted = index == selected_;
                 const auto style = inverted ? selected : normal;
                 const int contentY = rowY + 14;
-                display_.drawText({10, contentY}, ordinal(index).c_str(), style);
+                display_.drawText({10, contentY}, ordinal(index).c_str(),
+                                  inverted ? selected : quiet);
                 drawAppIcon(display_, {launcherIconX, rowY + 11}, app.iconId.c_str(),
                             inverted ? palette::bone : palette::ink);
                 display_.drawText({launcherNameX, contentY}, fitName(app.displayName).c_str(),
