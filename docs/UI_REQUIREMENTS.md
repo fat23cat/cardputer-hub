@@ -494,9 +494,31 @@ menu input is consumed without dismissing host submenus, rename/delete prompts,
 or pairing. Enter on Home opens the AppRegistry-driven Launcher. Repeated plain Tab
 in Settings does not add history entries or repaint a settled view. Background
 connection updates never navigate away from the current screen. Fn+Tab is
-inactive, and a normal G0 press has no application action. G0's hardware
-boot/download function is unchanged. Plain Tab is a built-in
-system-screen control, not a global shortcut for future text-entry Mini Apps.
+inactive. G0 is the first global control: it shows the STATUS sheet described
+below over any screen. G0's hardware boot/download function is unchanged.
+Plain Tab is a built-in system-screen control, not a global shortcut for
+future text-entry Mini Apps.
+
+G0 shows the full-screen STATUS sheet over Home, Settings, Bluetooth, Wi-Fi,
+Launcher and every Mini App, and G0 or plain Escape (backtick or Fn+backtick)
+removes it. It appears and disappears at once, without motion. While it is
+shown it consumes every other key, with the ordinary key cue; Escape that
+removes it never reaches a Mini App's back navigation. The screen underneath
+keeps running: timers, service updates and capability loss continue, and
+removing the sheet shows that screen's current pixels. The Home orb and focus
+plate pause beneath it. G0 is ignored while a pairing prompt is shown, a new
+pairing prompt removes the sheet, and a display reaching Off removes it; a G0
+press that wakes the display only wakes it. The sheet uses the standard header
+`STATUS` with the quiet `G0 CLOSE` hint and five rows 20 px apart from y 28:
+quiet ordinals at x 6, Ink labels WI-FI, BLUETOOTH, COMPANION, WEB and BATTERY
+at x 26, and values right-aligned to x 234 with the Home 5×5 state dot 4 px
+before the value's first glyph. Values are the shared Wi-Fi Settings and
+Bluetooth words; BLUETOOTH shows the Ready host name, or `PAUSED` while WEB
+ACCESS holds the radio; COMPANION shows `READY`, `CONNECTING`, `WAITING BT`,
+`OFFLINE`, `ERROR` or the Home update advice; WEB shows `OFF`, `ON`, `N
+CLIENTS` or `ERROR`; BATTERY shows `NN%` or `--%` without a dot. Values with a
+Vermilion dot, and a battery at 10% or less, are Vermilion. Only changed rows
+are redrawn; the sheet is read-only and has no selection.
 
 The Cardputer adapter composes drawing into a persistent 8-bit palette canvas
 (exact interface colours, half the memory of RGB565) and copies
@@ -504,6 +526,13 @@ only completed dirty regions to the LCD. Settled functional views cause no displ
 changed regions, including the bounded ambient orb.
 Page changes are presented at once, without a slide (removed to keep 64.8 KB
 of heap free next to Wi-Fi and BLE). Input remains live.
+The STATUS sheet uses the adapter's overlay mode instead of a second
+full-screen buffer: page drawing continues into the canvas without reaching
+the LCD, the sheet is drawn region by region through a 240×24 band in the same
+palette (5.6 KB, allocated only while the sheet is shown) and each region is
+pushed once, and removing the sheet presents the whole canvas once. Without a
+band, regions draw on the LCD directly; without the canvas, the sheet does not
+open.
 No event is queued for later host replay. Animation positions update at most
 once per 16 ms and stop at completion. The Home bottom action plate moves
 horizontally. Vertical focus in Launcher, Settings, Bluetooth, and Wi-Fi lists
@@ -801,6 +830,9 @@ color stays consistent after Clear/reload and across browsers. Stationary
 Rainbow/Kaleidoscope pointers keep their own hue. The preview contains the
 local browser's strokes. Physical
 acceptance of contact reporting, latency and low-brightness halos is pending.
+
+The G0 STATUS sheet (plan 051) is implemented in firmware; physical
+acceptance on Cardputer-Adv is pending.
 
 Idle dimming, the final off fade and wake-input consumption are implemented for
 every screen and Mini App from the shared runtime input path; physical

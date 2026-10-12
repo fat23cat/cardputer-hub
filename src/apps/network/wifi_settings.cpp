@@ -72,7 +72,7 @@ std::string WiFiSettings::passphrasePreview() const {
     return shown;
 }
 
-const char* WiFiSettings::headerStatus(const services::WifiStatusSnapshot& status) const {
+const char* wifiStatusWord(const services::WifiStatusSnapshot& status) {
     if (!status.configured)
         return "NOT CONFIGURED";
     if (!status.enabled)
@@ -265,14 +265,14 @@ void WiFiSettings::renderStatus(const services::WifiStatusSnapshot& status, bool
     if (full) {
         display_.clear(palette::bone);
         display_.drawText({6, 6}, "WIFI", normal);
-        const auto* label = headerStatus(status);
+        const auto* label = wifiStatusWord(status);
         display_.drawText({rightAlignedTextX(label), 6}, label, normal);
         display_.fillRectangle({6, 20}, 228, 1, palette::ink);
     } else if (frame_ &&
                (frame_->configured != status.configured || frame_->enabled != status.enabled ||
                 frame_->connection != status.connection)) {
         display_.fillRectangle({90, 6}, 144, systemTextHeight(), palette::bone);
-        const auto* label = headerStatus(status);
+        const auto* label = wifiStatusWord(status);
         display_.drawText({rightAlignedTextX(label), 6}, label, normal);
     }
     for (std::uint8_t index = 0; index < 5; ++index) {

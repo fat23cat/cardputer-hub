@@ -387,7 +387,16 @@ transition contract before replacing page content, but the Cardputer adapter
 presents the destination at once. The 220 ms slide was removed: it needed a
 transient second 64.8 KB RGB565 buffer, and that allocation next to Wi-Fi and
 BLE could exhaust the internal heap (devices restarted while opening lists). Direct drawing remains available for startup
-and allocation failure. UI objects retain ownership of
+and allocation failure.
+The display contract also has an optional overlay mode (`beginOverlay`,
+`beginOverlayRegion`, `endOverlayRegion`, `endOverlay`) for the STATUS sheet.
+While it is on, drawing outside a region goes on into the page canvas and is
+not presented; drawing inside a region (at most 240×24) goes into a band with
+the canvas palette and is pushed once when the region ends; ending overlay
+mode presents the whole canvas once. The band (5.6 KiB) exists only while the
+sheet is shown; without it, regions draw on the LCD. `beginOverlay()` is false
+on the direct-draw fallback, so page drawing can never reach the LCD over the
+sheet. The default adapter has no overlay mode. UI objects retain ownership of
 layout and view state; the adapter owns canvas memory and physical LCD I/O.
 
 ---
@@ -614,7 +623,8 @@ the Settings Bluetooth entry dispatches `ui.bluetooth`; opening either menu has
 no host-control side effects. The existing BLE list keeps Esc Home; plain Tab can
 return from that list to Settings. Host submenus and editing/pairing modals consume
 the shortcut without abandoning their state. Ordinary Enter on Home opens
-Launcher. Fn+Tab is inactive, and a normal G0 press has no application action.
+Launcher. Fn+Tab is inactive. G0 dispatches `ui.status.toggle`, which shows
+the STATUS sheet over any screen (see section 23).
 The ROM download behavior of G0 at boot/reset is unchanged. Plain Tab is scoped to built-in system
 screens; future text-entry Mini Apps must retain their normal Tab behavior.
 Launcher lists registered applications, opens an eligible Mini App with
@@ -1582,6 +1592,23 @@ Global shortcut?
 ```
 
 Global shortcuts should be configuration data rather than hardcoded behavior.
+
+The first global control is delivered (plan 051). `CardputerKeyboardAdapter`
+reports the G0 button, which M5Unified debounces as `BtnA`, as
+`NamedKey::G0` with a physical press, so wake-only consumption in
+`SystemRuntime` applies to it like any key. `ApplicationShell` checks every
+event against a constant table of `{key, Action id}` pairs, with the single
+entry G0 → `ui.status.toggle`, before Mini App or system routing; the shell is
+that Action's only handler. The STATUS sheet it toggles reads `NetworkService`,
+`HostService`, `CompanionService`, `WebAccessService` and the battery percent
+through `buildStatusSheetModel()`, and `StatusSheetView` draws it through the
+display overlay mode (section 5). While the sheet is shown the shell consumes
+every other event, Escape closes it without reaching `IMiniApp::handleBack()`,
+and the Mini App and system screens still receive their elapsed-time updates.
+The sheet never opens over a pairing prompt or while the display is Off, and
+closes when either appears. Mini Apps contain no sheet code; `make
+architecture-check` keeps `NamedKey::G0` in the keyboard adapter and the shell
+and `ui.status.toggle` in the shell. The table is not yet configurable.
 
 ---
 
@@ -3350,7 +3377,8 @@ Transport expansion does not block the BLE-only software scope.
 - [x] Device-centric Home with compact WiFi, BT, Companion, and battery status plus a Living Orb.
 - [x] General Settings menu with Bluetooth, Wi-Fi, and persistent 0-100% sound volume.
 - [x] NavigationStack/ActionBus integration and modal-aware Back behavior.
-- [x] Plain Tab for built-in settings; Fn+Tab is inactive and normal G0 has no application action.
+- [x] Plain Tab for built-in settings; Fn+Tab is inactive.
+- [x] G0 STATUS sheet over any screen: Wi-Fi, Bluetooth, Companion, WEB and battery (plan 051).
 - [x] Shared palette, bitmap typography, buffered dirty-region presentation.
 - [x] Page changes presented at once (the 220 ms slide was removed to save 64.8 KB of heap).
 - [x] AppRegistry-driven Launcher and navigation into registered Mini Apps.

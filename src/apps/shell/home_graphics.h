@@ -30,6 +30,9 @@ enum class HomeStatusIndicator : std::uint8_t {
 };
 using HomeWifiIndicator = HomeStatusIndicator;
 
+// The 5×5 state dot: hollow Ordinal or filled in the indicator's colour.
+void drawHomeIndicatorDot(core::IDisplayAdapter& display, core::PixelPosition position,
+                          HomeStatusIndicator indicator);
 HomeStatusIndicator homeWifiIndicator(const services::WifiStatusSnapshot& status);
 HomeStatusIndicator homeBluetoothIndicator(services::HostConnectionStatus status);
 void drawHomeStatusBar(core::IDisplayAdapter& display);

@@ -1,0 +1,98 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>G0 STATUS sheet</title>
+<style>
+:root { --page: #E9E6DD; --text: #17150F; --muted: #6E6B62; }
+body { margin: 0; padding: 24px 16px; background: var(--page); color: var(--text);
+       font: 14px/1.45 ui-sans-serif, system-ui, -apple-system, sans-serif; }
+h1 { font-size: 18px; margin: 0 0 4px; }
+p.lead { margin: 0 0 20px; color: var(--muted); max-width: 720px; }
+.grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 480px), 1fr)); gap: 24px; }
+figure { margin: 0; }
+canvas { width: 100%; max-width: 720px; image-rendering: pixelated; display: block;
+         border-radius: 6px; box-shadow: 0 0 0 10px #17150F; }
+figcaption { margin-top: 18px; color: var(--muted); }
+figcaption b { color: var(--text); }
+</style>
+</head>
+<body>
+<h1>G0 STATUS sheet — plan 051</h1>
+<p class="lead">The 240×135 frame drawn pixel for pixel with the device font (M5GFX Font0 at
+1.20×) and the coordinates of plan 051 §3, enlarged 3×. The sheet appears and disappears at
+once, without motion.</p>
+<div class="grid" id="grid"></div>
+<script>
+// M5GFX Font0, characters 32..126, five column bytes each (bit 0 is the top row).
+const FONT=[0,0,0,0,0,0,0,95,0,0,0,7,0,7,0,20,127,20,127,20,36,42,127,42,18,35,19,8,100,98,54,73,86,32,80,0,8,7,3,0,0,28,34,65,0,0,65,34,28,0,42,28,127,28,42,8,8,62,8,8,0,128,112,48,0,8,8,8,8,8,0,0,96,96,0,32,16,8,4,2,62,81,73,69,62,0,66,127,64,0,114,73,73,73,70,33,65,73,77,51,24,20,18,127,16,39,69,69,69,57,60,74,73,73,49,65,33,17,9,7,54,73,73,73,54,70,73,73,41,30,0,0,20,0,0,0,64,52,0,0,0,8,20,34,65,20,20,20,20,20,0,65,34,20,8,2,1,89,9,6,62,65,93,89,78,124,18,17,18,124,127,73,73,73,54,62,65,65,65,34,127,65,65,65,62,127,73,73,73,65,127,9,9,9,1,62,65,65,81,115,127,8,8,8,127,0,65,127,65,0,32,64,65,63,1,127,8,20,34,65,127,64,64,64,64,127,2,28,2,127,127,4,8,16,127,62,65,65,65,62,127,9,9,9,6,62,65,81,33,94,127,9,25,41,70,38,73,73,73,50,3,1,127,1,3,63,64,64,64,63,31,32,64,32,31,63,64,56,64,63,99,20,8,20,99,3,4,120,4,3,97,89,73,77,67,0,127,65,65,65,2,4,8,16,32,0,65,65,65,127,4,2,1,2,4,64,64,64,64,64,0,3,7,8,0,32,84,84,120,64,127,40,68,68,56,56,68,68,68,40,56,68,68,40,127,56,84,84,84,24,0,8,126,9,2,24,164,164,156,120,127,8,4,4,120,0,68,125,64,0,32,64,64,61,0,127,16,40,68,0,0,65,127,64,0,124,4,120,4,120,124,8,4,4,120,56,68,68,68,56,252,24,36,36,24,24,36,36,24,252,124,8,4,4,8,72,84,84,84,36,4,4,63,68,36,60,64,64,32,124,28,32,64,32,28,60,64,48,64,60,68,40,16,40,68,76,144,144,144,124,68,100,84,76,68,0,8,54,65,0,0,0,119,0,0,0,65,54,8,0,2,1,2,4,2];
+const C = { bone: '#F4F2EC', ink: '#17150F', blue: '#1B4FD0', vermilion: '#E2451E',
+            leaf: '#4CB949', pale: '#DEDBD1', ordinal: '#ABA89D' };
+const SX = Math.trunc(65536 * 1.2);           // 16.16 scale, as GLCDfont::drawChar
+const GLYPH = (6 * SX) >> 16;                 // 7 px advance
+function text(g, x, y, s, fg) {
+  for (const ch of s) {
+    const code = ch.charCodeAt(0);
+    for (let i = 0; i < 6; i++) {
+      const x0 = (i * SX) >> 16, x1 = ((i + 1) * SX) >> 16;
+      const bits = i < 5 && code >= 32 && code < 127 ? FONT[(code - 32) * 5 + i] : 0;
+      for (let j = 0; j < 8; j++) {
+        const y0 = (j * SX) >> 16, y1 = ((j + 1) * SX) >> 16;
+        g.fillStyle = bits >> j & 1 ? fg : C.bone;
+        g.fillRect(x + x0, y + y0, x1 - x0, y1 - y0);
+      }
+    }
+    x += GLYPH;
+  }
+}
+const right = (s, edge = 234) => edge - s.length * GLYPH;
+function dot(g, x, y, kind) {
+  const hollow = kind === 'hollow';
+  const rows = hollow ? [' ### ', '#   #', '#   #', '#   #', ' ### ']
+                      : [' ### ', '#####', '#####', '#####', ' ### '];
+  g.fillStyle = hollow ? C.ordinal : C[kind];
+  rows.forEach((r, dy) => [...r].forEach((p, dx) => p === '#' && g.fillRect(x + dx, y + dy, 1, 1)));
+}
+function sheet(rows) {
+  const cv = document.createElement('canvas');
+  cv.width = 240; cv.height = 135;
+  const g = cv.getContext('2d');
+  g.fillStyle = C.bone; g.fillRect(0, 0, 240, 135);
+  text(g, 6, 6, 'STATUS', C.ink);
+  text(g, right('G0 CLOSE'), 6, 'G0 CLOSE', C.ordinal);
+  g.fillStyle = C.ink; g.fillRect(6, 20, 228, 1);
+  const labels = ['WI-FI', 'BLUETOOTH', 'COMPANION', 'WEB', 'BATTERY'];
+  rows.forEach(([kind, value], i) => {
+    const y = 28 + 20 * i;
+    text(g, 6, y, '0' + (i + 1), C.ordinal);
+    text(g, 26, y, labels[i], C.ink);
+    const x = right(value);
+    if (kind) dot(g, x - 9, y + 2, kind);    // right edge 4 px before the value
+    const red = kind === 'vermilion' || (i === 4 && parseInt(value) <= 10);
+    text(g, x, y, value, red ? C.vermilion : C.ink);
+  });
+  return cv;
+}
+const states = [
+  ['Everything connected', 'Wi-Fi station connected, the Mac is the Ready BLE host, the Companion is Ready, WEB ACCESS serves two browsers.',
+   [['leaf', 'CONNECTED'], ['leaf', 'MACBOOK PRO'], ['leaf', 'READY'], ['leaf', '2 CLIENTS'], [null, '72%']]],
+  ['WEB ACCESS holds Bluetooth', 'Bluetooth is saved On but held off while the access point runs, so the Companion waits for BT.',
+   [['leaf', 'CONNECTED'], ['hollow', 'PAUSED'], ['hollow', 'WAITING BT'], ['leaf', '1 CLIENT'], [null, '64%']]],
+  ['Nothing set up', 'No saved network, BT Off without a host, Companion unavailable, WEB ACCESS Off, battery unknown. No row is Vermilion.',
+   [['hollow', 'NOT CONFIGURED'], ['hollow', 'OFF'], ['hollow', 'WAITING BT'], ['hollow', 'OFF'], [null, '--%']]],
+  ['Problems', 'Wi-Fi error, BT reconnecting, a Companion from another build, the web server failed, low battery.',
+   [['vermilion', 'ERROR'], ['blue', 'CONNECTING'], ['vermilion', 'UPDATE FIRMWARE'], ['vermilion', 'ERROR'], [null, '8%']]],
+];
+const grid = document.getElementById('grid');
+for (const [title, note, rows] of states) {
+  const f = document.createElement('figure');
+  f.appendChild(sheet(rows));
+  const cap = document.createElement('figcaption');
+  cap.innerHTML = '<b>' + title + '.</b> ' + note;
+  f.appendChild(cap);
+  grid.appendChild(f);
+}
+</script>
+</body>
+</html>

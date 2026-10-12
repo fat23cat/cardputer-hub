@@ -309,6 +309,7 @@ extern "C" void app_main(void) {
     (void)miniApps.registerInstance(cardputer_hub::apps::webAccessAppId, webAccessApp);
     applicationShell.setCompanion(companion);
     applicationShell.setWebAccess(webAccess);
+    applicationShell.setLogger(logger);
     battery.update(std::chrono::milliseconds(0));
     previousUpdateMilliseconds = esp_timer_get_time() / 1000;
 
@@ -345,8 +346,12 @@ extern "C" void app_main(void) {
             }
         } else {
             const auto uiElapsed = uiScheduler.elapsedForUpdate(elapsed, !input.empty());
+            const bool statusSheetWasVisible = applicationShell.statusSheetVisible();
             if (uiElapsed)
                 applicationShell.update(input, *uiElapsed, battery.percent(), runtime.displayOff());
+            // Physical acceptance compares the heap with the sheet open and closed.
+            if (applicationShell.statusSheetVisible() != statusSheetWasVisible)
+                logHeap(statusSheetWasVisible ? "status sheet closed" : "status sheet open");
         }
         if (now - lastHeapLogMilliseconds >= 60'000) {
             lastHeapLogMilliseconds = now;

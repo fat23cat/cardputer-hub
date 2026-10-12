@@ -5,9 +5,8 @@
 #include <string>
 
 namespace cardputer_hub::apps {
-namespace {
-void drawDot(core::IDisplayAdapter& display, core::PixelPosition position,
-             HomeStatusIndicator indicator) {
+void drawHomeIndicatorDot(core::IDisplayAdapter& display, core::PixelPosition position,
+                          HomeStatusIndicator indicator) {
     const bool hollow = indicator == HomeStatusIndicator::HollowQuiet;
     const core::RgbColor color =
         indicator == HomeStatusIndicator::FilledPale        ? core::palette::pale
@@ -23,7 +22,6 @@ void drawDot(core::IDisplayAdapter& display, core::PixelPosition position,
             if (rows[y][x] == '#')
                 display.fillRectangle({position.x + x, position.y + y}, 1, 1, color);
 }
-} // namespace
 
 HomeStatusIndicator homeWifiIndicator(const services::WifiStatusSnapshot& status) {
     if (!status.configured)
@@ -68,12 +66,12 @@ void drawHomeStatusBar(core::IDisplayAdapter& display) {
 
 void drawHomeWifi(core::IDisplayAdapter& display, HomeStatusIndicator indicator) {
     display.fillRectangle(homeWifiDotPosition, 5, 5, core::palette::bone);
-    drawDot(display, homeWifiDotPosition, indicator);
+    drawHomeIndicatorDot(display, homeWifiDotPosition, indicator);
 }
 
 void drawHomeBluetooth(core::IDisplayAdapter& display, HomeStatusIndicator indicator) {
     display.fillRectangle(homeBluetoothDotPosition, 5, 5, core::palette::bone);
-    drawDot(display, homeBluetoothDotPosition, indicator);
+    drawHomeIndicatorDot(display, homeBluetoothDotPosition, indicator);
 }
 
 std::optional<HomeStatusIndicator> homeWebIndicator(services::WebAccessState state) {
@@ -94,7 +92,7 @@ void drawHomeWeb(core::IDisplayAdapter& display, std::optional<HomeStatusIndicat
                           core::palette::bone);
     if (!indicator)
         return;
-    drawDot(display, homeWebDotPosition, *indicator);
+    drawHomeIndicatorDot(display, homeWebDotPosition, *indicator);
     display.drawText({114, 6}, "WEB",
                      {core::palette::ink, core::palette::bone, core::systemTextScale});
     if (*indicator == HomeStatusIndicator::FilledLeaf && clients > 0) {
@@ -131,8 +129,9 @@ void drawHomeConnectedDevice(core::IDisplayAdapter& display, const std::string& 
     display.fillRectangle(homeDeviceRowOrigin, 240, homeDeviceRowHeight, core::palette::bone);
     if (name.empty())
         return;
-    drawDot(display, {8, 101},
-            warning ? HomeStatusIndicator::FilledVermilion : HomeStatusIndicator::FilledLeaf);
+    drawHomeIndicatorDot(display, {8, 101},
+                         warning ? HomeStatusIndicator::FilledVermilion
+                                 : HomeStatusIndicator::FilledLeaf);
     display.drawText({20, 100}, name.c_str(),
                      {core::palette::ink, core::palette::bone, core::systemTextScale});
 }

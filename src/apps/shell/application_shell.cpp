@@ -19,6 +19,24 @@ constexpr std::uint8_t volumeRow = 2;
 constexpr std::uint8_t timeoutRow = 3;
 constexpr std::uint8_t screenBrightnessRow = 4;
 constexpr std::uint8_t ledBrightnessRow = 5;
+
+constexpr char statusToggleActionId[] = "ui.status.toggle";
+
+// Global controls, checked before any screen or Mini App sees an event.
+struct GlobalShortcut {
+    NamedKey key;
+    const char* actionId;
+};
+constexpr GlobalShortcut globalShortcuts[] = {{NamedKey::G0, statusToggleActionId}};
+
+const char* globalShortcutAction(const InputEvent& event) {
+    if (event.type != InputEventType::NamedKey)
+        return nullptr;
+    for (const auto& shortcut : globalShortcuts)
+        if (shortcut.key == event.namedKey)
+            return shortcut.actionId;
+    return nullptr;
+}
 } // namespace
 
 ApplicationShell::ApplicationShell(services::HostService& hosts, services::NetworkService& network,
@@ -39,6 +57,7 @@ ApplicationShell::ApplicationShell(services::HostService& hosts, services::Netwo
     (void)actions_.registerHandler("ui.back", *this);
     (void)actions_.registerHandler("app.open", *this);
     (void)actions_.registerHandler("app.close", *this);
+    (void)actions_.registerHandler(statusToggleActionId, *this);
 }
 
 bool ApplicationShell::atHome() const { return *navigation_.current() == "home"; }
@@ -202,7 +221,7 @@ void ApplicationShell::tickCurrentPresentation(std::chrono::milliseconds elapsed
     }
     if (atHome())
         renderHome(elapsed, batteryPercent, displayOff,
-                   transitionWasActive || display_.transitionActive());
+                   transitionWasActive || display_.transitionActive() || statusSheetVisible_);
     else if (atSettings())
         renderSettings();
     else if (atWifi())
@@ -214,6 +233,23 @@ void ApplicationShell::tickCurrentPresentation(std::chrono::milliseconds elapsed
 }
 
 ActionHandlingResult ApplicationShell::handle(const Action& action) {
+    if (action.id == statusToggleActionId) {
+        if (statusSheetVisible_) {
+            closeStatusSheet();
+            return ActionHandlingResult::Handled;
+        }
+        // Never hide a pairing passkey; waking the display opens nothing.
+        if (displayOff_ || hosts_.status().pairingPrompt)
+            return ActionHandlingResult::Rejected;
+        if (!display_.beginOverlay()) {
+            if (logger_ != nullptr)
+                logger_->warning("shell", "STATUS sheet unavailable without the page canvas");
+            return ActionHandlingResult::Rejected;
+        }
+        statusSheetVisible_ = true;
+        statusSheet_.reset();
+        return ActionHandlingResult::Handled;
+    }
     if (action.id == "ui.settings") {
         if ((atBluetooth() && settings_.modal()) || (atWifi() && wifiSettings_.modal()))
             return ActionHandlingResult::Rejected;
@@ -302,19 +338,63 @@ ActionHandlingResult ApplicationShell::handle(const Action& action) {
 void ApplicationShell::update(const InputEvents& input, std::chrono::milliseconds elapsed,
                               std::optional<std::uint8_t> batteryPercent, bool displayOff) {
     display_.beginFrame();
+    displayOff_ = displayOff;
+    // A dark display closes the sheet, so waking shows the screen underneath.
+    if (displayOff)
+        closeStatusSheet();
     const bool transitionWasActive = display_.transitionActive();
     display_.advanceTransition(elapsed);
     if (showingMiniApp_ && !miniApps_.hasActiveApp())
         restoreLauncherFromMiniApp(false);
     for (const auto& event : input) {
+        if (const auto* actionId = globalShortcutAction(event)) {
+            (void)audio_.play(services::AudioCue::KeyPress);
+            (void)actions_.dispatch({actionId, "shell", {}});
+            continue;
+        }
+        if (statusSheetVisible_) {
+            // The sheet consumes every other key; Escape closes it without
+            // reaching the Mini App's back navigation.
+            (void)audio_.play(services::AudioCue::KeyPress);
+            if (isPlainEscape(event))
+                closeStatusSheet();
+            continue;
+        }
         playInputFeedback(event);
         if (miniApps_.hasActiveApp())
             routeMiniAppEvent(event);
         else
             routeSystemEvent(event);
     }
+    if (statusSheetVisible_ && hosts_.status().pairingPrompt)
+        closeStatusSheet();
     tickCurrentPresentation(elapsed, batteryPercent, displayOff, transitionWasActive);
+    if (statusSheetVisible_)
+        renderStatusSheet(batteryPercent);
     display_.endFrame();
+}
+
+void ApplicationShell::closeStatusSheet() {
+    if (!statusSheetVisible_)
+        return;
+    statusSheetVisible_ = false;
+    display_.endOverlay();
+}
+
+void ApplicationShell::renderStatusSheet(std::optional<std::uint8_t> batteryPercent) {
+    StatusSheetInputs inputs;
+    inputs.wifi = network_.status();
+    inputs.host = hosts_.status();
+    if (companion_ != nullptr) {
+        inputs.companion = companion_->state();
+        inputs.companionAdvice = companion_->mismatchAdvice();
+    }
+    if (webAccess_ != nullptr) {
+        inputs.web = webAccess_->status().state;
+        inputs.webClients = webAccess_->status().clients;
+    }
+    inputs.batteryPercent = batteryPercent;
+    statusSheet_.render(display_, buildStatusSheetModel(inputs));
 }
 
 void ApplicationShell::renderSettings() {

@@ -423,6 +423,20 @@ void test_off_input_wakes_and_is_consumed() {
     TEST_ASSERT_FALSE(fixture.runtime.displayOff());
 }
 
+void test_g0_press_while_off_only_wakes() {
+    RuntimeFixture fixture;
+    fixture.startAndFinishSplash();
+    fixture.idleUntil(DisplayPowerState::Off);
+
+    fixture.keyboard.press({{InputEventType::NamedKey, '\0', NamedKey::G0, {}}});
+    const auto& events = fixture.runtime.update(std::chrono::milliseconds(20));
+
+    TEST_ASSERT_EQUAL_UINT(0, events.size());
+    TEST_ASSERT_FALSE(fixture.runtime.displayOff());
+    TEST_ASSERT_EQUAL_UINT8(static_cast<unsigned>(DisplayPowerState::Waking),
+                            static_cast<unsigned>(fixture.displayPower.state()));
+}
+
 void test_modifier_only_physical_press_wakes_display() {
     RuntimeFixture fixture;
     fixture.startAndFinishSplash();
@@ -477,6 +491,7 @@ int main() {
     RUN_TEST(test_background_updates_do_not_reset_display_idle);
     RUN_TEST(test_dimmed_input_wakes_and_is_consumed);
     RUN_TEST(test_off_input_wakes_and_is_consumed);
+    RUN_TEST(test_g0_press_while_off_only_wakes);
     RUN_TEST(test_modifier_only_physical_press_wakes_display);
     RUN_TEST(test_input_during_waking_is_consumed_without_restarting_ramp);
     return UNITY_END();

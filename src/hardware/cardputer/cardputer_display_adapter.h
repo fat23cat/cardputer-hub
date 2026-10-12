@@ -11,6 +11,10 @@ class CardputerDisplayAdapter final : public core::IDisplayAdapter {
     ~CardputerDisplayAdapter() override;
     void beginFrame() override;
     void endFrame() override;
+    bool beginOverlay() override;
+    void endOverlay() override;
+    void beginOverlayRegion(core::PixelRectangle region) override;
+    void endOverlayRegion() override;
     void clear(core::RgbColor color) override;
     void fillRectangle(core::PixelPosition position, std::int32_t width, std::int32_t height,
                        core::RgbColor color) override;
@@ -18,6 +22,8 @@ class CardputerDisplayAdapter final : public core::IDisplayAdapter {
 
   private:
     struct Frame;
+    struct Surface;
+    Surface surface();
     std::unique_ptr<Frame> frame_;
 };
 
