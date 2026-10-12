@@ -498,7 +498,8 @@ inactive, and a normal G0 press has no application action. G0's hardware
 boot/download function is unchanged. Plain Tab is a built-in
 system-screen control, not a global shortcut for future text-entry Mini Apps.
 
-The Cardputer adapter composes drawing into a persistent RGB565 canvas and copies
+The Cardputer adapter composes drawing into a persistent 8-bit palette canvas
+(exact interface colours, half the memory of RGB565) and copies
 only completed dirty regions to the LCD. Settled functional views cause no display transfer; Home transfers only its
 changed regions, including the bounded ambient orb.
 Page changes are presented at once, without a slide (removed to keep 64.8 KB

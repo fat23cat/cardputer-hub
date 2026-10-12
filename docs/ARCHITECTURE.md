@@ -367,7 +367,10 @@ or a page transition is active. Ambient motion does not count as user activity
 or request display wake.
 
 The display contract adds optional `beginFrame`/`endFrame` grouping. The Cardputer
-adapter lazily creates a 240×135 RGB565 canvas after board initialization, tracks
+adapter lazily creates a 240×135 canvas with an 8-bit palette after board
+initialization (32.4 KiB instead of 64.8 KiB for RGB565). `core::ColorPalette`
+gives each colour the next palette entry on first use, so the interface's few
+colours stay exact; past 256 colours the nearest entry is used. The adapter tracks
 drawing damage, and presents only the completed clipped region at frame end.
 No drawing and no active transition means no transfer.
 `TextStyle` optionally carries a screen-coordinate clip rectangle. It clips
@@ -688,7 +691,11 @@ at a time, run off the main loop, polled through `state()` (`Idle`, `Running`,
 `Busy` (an earlier, possibly abandoned, request still holds the client) or
 `Failed` (the request cannot run), so a caller never mistakes a dead client for
 a busy one. `Esp32HttpClient` implements it with `esp_http_client`, the
-ESP-IDF certificate bundle and its own task. ESP-IDF's timeout covers single
+ESP-IDF certificate bundle and a task that exists only while a request runs
+(its 8 KiB stack is returned afterwards). A request does not start with less
+than 48 KiB of internal heap free or a largest block under 20 KiB: a TLS
+handshake next to Wi-Fi and BLE once drove the heap to a few hundred bytes.
+`start()` then answers `Failed`, and SERVICES HEALTH asks the Companion. ESP-IDF's timeout covers single
 socket operations only, so the client also enforces its own deadline: 4 s per
 operation and none started after 10 s, so a request ends about 14 s after it
 connects. DNS resolution inside the connect is bounded only by lwIP's retries,
@@ -3051,16 +3058,25 @@ driver when neither is active. The access point is WPA2-PSK with PMF capable,
 at most four clients, and in APSTA follows the station's channel. The DHCP
 server's per-client log lines are suppressed.
 
-Wi-Fi and BLE share about 274 KiB of internal heap with the 64.8 KiB display
-canvas. Measured on the device with both running and a Mac connected, the heap
+Wi-Fi and BLE share about 274 KiB of internal heap with the display canvas. Measured on the device with both running and a Mac connected, the heap
 fell to 17 KiB with a 7.7 KiB largest block, and a configuration save that
 reserved its 10 KiB worst case aborted the device when Wi-Fi was turned on. The
 build therefore keeps the Wi-Fi fast paths in flash (`CONFIG_ESP_WIFI_IRAM_OPT`
 and `CONFIG_ESP_WIFI_RX_IRAM_OPT` off), holds six static RX buffers, and uses
 mbedTLS dynamic buffers; `ConfigurationService::save()` grows its buffer with
 the record instead. The same scenario then left 40 KiB free, a 33 KiB minimum
-and a 31 KiB largest block. `app_main` logs these three heap figures once a
-minute, and the last abnormal reset at start.
+and a 31 KiB largest block.
+
+A staged measurement then showed what each part takes at start: display and
+canvas 69 KiB, BLE controller and NimBLE 74 KiB, Wi-Fi 42 KiB, speaker 12 KiB.
+The canvas moved to an 8-bit palette (−30 KiB), the speaker keeps six DMA
+buffers instead of sixteen (−5 KiB), the HTTPS task exists only during a
+request (−8 KiB while idle), and the measured stacks of `main` (3.6 KiB used)
+and `esp_timer` (0.5 KiB used) are 6 KiB and 2.5 KiB. With Wi-Fi, BLE, the
+Companion and microSD running the heap now has 80 KiB free, a 78 KiB minimum
+and a 37 KiB largest block. `app_main` logs the heap after each start step and,
+once a minute, the heap and each task's remaining stack, and logs the last
+abnormal reset at start.
 
 `BluetoothService` and `IBluetoothAdapter` likewise contain no ESP32 types.
 `Esp32BluetoothAdapter` uses the pinned framework's direct ESP-IDF Bluetooth

@@ -24,6 +24,11 @@ constexpr std::uint32_t taskStackBytes = 8192;
 // keyboard polling and rendering there.
 constexpr UBaseType_t taskPriority = 1;
 constexpr BaseType_t taskCore = 1;
+// A TLS handshake took the heap down to a few hundred bytes next to Wi-Fi and
+// BLE, where any other allocation would abort the device. Below these, a
+// request does not start; SERVICES HEALTH then asks the Companion instead.
+constexpr std::size_t tlsMinimumFreeBytes = 48 * 1024;
+constexpr std::size_t tlsMinimumBlockBytes = 20 * 1024;
 
 bool isRedirect(int status) {
     return status == 301 || status == 302 || status == 303 || status == 307 || status == 308;
@@ -47,10 +52,9 @@ connectivity::HttpStartResult Esp32HttpClient::start(std::string_view url) {
         return connectivity::HttpStartResult::Failed;
     if (busy_.load())
         return connectivity::HttpStartResult::Busy;
-    if (task_ == nullptr &&
-        xTaskCreatePinnedToCore(&Esp32HttpClient::taskEntry, "http_client", taskStackBytes, this,
-                                taskPriority, &task_, taskCore) != pdPASS) {
-        task_ = nullptr;
+    if (heap_caps_get_free_size(MALLOC_CAP_INTERNAL) < tlsMinimumFreeBytes ||
+        heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL) < tlsMinimumBlockBytes) {
+        ESP_LOGW(logTag, "not enough heap for TLS");
         return connectivity::HttpStartResult::Failed;
     }
     std::memcpy(url_.data(), url.data(), url.size());
@@ -58,7 +62,13 @@ connectivity::HttpStartResult Esp32HttpClient::start(std::string_view url) {
     abandoned_.store(false);
     busy_.store(true);
     state_.store(HttpRequestState::Running);
-    xTaskNotifyGive(task_);
+    // One task per request: its 8 KiB stack is returned when the request ends.
+    if (xTaskCreatePinnedToCore(&Esp32HttpClient::taskEntry, "http_client", taskStackBytes, this,
+                                taskPriority, nullptr, taskCore) != pdPASS) {
+        busy_.store(false);
+        state_.store(HttpRequestState::Idle);
+        return connectivity::HttpStartResult::Failed;
+    }
     return connectivity::HttpStartResult::Started;
 }
 
@@ -73,22 +83,20 @@ void Esp32HttpClient::reset() {
 void Esp32HttpClient::taskEntry(void* context) { static_cast<Esp32HttpClient*>(context)->run(); }
 
 void Esp32HttpClient::run() {
-    for (;;) {
-        (void)ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
-        std::size_t size = 0;
-        int status = 0;
-        const bool ok = perform(size, status);
-        ESP_LOGI(logTag, "GET %s: %s %d, %u bytes, free heap %u", url_.data(),
-                 ok ? "HTTP" : "failed", status, static_cast<unsigned>(size),
-                 static_cast<unsigned>(heap_caps_get_free_size(MALLOC_CAP_INTERNAL)));
-        if (!abandoned_.load()) {
-            std::memcpy(body_.data(), scratch_.data(), size);
-            bodySize_ = size;
-            status_ = status;
-            state_.store(ok ? HttpRequestState::Done : HttpRequestState::Failed);
-        }
-        busy_.store(false);
+    std::size_t size = 0;
+    int status = 0;
+    const bool ok = perform(size, status);
+    ESP_LOGI(logTag, "GET %s: %s %d, %u bytes, free heap %u", url_.data(), ok ? "HTTP" : "failed",
+             status, static_cast<unsigned>(size),
+             static_cast<unsigned>(heap_caps_get_free_size(MALLOC_CAP_INTERNAL)));
+    if (!abandoned_.load()) {
+        std::memcpy(body_.data(), scratch_.data(), size);
+        bodySize_ = size;
+        status_ = status;
+        state_.store(ok ? HttpRequestState::Done : HttpRequestState::Failed);
     }
+    busy_.store(false);
+    vTaskDelete(nullptr);
 }
 
 bool Esp32HttpClient::perform(std::size_t& size, int& status) {
