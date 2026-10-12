@@ -26,8 +26,9 @@ bool LedCanvasService::submit(const LedCanvasBatch& batch) {
         return false;
     for (std::size_t i = 0; i < batch.count; ++i) {
         const auto& p = batch.points[i];
-        if (p.slot > 4 || p.x > 2047 || p.y > 2047 || p.radius < 5 || p.radius > 29 ||
-            p.flags > 3 || (p.hasColor && (p.hue >= core::ledCanvasHueUnits || p.mixInk > 2)))
+        if (p.slot > 4 || p.x > 2047 || p.y > 2047 ||
+            (p.radius != 0 && (p.radius < 5 || p.radius > 29)) || p.flags > 3 ||
+            (p.hasColor && (p.hue >= core::ledCanvasHueUnits || p.mixInk > 2)))
             return false;
     }
     std::size_t client = clients_.size();

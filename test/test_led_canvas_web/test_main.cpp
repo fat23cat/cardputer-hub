@@ -83,7 +83,7 @@ void test_color_phase_is_decoded_and_bounded() {
     TEST_ASSERT_EQUAL(7500, due->point.hue);
     TEST_ASSERT_EQUAL(2, due->point.mixInk);
     for (const auto* p : {"[0,896,896,12,0,1,10000,2]", "[0,896,896,12,0,1,7500,3]",
-                          "[0,896,896,12,0,1,7500]", "[0,896,896,12,0,1,7500,2,0]"}) {
+                          "[0,896,896,12,0,1,7500]", "[0,896,896,12,0,1,7500,2,2]"}) {
         TEST_ASSERT_EQUAL(400,
                           f.call(HttpMethod::Post, "/strokes",
                                  std::string(R"({"client":"00000001","seq":2,"p":[)") + p + "]}")
@@ -106,6 +106,33 @@ void test_marker_size_clear_and_reset() {
     TEST_ASSERT_EQUAL(405, f.call(HttpMethod::Get, "/clear").status);
     TEST_ASSERT_EQUAL(404, f.call(HttpMethod::Get, "/missing").status);
 }
+void test_thin_radius_and_glow_switch_are_decoded_and_bounded() {
+    Fixture f;
+    f.canvas.setActive(true);
+    TEST_ASSERT_EQUAL(200,
+                      f.call(HttpMethod::Post, "/strokes",
+                             R"({"client":"00000001","seq":1,"p":[[0,896,896,0,0,1,7500,2,0]]})")
+                          .status);
+    const auto due = f.canvas.takeDue(std::chrono::milliseconds{100});
+    TEST_ASSERT_TRUE(due);
+    TEST_ASSERT_EQUAL(0, due->point.radius);
+    TEST_ASSERT_FALSE(due->point.glow);
+    TEST_ASSERT_EQUAL(7500, due->point.hue);
+    TEST_ASSERT_EQUAL(200,
+                      f.call(HttpMethod::Post, "/strokes",
+                             R"({"client":"00000001","seq":2,"p":[[0,896,896,17,0,1,7500,2,1]]})")
+                          .status);
+    const auto glowing = f.canvas.takeDue(std::chrono::milliseconds{100});
+    TEST_ASSERT_TRUE(glowing);
+    TEST_ASSERT_EQUAL(17, glowing->point.radius);
+    TEST_ASSERT_TRUE(glowing->point.glow);
+    for (const auto* p : {"[0,896,896,1,0,1,0,0,0]", "[0,896,896,0,0,1,0,0,2]",
+                          "[0,896,896,0,0,1,0,0,true]", "[0,896,896,0,0,1,0,0,0,0]"})
+        TEST_ASSERT_EQUAL(400,
+                          f.call(HttpMethod::Post, "/strokes",
+                                 std::string(R"({"client":"00000001","seq":3,"p":[)") + p + "]}")
+                              .status);
+}
 } // namespace
 void setUp() {}
 void tearDown() {}
@@ -117,5 +144,6 @@ int main(int, char**) {
     RUN_TEST(test_strict_batch_limits);
     RUN_TEST(test_marker_size_clear_and_reset);
     RUN_TEST(test_color_phase_is_decoded_and_bounded);
+    RUN_TEST(test_thin_radius_and_glow_switch_are_decoded_and_bounded);
     return UNITY_END();
 }

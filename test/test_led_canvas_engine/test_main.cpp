@@ -19,6 +19,25 @@ void test_brush_center_full_and_halo_dimmer() {
     TEST_ASSERT_TRUE(f.pixels[28].red > 0 && f.pixels[28].red < 255);
     TEST_ASSERT_EQUAL(0, f.pixels[0].red);
 }
+void test_thin_without_glow_is_one_led_and_wide_keeps_its_core() {
+    apps::LedCanvasEngine e;
+    e.setSettings({core::LedCanvasMode::Solid, core::LedCanvasFade::Medium, 6, true});
+    auto p = point(0, 1, 1023, 1023);
+    p.point.radius = 0;
+    p.point.glow = false;
+    e.point(p);
+    for (std::size_t i = 0; i < 64; ++i)
+        TEST_ASSERT_EQUAL(i == 27 ? 255 : 0, e.frame().pixels[i].red);
+    e.clear();
+    p = point();
+    p.point.radius = 17;
+    p.point.glow = false;
+    e.point(p);
+    const auto frame = e.frame();
+    for (std::size_t i = 0; i < 64; ++i)
+        TEST_ASSERT_EQUAL(i == 19 || i == 26 || i == 27 || i == 28 || i == 35 ? 255 : 0,
+                          frame.pixels[i].red);
+}
 void test_mix_red_and_green_make_yellow() {
     apps::LedCanvasEngine e;
     e.setSettings({core::LedCanvasMode::Mix, core::LedCanvasFade::Medium, 0, true});
@@ -205,6 +224,7 @@ void tearDown() {}
 int main(int, char**) {
     UNITY_BEGIN();
     RUN_TEST(test_brush_center_full_and_halo_dimmer);
+    RUN_TEST(test_thin_without_glow_is_one_led_and_wide_keeps_its_core);
     RUN_TEST(test_mix_red_and_green_make_yellow);
     RUN_TEST(test_fade_hold_and_stationary_pointer);
     RUN_TEST(test_sampling_covers_fast_stroke);

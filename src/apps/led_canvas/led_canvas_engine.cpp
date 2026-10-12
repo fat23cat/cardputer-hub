@@ -95,9 +95,9 @@ void LedCanvasEngine::brush(Pointer& p, float fx, float fy, bool entered) {
         for (int x = 0; x < 8; ++x) {
             const float d = std::hypot(x + 0.5f - fx, y + 0.5f - fy);
             const float w =
-                (x == static_cast<int>(fx) && y == static_cast<int>(fy)) || d <= p.radius
-                    ? 1
-                    : std::max(0.0f, 0.45f * (1 - (d - p.radius) / 1.3f));
+                (x == static_cast<int>(fx) && y == static_cast<int>(fy)) || d <= p.radius ? 1
+                : p.glow ? std::max(0.0f, 0.45f * (1 - (d - p.radius) / 1.3f))
+                         : 0;
             if (w <= 0)
                 continue;
             const auto led = static_cast<std::size_t>(y * 8 + x);
@@ -127,7 +127,8 @@ void LedCanvasEngine::point(const core::LedCanvasPlayback& event) {
     if (!p.down || (q.flags & 1))
         p = {true, x, y, r, 0, -1, strokes_++, event.time, hue_};
     else
-        p.radius = 0.7f * p.radius + 0.3f * r;
+        p.radius = r == 0 ? 0 : 0.7f * p.radius + 0.3f * r;
+    p.glow = q.glow;
     const float ox = p.x, oy = p.y, d = std::hypot(x - ox, y - oy);
     const float dt =
         std::max(0.008f, event.time > p.time ? (event.time - p.time) / 1000.0f : 0.008f);
