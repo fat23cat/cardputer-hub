@@ -69,7 +69,9 @@ bool CardputerAudioAdapter::begin(std::uint8_t volumePercent) {
     config.magnification = 16;
     config.sample_rate = speakerSampleRate;
     config.dma_buf_len = 256;
-    config.dma_buf_count = 16;
+    // Six 256-frame buffers queue about 32 ms: enough for short interface cues,
+    // and 5 KiB less internal RAM than sixteen.
+    config.dma_buf_count = 6;
     config.task_priority = 3;
     config.task_pinned_core = 1;
     M5.Speaker.config(config);

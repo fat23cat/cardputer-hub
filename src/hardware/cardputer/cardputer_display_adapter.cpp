@@ -1,4 +1,5 @@
 #include "hardware/cardputer/cardputer_display_adapter.h"
+#include "core/display/color_palette.h"
 #include "core/display/display_glyphs.h"
 #include "hardware/cardputer/assets/system_font_extension.h"
 #include <M5Unified.hpp>
@@ -49,18 +50,28 @@ const lgfx::IFont& systemFont() {
 }
 } // namespace
 
-// One 240x135 RGB565 canvas (64.8 KB of internal RAM). Page changes are
-// presented at once: the slide that needed a second, transient 64.8 KB buffer
-// was removed because that allocation, next to Wi-Fi and BLE, could exhaust
-// the heap.
+// One 240x135 canvas with an 8-bit palette: 32.4 KB of internal RAM instead
+// of 64.8 KB for RGB565. The interface draws a handful of exact colours, which
+// take palette entries as they are first used; pushSprite expands the palette
+// for the LCD. Page changes are presented at once: the slide that needed a
+// second full-screen buffer was removed because, next to Wi-Fi and BLE, that
+// allocation could exhaust the heap.
 struct CardputerDisplayAdapter::Frame {
     M5Canvas canvas{&M5.Display};
+    core::ColorPalette palette;
     bool usable = false;
     bool active = false;
     std::int32_t left = 240, top = 135, right = 0, bottom = 0;
     Frame() {
-        canvas.setColorDepth(16);
+        canvas.setColorDepth(lgfx::color_depth_t::palette_8bit);
         usable = canvas.createSprite(240, 135) != nullptr;
+    }
+    // The canvas colour for `color`: its palette index.
+    std::uint32_t index(core::RgbColor color) {
+        const auto found = palette.indexOf(color);
+        if (found.added)
+            canvas.setPaletteColor(found.index, color.red, color.green, color.blue);
+        return found.index;
     }
     void damage(core::PixelPosition position, std::int32_t width, std::int32_t height) {
         if (!active || width <= 0 || height <= 0)
@@ -107,7 +118,7 @@ void CardputerDisplayAdapter::endFrame() {
 
 void CardputerDisplayAdapter::clear(core::RgbColor color) {
     if (frame_ && frame_->active) {
-        frame_->canvas.fillScreen(toDeviceColor(color));
+        frame_->canvas.fillScreen(frame_->index(color));
         frame_->damage({0, 0}, 240, 135);
     } else
         M5.Display.fillScreen(toDeviceColor(color));
@@ -116,7 +127,7 @@ void CardputerDisplayAdapter::clear(core::RgbColor color) {
 void CardputerDisplayAdapter::fillRectangle(core::PixelPosition position, std::int32_t width,
                                             std::int32_t height, core::RgbColor color) {
     if (frame_ && frame_->active) {
-        frame_->canvas.fillRect(position.x, position.y, width, height, toDeviceColor(color));
+        frame_->canvas.fillRect(position.x, position.y, width, height, frame_->index(color));
         frame_->damage(position, width, height);
     } else
         M5.Display.fillRect(position.x, position.y, width, height, toDeviceColor(color));
@@ -133,7 +144,10 @@ void CardputerDisplayAdapter::drawText(core::PixelPosition position, const char*
     target.setFont(&systemFont());
     target.setAttribute(lgfx::utf8_switch, 0);
     target.setAttribute(lgfx::cp437_switch, 1);
-    target.setTextColor(toDeviceColor(style.foreground), toDeviceColor(style.background));
+    if (frame_ && frame_->active)
+        target.setTextColor(frame_->index(style.foreground), frame_->index(style.background));
+    else
+        target.setTextColor(toDeviceColor(style.foreground), toDeviceColor(style.background));
     target.setTextSize(style.scale);
     auto left = position.x;
     auto top = position.y;

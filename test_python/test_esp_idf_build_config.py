@@ -153,6 +153,20 @@ class EspIdfBuildConfigurationTests(unittest.TestCase):
         ):
             self.assertIn(setting, configuration)
 
+    def test_measured_task_stacks_and_speaker_buffers_are_trimmed(self) -> None:
+        configuration = self.read("sdkconfig.defaults")
+        audio = self.read("src/hardware/cardputer/cardputer_audio_adapter.cpp")
+        client = self.read("src/hardware/esp32/http/esp32_http_client.cpp")
+
+        # esp_timer used about 0.5 KiB of 3.5 KiB on the device.
+        self.assertIn("CONFIG_ESP_TIMER_TASK_STACK_SIZE=2560", configuration)
+        # Six 256-frame DMA buffers: about 32 ms of audio queued instead of 85 ms.
+        self.assertIn("config.dma_buf_count = 6;", audio)
+        # The HTTPS task exists only while a request runs, and a request does not
+        # start when TLS would exhaust the heap next to Wi-Fi and BLE.
+        self.assertIn("vTaskDelete(nullptr)", client)
+        self.assertIn("heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL)", client)
+
     def test_web_access_enables_the_access_point_and_http_server(self) -> None:
         configuration = self.read("sdkconfig.defaults")
         component = self.read("main/CMakeLists.txt")
@@ -260,7 +274,9 @@ class EspIdfBuildConfigurationTests(unittest.TestCase):
 
         self.assertIn("CONFIG_FATFS_LFN_HEAP=y", configuration)
         self.assertIn("CONFIG_FATFS_MAX_LFN=255", configuration)
-        self.assertIn("CONFIG_ESP_MAIN_TASK_STACK_SIZE=8192", configuration)
+        # FAT long names live on the heap, so the main task needs no LFN stack;
+        # the device measured 3.6 KiB of its stack in use.
+        self.assertIn("CONFIG_ESP_MAIN_TASK_STACK_SIZE=6144", configuration)
         self.assertNotIn("CONFIG_FATFS_LFN_NONE=y", configuration)
         self.assertIn("constexpr int microSdFrequencyKhz = 10'000;", adapter)
 
@@ -466,6 +482,7 @@ class EspIdfBuildConfigurationTests(unittest.TestCase):
             "                // Consume any key sampled on the frame that dismisses the splash.\n"
             "                applicationShell.update({}, std::chrono::milliseconds(0), battery.percent());\n"
             "                homeVisible = true;\n"
+            "                logHeap(\"home\");\n"
             "            }\n"
             "        } else {\n"
             "            const auto uiElapsed = uiScheduler.elapsedForUpdate(elapsed, !input.empty());\n"
@@ -475,6 +492,7 @@ class EspIdfBuildConfigurationTests(unittest.TestCase):
             "        if (now - lastHeapLogMilliseconds >= 60'000) {\n"
             "            lastHeapLogMilliseconds = now;\n"
             "            logHeap();\n"
+            "            logStacks();\n"
             "        }\n"
             "        vTaskDelay(pdMS_TO_TICKS(1));",
             entrypoint,

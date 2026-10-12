@@ -182,13 +182,31 @@ cardputer_hub::core::ResetReason lastResetReason() {
 
 // Internal heap: free now, the lowest it has been, and the largest block, so a
 // crash under memory pressure can be told apart from other resets.
-void logHeap() {
-    char message[96];
-    std::snprintf(message, sizeof(message), "free %u, minimum %u, largest block %u",
+void logHeap(const char* stage = nullptr) {
+    char message[112];
+    std::snprintf(message, sizeof(message), "%s%sfree %u, minimum %u, largest block %u",
+                  stage ? stage : "", stage ? ": " : "",
                   static_cast<unsigned>(heap_caps_get_free_size(MALLOC_CAP_INTERNAL)),
                   static_cast<unsigned>(heap_caps_get_minimum_free_size(MALLOC_CAP_INTERNAL)),
                   static_cast<unsigned>(heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL)));
     logger.info("heap", message);
+}
+
+// The least stack each task has had left since it started, in bytes. Tasks
+// that do not exist (yet) are skipped.
+void logStacks() {
+    std::string message;
+    for (const char* name :
+         {"main", "nimble_host", "btController", "wifi", "tiT", "sys_evt", "esp_timer", "Tmr Svc",
+          "ipc0", "ipc1", "spk_task", "http_client", "httpd"}) {
+        const auto task = xTaskGetHandle(name);
+        if (task == nullptr)
+            continue;
+        if (!message.empty())
+            message += ", ";
+        message += std::string(name) + " " + std::to_string(uxTaskGetStackHighWaterMark(task));
+    }
+    logger.info("stacks", message.c_str());
 }
 
 } // namespace
@@ -202,9 +220,11 @@ extern "C" void app_main(void) {
         logger.warning("system", message.c_str());
     }
     systemApp.setLastReset(resetReason);
+    logHeap("start");
     (void)configuration.ensureLoaded();
     (void)deviceSettings.start();
     runtime.start();
+    logHeap("display");
     // The NFC Unit and Unit Puzzle share Grove port A. Probe for the reader
     // before the Puzzle claims its data pin: a reader that answers owns the pins
     // for the session, so the Puzzle output stays off; otherwise the pins are
@@ -214,6 +234,7 @@ extern "C" void app_main(void) {
         puzzleLeds.inhibit();
     else
         (void)puzzleLeds.begin();
+    logHeap("nfc and leds");
     for (const auto* id : {"host.select", "host.bluetooth", "host.rename", "host.platform",
                            "host.capability", "host.mapping-template", "host.pair",
                            "host.cancel-pairing", "host.pair-response", "host.delete"}) {
@@ -231,8 +252,11 @@ extern "C" void app_main(void) {
     (void)actions.registerHandler(cardputer_hub::services::webAccessSetEnabledActionId, webAccess);
     (void)webAccess.addApp(inventoryWeb);
     (void)hosts.start();
+    logHeap("bluetooth");
     (void)network.start();
+    logHeap("wifi");
     (void)audio.start();
+    logHeap("audio");
     (void)appRegistry.registerApp({"system", "SYSTEM", "system", "system/home", {}});
     (void)miniApps.registerInstance("system", systemApp);
     (void)appRegistry.registerApp({"mac-control",
@@ -304,6 +328,7 @@ extern "C" void app_main(void) {
                 // Consume any key sampled on the frame that dismisses the splash.
                 applicationShell.update({}, std::chrono::milliseconds(0), battery.percent());
                 homeVisible = true;
+                logHeap("home");
             }
         } else {
             const auto uiElapsed = uiScheduler.elapsedForUpdate(elapsed, !input.empty());
@@ -313,6 +338,7 @@ extern "C" void app_main(void) {
         if (now - lastHeapLogMilliseconds >= 60'000) {
             lastHeapLogMilliseconds = now;
             logHeap();
+            logStacks();
         }
         vTaskDelay(pdMS_TO_TICKS(1));
     }
