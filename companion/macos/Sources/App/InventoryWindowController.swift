@@ -160,8 +160,7 @@ struct InventoryView: View {
             Text("Description")
                 .font(.caption)
                 .foregroundColor(.secondary)
-            TextEditor(text: $model.description)
-                .font(.body)
+            DescriptionEditor(text: $model.description)
                 .frame(minHeight: 160)
                 .overlay(RoundedRectangle(cornerRadius: 4).stroke(Color.secondary.opacity(0.3)))
             HStack {
@@ -244,6 +243,67 @@ struct InventoryView: View {
         case .conflict, .error: return .red
         case .saved: return .green
         default: return .secondary
+        }
+    }
+}
+
+/// The description field: a plain-text NSTextView that continues "- item" and
+/// "1. item" lists on Enter (`InventoryListContinuation`). Shift+Enter always
+/// inserts an ordinary line break.
+private struct DescriptionEditor: NSViewRepresentable {
+    @Binding var text: String
+    @Environment(\.isEnabled) private var isEnabled
+
+    func makeCoordinator() -> Coordinator { Coordinator(text: $text) }
+
+    func makeNSView(context: Context) -> NSScrollView {
+        let scrollView = NSTextView.scrollableTextView()
+        scrollView.drawsBackground = false
+        guard let textView = scrollView.documentView as? NSTextView else { return scrollView }
+        textView.delegate = context.coordinator
+        textView.isRichText = false
+        textView.allowsUndo = true
+        textView.drawsBackground = false
+        textView.font = .systemFont(ofSize: NSFont.systemFontSize)
+        textView.textContainerInset = NSSize(width: 2, height: 4)
+        textView.isAutomaticQuoteSubstitutionEnabled = false
+        textView.isAutomaticDashSubstitutionEnabled = false
+        textView.string = text
+        return scrollView
+    }
+
+    func updateNSView(_ scrollView: NSScrollView, context: Context) {
+        context.coordinator.text = $text
+        guard let textView = scrollView.documentView as? NSTextView else { return }
+        if textView.string != text { textView.string = text }
+        textView.isEditable = isEnabled
+        textView.isSelectable = isEnabled
+    }
+
+    final class Coordinator: NSObject, NSTextViewDelegate {
+        var text: Binding<String>
+
+        init(text: Binding<String>) { self.text = text }
+
+        func textDidChange(_ notification: Notification) {
+            guard let textView = notification.object as? NSTextView else { return }
+            text.wrappedValue = textView.string
+        }
+
+        func textView(_ textView: NSTextView, doCommandBy selector: Selector) -> Bool {
+            guard selector == #selector(NSResponder.insertNewline(_:)),
+                  NSApp.currentEvent?.modifierFlags.contains(.shift) != true,
+                  !textView.hasMarkedText(),
+                  let edit = InventoryListContinuation.newline(in: textView.string,
+                                                               selection: textView.selectedRange())
+            else { return false }
+            // shouldChangeText/didChangeText keep the edit undoable and notify the model.
+            guard textView.shouldChangeText(in: edit.range, replacementString: edit.replacement) else { return true }
+            textView.replaceCharacters(in: edit.range, with: edit.replacement)
+            textView.didChangeText()
+            textView.setSelectedRange(NSRange(location: edit.caret, length: 0))
+            textView.scrollRangeToVisible(textView.selectedRange())
+            return true
         }
     }
 }
