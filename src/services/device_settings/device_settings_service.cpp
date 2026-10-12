@@ -20,9 +20,10 @@ core::ActionHandlingResult DeviceSettingsService::handle(const core::Action& act
         return core::ActionHandlingResult::Rejected;
     auto next = configuration_.value();
     if (action.id == "display.timeout.step" && (*delta == -1 || *delta == 1)) {
-        const auto requested = static_cast<std::int32_t>(screenTimeout()) + *delta;
-        if (requested < 0 || requested > 2)
-            return core::ActionHandlingResult::Rejected;
+        // Normal, Long and Never form a cycle in both directions.
+        constexpr std::int32_t modes = 3;
+        const auto requested =
+            (static_cast<std::int32_t>(screenTimeout()) + *delta + modes) % modes;
         next.device.screenTimeout = static_cast<core::ScreenTimeoutMode>(requested);
     } else if (action.id == "display.brightness.step" && (*delta == -10 || *delta == 10)) {
         const auto requested = static_cast<std::int32_t>(screenBrightness()) + *delta;

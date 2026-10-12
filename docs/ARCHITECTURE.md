@@ -310,7 +310,9 @@ the persistent system sound volume directly; Left/Right dispatch
 `audio.volume.step` to change it from 0 to 100 percent in ten-percent steps,
 with zero acting as mute. Three further rows dispatch device-setting Actions
 through `DeviceSettingsService` for Screen timeout, Screen brightness, and LED
-brightness. The service saves the full configuration before applying display or
+brightness. `display.timeout.step` cycles Normal, Long, and Never in both
+directions; the brightness steps reject values outside their ranges. The
+service saves the full configuration before applying display or
 indicator policy. `ui.back` from Wi-Fi Settings returns to Settings;
 from Bluetooth it keeps the existing Esc Home behavior; from Launcher it
 returns Home. A local modal or

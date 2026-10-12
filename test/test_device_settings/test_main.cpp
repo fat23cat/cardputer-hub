@@ -83,7 +83,7 @@ void test_actions_persist_and_apply_each_setting() {
 
 void test_boundaries_and_invalid_deltas_do_not_write() {
     Fixture f;
-    TEST_ASSERT_FALSE(f.step("display.timeout.step", -1));
+    TEST_ASSERT_FALSE(f.step("display.timeout.step", 2));
     TEST_ASSERT_FALSE(f.step("display.brightness.step", 10));
     TEST_ASSERT_FALSE(f.step("display.brightness.step", 1));
     for (int i = 0; i < 8; ++i)
@@ -98,16 +98,27 @@ void test_boundaries_and_invalid_deltas_do_not_write() {
     TEST_ASSERT_FALSE(f.step("indicator.brightness.step", 1));
     TEST_ASSERT_EQUAL_UINT8(10, f.indicator.maximumBrightnessPercent());
     TEST_ASSERT_FALSE(f.step("indicator.brightness.step", 10));
-    TEST_ASSERT_TRUE(f.step("display.timeout.step", 1));
-    TEST_ASSERT_TRUE(f.step("display.timeout.step", 1));
-    const auto before = f.memory.writes;
-    TEST_ASSERT_FALSE(f.step("display.timeout.step", 1));
-    TEST_ASSERT_EQUAL(before, f.memory.writes);
     for (int i = 0; i < 9; ++i)
         TEST_ASSERT_TRUE(f.step("indicator.brightness.step", -1));
     TEST_ASSERT_EQUAL_UINT8(1, f.settings.ledBrightness());
     TEST_ASSERT_FALSE(f.step("indicator.brightness.step", -1));
     TEST_ASSERT_EQUAL_UINT8(1, f.indicator.maximumBrightnessPercent());
+}
+
+void test_screen_timeout_steps_wrap_in_both_directions() {
+    Fixture f;
+    TEST_ASSERT_TRUE(f.step("display.timeout.step", -1));
+    TEST_ASSERT_TRUE(f.settings.screenTimeout() == core::ScreenTimeoutMode::Never);
+    TEST_ASSERT_TRUE(f.display.timeoutMode() == core::ScreenTimeoutMode::Never);
+    TEST_ASSERT_TRUE(f.step("display.timeout.step", 1));
+    TEST_ASSERT_TRUE(f.settings.screenTimeout() == core::ScreenTimeoutMode::Normal);
+    TEST_ASSERT_TRUE(f.display.timeoutMode() == core::ScreenTimeoutMode::Normal);
+    TEST_ASSERT_TRUE(f.step("display.timeout.step", 1));
+    TEST_ASSERT_TRUE(f.step("display.timeout.step", 1));
+    TEST_ASSERT_TRUE(f.settings.screenTimeout() == core::ScreenTimeoutMode::Never);
+    TEST_ASSERT_TRUE(f.step("display.timeout.step", 1));
+    TEST_ASSERT_TRUE(f.settings.screenTimeout() == core::ScreenTimeoutMode::Normal);
+    TEST_ASSERT_EQUAL(5, f.memory.writes);
 }
 
 void test_failed_persistence_keeps_runtime_unchanged() {
@@ -129,6 +140,7 @@ int main() {
     UNITY_BEGIN();
     RUN_TEST(test_actions_persist_and_apply_each_setting);
     RUN_TEST(test_boundaries_and_invalid_deltas_do_not_write);
+    RUN_TEST(test_screen_timeout_steps_wrap_in_both_directions);
     RUN_TEST(test_failed_persistence_keeps_runtime_unchanged);
     return UNITY_END();
 }

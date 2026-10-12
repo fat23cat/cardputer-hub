@@ -46,7 +46,7 @@ class Launcher {
     };
 
     void handle(const core::InputEvent& event);
-    void moveSelection(int delta);
+    void moveSelection(bool down);
     void launchSelected();
     void clearOverlay();
     void startOverlay(std::string reason);

@@ -208,7 +208,7 @@ void test_apps_appear_in_registration_order() {
     TEST_ASSERT_TRUE(f.display.shows("1/2"));
 }
 
-void test_selection_starts_at_first_and_does_not_wrap() {
+void test_selection_starts_at_first_and_wraps_at_both_ends() {
     Fixture f;
     f.registerApp("alpha", "ALPHA", "");
     f.registerApp("beta", "BETA", "");
@@ -217,14 +217,49 @@ void test_selection_starts_at_first_and_does_not_wrap() {
     f.launcher.activate();
     f.tick();
     TEST_ASSERT_EQUAL_INT(apps::launcherRowTop, f.display.plateY().value_or(-1));
-    f.tick({up});
-    TEST_ASSERT_EQUAL_INT(apps::launcherRowTop, f.display.plateY().value_or(-1));
     TEST_ASSERT_TRUE(f.display.shows("1/2"));
-    f.tick({down, down});
-    f.tick({}, std::chrono::milliseconds(400));
+    f.tick({up});
     TEST_ASSERT_EQUAL_INT(apps::launcherRowTop + apps::launcherRowHeight,
                           f.display.plateY().value_or(-1));
     TEST_ASSERT_TRUE(f.display.shows("2/2"));
+    f.tick({down});
+    TEST_ASSERT_EQUAL_INT(apps::launcherRowTop, f.display.plateY().value_or(-1));
+    TEST_ASSERT_TRUE(f.display.shows("1/2"));
+    f.tick({down, down});
+    TEST_ASSERT_EQUAL_INT(apps::launcherRowTop, f.display.plateY().value_or(-1));
+    TEST_ASSERT_TRUE(f.display.shows("1/2"));
+}
+
+void test_wrapping_moves_the_three_row_window_to_the_other_end() {
+    Fixture f;
+    FakeMiniApp extras[3];
+    f.registerApp("one", "ONE", "");
+    f.registerApp("two", "TWO", "");
+    f.registerApp("three", "THREE", "");
+    f.registerApp("four", "FOUR", "");
+    f.registerApp("five", "FIVE", "");
+    f.bind("one", f.first);
+    f.bind("two", f.second);
+    f.bind("three", extras[0]);
+    f.bind("four", extras[1]);
+    f.bind("five", extras[2]);
+    f.launcher.activate();
+    f.tick();
+    f.tick({up});
+    TEST_ASSERT_TRUE(f.display.shows("THREE"));
+    TEST_ASSERT_TRUE(f.display.shows("FOUR"));
+    TEST_ASSERT_TRUE(f.display.shows("FIVE"));
+    TEST_ASSERT_FALSE(f.display.shows("ONE"));
+    TEST_ASSERT_TRUE(f.display.shows("5/5"));
+    TEST_ASSERT_EQUAL_INT(apps::launcherRowTop + 2 * apps::launcherRowHeight,
+                          f.display.plateY().value_or(-1));
+    f.tick({down});
+    TEST_ASSERT_TRUE(f.display.shows("ONE"));
+    TEST_ASSERT_TRUE(f.display.shows("TWO"));
+    TEST_ASSERT_TRUE(f.display.shows("THREE"));
+    TEST_ASSERT_FALSE(f.display.shows("FIVE"));
+    TEST_ASSERT_TRUE(f.display.shows("1/5"));
+    TEST_ASSERT_EQUAL_INT(apps::launcherRowTop, f.display.plateY().value_or(-1));
 }
 
 void test_three_row_window_keeps_selection_visible() {
@@ -499,7 +534,8 @@ int main() {
     UNITY_BEGIN();
     RUN_TEST(test_empty_registry_shows_no_apps_and_escape_returns_home);
     RUN_TEST(test_apps_appear_in_registration_order);
-    RUN_TEST(test_selection_starts_at_first_and_does_not_wrap);
+    RUN_TEST(test_selection_starts_at_first_and_wraps_at_both_ends);
+    RUN_TEST(test_wrapping_moves_the_three_row_window_to_the_other_end);
     RUN_TEST(test_three_row_window_keeps_selection_visible);
     RUN_TEST(test_known_icon_and_fallback_are_14_by_14);
     RUN_TEST(test_nfc_icon_is_dedicated_and_14_by_14);

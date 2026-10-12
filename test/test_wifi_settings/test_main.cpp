@@ -285,6 +285,7 @@ const core::InputEvent tab{core::InputEventType::NamedKey, 0, core::NamedKey::Ta
 const core::InputEvent enter{core::InputEventType::NamedKey, 0, core::NamedKey::Enter, {}};
 const core::InputEvent escape{core::InputEventType::NamedKey, 0, core::NamedKey::Escape, {}};
 const core::InputEvent backtick{core::InputEventType::PrintableCharacter, '`', {}, {}};
+const core::InputEvent up{core::InputEventType::NamedKey, 0, core::NamedKey::Up, {}};
 const core::InputEvent down{core::InputEventType::NamedKey, 0, core::NamedKey::Down, {}};
 const core::InputEvent backspace{core::InputEventType::NamedKey, 0, core::NamedKey::Backspace, {}};
 core::InputEvent character(char c) { return {core::InputEventType::PrintableCharacter, c, {}, {}}; }
@@ -501,6 +502,16 @@ void test_focus_keeps_change_and_forget_when_signal_row_appears() {
     forget.wifiSettings.update({enter});
     TEST_ASSERT_TRUE(forget.display.shows("FORGET NETWORK?"));
     TEST_ASSERT_FALSE(forget.display.shows("NETWORK NAME"));
+}
+
+void test_status_rows_wrap_at_both_ends() {
+    Fixture f;
+    f.storeWifi(false);
+    f.wifiSettings.activate();
+    f.wifiSettings.update({up, enter});
+    TEST_ASSERT_TRUE(f.display.shows("FORGET NETWORK?"));
+    f.wifiSettings.update({escape, up, down, enter});
+    TEST_ASSERT_TRUE(f.network.status().enabled);
 }
 
 void test_editor_keeps_long_credentials_on_screen() {
@@ -760,6 +771,7 @@ int main() {
     RUN_TEST(test_wifi_settings_hides_rssi_when_disconnected_and_toggle_persists);
     RUN_TEST(test_unconfigured_wifi_opens_configure_on_the_first_enter);
     RUN_TEST(test_focus_keeps_change_and_forget_when_signal_row_appears);
+    RUN_TEST(test_status_rows_wrap_at_both_ends);
     RUN_TEST(test_editor_keeps_long_credentials_on_screen);
     RUN_TEST(test_connectivity_error_stays_on_status_without_changing_focus);
     RUN_TEST(test_change_network_storage_failure_keeps_the_published_network);

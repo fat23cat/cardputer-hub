@@ -207,10 +207,8 @@ void WiFiSettings::handleStatus(const InputEvent& event,
     const bool up = isListUp(event);
     const bool down = isListDown(event);
     const bool escape = isPlainEscape(event);
-    if (up && focus > 0)
-        focusedKind_ = visible[focus - 1].kind;
-    else if (down && focus + 1 < visible.size())
-        focusedKind_ = visible[focus + 1].kind;
+    if (up || down)
+        focusedKind_ = visible[stepListIndex(focus, visible.size(), down)].kind;
     else if (escape)
         dispatch("ui.back");
     else if (event.type == InputEventType::NamedKey && event.namedKey == NamedKey::Enter) {

@@ -318,6 +318,7 @@ struct Fixture {
 };
 core::InputEvent character(char c) { return {core::InputEventType::PrintableCharacter, c, {}, {}}; }
 const core::InputEvent enter{core::InputEventType::NamedKey, 0, core::NamedKey::Enter, {}};
+const core::InputEvent up{core::InputEventType::NamedKey, 0, core::NamedKey::Up, {}};
 const core::InputEvent down{core::InputEventType::NamedKey, 0, core::NamedKey::Down, {}};
 
 void test_navigation_uses_unmodified_arrow_keys_but_rename_keeps_punctuation() {
@@ -332,6 +333,28 @@ void test_navigation_uses_unmodified_arrow_keys_but_rename_keeps_punctuation() {
     TEST_ASSERT_EQUAL_STRING(
         "Office laptop;.",
         std::get<std::string>(*f.actions.seen.back().findParameter("name")).c_str());
+}
+
+void test_host_list_and_host_actions_wrap_at_both_ends() {
+    Fixture f;
+    f.ui.update({up, enter, enter});
+    TEST_ASSERT_EQUAL_UINT(1, f.actions.seen.size());
+    TEST_ASSERT_EQUAL_STRING("host.select", f.actions.seen.back().id.c_str());
+    TEST_ASSERT_EQUAL_INT(9, std::get<std::int32_t>(*f.actions.seen.back().findParameter("id")));
+
+    Fixture actions;
+    actions.ui.update({down, down, enter, up, enter});
+    TEST_ASSERT_TRUE(std::find(actions.display.texts.begin(), actions.display.texts.end(),
+                               "DELETE HOST") != actions.display.texts.end());
+    const core::InputEvent escape{core::InputEventType::NamedKey, 0, core::NamedKey::Escape, {}};
+    actions.ui.update({escape, down, enter});
+    TEST_ASSERT_EQUAL_UINT(1, actions.actions.seen.size());
+    TEST_ASSERT_EQUAL_STRING("host.select", actions.actions.seen.back().id.c_str());
+
+    Fixture list;
+    list.ui.update({down, down, down, down, enter});
+    TEST_ASSERT_EQUAL_UINT(1, list.actions.seen.size());
+    TEST_ASSERT_EQUAL_STRING("host.bluetooth", list.actions.seen.back().id.c_str());
 }
 
 void test_bluetooth_footer_is_quiet_and_x_has_no_destructive_action() {
@@ -1088,6 +1111,7 @@ int main() {
     RUN_TEST(test_home_hides_pairing_text_while_bluetooth_settings_shows_it);
     RUN_TEST(test_pairing_prompt_change_redraws_pairing_content_then_stays_idle);
     RUN_TEST(test_pairing_passkey_entry_shows_enter_apply_when_complete);
+    RUN_TEST(test_host_list_and_host_actions_wrap_at_both_ends);
     RUN_TEST(test_bluetooth_footer_is_quiet_and_x_has_no_destructive_action);
     RUN_TEST(test_bluetooth_panel_keeps_selected_host_without_home_host_content);
     RUN_TEST(test_shell_boots_simple_home_and_opens_settings_before_bluetooth);

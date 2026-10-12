@@ -166,7 +166,14 @@ Mini Apps share the navigation keys: Left/Right are Fn+arrow or the plain `,` /
 `/` keys, and Up/Down are Fn+arrow or the plain `;` / `.` keys
 (`core/input/input_event.h`). Ordered sets (MAC STATUS pages, AI pages, LED
 effects) wrap at the ends; a document's pages (an NFC description) and MAC
-CONTROL pages stop there.
+CONTROL pages stop there. Selectable lists (Apps, Settings, the Bluetooth list
+and host action list, Wi-Fi Settings status, AI USAGE rows) also wrap: Down on
+the last row selects the first and Up on the first row selects the last, using
+`stepListIndex`. Scrolling detail text (AI RESETS) stops at its ends.
+
+Enumerated setting values step cyclically: Screen timeout cycles Normal, Long,
+and Never in both directions. Numeric ranges (Sound volume, Screen brightness,
+LED brightness) stop at their limits.
 
 The unmarked Escape key (backtick without Fn) and Fn+backtick both go back or
 cancel. Enter still confirms. A text field may treat backtick as a typed

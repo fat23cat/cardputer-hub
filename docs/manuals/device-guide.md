@@ -50,7 +50,8 @@ to open the general Settings menu. Fn+Tab is inactive. Press **G0** on any
 screen to show the STATUS sheet (see below). Settings lists Bluetooth, Wi-Fi, Sound volume, Screen
 timeout, Screen brightness, and LED brightness.
 Selection changes immediately between rows in Apps, Settings, Bluetooth, and
-Wi-Fi. Host-list scrolling keeps the selected row visible.
+Wi-Fi. These lists wrap: Down on the last row selects the first, and Up on the
+first row selects the last. Host-list scrolling keeps the selected row visible.
 BLE is the only host-control transport. USB supplies power, firmware
 installation, and fixed USB Serial/JTAG diagnostics.
 
@@ -724,15 +725,15 @@ instead of moving a list.
 | Plain Tab on Home | Open Settings without changing BLE state |
 | Enter on Bluetooth in Settings | Open the Bluetooth panel |
 | Enter on Wi-Fi in Settings | Open Wi-Fi Settings |
-| `;` / `.` or Up / Down in Settings | Move among all six rows |
+| `;` / `.` or Up / Down in Settings | Move among all six rows, wrapping at the ends |
 | `,` / `/` (keys marked Left / Right, without Fn) on Sound volume | Decrease / increase volume by 10%, from 0% to 100%; Fn+arrow combinations also work |
-| Left / Right on Screen timeout | Select Normal, Long, or Never without wrapping |
+| Left / Right on Screen timeout | Cycle Normal, Long, and Never; Right on Never returns to Normal, Left on Normal selects Never |
 | Left / Right on Screen brightness | Change by 10% within 20%–100% |
 | Left / Right on LED brightness | Change by 1% within 1%–10% |
 | Backtick/Escape in Settings | Return Home |
 | Plain Tab in the Bluetooth list or Wi-Fi Settings | Return to Settings |
 | Backtick/Escape on the Wi-Fi page, name, password, or Forget confirmation | Return to Wi-Fi Settings or cancel without saving |
-| `;` / `.` (keys marked Up / Down, without Fn) | Move through the list; Fn+arrow combinations also work |
+| `;` / `.` (keys marked Up / Down, without Fn) | Move through the list or host menu, wrapping at the ends; Fn+arrow combinations also work |
 | Enter on Bluetooth | Turn BLE On/Off; without a selected host, highlight a host or Add device for confirmation |
 | Enter on Add device | Open the two-minute pairing window |
 | Enter on a saved host | Open its Connect / Rename / Delete menu without changing BLE |

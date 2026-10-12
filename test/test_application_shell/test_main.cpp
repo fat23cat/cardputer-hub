@@ -473,6 +473,7 @@ const core::InputEvent tab{core::InputEventType::NamedKey, 0, core::NamedKey::Ta
 
 const core::InputEvent enter{core::InputEventType::NamedKey, 0, core::NamedKey::Enter, {}};
 const core::InputEvent escape{core::InputEventType::NamedKey, 0, core::NamedKey::Escape, {}};
+const core::InputEvent up{core::InputEventType::NamedKey, 0, core::NamedKey::Up, {}};
 const core::InputEvent down{core::InputEventType::NamedKey, 0, core::NamedKey::Down, {}};
 const core::InputEvent left{core::InputEventType::NamedKey, 0, core::NamedKey::Left, {}};
 const core::InputEvent right{core::InputEventType::NamedKey, 0, core::NamedKey::Right, {}};
@@ -1972,6 +1973,32 @@ void test_six_settings_rows_step_values_and_repaint_only_changed_row() {
     TEST_ASSERT_EQUAL(frames, f.display.frames);
 }
 
+void test_settings_rows_wrap_at_both_ends() {
+    Fixture f;
+    auto shell = f.makeShell();
+    shell.update({tab, up, right});
+    TEST_ASSERT_EQUAL_UINT8(4, f.deviceSettings.ledBrightness());
+    shell.update({down, down, down, down, right});
+    TEST_ASSERT_TRUE(f.deviceSettings.screenTimeout() == core::ScreenTimeoutMode::Long);
+    shell.update({up, up, up, up, up, left});
+    TEST_ASSERT_EQUAL_UINT8(90, f.deviceSettings.screenBrightness());
+}
+
+void test_screen_timeout_cycles_in_both_directions() {
+    Fixture f;
+    auto shell = f.makeShell();
+    shell.update({tab, down, down, down, left});
+    TEST_ASSERT_TRUE(f.deviceSettings.screenTimeout() == core::ScreenTimeoutMode::Never);
+    TEST_ASSERT_TRUE(f.display.shows("Never"));
+    shell.update({right});
+    TEST_ASSERT_TRUE(f.deviceSettings.screenTimeout() == core::ScreenTimeoutMode::Normal);
+    TEST_ASSERT_TRUE(f.display.shows("Normal"));
+    shell.update({right, right, right});
+    TEST_ASSERT_TRUE(f.deviceSettings.screenTimeout() == core::ScreenTimeoutMode::Normal);
+    shell.update({left, left});
+    TEST_ASSERT_TRUE(f.deviceSettings.screenTimeout() == core::ScreenTimeoutMode::Long);
+}
+
 void test_led_brightness_key_wakes_without_changing_setting() {
     Fixture f;
     auto shell = f.makeShell();
@@ -2342,6 +2369,8 @@ int main() {
     RUN_TEST(test_app_open_from_launcher_activates_when_idle);
     RUN_TEST(test_app_open_is_rejected_while_mini_app_is_active);
     RUN_TEST(test_six_settings_rows_step_values_and_repaint_only_changed_row);
+    RUN_TEST(test_settings_rows_wrap_at_both_ends);
+    RUN_TEST(test_screen_timeout_cycles_in_both_directions);
     RUN_TEST(test_led_brightness_key_wakes_without_changing_setting);
     RUN_TEST(test_screen_brightness_key_wakes_without_changing_setting);
     RUN_TEST(test_g0_opens_status_sheet_over_mini_app);

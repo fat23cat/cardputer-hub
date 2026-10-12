@@ -83,12 +83,8 @@ void Launcher::update(const InputEvents& input, std::chrono::milliseconds elapse
 void Launcher::handle(const InputEvent& event) {
     if (!isPlainInput(event))
         return;
-    if (isListUp(event)) {
-        moveSelection(-1);
-        return;
-    }
-    if (isListDown(event)) {
-        moveSelection(1);
+    if (isListUp(event) || isListDown(event)) {
+        moveSelection(isListDown(event));
         return;
     }
     if (isPlainEscape(event)) {
@@ -99,17 +95,10 @@ void Launcher::handle(const InputEvent& event) {
         launchSelected();
 }
 
-void Launcher::moveSelection(int delta) {
+void Launcher::moveSelection(bool down) {
     if (apps_.apps().empty())
         return;
-    const auto last = apps_.apps().size() - 1;
-    const auto next = delta > 0 ? std::min(selected_ + static_cast<std::size_t>(delta), last)
-                      : selected_ >= static_cast<std::size_t>(-delta)
-                          ? selected_ - static_cast<std::size_t>(-delta)
-                          : 0;
-    if (next == selected_)
-        return;
-    selected_ = next;
+    selected_ = stepListIndex(selected_, apps_.apps().size(), down);
     if (selected_ < windowStart_)
         windowStart_ = selected_;
     else if (selected_ >= windowStart_ + visibleRows)
