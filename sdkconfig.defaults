@@ -49,8 +49,20 @@ CONFIG_BT_NIMBLE_SVC_HID_MAX_RPTS=3
 # Wi-Fi station and BLE share the ESP32-S3 radio through software coexistence.
 CONFIG_ESP_COEX_SW_COEXIST_ENABLE=y
 
-# The product is a Wi-Fi station; it does not host an access point.
-CONFIG_ESP_WIFI_SOFTAP_SUPPORT=n
+# Heap for Wi-Fi next to BLE. Measured with both running: 17 KiB free, a 7.7 KiB
+# largest block, and an allocation abort when Wi-Fi was enabled. Keep the Wi-Fi
+# fast paths in flash rather than internal RAM, hold fewer static RX buffers,
+# and let mbedTLS allocate its record buffers only while a TLS session is open.
+CONFIG_ESP_WIFI_IRAM_OPT=n
+CONFIG_ESP_WIFI_RX_IRAM_OPT=n
+CONFIG_ESP_WIFI_STATIC_RX_BUFFER_NUM=6
+CONFIG_MBEDTLS_DYNAMIC_BUFFER=y
+
+# WEB ACCESS (plan 050) hosts a WPA2 access point beside the station and serves
+# the local web UI. Browsers send header sections larger than the 512-byte
+# default.
+CONFIG_ESP_WIFI_SOFTAP_SUPPORT=y
+CONFIG_HTTPD_MAX_REQ_HDR_LEN=2048
 
 # SERVICES reads public status pages over HTTPS and verifies them against the
 # ESP-IDF certificate bundle.

@@ -1050,6 +1050,11 @@ stages and verifies a fresh copy before replacing an existing application.
 Quit the running app before launching the new version. These commands do not
 modify login-item registration; `companion-check` remains the full Companion gate.
 
+The WEB ACCESS page is edited in `web/index.html` and compiled into the
+firmware as `src/services/web_access/web_ui_asset.h`. Regenerate the header
+after every page change with `uv run --frozen python scripts/generate_web_ui.py`;
+`test_python/test_web_ui_asset.py` fails while the two differ.
+
 Use narrow commands while iterating, then run the applicable CI-equivalent gate
 once after the last material change. Examples:
 

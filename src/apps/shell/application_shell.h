@@ -9,6 +9,7 @@
 #include "services/companion/companion_service.h"
 #include "services/device_settings/device_settings_service.h"
 #include "services/network/network_service.h"
+#include "services/web_access/web_access_service.h"
 
 namespace cardputer_hub::apps {
 class MiniAppRuntime;
@@ -25,6 +26,8 @@ class ApplicationShell final : public core::IActionHandler {
     core::ActionHandlingResult handle(const core::Action& action) override;
     // Home names the side to update when the Companion is from another build.
     void setCompanion(const services::CompanionService& companion) { companion_ = &companion; }
+    // Home shows a WEB group while the local web UI is not Off.
+    void setWebAccess(const services::WebAccessService& web) { webAccess_ = &web; }
 
   private:
     struct HomeStatusFrame {
@@ -33,6 +36,8 @@ class ApplicationShell final : public core::IActionHandler {
         std::optional<std::uint8_t> batteryPercent;
         std::string connectedDeviceName;
         bool companionMismatch = false;
+        std::optional<std::uint8_t> web;
+        std::size_t webClients = 0;
     };
 
     struct SettingsFrame {
@@ -72,6 +77,7 @@ class ApplicationShell final : public core::IActionHandler {
     MiniAppRuntime& miniApps_;
     core::CapabilityRegistry& capabilities_;
     const services::CompanionService* companion_ = nullptr;
+    const services::WebAccessService* webAccess_ = nullptr;
     Launcher launcher_;
     core::NavigationStack navigation_;
     std::optional<HomeStatusFrame> homeStatusFrame_;

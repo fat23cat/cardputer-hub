@@ -11,9 +11,6 @@ class CardputerDisplayAdapter final : public core::IDisplayAdapter {
     ~CardputerDisplayAdapter() override;
     void beginFrame() override;
     void endFrame() override;
-    void advanceTransition(std::chrono::milliseconds elapsed) override;
-    void beginTransition(core::SlideDirection direction) override;
-    bool transitionActive() const override;
     void clear(core::RgbColor color) override;
     void fillRectangle(core::PixelPosition position, std::int32_t width, std::int32_t height,
                        core::RgbColor color) override;

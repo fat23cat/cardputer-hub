@@ -236,7 +236,9 @@ ConfigurationResult ConfigurationService::save(const SystemConfiguration& value)
                              static_cast<std::uint8_t>(value.host.bluetoothEnabled),
                              static_cast<std::uint8_t>(value.host.hosts.size()),
                              value.soundVolume};
-    bytes.reserve(maximumSerializedSize);
+    // No reserve(maximumSerializedSize): that asked for ~10 KiB in one block,
+    // which the heap next to Wi-Fi and BLE may not have (it aborted the device
+    // when Wi-Fi was turned on). A real record is a few hundred bytes.
     appendInteger(bytes, value.host.nextHostId);
     appendInteger(bytes, value.host.activeHost.value_or(0));
     for (const auto& host : value.host.hosts) {

@@ -16,7 +16,9 @@ enum class HostResult {
     StorageError,
     BluetoothError,
     MissingBond,
-    CapacityReached
+    CapacityReached,
+    // Bluetooth is held off for WEB ACCESS; the request was not started.
+    RadioHeld
 };
 
 enum class HostConnectionStatus : std::uint8_t {
@@ -53,7 +55,10 @@ struct HostStatusSnapshot {
     std::optional<std::uint32_t> activeHostId;
     std::string activeHostName;
     HostResult lastResult = HostResult::Success;
+    // The radio is on; while held, the saved On/Off setting instead.
     bool connectionEnabled = false;
+    // Bluetooth is held off for WEB ACCESS; the saved setting is unchanged.
+    bool radioHeld = false;
     bool pairing = false;
     HostPairingPhase pairingPhase = HostPairingPhase::Inactive;
     std::optional<HostPairingPrompt> pairingPrompt;
@@ -68,6 +73,10 @@ class HostService final : public core::IActionHandler {
     void update(std::chrono::milliseconds elapsed);
     HostResult selectHost(std::uint32_t id);
     HostResult setEnabled(bool enabled);
+    // Holds Bluetooth off without changing the saved setting, for as long as
+    // the Wi-Fi access point needs the radio. Selections and On/Off made
+    // meanwhile are saved and applied when the hold ends; pairing is refused.
+    void setRadioHold(bool held);
     HostResult renameHost(std::uint32_t id, const std::string& name);
     HostResult setHostPlatform(std::uint32_t id, std::optional<HostPlatformId> platform);
     HostResult setHostCapability(std::uint32_t id, const HostCapabilityId& capability,
@@ -95,6 +104,7 @@ class HostService final : public core::IActionHandler {
     core::Logger* logger_;
     HostResult lastResult_ = HostResult::Success;
     bool ready_ = false;
+    bool radioHeld_ = false;
     bool pairing_ = false;
     std::optional<connectivity::BluetoothPairingChallenge> challenge_;
     std::optional<connectivity::BluetoothPeerHandle> challengePeer_;

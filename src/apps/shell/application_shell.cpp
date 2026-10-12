@@ -380,9 +380,16 @@ void ApplicationShell::renderHome(std::chrono::milliseconds elapsed,
         : capabilities_.isAvailable("COMPANION") ? homeConnectedDeviceName(hostStatus)
                                                  : std::string{};
     const auto percent = batteryPercent && *batteryPercent <= 100 ? batteryPercent : std::nullopt;
+    const auto web = webAccess_ ? homeWebIndicator(webAccess_->status().state) : std::nullopt;
+    const std::size_t webClients = webAccess_ ? webAccess_->status().clients : 0;
     const HomeStatusFrame next{static_cast<std::uint8_t>(wifi),
-                               static_cast<std::uint8_t>(bluetooth), percent, connectedDeviceName,
-                               mismatch};
+                               static_cast<std::uint8_t>(bluetooth),
+                               percent,
+                               connectedDeviceName,
+                               mismatch,
+                               web ? std::optional<std::uint8_t>(static_cast<std::uint8_t>(*web))
+                                   : std::nullopt,
+                               webClients};
     const bool entering = !homeStatusFrame_;
     if (entering) {
         homeAmbientRendered_ = false;
@@ -393,6 +400,9 @@ void ApplicationShell::renderHome(std::chrono::milliseconds elapsed,
         drawHomeWifi(display_, wifi);
     if (entering || homeStatusFrame_->bluetooth != next.bluetooth)
         drawHomeBluetooth(display_, bluetooth);
+    if (entering || homeStatusFrame_->web != next.web ||
+        homeStatusFrame_->webClients != next.webClients)
+        drawHomeWeb(display_, web, webClients);
     if (entering || homeStatusFrame_->batteryPercent != next.batteryPercent)
         drawHomeBattery(display_, percent);
     if (entering || homeStatusFrame_->connectedDeviceName != next.connectedDeviceName ||

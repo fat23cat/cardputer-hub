@@ -49,13 +49,12 @@ const lgfx::IFont& systemFont() {
 }
 } // namespace
 
+// One 240x135 RGB565 canvas (64.8 KB of internal RAM). Page changes are
+// presented at once: the slide that needed a second, transient 64.8 KB buffer
+// was removed because that allocation, next to Wi-Fi and BLE, could exhaust
+// the heap.
 struct CardputerDisplayAdapter::Frame {
     M5Canvas canvas{&M5.Display};
-    M5Canvas previous{&M5.Display};
-    core::SlideTransition slide;
-    bool snapshotUsable = false;
-    bool transitionRequested = false;
-    int presentedOffset = -1;
     bool usable = false;
     bool active = false;
     std::int32_t left = 240, top = 135, right = 0, bottom = 0;
@@ -84,7 +83,6 @@ void CardputerDisplayAdapter::beginFrame() {
     if (!frame_)
         return;
     frame_->active = frame_->usable;
-    frame_->transitionRequested = false;
     frame_->left = 240;
     frame_->top = 135;
     frame_->right = 0;
@@ -94,30 +92,7 @@ void CardputerDisplayAdapter::beginFrame() {
 void CardputerDisplayAdapter::endFrame() {
     if (!frame_ || !frame_->active)
         return;
-    if (frame_->snapshotUsable) {
-        const auto offset = frame_->slide.offset();
-        const bool dirty = frame_->left < frame_->right && frame_->top < frame_->bottom;
-        if (dirty || offset != frame_->presentedOffset) {
-            core::advanceSlideSnapshot(
-                static_cast<std::uint16_t*>(frame_->previous.getBuffer()),
-                static_cast<const std::uint16_t*>(frame_->canvas.getBuffer()), 240, 135,
-                std::max(0, frame_->presentedOffset), offset, frame_->slide.direction());
-            M5.Display.startWrite();
-            M5.Display.setClipRect(0, 0, 240, 135);
-            // Present one contiguous frame. Two cropped DMA sprite transfers can
-            // leave the ST7789 on the first composition while application state
-            // continues to advance.
-            frame_->previous.pushSprite(0, 0);
-            M5.Display.clearClipRect();
-            M5.Display.endWrite();
-            frame_->presentedOffset = offset;
-        }
-        if (!frame_->slide.active()) {
-            // The second framebuffer is transient, not a permanent cost to BLE.
-            frame_->previous.deleteSprite();
-            frame_->snapshotUsable = false;
-        }
-    } else if (frame_->left < frame_->right && frame_->top < frame_->bottom) {
+    if (frame_->left < frame_->right && frame_->top < frame_->bottom) {
         // Copy only the completed dirty region: the LCD never sees a blank
         // clear followed by separately appearing text during a page change.
         M5.Display.startWrite();
@@ -128,33 +103,6 @@ void CardputerDisplayAdapter::endFrame() {
         M5.Display.endWrite();
     }
     frame_->active = false;
-}
-
-void CardputerDisplayAdapter::advanceTransition(std::chrono::milliseconds elapsed) {
-    if (frame_ && frame_->snapshotUsable)
-        frame_->slide.advance(elapsed);
-}
-
-bool CardputerDisplayAdapter::transitionActive() const {
-    return frame_ && frame_->snapshotUsable && frame_->slide.active();
-}
-
-void CardputerDisplayAdapter::beginTransition(core::SlideDirection direction) {
-    if (!frame_ || !frame_->active)
-        return;
-    if (!frame_->transitionRequested) {
-        if (!frame_->snapshotUsable) {
-            frame_->previous.setColorDepth(16);
-            if (!frame_->previous.createSprite(240, 135))
-                return;
-            std::memcpy(frame_->previous.getBuffer(), frame_->canvas.getBuffer(), 240 * 135 * 2);
-            frame_->snapshotUsable = true;
-        }
-    }
-    // Multiple navigation Actions in one poll retain the original source frame.
-    frame_->transitionRequested = true;
-    frame_->slide.start(direction);
-    frame_->presentedOffset = -1;
 }
 
 void CardputerDisplayAdapter::clear(core::RgbColor color) {

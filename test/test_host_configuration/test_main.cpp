@@ -19,6 +19,7 @@ class MemoryStorage final : public core::IStorageAdapter {
     core::StorageWriteStatus write(const core::StorageAddress&,
                                    const core::StorageBytes& data) override {
         ++writes;
+        lastCapacity = data.capacity();
         if (writeError)
             return core::StorageWriteStatus::BackendError;
         bytes = data;
@@ -28,6 +29,7 @@ class MemoryStorage final : public core::IStorageAdapter {
         return core::StorageRemoveStatus::NotFound;
     }
     core::StorageBytes bytes;
+    std::size_t lastCapacity = 0;
     bool readError = false;
     bool writeError = false;
     int writes = 0;
@@ -342,6 +344,19 @@ void test_failed_version_two_upgrade_preserves_storage_and_published_volume() {
     TEST_ASSERT_EQUAL_UINT8(60, config.value().soundVolume);
 }
 
+// The device heap can be fragmented to a few KiB: a save must not ask for a
+// buffer the size of the largest possible configuration (about 10 KiB).
+void test_save_allocates_only_what_the_record_needs() {
+    MemoryStorage memory;
+    core::Storage storage(memory);
+    services::ConfigurationService config(storage);
+    TEST_ASSERT_TRUE(config.load() == services::ConfigurationResult::Success);
+    auto value = config.value();
+    value.wifi = {true, "Home", "password123"};
+    TEST_ASSERT_TRUE(config.save(value) == services::ConfigurationResult::Success);
+    TEST_ASSERT_TRUE(memory.lastCapacity < 1024);
+}
+
 void test_maximum_version_four_record_is_bounded_and_round_trips() {
     MemoryStorage memory;
     core::Storage storage(memory);
@@ -597,6 +612,7 @@ void setUp() {}
 void tearDown() {}
 int main() {
     UNITY_BEGIN();
+    RUN_TEST(test_save_allocates_only_what_the_record_needs);
     RUN_TEST(test_maximum_version_four_record_is_bounded_and_round_trips);
     RUN_TEST(test_version_four_wifi_round_trips_open_protected_enabled_and_disabled_networks);
     RUN_TEST(test_wifi_configuration_validation_uses_the_station_contract);

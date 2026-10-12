@@ -1,6 +1,7 @@
 #include "apps/shell/home_graphics.h"
 #include "core/display/palette.h"
 #include "core/display/text_layout.h"
+#include <algorithm>
 #include <string>
 
 namespace cardputer_hub::apps {
@@ -73,6 +74,34 @@ void drawHomeWifi(core::IDisplayAdapter& display, HomeStatusIndicator indicator)
 void drawHomeBluetooth(core::IDisplayAdapter& display, HomeStatusIndicator indicator) {
     display.fillRectangle(homeBluetoothDotPosition, 5, 5, core::palette::bone);
     drawDot(display, homeBluetoothDotPosition, indicator);
+}
+
+std::optional<HomeStatusIndicator> homeWebIndicator(services::WebAccessState state) {
+    switch (state) {
+    case services::WebAccessState::Off:
+        return std::nullopt;
+    case services::WebAccessState::Running:
+        return HomeStatusIndicator::FilledLeaf;
+    case services::WebAccessState::Error:
+        return HomeStatusIndicator::FilledVermilion;
+    }
+    return std::nullopt;
+}
+
+void drawHomeWeb(core::IDisplayAdapter& display, std::optional<HomeStatusIndicator> indicator,
+                 std::size_t clients) {
+    display.fillRectangle({homeWebDotPosition.x, 4}, 196 - homeWebDotPosition.x, 14,
+                          core::palette::bone);
+    if (!indicator)
+        return;
+    drawDot(display, homeWebDotPosition, *indicator);
+    display.drawText({114, 6}, "WEB",
+                     {core::palette::ink, core::palette::bone, core::systemTextScale});
+    if (*indicator == HomeStatusIndicator::FilledLeaf && clients > 0) {
+        const auto count = std::to_string(std::min<std::size_t>(clients, 9));
+        display.drawText({142, 6}, count.c_str(),
+                         {core::palette::ordinal, core::palette::bone, core::systemTextScale});
+    }
 }
 
 std::string homeConnectedDeviceName(const services::HostStatusSnapshot& status) {

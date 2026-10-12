@@ -13,11 +13,9 @@ from collections.abc import Sequence
 ENABLED_SETTINGS = (
     "CONFIG_COMPILER_OPTIMIZATION_SIZE",
     "CONFIG_MBEDTLS_CERTIFICATE_BUNDLE",
-)
-DISABLED_SETTINGS = (
     "CONFIG_ESP_WIFI_SOFTAP_SUPPORT",
-    "CONFIG_ESP_WIFI_ENTERPRISE_SUPPORT",
 )
+DISABLED_SETTINGS = ("CONFIG_ESP_WIFI_ENTERPRISE_SUPPORT",)
 DEFINE = re.compile(r"^\s*#define\s+([A-Z0-9_]+)(?:\s+(.+))?$")
 
 
@@ -47,7 +45,7 @@ def validate(header: pathlib.Path) -> list[str]:
 
 def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
-        description="Validate Plan-026 settings in generated sdkconfig.h."
+        description="Validate plan 026 and 050 settings in generated sdkconfig.h."
     )
     parser.add_argument("header", type=pathlib.Path)
     arguments = parser.parse_args(argv)

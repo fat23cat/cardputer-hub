@@ -82,7 +82,7 @@ SystemApp::Frame SystemApp::capture() const {
     const auto percent = battery_.percent();
     frame.battery = percent && *percent <= 100 ? std::to_string(*percent) + "%" : "--%";
     const auto host = hosts_.status();
-    frame.bluetooth = host.connectionEnabled ? "ON" : "OFF";
+    frame.bluetooth = !host.connectionEnabled ? "OFF" : host.radioHeld ? "PAUSED" : "ON";
     frame.host = host.activeHostName.empty() ? "NONE" : fitValue(host.activeHostName, 16);
     frame.hostStatus = hostStatusText(host.connection);
     const auto wifi = network_.status();
@@ -98,7 +98,11 @@ void SystemApp::render(const Frame& next) {
     const bool full = !frame_;
     if (full) {
         display_.clear(palette::bone);
-        drawScreenHeader(display_, "SYSTEM");
+        const std::string label = core::resetReasonLabel(lastReset_);
+        if (label.empty())
+            drawScreenHeader(display_, "SYSTEM");
+        else
+            drawScreenHeader(display_, "SYSTEM", "RESET: " + label, palette::vermilion);
     }
     const auto drawRow = [&](std::int32_t y, const char* ordinal, const char* label,
                              const std::string& value, const std::string* previous) {

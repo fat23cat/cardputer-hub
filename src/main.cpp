@@ -11,8 +11,11 @@
 #include "apps/shell/application_shell.h"
 #include "apps/shell/ui_scheduler.h"
 #include "apps/system/system_app.h"
+#include "apps/web_access/web_access_app.h"
 #include "core/app_registry/app_registry.h"
 #include "core/capabilities/capability_registry.h"
+#include "esp_heap_caps.h"
+#include "esp_system.h"
 #include "esp_timer.h"
 #include "hardware/cardputer/cardputer_audio_adapter.h"
 #include "hardware/cardputer/cardputer_battery_adapter.h"
@@ -21,6 +24,7 @@
 #include "hardware/esp32/esp32_nvs_storage_adapter.h"
 #include "hardware/esp32/esp32_random_source.h"
 #include "hardware/esp32/http/esp32_http_client.h"
+#include "hardware/esp32/http/esp32_http_server.h"
 #include "hardware/esp32/wifi/esp32_wifi_adapter.h"
 #include "hardware/nfc/st25r3916_adapter.h"
 #include "hardware/storage/microsd/cardputer_microsd_file_storage_adapter.h"
@@ -37,6 +41,7 @@
 #include "services/indicator/indicator_service.h"
 #include "services/inventory/inventory_companion_endpoint.h"
 #include "services/inventory/inventory_service.h"
+#include "services/inventory/inventory_web_endpoint.h"
 #include "services/mac_status/mac_status_service.h"
 #include "services/network/network_service.h"
 #include "services/nfc/nfc_service.h"
@@ -44,8 +49,11 @@
 #include "services/pomodoro/pomodoro_service.h"
 #include "services/service_status/service_status_service.h"
 #include "services/storage/removable_storage_service.h"
+#include "services/web_access/web_access_bluetooth_pause.h"
+#include "services/web_access/web_access_service.h"
 
 #include "core/lifecycle/build_info.h"
+#include "core/lifecycle/reset_reason.h"
 #include "core/lifecycle/system_runtime.h"
 #include "core/logging/logger.h"
 #include "core/power/display_power_controller.h"
@@ -57,6 +65,9 @@
 
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+
+#include <cstdio>
+#include <string>
 
 namespace {
 
@@ -130,14 +141,67 @@ cardputer_hub::hardware::Esp32HttpClient httpClient;
 cardputer_hub::services::ServiceStatusService serviceStatus(httpClient, wifiConnectivity, companion,
                                                             capabilities, &audio);
 cardputer_hub::apps::ServiceStatusApp serviceStatusApp(serviceStatus, actions, display);
+// WEB ACCESS: the access point shares the station's Wi-Fi driver.
+cardputer_hub::hardware::Esp32HttpServer httpServer;
+cardputer_hub::services::WebAccessService webAccess(wifiAdapter, httpServer, configurationStorage,
+                                                    randomSource, &logger);
+cardputer_hub::services::InventoryWebEndpoint inventoryWeb(inventory);
+// BLE and the access point share the radio; Bluetooth pauses while it runs.
+cardputer_hub::services::WebAccessBluetoothPause webAccessBluetoothPause(webAccess, hosts);
+cardputer_hub::apps::WebAccessApp webAccessApp(webAccess, actions, display);
 cardputer_hub::apps::UiScheduler uiScheduler;
 std::int64_t previousUpdateMilliseconds = 0;
 bool homeVisible = false;
+std::int64_t lastHeapLogMilliseconds = 0;
+
+cardputer_hub::core::ResetReason lastResetReason() {
+    using cardputer_hub::core::ResetReason;
+    switch (esp_reset_reason()) {
+    case ESP_RST_POWERON:
+    case ESP_RST_EXT:
+    case ESP_RST_SW:
+    case ESP_RST_DEEPSLEEP:
+    case ESP_RST_USB:
+    case ESP_RST_JTAG:
+        return ResetReason::Normal;
+    case ESP_RST_PANIC:
+    case ESP_RST_CPU_LOCKUP:
+        return ResetReason::Panic;
+    case ESP_RST_INT_WDT:
+    case ESP_RST_TASK_WDT:
+    case ESP_RST_WDT:
+        return ResetReason::Watchdog;
+    case ESP_RST_BROWNOUT:
+    case ESP_RST_PWR_GLITCH:
+        return ResetReason::Brownout;
+    default:
+        break;
+    }
+    return ResetReason::Unknown;
+}
+
+// Internal heap: free now, the lowest it has been, and the largest block, so a
+// crash under memory pressure can be told apart from other resets.
+void logHeap() {
+    char message[96];
+    std::snprintf(message, sizeof(message), "free %u, minimum %u, largest block %u",
+                  static_cast<unsigned>(heap_caps_get_free_size(MALLOC_CAP_INTERNAL)),
+                  static_cast<unsigned>(heap_caps_get_minimum_free_size(MALLOC_CAP_INTERNAL)),
+                  static_cast<unsigned>(heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL)));
+    logger.info("heap", message);
+}
 
 } // namespace
 
 extern "C" void app_main(void) {
     runtime.prepare();
+    const auto resetReason = lastResetReason();
+    if (resetReason != cardputer_hub::core::ResetReason::Normal) {
+        const std::string message =
+            std::string("last reset: ") + cardputer_hub::core::resetReasonLabel(resetReason);
+        logger.warning("system", message.c_str());
+    }
+    systemApp.setLastReset(resetReason);
     (void)configuration.ensureLoaded();
     (void)deviceSettings.start();
     runtime.start();
@@ -164,6 +228,8 @@ extern "C" void app_main(void) {
     (void)actions.registerHandler(cardputer_hub::services::hostAppActivateActionId, hostControl);
     (void)actions.registerHandler(cardputer_hub::services::serviceStatusRefreshActionId,
                                   serviceStatus);
+    (void)actions.registerHandler(cardputer_hub::services::webAccessSetEnabledActionId, webAccess);
+    (void)webAccess.addApp(inventoryWeb);
     (void)hosts.start();
     (void)network.start();
     (void)audio.start();
@@ -198,7 +264,14 @@ extern "C" void app_main(void) {
     (void)appRegistry.registerApp(
         {"nfc", "NFC", "nfc", "nfc", {cardputer_hub::services::nfcReaderCapabilityId}});
     (void)miniApps.registerInstance("nfc", nfcApp);
+    (void)appRegistry.registerApp({cardputer_hub::apps::webAccessAppId,
+                                   "WEB ACCESS",
+                                   cardputer_hub::apps::webAccessAppId,
+                                   cardputer_hub::apps::webAccessAppId,
+                                   {}});
+    (void)miniApps.registerInstance(cardputer_hub::apps::webAccessAppId, webAccessApp);
     applicationShell.setCompanion(companion);
+    applicationShell.setWebAccess(webAccess);
     battery.update(std::chrono::milliseconds(0));
     previousUpdateMilliseconds = esp_timer_get_time() / 1000;
 
@@ -210,6 +283,8 @@ extern "C" void app_main(void) {
         hosts.update(elapsed);
         companion.update(elapsed);
         inventoryCompanion.update(elapsed);
+        webAccess.update(elapsed);
+        webAccessBluetoothPause.update();
         hostControl.update();
         macStatus.update(elapsed);
         aiUsage.update(elapsed);
@@ -234,6 +309,10 @@ extern "C" void app_main(void) {
             const auto uiElapsed = uiScheduler.elapsedForUpdate(elapsed, !input.empty());
             if (uiElapsed)
                 applicationShell.update(input, *uiElapsed, battery.percent(), runtime.displayOff());
+        }
+        if (now - lastHeapLogMilliseconds >= 60'000) {
+            lastHeapLogMilliseconds = now;
+            logHeap();
         }
         vTaskDelay(pdMS_TO_TICKS(1));
     }

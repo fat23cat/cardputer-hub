@@ -1,0 +1,947 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="color-scheme" content="light">
+<meta name="theme-color" content="#F4F2EC">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Hub">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<link rel="icon" type="image/png" sizes="192x192" href="/icon-192.png">
+<link rel="apple-touch-icon" href="/apple-touch-icon.png">
+<link rel="manifest" href="/manifest.webmanifest">
+<title>Hub</title>
+<style>
+:root {
+  --bone: #F4F2EC; --ink: #17150F; --blue: #1B4FD0; --vermilion: #E2451E; --leaf: #4CB949;
+  --light: #CED0CB; --pale: #DEDBD1; --ordinal: #ABA89D; --field: #FBFAF6; --hover: #ECE9E1;
+  --muted: #5F5C53; --quiet: #75726A; --danger-text: #A3300D;
+  --mono: ui-monospace, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
+  --sans: system-ui, -apple-system, "Segoe UI", "Helvetica Neue", Arial, sans-serif;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; background: var(--bone); color: var(--ink); font-family: var(--sans); }
+body { min-height: 100vh; -webkit-text-size-adjust: 100%; }
+a { color: var(--ink); }
+button, input, textarea { font: inherit; color: inherit; }
+[hidden] { display: none !important; }
+.label { font: 600 12px/1 var(--mono); letter-spacing: .1em; text-transform: uppercase; }
+.quiet { color: var(--quiet); }
+.muted { color: var(--muted); }
+.mono { font-family: var(--mono); }
+.dot { width: 8px; height: 8px; display: inline-block; flex: none; }
+.sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+.clip { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.btn { min-height: 44px; padding: 0 18px; display: inline-flex; align-items: center; justify-content: center;
+  font: 600 13px/1 var(--mono); letter-spacing: .08em; text-transform: uppercase; border: 1px solid var(--ink);
+  background: transparent; color: var(--ink); cursor: pointer; border-radius: 0; text-decoration: none; }
+.btn:hover { background: #E8E5DC; }
+.btn:disabled { opacity: .35; cursor: not-allowed; background: transparent; }
+.btn-primary { background: var(--ink); color: var(--bone); }
+.btn-primary:hover { background: #2C2A22; }
+.btn-primary:disabled { background: var(--ink); }
+.btn-danger { background: var(--vermilion); border-color: var(--vermilion); color: var(--ink); }
+.btn-danger:hover { background: #CF3D18; }
+.btn-quiet { border-color: transparent; }
+.btn-del { border-color: transparent; color: var(--danger-text); }
+.icon-btn { width: 44px; height: 44px; display: inline-flex; align-items: center; justify-content: center;
+  border: 1px solid transparent; background: transparent; cursor: pointer; color: var(--ink); text-decoration: none; }
+.icon-btn:hover { border-color: var(--ink); }
+:focus-visible { outline: 2px solid var(--blue); outline-offset: 2px; }
+.input { width: 100%; border: 1px solid var(--ink); background: var(--field); padding: 12px 14px;
+  font: 400 16px/1.5 var(--sans); border-radius: 0; }
+.input:focus { outline: 2px solid var(--blue); outline-offset: -1px; }
+.input::placeholder { color: var(--quiet); }
+textarea.input { resize: vertical; min-height: 220px; }
+.wordmark { font: 700 28px/1 var(--mono); letter-spacing: .04em; color: var(--ink); text-decoration: none; }
+
+/* Header */
+.top { border-bottom: 1px solid var(--ink); }
+.top-in { max-width: 1280px; margin: 0 auto; padding: 8px 16px; display: flex; flex-wrap: wrap;
+  gap: 8px 24px; align-items: center; justify-content: space-between; }
+.top-left { display: flex; align-items: center; gap: 8px 20px; flex-wrap: wrap; min-width: 0; }
+.tabs { display: flex; gap: 4px; overflow-x: auto; }
+.tab { display: inline-flex; align-items: center; min-height: 40px; padding: 0 14px; border: 1px solid transparent;
+  font: 600 13px/1 var(--mono); letter-spacing: .12em; text-decoration: none; color: var(--ink); white-space: nowrap; }
+.tab:hover { border-color: var(--ink); }
+.tab[aria-current="page"] { background: var(--ink); color: var(--bone); }
+.top-right { display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: center; font: 400 12px/1 var(--mono);
+  letter-spacing: .06em; color: var(--muted); }
+.linklike { background: none; border: 0; padding: 12px 0; font: 600 12px/1 var(--mono); letter-spacing: .06em;
+  color: var(--ink); cursor: pointer; text-decoration: underline; }
+main { max-width: 1280px; margin: 0 auto; padding: 24px 16px 48px; }
+
+/* Sign-in */
+.signin { max-width: 400px; margin: 0 auto; padding: 56px 16px 32px; display: flex; flex-direction: column; gap: 20px; }
+.signin h1 { margin: 0; font: 700 64px/.9 var(--mono); }
+.field { display: flex; flex-direction: column; gap: 8px; }
+.field-head { display: flex; justify-content: space-between; }
+.error { display: flex; gap: 10px; align-items: center; color: var(--danger-text); font-size: 14px; }
+.error .dot { background: var(--vermilion); }
+
+/* Home */
+.section-head { display: flex; justify-content: space-between; align-items: baseline;
+  border-bottom: 1px solid var(--ink); padding-bottom: 10px; margin: 0 0 16px; }
+.tiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 16px; margin-bottom: 40px; }
+.tile { display: flex; flex-direction: column; gap: 16px; min-height: 220px; padding: 20px; border: 1px solid var(--ink);
+  text-decoration: none; color: var(--ink); }
+.tile:hover { background: var(--ink); color: var(--bone); }
+.tile:hover .tile-quiet { color: var(--light); }
+.tile-quiet { color: var(--muted); }
+.tile-count { display: flex; align-items: baseline; gap: 6px; margin-top: auto; }
+.tile-count b { font: 700 56px/.85 var(--mono); }
+.facts { margin: 0; display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  border-top: 1px solid var(--pale); border-left: 1px solid var(--pale); }
+.facts > div { padding: 16px; border-right: 1px solid var(--pale); border-bottom: 1px solid var(--pale); }
+.facts dt { font: 600 11px/1 var(--mono); letter-spacing: .1em; color: var(--muted); margin-bottom: 10px; }
+.facts dd { margin: 0; font: 400 15px/1.2 var(--mono); display: flex; align-items: center; gap: 8px; word-break: break-all; }
+
+/* Inventory */
+.inv { display: flex; flex-wrap: wrap; gap: 24px; align-items: flex-start; }
+.pane { border: 1px solid var(--ink); min-width: 0; }
+.pane-list { flex: 1 1 320px; }
+.pane-edit { flex: 999 1 560px; }
+.pane-head { display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  min-height: 61px; padding: 8px 8px 8px 16px; border-bottom: 1px solid var(--ink); }
+.row { width: 100%; display: grid; grid-template-columns: 28px minmax(0, 1fr) auto; gap: 12px; align-items: start;
+  padding: 12px 16px; min-height: 64px; border: 0; border-top: 1px solid var(--pale); background: transparent;
+  text-align: left; cursor: pointer; }
+.row:first-child { border-top: 0; }
+.row:hover { background: var(--hover); }
+.row[aria-current="true"], .row[aria-current="true"]:hover { background: var(--ink); color: var(--bone); border-top-color: var(--ink); }
+.row[aria-current="true"] .row-sub, .row[aria-current="true"] .row-ord { color: var(--light); }
+.row-ord { font: 400 13px/22px var(--mono); color: var(--quiet); }
+.row-name { font-weight: 600; font-size: 15px; line-height: 22px; display: flex; align-items: center; gap: 8px; }
+.row-sub { font-size: 13px; line-height: 18px; color: var(--muted); }
+.notice { padding: 24px 16px; color: var(--muted); font-size: 15px; line-height: 1.5; }
+.editor { padding: 24px; display: flex; flex-direction: column; gap: 24px; }
+.editor-name { font-size: 20px; font-weight: 600; }
+.meta { margin: 0; display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 16px;
+  padding-top: 16px; border-top: 1px solid var(--pale); font-size: 13px; }
+.meta dt { font: 600 11px/1 var(--mono); letter-spacing: .1em; color: var(--muted); margin-bottom: 6px; }
+.meta dd { margin: 0; font-family: var(--mono); word-break: break-all; }
+.bar { display: flex; flex-wrap: wrap; gap: 8px; justify-content: space-between; align-items: center;
+  padding: 12px 16px; border-top: 1px solid var(--ink); }
+.status { display: inline-flex; align-items: center; gap: 8px; font: 400 12px/1 var(--mono); letter-spacing: .06em; text-transform: uppercase; }
+.banner { background: var(--vermilion); color: var(--ink); padding: 14px 16px; display: flex; flex-wrap: wrap;
+  gap: 12px; align-items: center; justify-content: space-between; font-weight: 500; }
+.empty { padding: 96px 24px; text-align: center; display: flex; flex-direction: column; gap: 8px; }
+.empty h2, .damaged h2 { margin: 0; font-size: 18px; font-weight: 600; }
+.empty p, .damaged p { margin: 0; color: var(--muted); font-size: 15px; line-height: 1.5; }
+.damaged { padding: 48px 24px; display: flex; flex-direction: column; gap: 12px; align-items: flex-start; max-width: 520px; }
+.back { display: none; }
+
+dialog { border: 1px solid var(--ink); padding: 0; background: var(--bone); color: var(--ink); width: min(440px, calc(100vw - 32px)); }
+dialog::backdrop { background: rgba(23, 21, 15, .5); }
+.dialog-body { padding: 24px; display: flex; flex-direction: column; gap: 12px; }
+.dialog-body h2 { margin: 0; font-size: 20px; font-weight: 600; }
+.dialog-body p { margin: 0; font-size: 15px; line-height: 1.5; color: #3D3A33; }
+.dialog-bar { display: flex; gap: 8px; justify-content: flex-end; padding: 12px 16px; border-top: 1px solid var(--ink); }
+
+@media (max-width: 899px) {
+  .inv.has-selection .pane-list { display: none; }
+  .inv:not(.has-selection) .pane-edit { display: none; }
+  .back { display: inline-flex; }
+  .pane-list, .pane-edit { flex-basis: 100%; }
+  main { padding: 16px 12px 40px; }
+  .editor { padding: 16px; }
+  .bar { position: sticky; bottom: 0; background: var(--bone); }
+}
+</style>
+</head>
+<body>
+<header class="top" id="top" hidden>
+  <div class="top-in">
+    <div class="top-left">
+      <a class="wordmark" href="#/" aria-label="Hub home">HUB</a>
+      <nav class="tabs" id="tabs" aria-label="Apps"></nav>
+    </div>
+    <div class="top-right">
+      <span id="network"></span>
+      <button class="linklike" id="sign-out" type="button">SIGN OUT</button>
+    </div>
+  </div>
+</header>
+<main id="main"></main>
+
+<dialog id="confirm">
+  <form method="dialog">
+    <div class="dialog-body">
+      <span class="label" id="confirm-kicker"></span>
+      <h2 id="confirm-title"></h2>
+      <p id="confirm-text"></p>
+    </div>
+    <div class="dialog-bar">
+      <button class="btn btn-quiet" value="cancel" id="confirm-cancel">Cancel</button>
+      <button class="btn" value="ok" id="confirm-ok">OK</button>
+    </div>
+  </form>
+</dialog>
+
+<script>
+"use strict";
+
+const NAME_LIMIT = 32;
+const DESCRIPTION_LIMIT = 900;
+const RECORD_BYTES = 4096;
+
+const state = { hub: null, signedIn: false };
+
+// ---- DOM helpers: user text is only ever set as text, never as markup ----
+function h(tag, props, ...children) {
+  const node = document.createElement(tag);
+  for (const [key, value] of Object.entries(props || {})) {
+    if (value === undefined || value === null || value === false) continue;
+    if (key === "class") node.className = value;
+    else if (key === "text") node.textContent = value;
+    else if (key.startsWith("on")) node.addEventListener(key.slice(2), value);
+    else if (value === true) node.setAttribute(key, "");
+    else node.setAttribute(key, value);
+  }
+  for (const child of children.flat()) {
+    if (child === null || child === undefined || child === false) continue;
+    node.append(child instanceof Node ? child : document.createTextNode(String(child)));
+  }
+  return node;
+}
+const main = document.getElementById("main");
+function show(...nodes) { main.replaceChildren(...nodes); }
+// Shows "Loading…" only when the wait is long enough to notice, so a quick
+// answer never flashes a placeholder.
+async function withLoadingNotice(work, isCurrent) {
+  const timer = setTimeout(() => {
+    if (isCurrent()) show(h("p", { class: "notice", text: "Loading…" }));
+  }, 300);
+  try { return await work(); } finally { clearTimeout(timer); }
+}
+function ordinal(index) { return String(index + 1).padStart(2, "0"); }
+function codePoints(text) { return Array.from(text).length; }
+
+// ---- API ----
+class ApiError extends Error {
+  constructor(status, body) { super("HTTP " + status); this.status = status; this.body = body || {}; }
+}
+async function api(path, options = {}) {
+  const init = { method: options.method || "GET", credentials: "same-origin", headers: {} };
+  if (init.method !== "GET") init.headers["X-Hub-Request"] = "1";
+  if (options.body !== undefined) {
+    init.headers["Content-Type"] = "application/json";
+    init.body = typeof options.body === "string" ? options.body : JSON.stringify(options.body);
+  }
+  let response;
+  try { response = await fetch(path, init); }
+  catch (error) { throw new ApiError(0, { error: "network" }); }
+  let body = null;
+  const text = await response.text();
+  if (text) { try { body = JSON.parse(text); } catch (error) { body = null; } }
+  if (response.status === 401 && path !== "/api/session") { signedOut(); throw new ApiError(401, body); }
+  if (!response.ok) throw new ApiError(response.status, body);
+  return body;
+}
+function problemText(error) {
+  if (error.status === 0) return "The Cardputer did not answer. Check that this device is still on its Wi-Fi.";
+  if (error.status === 503) return "The microSD card is not available. Insert it and try again.";
+  if (error.status === 504) return "The Cardputer is busy. Try again.";
+  return "The Cardputer refused the request (" + error.status + ").";
+}
+
+// ---- Dialog ----
+function confirmDialog({ kicker, title, text, ok, danger }) {
+  const dialog = document.getElementById("confirm");
+  document.getElementById("confirm-kicker").textContent = kicker || "";
+  document.getElementById("confirm-title").textContent = title;
+  document.getElementById("confirm-text").textContent = text;
+  const okButton = document.getElementById("confirm-ok");
+  okButton.textContent = ok;
+  okButton.className = danger ? "btn btn-danger" : "btn btn-primary";
+  return new Promise((resolve) => {
+    dialog.addEventListener("close", () => resolve(dialog.returnValue === "ok"), { once: true });
+    dialog.returnValue = "cancel";
+    dialog.showModal();
+    document.getElementById("confirm-cancel").focus();
+  });
+}
+
+// ---- Shell ----
+let dirtyGuard = null; // returns true when leaving would lose edits
+// The address the unsaved-edits check last accepted.
+let lastHash = location.hash;
+// Counts page changes: work that finishes after a newer change must not draw.
+let routeSerial = 0;
+
+// Changes the address without a hashchange event, keeping lastHash in step.
+function replaceHash(hash) {
+  history.replaceState(null, "", hash);
+  lastHash = location.hash;
+}
+
+// Keeps the caret in the field being typed in across a re-render.
+function preservingFocus(render) {
+  const active = document.activeElement;
+  const id = active && ["name", "description", "search"].includes(active.id) ? active.id : null;
+  const start = id ? active.selectionStart : 0;
+  const end = id ? active.selectionEnd : 0;
+  render();
+  const field = id && document.getElementById(id);
+  if (field) {
+    field.focus();
+    field.setSelectionRange(start, end);
+  }
+}
+
+function signedOut() {
+  state.signedIn = false;
+  state.hub = null;
+  dirtyGuard = null;
+  resetInventory();
+  document.getElementById("top").hidden = true;
+  renderSignIn();
+}
+
+function renderHeader(appId) {
+  const top = document.getElementById("top");
+  top.hidden = false;
+  const tabs = document.getElementById("tabs");
+  const key = state.hub.apps.map((app) => app.id + ":" + app.title).join("|");
+  if (tabs.dataset.key !== key) {
+    tabs.dataset.key = key;
+    tabs.replaceChildren(...state.hub.apps.map((app) =>
+      h("a", { class: "tab", href: "#/" + app.id, "data-app": app.id, text: app.title })));
+  }
+  for (const tab of tabs.children) {
+    if (tab.dataset.app === appId) tab.setAttribute("aria-current", "page");
+    else tab.removeAttribute("aria-current");
+  }
+  const device = state.hub.device;
+  const network = device.network + " · " + device.clients + (device.clients === 1 ? " CLIENT" : " CLIENTS");
+  const label = document.getElementById("network");
+  if (label.textContent !== network) label.textContent = network;
+}
+
+async function loadHub() {
+  state.hub = await api("/api/hub");
+  state.signedIn = true;
+}
+
+document.getElementById("sign-out").addEventListener("click", async () => {
+  if (dirtyGuard && dirtyGuard() &&
+      !(await confirmDialog({ title: "Discard unsaved changes?", text: "The edits have not been saved to the Cardputer.", ok: "Discard" })))
+    return;
+  try { await api("/api/session", { method: "DELETE" }); } catch (error) { /* signed out either way */ }
+  signedOut();
+});
+
+function renderSignIn(message) {
+  const login = h("input", { class: "input", id: "login", name: "login", type: "text", value: "admin",
+    autocomplete: "username", autocapitalize: "none", spellcheck: "false", required: true });
+  const password = h("input", { class: "input", id: "password", name: "password", type: "password",
+    autocomplete: "current-password", required: true });
+  const error = h("div", { class: "error", role: "alert", hidden: !message }, h("span", { class: "dot" }), h("span", { text: message || "" }));
+  const submit = h("button", { class: "btn btn-primary", type: "submit", text: "Sign in" });
+  const form = h("form", { class: "signin", onsubmit: async (event) => {
+      event.preventDefault();
+      submit.disabled = true;
+      try {
+        await api("/api/session", { method: "POST", body: { login: login.value, password: password.value } });
+        await loadHub();
+        route();
+      } catch (failure) {
+        submit.disabled = false;
+        const text = failure.status === 401 ? "Wrong login or password."
+          : failure.status === 429 ? "Too many attempts. Wait 30 seconds and try again."
+          : problemText(failure);
+        error.hidden = false;
+        error.lastChild.textContent = text;
+        password.select();
+      }
+    } },
+    h("div", {}, h("span", { class: "label muted", text: "Cardputer Hub" }), h("h1", { text: "HUB" })),
+    h("label", { class: "field", for: "login" }, h("span", { class: "label", text: "Login" }), login),
+    h("label", { class: "field", for: "password" }, h("span", { class: "label", text: "Password" }), password),
+    error, submit,
+    h("p", { class: "muted", style: "margin:0;font-size:14px;line-height:1.5",
+      text: "The login and password are on the Cardputer's WEB ACCESS screen. Signing in lasts until the Cardputer stops the network." }));
+  show(form);
+  (login.value ? password : login).focus();
+}
+
+// ---- Apps: each web app of the firmware has a tile and a page here ----
+const apps = {
+  inventory: {
+    icon: () => svgIcon("M3 7l9-4 9 4v10l-9 4-9-4z M3 7l9 4 9-4 M12 11v10"),
+    tile(summary) {
+      if (!summary.storage)
+        return [h("span", { class: "tile-quiet", style: "font-size:14px;line-height:1.4", text: "The microSD card is not available." })];
+      return [
+        h("div", { class: "tile-count" }, h("b", { text: String(summary.count) }), h("span", { class: "tile-quiet mono", text: "/" + summary.limit })),
+        h("span", { class: "tile-quiet", style: "font-size:14px;line-height:1.4", text: "Containers on the microSD card. Edit names and contents, delete records." }),
+      ];
+    },
+    page: (rest, serial) => inventoryPage(rest, serial),
+  },
+};
+
+function svgIcon(pathData) {
+  const ns = "http://www.w3.org/2000/svg";
+  const svg = document.createElementNS(ns, "svg");
+  for (const [key, value] of Object.entries({ width: 28, height: 28, viewBox: "0 0 24 24", fill: "none",
+    stroke: "currentColor", "stroke-width": 1.75, "stroke-linecap": "square", "aria-hidden": "true" }))
+    svg.setAttribute(key, value);
+  const path = document.createElementNS(ns, "path");
+  path.setAttribute("d", pathData);
+  svg.append(path);
+  return svg;
+}
+
+function renderHome() {
+  renderHeader(null);
+  const tiles = state.hub.apps.map((app, index) => {
+    const known = apps[app.id];
+    return h("a", { class: "tile", href: "#/" + app.id },
+      h("div", { style: "display:flex;justify-content:space-between;align-items:center" },
+        h("span", { class: "tile-quiet mono", style: "font-size:13px", text: ordinal(index) }), known ? known.icon() : null),
+      h("span", { class: "label", style: "font-size:15px;letter-spacing:.12em", text: app.title }),
+      known ? known.tile(app.summary || {}) : h("span", { class: "tile-quiet", text: "Update this page to use this app." }));
+  });
+  const device = state.hub.device;
+  const facts = [["Wi-Fi network", device.network], ["Clients", String(device.clients)], ["Address", device.address]];
+  const inventory = state.hub.apps.find((app) => app.id === "inventory");
+  if (inventory && inventory.summary)
+    facts.splice(2, 0, ["microSD", inventory.summary.storage ? "READY" : "NOT AVAILABLE", inventory.summary.storage ? "var(--leaf)" : "var(--vermilion)"]);
+  show(
+    h("section", { "aria-labelledby": "apps-title" },
+      h("div", { class: "section-head" }, h("h1", { class: "label", id: "apps-title", style: "margin:0;font-size:13px", text: "Apps" }),
+        h("span", { class: "quiet mono", style: "font-size:13px", text: state.hub.apps.length + "/" + state.hub.apps.length })),
+      h("div", { class: "tiles" }, tiles)),
+    h("section", { "aria-labelledby": "device-title" },
+      h("div", { class: "section-head" }, h("h2", { class: "label", id: "device-title", style: "margin:0;font-size:13px", text: "Device" })),
+      h("dl", { class: "facts" }, facts.map(([name, value, color]) =>
+        h("div", {}, h("dt", { text: name.toUpperCase() }),
+          h("dd", {}, color ? h("span", { class: "dot", style: "background:" + color }) : null, value))))));
+}
+
+// ---- Inventory ----
+const inventory = {
+  records: [],      // sorted for display
+  loaded: false,
+  loadError: null,
+  query: "",
+  selected: null,   // id
+  draft: null,      // { name, description } for the selected valid record
+  status: "clean",  // clean | saving | saved | conflict | error | deleting
+  conflictRevision: 0,
+  problem: "",
+  listScroll: 0,    // phone: where the list was when a record was opened
+};
+
+// Nothing from an earlier session survives signing out.
+function resetInventory() {
+  Object.assign(inventory, { records: [], loaded: false, loadError: null, query: "", selected: null,
+    draft: null, status: "clean", conflictRevision: 0, problem: "", listScroll: 0 });
+}
+
+function normalizeName(text) {
+  let result = "";
+  let pendingSpace = false;
+  for (const character of text) {
+    const code = character.codePointAt(0);
+    if (forbidden(code) || /\s/u.test(character)) { pendingSpace = result.length > 0; continue; }
+    if (pendingSpace) result += " ";
+    pendingSpace = false;
+    result += character;
+  }
+  return result;
+}
+function forbidden(code) { return code < 0x20 || (code >= 0x7f && code <= 0x9f) || code === 0x2028 || code === 0x2029; }
+function normalizeDescription(text) {
+  const lines = [];
+  let line = "";
+  for (const character of text.replace(/\r\n/g, "\n")) {
+    const code = character.codePointAt(0);
+    if (character === "\n" || character === "\r" || code === 0x2028 || code === 0x2029 || code === 0x85) { lines.push(line); line = ""; }
+    else if (forbidden(code) || character === "\t") line += " ";
+    else line += character;
+  }
+  lines.push(line);
+  return lines.map((each) => each.replace(/^[   -​　]+|[   -​　]+$/g, "")).join("\n").trim();
+}
+function recordJson(record, name, description) {
+  return JSON.stringify({ schema: 2, id: record.id, revision: record.revision, name, description });
+}
+function sortRecords(records) {
+  return records.sort((left, right) => {
+    if (left.damaged !== right.damaged) return left.damaged ? 1 : -1;
+    if (left.damaged) return left.id.localeCompare(right.id);
+    return left.name.localeCompare(right.name, undefined, { sensitivity: "base", numeric: true }) ||
+      left.id.localeCompare(right.id);
+  });
+}
+function findRecord(id) { return inventory.records.find((record) => record.id === id) || null; }
+function isDirty() {
+  const record = findRecord(inventory.selected);
+  return !!(record && !record.damaged && inventory.draft &&
+    (inventory.draft.name !== record.name || inventory.draft.description !== record.description));
+}
+
+async function fetchAllRecords() {
+  const records = [];
+  let after = null;
+  do {
+    const page = await api("/api/inventory/records" + (after ? "?after=" + after : ""));
+    records.push(...page.records);
+    after = page.next;
+  } while (after);
+  return sortRecords(records);
+}
+
+async function loadInventory() {
+  inventory.loaded = false;
+  inventory.loadError = null;
+  try {
+    inventory.records = await fetchAllRecords();
+    inventory.loaded = true;
+  } catch (error) {
+    if (error.status === 401) return;
+    inventory.loadError = problemText(error);
+  }
+}
+
+// Brings a cached list up to date without blanking it: the page shows the
+// cache at once and changes only what the Cardputer changed meanwhile.
+async function refreshInventory() {
+  let records;
+  try { records = await fetchAllRecords(); } catch (error) { return; }
+  if (!state.signedIn || !location.hash.startsWith("#/inventory")) return;
+  if (isDirty() || inventory.status === "saving" || inventory.status === "deleting") return;
+  if (JSON.stringify(records) === JSON.stringify(inventory.records)) return;
+  const selected = inventory.selected;
+  inventory.records = records;
+  if (selected && !findRecord(selected)) {
+    selectRecord(null);
+    replaceHash("#/inventory");
+  } else if (selected) {
+    selectRecord(selected);
+  }
+  preservingFocus(renderInventory);
+}
+
+function selectRecord(id) {
+  const record = findRecord(id);
+  inventory.selected = record ? record.id : null;
+  inventory.draft = record && !record.damaged ? { name: record.name, description: record.description } : null;
+  inventory.status = "clean";
+  inventory.problem = "";
+}
+
+async function inventoryPage(rest, serial) {
+  renderHeader("inventory");
+  dirtyGuard = isDirty;
+  const wanted = rest || null;
+  // Coming from another page, as opposed to choosing another record.
+  const entering = !main.querySelector(":scope > .inv");
+  const cached = inventory.loaded;
+  if (!cached) {
+    await withLoadingNotice(loadInventory, () => serial === routeSerial);
+    if (!state.signedIn || serial !== routeSerial) return;
+  }
+  if (wanted !== inventory.selected) selectRecord(wanted);
+  renderInventory({ list: !cached || entering });
+  if (cached && entering) refreshInventory();
+}
+
+// Updates the Inventory page in place. A new selection swaps the editor and
+// moves the row highlight; the list is rebuilt only when its records changed,
+// and the page keeps its scroll position.
+function renderInventory({ list = true } = {}) {
+  const wide = window.matchMedia("(min-width: 900px)").matches;
+  if (wide && !inventory.selected && inventory.records.length) {
+    selectRecord(inventory.records[0].id);
+    replaceHash("#/inventory/" + inventory.selected);
+  }
+  const root = main.querySelector(":scope > .inv");
+  if (!root) {
+    show(h("div", { class: "inv" + (inventory.selected ? " has-selection" : "") }, listPane(), editorPane()));
+    return;
+  }
+  const scroll = window.scrollY;
+  const wasShowingList = !root.classList.contains("has-selection");
+  root.classList.toggle("has-selection", !!inventory.selected);
+  if (list) {
+    root.querySelector(".pane-list").replaceWith(listPane());
+  } else {
+    for (const row of root.querySelectorAll(".row[data-id]")) {
+      if (row.dataset.id === inventory.selected) row.setAttribute("aria-current", "true");
+      else row.removeAttribute("aria-current");
+    }
+  }
+  root.querySelector(".pane-edit").replaceWith(editorPane());
+  if (wide) {
+    window.scrollTo(0, scroll);
+  } else if (inventory.selected && wasShowingList) {
+    // Phone: the list is left; remember where it was and open the editor at the top.
+    inventory.listScroll = scroll;
+    window.scrollTo(0, 0);
+  } else if (!inventory.selected && !wasShowingList) {
+    window.scrollTo(0, inventory.listScroll || 0);
+  } else {
+    window.scrollTo(0, scroll);
+  }
+}
+
+function listPane() {
+  const reload = h("button", { class: "icon-btn", type: "button", "aria-label": "Reload the list from the Cardputer",
+    onclick: async () => {
+      if (isDirty() && !(await confirmDialog({ title: "Discard unsaved changes?", text: "The edits have not been saved to the Cardputer.", ok: "Discard" })))
+        return;
+      const selected = inventory.selected;
+      await loadInventory();
+      if (!state.signedIn) return;
+      selectRecord(findRecord(selected) ? selected : null);
+      renderInventory();
+    } }, svgIcon("M20 11a8 8 0 1 0-2.3 5.7 M20 4v7h-7"));
+  const search = h("input", { class: "input", id: "search", type: "search", placeholder: "Search names and contents", value: inventory.query,
+    "aria-label": "Search names and contents",
+    oninput: () => { inventory.query = search.value; rows.replaceChildren(...listRows()); } });
+  const rows = h("div", { role: "list" }, listRows());
+  return h("section", { class: "pane pane-list", "aria-label": "Containers" },
+    h("div", { class: "pane-head" },
+      h("div", { style: "display:flex;align-items:baseline;gap:12px" }, h("span", { class: "label", text: "Containers" }),
+        h("span", { class: "quiet mono", style: "font-size:13px", text: inventory.loaded ? inventory.records.length + "/256" : "" })),
+      reload),
+    h("div", { style: "padding:12px 16px" }, search),
+    rows);
+}
+
+function listRows() {
+  if (inventory.loadError) return [h("p", { class: "notice", text: inventory.loadError })];
+  if (!inventory.records.length) return [h("p", { class: "notice", text: "No containers yet. Register tags on the Cardputer first." })];
+  const query = inventory.query.trim().toLocaleLowerCase();
+  const rows = [];
+  inventory.records.forEach((record, index) => {
+    if (query && (record.damaged || !(record.name + "\n" + record.description).toLocaleLowerCase().includes(query))) return;
+    const current = record.id === inventory.selected;
+    rows.push(h("button", { class: "row", type: "button", role: "listitem", "data-id": record.id,
+      "aria-current": current ? "true" : null,
+      onclick: () => openRecord(record.id) },
+      h("span", { class: "row-ord", text: ordinal(index) }),
+      h("span", { style: "min-width:0;display:flex;flex-direction:column;gap:2px" },
+        h("span", { class: "row-name clip" }, record.damaged ? h("span", { class: "dot", style: "background:var(--vermilion)" }) : null,
+          record.damaged ? "Damaged record" : record.name),
+        h("span", { class: "row-sub clip", text: record.damaged ? "ID " + record.id.slice(0, 8) + "…" : record.description.split("\n").join(" · ") })),
+      h("span", { class: "row-ord", style: "font-size:12px", text: record.damaged ? "" : "r" + record.revision })));
+  });
+  if (!rows.length) rows.push(h("p", { class: "notice", text: "Nothing matches “" + inventory.query + "”." }));
+  return rows;
+}
+
+async function openRecord(id) {
+  if (id === inventory.selected) return;
+  if (isDirty() && !(await confirmDialog({ title: "Discard unsaved changes?", text: "The edits have not been saved to the Cardputer.", ok: "Discard" })))
+    return;
+  selectRecord(id);
+  location.hash = "#/inventory/" + id;
+}
+
+function backButton() {
+  return h("a", { class: "icon-btn back", href: "#/inventory", "aria-label": "Back to the list",
+    onclick: async (event) => {
+      if (isDirty()) {
+        event.preventDefault();
+        if (await confirmDialog({ title: "Discard unsaved changes?", text: "The edits have not been saved to the Cardputer.", ok: "Discard" })) {
+          selectRecord(null);
+          location.hash = "#/inventory";
+        }
+      }
+    } }, svgIcon("M15 5l-7 7 7 7"));
+}
+
+function editorPane() {
+  const record = findRecord(inventory.selected);
+  const pane = h("section", { class: "pane pane-edit", "aria-label": "Container" });
+  const index = record ? inventory.records.indexOf(record) : -1;
+  if (!record) {
+    pane.append(h("div", { class: "empty" }, h("h2", { text: "Select a container" }), h("p", { text: "Register tags on the Cardputer first." })));
+    return pane;
+  }
+  const head = h("div", { class: "pane-head", style: "padding-left:8px" },
+    h("div", { style: "display:flex;align-items:center;gap:4px;padding-left:8px" }, backButton(),
+      h("span", { class: "label", style: "font-size:13px", text: "Container " + ordinal(index) })));
+  pane.append(head);
+  if (record.damaged) {
+    if (inventory.status === "conflict")
+      pane.append(h("div", { class: "banner", role: "alert" },
+        h("span", { style: "flex:1 1 240px", text: "Changed on the Cardputer (revision " + inventory.conflictRevision +
+          "): the record can be read again. Reload to see it." }),
+        h("button", { class: "btn", type: "button", text: "Reload", onclick: () => reloadRecord(record.id) })));
+    pane.append(h("div", { class: "damaged" },
+      h("span", { class: "dot", style: "width:12px;height:12px;background:var(--vermilion)" }),
+      h("h2", { text: "The record on the Cardputer is damaged" }),
+      h("p", { text: "It is left unchanged. Delete it to remove the file; the tag keeps its ID and can get a new record on the Cardputer." }),
+      h("p", { class: "mono", style: "font-size:13px;word-break:break-all", text: record.id }),
+      inventory.problem ? h("div", { class: "error", role: "alert" }, h("span", { class: "dot" }), h("span", { text: inventory.problem })) : null,
+      h("button", { class: "btn btn-del", type: "button", style: "padding-left:0", text: "Delete…",
+        disabled: inventory.status === "conflict" || inventory.status === "deleting", onclick: () => deleteRecord(record) })));
+    return pane;
+  }
+
+  const draft = inventory.draft;
+  const status = h("span", { class: "status" });
+  head.append(status);
+  const banner = h("div", { class: "banner", role: "alert", hidden: true });
+  const name = h("input", { class: "input editor-name", id: "name", type: "text", value: draft.name, autocomplete: "off", maxlength: 64 });
+  const nameCount = h("span", { class: "quiet", style: "font-weight:400" });
+  const description = h("textarea", { class: "input", id: "description", rows: 11,
+    placeholder: "What is inside — one thing per line or comma-separated" });
+  description.value = draft.description;
+  const descriptionCount = h("span", { class: "quiet", style: "font-weight:400" });
+  const problem = h("div", { class: "error", role: "alert", hidden: true }, h("span", { class: "dot" }), h("span"));
+  const size = h("dd");
+  const revision = h("dd", { text: String(record.revision) });
+  const save = h("button", { class: "btn btn-primary", type: "button", style: "min-width:112px", text: "Save" });
+  const reload = h("button", { class: "btn btn-quiet", type: "button", text: "Reload" });
+  const remove = h("button", { class: "btn btn-del", type: "button", style: "padding-left:0", text: "Delete…" });
+
+  // Typing goes on during a save, but the save stays in flight: a second one
+  // would go out at the same revision and meet its own commit as a conflict.
+  function editedDuringSave() {
+    if (inventory.status !== "conflict" && inventory.status !== "saving") inventory.status = "clean";
+    if (inventory.status !== "saving") inventory.problem = "";
+    refresh();
+  }
+
+  function refresh() {
+    const normalizedName = normalizeName(draft.name);
+    const normalizedDescription = normalizeDescription(draft.description);
+    const nameLength = codePoints(normalizedName);
+    const descriptionLength = codePoints(normalizedDescription);
+    nameCount.textContent = nameLength + "/" + NAME_LIMIT;
+    descriptionCount.textContent = descriptionLength + "/" + DESCRIPTION_LIMIT;
+    const bytes = new TextEncoder().encode(recordJson(record, normalizedName, normalizedDescription)).length;
+    size.textContent = bytes + "/" + RECORD_BYTES + " bytes";
+    let text = "";
+    if (!nameLength) text = "Enter a name.";
+    else if (nameLength > NAME_LIMIT) text = "The name is longer than " + NAME_LIMIT + " characters.";
+    else if (descriptionLength > DESCRIPTION_LIMIT) text = "The description is longer than " + DESCRIPTION_LIMIT + " characters.";
+    else if (bytes > RECORD_BYTES) text = "The record is larger than " + RECORD_BYTES + " bytes.";
+    if (inventory.problem) text = inventory.problem;
+    problem.hidden = !text;
+    problem.lastChild.textContent = text;
+    const dirty = isDirty();
+    const conflict = inventory.status === "conflict";
+    const busy = inventory.status === "saving" || inventory.status === "deleting";
+    save.disabled = !dirty || !!text && !inventory.problem || conflict || busy || !nameLength;
+    remove.disabled = conflict || busy;
+    reload.disabled = busy;
+    banner.hidden = !conflict;
+    let label, color;
+    if (conflict) { label = "Conflict"; color = "var(--vermilion)"; }
+    else if (inventory.status === "saving") { label = "Saving…"; color = "var(--blue)"; }
+    else if (inventory.status === "deleting") { label = "Deleting…"; color = "var(--blue)"; }
+    else if (dirty) { label = "Unsaved changes"; color = "var(--blue)"; }
+    else if (inventory.status === "saved") { label = "Saved · revision " + record.revision; color = "var(--leaf)"; }
+    else { label = "Up to date"; color = null; }
+    status.replaceChildren(color ? h("span", { class: "dot", style: "background:" + color }) : "", h("span", { text: label }));
+    status.style.color = conflict ? "var(--danger-text)" : dirty || busy ? "var(--blue)" : "var(--muted)";
+  }
+
+  name.addEventListener("input", () => { draft.name = name.value; editedDuringSave(); });
+  description.addEventListener("input", () => { draft.description = description.value; editedDuringSave(); });
+  reload.addEventListener("click", async () => {
+    if (isDirty() && inventory.status !== "conflict" &&
+        !(await confirmDialog({ title: "Discard unsaved changes?", text: "The edits have not been saved to the Cardputer.", ok: "Discard" })))
+      return;
+    await reloadRecord(record.id);
+  });
+  save.addEventListener("click", async () => {
+    const newName = normalizeName(draft.name);
+    const newDescription = normalizeDescription(draft.description);
+    const sent = { name: draft.name, description: draft.description };
+    inventory.status = "saving";
+    inventory.problem = "";
+    refresh();
+    try {
+      const result = await api("/api/inventory/records/" + record.id,
+        { method: "PUT", body: recordJson(record, newName, newDescription) });
+      record.name = newName;
+      record.description = newDescription;
+      record.revision = result.revision;
+      // Typing may have gone on while the request was out: those edits stay
+      // as unsaved changes on top of the new revision.
+      if (draft.name === sent.name && draft.description === sent.description) {
+        draft.name = newName;
+        draft.description = newDescription;
+      }
+      inventory.status = "saved";
+      inventory.records = sortRecords(inventory.records);
+      preservingFocus(renderInventory);
+    } catch (error) {
+      if (error.status === 401) return;
+      if (error.status === 409) {
+        inventory.status = "conflict";
+        inventory.conflictRevision = error.body && error.body.revision || 0;
+        banner.firstChild.textContent = "Changed on the Cardputer (revision " + inventory.conflictRevision +
+          "). Reload to continue — your text stays below so you can copy it.";
+      } else {
+        inventory.status = "error";
+        inventory.problem = error.status === 400 ? "The Cardputer refused the record. Check the name and description." : problemText(error);
+      }
+      refresh();
+    }
+  });
+  remove.addEventListener("click", () => deleteRecord(record));
+
+  banner.append(h("span", { style: "flex:1 1 240px" }),
+    h("button", { class: "btn", type: "button", text: "Reload", onclick: () => reloadRecord(record.id) }));
+
+  pane.append(banner,
+    h("div", { class: "editor" },
+      h("label", { class: "field", for: "name" }, h("span", { class: "field-head label" }, "Name", nameCount), name),
+      h("label", { class: "field", for: "description" }, h("span", { class: "field-head label" }, "Description", descriptionCount), description),
+      problem,
+      h("dl", { class: "meta" },
+        h("div", {}, h("dt", { text: "TAG ID" }), h("dd", { text: record.id.match(/.{4}/g).join(" ") })),
+        h("div", {}, h("dt", { text: "REVISION" }), revision),
+        h("div", {}, h("dt", { text: "RECORD SIZE" }), size))),
+    h("div", { class: "bar" }, remove, h("div", { style: "display:flex;gap:8px;flex-wrap:wrap" }, reload, save)));
+  if (inventory.status === "conflict")
+    banner.firstChild.textContent = "Changed on the Cardputer (revision " + inventory.conflictRevision +
+      "). Reload to continue — your text stays below so you can copy it.";
+  refresh();
+  return pane;
+}
+
+// Replaces only the list, keeping the editor, its draft and the caret.
+function renderListOnly() {
+  const pane = main.querySelector(":scope > .inv .pane-list");
+  if (!pane) return;
+  const scroll = window.scrollY;
+  preservingFocus(() => pane.replaceWith(listPane()));
+  window.scrollTo(0, scroll);
+}
+
+async function reloadRecord(id) {
+  const serial = routeSerial;
+  // A reply that arrives after another record was chosen, or the page left,
+  // updates the list only; it never replaces the current selection or draft.
+  const stillCurrent = () => serial === routeSerial && inventory.selected === id;
+  try {
+    const fresh = await api("/api/inventory/records/" + id);
+    const index = inventory.records.findIndex((record) => record.id === id);
+    if (index >= 0) inventory.records[index] = fresh;
+    inventory.records = sortRecords(inventory.records);
+    if (!stillCurrent()) { renderListOnly(); return; }
+    selectRecord(id);
+  } catch (error) {
+    if (error.status === 401) return;
+    if (!stillCurrent()) {
+      if (error.status === 404) {
+        inventory.records = inventory.records.filter((record) => record.id !== id);
+        renderListOnly();
+      }
+      return;
+    }
+    if (error.status === 404) {
+      inventory.records = inventory.records.filter((record) => record.id !== id);
+      selectRecord(null);
+      location.hash = "#/inventory";
+    } else if (error.status === 422) {
+      const index = inventory.records.findIndex((record) => record.id === id);
+      if (index >= 0) inventory.records[index] = { id, damaged: true };
+      inventory.records = sortRecords(inventory.records);
+      selectRecord(id);
+    } else {
+      inventory.status = "error";
+      inventory.problem = problemText(error);
+    }
+  }
+  renderInventory();
+}
+
+async function deleteRecord(record) {
+  const name = record.damaged ? "Damaged record" : record.name;
+  const confirmed = await confirmDialog({ kicker: "Delete", title: "Delete “" + name + "”?",
+    text: "Its record is removed from the Cardputer’s microSD card for good. Erase the tag on the Cardputer to reuse it.",
+    ok: "Delete", danger: true });
+  if (!confirmed) return;
+  inventory.status = "deleting";
+  try {
+    await api("/api/inventory/records/" + record.id + "?revision=" + (record.damaged ? 0 : record.revision), { method: "DELETE" });
+  } catch (error) {
+    if (error.status === 401) return;
+    if (error.status === 409) {
+      inventory.status = "conflict";
+      inventory.conflictRevision = error.body && error.body.revision || 0;
+      renderInventory();
+      return;
+    }
+    if (error.status !== 404) {
+      inventory.status = "error";
+      inventory.problem = problemText(error);
+      renderInventory();
+      return;
+    }
+  }
+  const index = inventory.records.indexOf(record);
+  inventory.records = inventory.records.filter((each) => each !== record);
+  const next = inventory.records[Math.min(index, inventory.records.length - 1)];
+  const wide = window.matchMedia("(min-width: 900px)").matches;
+  selectRecord(wide && next ? next.id : null);
+  replaceHash(inventory.selected ? "#/inventory/" + inventory.selected : "#/inventory");
+  renderInventory();
+}
+
+// ---- Routing ----
+async function route() {
+  if (!state.signedIn) return;
+  const serial = ++routeSerial;
+  const parts = location.hash.replace(/^#\/?/, "").split("/");
+  const appId = parts[0] || "";
+  if (!appId) {
+    dirtyGuard = null;
+    const shown = JSON.stringify(state.hub);
+    renderHome();
+    try { await loadHub(); } catch (error) { return; }
+    if (serial === routeSerial && JSON.stringify(state.hub) !== shown) renderHome();
+    return;
+  }
+  const app = apps[appId];
+  if (!app || !state.hub.apps.some((known) => known.id === appId)) { location.hash = "#/"; return; }
+  await app.page(parts.slice(1).join("/"), serial);
+}
+
+window.addEventListener("hashchange", async () => {
+  // Leaving the editor with unsaved edits asks first; a refusal restores the address.
+  const leavingRecord = lastHash.startsWith("#/inventory/") && location.hash !== lastHash;
+  if (leavingRecord && dirtyGuard && dirtyGuard()) {
+    const target = location.hash;
+    history.replaceState(null, "", lastHash);
+    if (!(await confirmDialog({ title: "Discard unsaved changes?", text: "The edits have not been saved to the Cardputer.", ok: "Discard" })))
+      return;
+    selectRecord(null);
+    history.replaceState(null, "", target);
+  }
+  lastHash = location.hash;
+  route();
+});
+window.addEventListener("beforeunload", (event) => {
+  if (dirtyGuard && dirtyGuard()) { event.preventDefault(); event.returnValue = ""; }
+});
+let wasWide = window.matchMedia("(min-width: 900px)").matches;
+window.matchMedia("(min-width: 900px)").addEventListener("change", (event) => {
+  if (event.matches !== wasWide && location.hash.startsWith("#/inventory") && inventory.loaded) renderInventory();
+  wasWide = event.matches;
+});
+
+(async function start() {
+  try {
+    await loadHub();
+    route();
+  } catch (error) {
+    if (error.status !== 401) renderSignIn(problemText(error));
+  }
+})();
+</script>
+</body>
+</html>

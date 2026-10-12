@@ -62,6 +62,13 @@ inline constexpr const char* const serviceStatusAppIcon[] = {
     "       ####   ", "        ##    ", "        ##    ", "              ",
 };
 
+// Wi-Fi arcs over a dot: the Cardputer's own network.
+inline constexpr const char* const webAccessAppIcon[] = {
+    "              ", "   ########   ", " ###      ### ", "##          ##", "    ######    ",
+    "  ###    ###  ", " ##        ## ", "     ####     ", "   ##    ##   ", "              ",
+    "      ##      ", "      ##      ", "              ", "              ",
+};
+
 inline constexpr const char* const fallbackAppIcon[] = {
     " ############ ", " #          # ", " # ######## # ", " # #      # # ", " # #      # # ",
     " # #      # # ", " # #      # # ", " # #      # # ", " # ######## # ", " #          # ",
@@ -89,6 +96,8 @@ inline const char* const* appIconRows(const char* iconId) {
         return nfcAppIcon;
     if (iconId != nullptr && std::strcmp(iconId, "service-status") == 0)
         return serviceStatusAppIcon;
+    if (iconId != nullptr && std::strcmp(iconId, "web-access") == 0)
+        return webAccessAppIcon;
     return fallbackAppIcon;
 }
 

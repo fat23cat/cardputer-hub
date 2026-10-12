@@ -2,6 +2,7 @@
 
 #include "apps/runtime/mini_app.h"
 #include "core/display/display_adapter.h"
+#include "core/lifecycle/reset_reason.h"
 #include "services/battery/battery_service.h"
 #include "services/hosts/host_service.h"
 #include "services/network/network_service.h"
@@ -22,6 +23,9 @@ class SystemApp final : public IMiniApp {
     void onActivate() override;
     void onDeactivate() override;
     void update(const core::InputEvents& input, std::chrono::milliseconds elapsed) override;
+    // An abnormal last reset is named in the header (for example
+    // "RESET: PANIC") until the next start.
+    void setLastReset(core::ResetReason reason) { lastReset_ = reason; }
 
   private:
     struct Frame {
@@ -42,6 +46,7 @@ class SystemApp final : public IMiniApp {
     services::NetworkService& network_;
     core::IDisplayAdapter& display_;
     std::optional<Frame> frame_;
+    core::ResetReason lastReset_ = core::ResetReason::Normal;
 };
 
 } // namespace cardputer_hub::apps

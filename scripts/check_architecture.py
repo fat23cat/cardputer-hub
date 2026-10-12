@@ -95,6 +95,17 @@ BOARD_FILESYSTEM_INCLUDE = re.compile(
 COMPANION_TREES = ("connectivity/companion/", "services/companion/")
 COMPANION_FILE_ENDPOINT = "services/inventory/inventory_companion_endpoint"
 FILE_STORAGE_INCLUDE = re.compile(r'^\s*#\s*include\s*"(?:core/storage/|services/storage/)')
+# Plan 050: the httpd task is confined to its adapter, and the web UI reaches
+# records only through InventoryService.
+HTTPD_SERVER_SOURCE = "hardware/esp32/http/esp32_http_server.cpp"
+HTTPD_INCLUDE = re.compile(r'^\s*#\s*include\s*[<"]\s*esp_http_server\.h')
+WEB_TREES = ("services/web_access/", "services/inventory/inventory_web_endpoint")
+WEB_FILE_INCLUDE = re.compile(
+    r'^\s*#\s*include\s*"(?:core/storage/files/|services/storage/'
+    r'|services/inventory/inventory_store\.h)'
+)
+WEB_APP_TREE = "apps/web_access/"
+WEB_APP_FORBIDDEN = re.compile(r"\bsetEnabled\s*\(")
 
 
 @dataclasses.dataclass(frozen=True)
@@ -350,6 +361,14 @@ def find_nfc_violations(source_root: pathlib.Path) -> list[Violation]:
                 report("board_filesystem_include", path, line_number, layer, raw_line)
             if in_companion and FILE_STORAGE_INCLUDE.match(line):
                 report("companion_file_access", path, line_number, layer, raw_line)
+            if relative != HTTPD_SERVER_SOURCE and HTTPD_INCLUDE.match(line):
+                report("httpd_include", path, line_number, layer, raw_line)
+            if any(relative.startswith(tree) for tree in WEB_TREES) and WEB_FILE_INCLUDE.match(
+                line
+            ):
+                report("web_file_access", path, line_number, layer, raw_line)
+            if relative.startswith(WEB_APP_TREE) and WEB_APP_FORBIDDEN.search(line):
+                report("web_app_mutates_service", path, line_number, layer, raw_line)
 
     reader_header = source_root / NFC_READER_HEADER
     if reader_header.is_file():
@@ -404,6 +423,17 @@ NFC_VIOLATION_HELP = {
     "companion_file_access": (
         "the Companion protocol carries inventory records through InventoryService; "
         "it never opens files or storage directly"
+    ),
+    "httpd_include": (
+        "esp_http_server.h may be included only by "
+        "src/hardware/esp32/http/esp32_http_server.cpp"
+    ),
+    "web_file_access": (
+        "the web UI reaches inventory records only through InventoryService; it never "
+        "opens files, removable storage or the record store"
+    ),
+    "web_app_mutates_service": (
+        "WEB ACCESS starts and stops the service only through ActionBus"
     ),
 }
 

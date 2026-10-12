@@ -7,12 +7,14 @@
 #include "core/display/palette.h"
 #include "core/display/text_layout.h"
 #include "core/lifecycle/build_info.h"
+#include "core/lifecycle/reset_reason.h"
 #include "core/power/battery_adapter.h"
 #include "services/network/network_service.h"
 
 #include <algorithm>
 #include <string>
 #include <unity.h>
+#include <utility>
 #include <vector>
 
 using namespace cardputer_hub;
@@ -233,6 +235,38 @@ void test_battery_values() {
     TEST_ASSERT_TRUE(f.display.shows("81%"));
 }
 
+void test_abnormal_last_reset_is_named_in_the_header() {
+    Fixture f;
+    f.app.onActivate();
+    f.app.update({}, {});
+    TEST_ASSERT_FALSE(f.display.shows("RESET: PANIC"));
+    for (const auto& [reason, text] : {std::pair{core::ResetReason::Panic, "RESET: PANIC"},
+                                       std::pair{core::ResetReason::Watchdog, "RESET: WATCHDOG"},
+                                       std::pair{core::ResetReason::Brownout, "RESET: BROWNOUT"}}) {
+        apps::SystemApp app{f.battery, f.hosts, f.network, f.display};
+        app.setLastReset(reason);
+        app.onActivate();
+        app.update({}, {});
+        TEST_ASSERT_TRUE(f.display.shows(text));
+        TEST_ASSERT_EQUAL_UINT8(core::palette::vermilion.red,
+                                f.display.styleOf(text).foreground.red);
+    }
+    apps::SystemApp normal{f.battery, f.hosts, f.network, f.display};
+    normal.setLastReset(core::ResetReason::Normal);
+    normal.onActivate();
+    normal.update({}, {});
+    TEST_ASSERT_FALSE(f.display.shows("RESET: PANIC"));
+}
+
+void test_bluetooth_shows_paused_while_held() {
+    Fixture f;
+    f.setHost("Work MacBook", true);
+    f.hosts.setRadioHold(true);
+    f.app.onActivate();
+    f.app.update({}, {});
+    TEST_ASSERT_TRUE(f.display.shows("PAUSED"));
+}
+
 void test_host_name_and_status_changes() {
     Fixture f;
     f.app.onActivate();
@@ -375,6 +409,8 @@ void tearDown() {}
 int main() {
     UNITY_BEGIN();
     RUN_TEST(test_battery_values);
+    RUN_TEST(test_abnormal_last_reset_is_named_in_the_header);
+    RUN_TEST(test_bluetooth_shows_paused_while_held);
     RUN_TEST(test_host_name_and_status_changes);
     RUN_TEST(test_wifi_states_and_network_name);
     RUN_TEST(test_wifi_status_text_distinguishes_enabled_and_configured);

@@ -1,3 +1,4 @@
+#include "../support/web_access_fakes.h"
 #include "apps/hosts/assets/micro5_digits.h"
 #include "apps/hosts/host_settings.h"
 #include "apps/network/wifi_settings.h"
@@ -9,6 +10,7 @@
 #include "core/display/text_layout.h"
 #include "services/hosts/host_service.h"
 #include "services/network/network_service.h"
+#include "services/web_access/web_access_bluetooth_pause.h"
 #include <algorithm>
 #include <deque>
 #include <map>
@@ -678,6 +680,110 @@ void test_off_survives_restart_and_failed_selection_is_closed_without_fallback()
     TEST_ASSERT_TRUE(reboot.bluetooth.state() == BluetoothState::Disabled);
     TEST_ASSERT_TRUE(reboot.hosts.settings().activeHost == one);
 }
+void test_radio_hold_stops_bluetooth_without_changing_the_saved_setting() {
+    Fixture f;
+    f.hosts.start();
+    const auto one = f.hosts.settings().hosts[0].id;
+    const auto two = f.hosts.settings().hosts[1].id;
+    TEST_ASSERT_TRUE(f.hosts.selectHost(one) == services::HostResult::Success);
+    TEST_ASSERT_TRUE(f.bluetooth.state() != BluetoothState::Disabled);
+
+    f.hosts.setRadioHold(true);
+    TEST_ASSERT_TRUE(f.bluetooth.state() == BluetoothState::Disabled);
+    TEST_ASSERT_TRUE(f.hosts.status().radioHeld);
+    TEST_ASSERT_TRUE(f.hosts.status().connection == services::HostConnectionStatus::Off);
+    services::ConfigurationService saved(f.storage);
+    TEST_ASSERT_TRUE(saved.load() == services::ConfigurationResult::Success);
+    TEST_ASSERT_TRUE(saved.value().host.bluetoothEnabled);
+
+    // Choices made while held are saved but do not start the radio.
+    f.adapter.targets.clear();
+    TEST_ASSERT_TRUE(f.hosts.selectHost(two) == services::HostResult::Success);
+    TEST_ASSERT_TRUE(f.hosts.setEnabled(true) == services::HostResult::Success);
+    TEST_ASSERT_TRUE(f.bluetooth.state() == BluetoothState::Disabled);
+    TEST_ASSERT_TRUE(f.adapter.targets.empty());
+    TEST_ASSERT_TRUE(f.hosts.startPairing() == services::HostResult::RadioHeld);
+    TEST_ASSERT_FALSE(f.hosts.status().pairing);
+    TEST_ASSERT_TRUE(f.bluetooth.state() == BluetoothState::Disabled);
+    f.hosts.update(std::chrono::milliseconds(1));
+    TEST_ASSERT_TRUE(f.bluetooth.state() == BluetoothState::Disabled);
+
+    // Releasing restores what is saved: the newly selected host.
+    f.hosts.setRadioHold(false);
+    TEST_ASSERT_FALSE(f.hosts.status().radioHeld);
+    TEST_ASSERT_TRUE(f.bluetooth.state() != BluetoothState::Disabled);
+    TEST_ASSERT_TRUE(f.adapter.targets.back() == bond(2));
+}
+void test_radio_hold_release_keeps_saved_off() {
+    Fixture f;
+    f.hosts.start();
+    f.hosts.selectHost(f.hosts.settings().hosts[0].id);
+    f.hosts.setRadioHold(true);
+    TEST_ASSERT_TRUE(f.hosts.setEnabled(false) == services::HostResult::Success);
+    f.adapter.targets.clear();
+    f.hosts.setRadioHold(false);
+    TEST_ASSERT_TRUE(f.bluetooth.state() == BluetoothState::Disabled);
+    TEST_ASSERT_TRUE(f.adapter.targets.empty());
+}
+void test_radio_hold_reports_the_saved_on_off_setting() {
+    Fixture f;
+    f.hosts.start();
+    f.hosts.selectHost(f.hosts.settings().hosts[0].id);
+    f.hosts.setRadioHold(true);
+    // The Bluetooth toggle shows and flips the saved setting, not the held radio.
+    TEST_ASSERT_TRUE(f.hosts.status().connectionEnabled);
+    core::ActionBus bus;
+    TEST_ASSERT_TRUE(bus.registerHandler("host.bluetooth", f.hosts) ==
+                     core::RegistrationResult::Registered);
+    const auto toggle = [&] {
+        (void)bus.dispatch(
+            {"host.bluetooth", "test", {{"enabled", !f.hosts.status().connectionEnabled}}});
+    };
+    toggle();
+    TEST_ASSERT_FALSE(f.hosts.status().connectionEnabled);
+    TEST_ASSERT_FALSE(f.hosts.settings().bluetoothEnabled);
+    toggle();
+    TEST_ASSERT_TRUE(f.hosts.status().connectionEnabled);
+    toggle();
+    TEST_ASSERT_FALSE(f.hosts.settings().bluetoothEnabled);
+    f.hosts.setRadioHold(false);
+    TEST_ASSERT_TRUE(f.bluetooth.state() == BluetoothState::Disabled);
+}
+void test_radio_hold_ends_pairing() {
+    Fixture f;
+    f.hosts.start();
+    TEST_ASSERT_TRUE(f.hosts.startPairing() == services::HostResult::Success);
+    f.hosts.setRadioHold(true);
+    TEST_ASSERT_FALSE(f.hosts.status().pairing);
+    TEST_ASSERT_TRUE(f.bluetooth.state() == BluetoothState::Disabled);
+}
+void test_web_access_holds_bluetooth_only_while_it_runs() {
+    Fixture f;
+    f.hosts.start();
+    f.hosts.selectHost(f.hosts.settings().hosts[0].id);
+    test_support::FakeAccessPoint accessPoint;
+    test_support::FakeHttpServer server;
+    test_support::MapStorage webMemory;
+    core::Storage webStorage{webMemory};
+    test_support::CountingRandom random;
+    services::WebAccessService web(accessPoint, server, webStorage, random);
+    services::WebAccessBluetoothPause pause(web, f.hosts);
+
+    pause.update();
+    TEST_ASSERT_FALSE(f.hosts.status().radioHeld);
+    (void)web.setEnabled(true);
+    pause.update();
+    TEST_ASSERT_TRUE(f.hosts.status().radioHeld);
+    TEST_ASSERT_TRUE(f.bluetooth.state() == BluetoothState::Disabled);
+
+    // A failed start runs no access point and holds nothing.
+    (void)web.setEnabled(false);
+    accessPoint.failStart = true;
+    (void)web.setEnabled(true);
+    pause.update();
+    TEST_ASSERT_FALSE(f.hosts.status().radioHeld);
+    TEST_ASSERT_TRUE(f.bluetooth.state() != BluetoothState::Disabled);
+}
 void test_pairing_cancel_restores_selected_host_without_deleting_pairs() {
     Fixture f;
     f.hosts.start();
@@ -1125,6 +1231,11 @@ int main() {
     RUN_TEST(test_import_existing_pairs_without_advertising_then_persist_selected_host);
     RUN_TEST(test_switch_releases_old_host_before_shutdown_and_only_advertises_new_target);
     RUN_TEST(test_off_survives_restart_and_failed_selection_is_closed_without_fallback);
+    RUN_TEST(test_radio_hold_stops_bluetooth_without_changing_the_saved_setting);
+    RUN_TEST(test_radio_hold_release_keeps_saved_off);
+    RUN_TEST(test_radio_hold_reports_the_saved_on_off_setting);
+    RUN_TEST(test_radio_hold_ends_pairing);
+    RUN_TEST(test_web_access_holds_bluetooth_only_while_it_runs);
     RUN_TEST(test_pairing_cancel_restores_selected_host_without_deleting_pairs);
     return UNITY_END();
 }
