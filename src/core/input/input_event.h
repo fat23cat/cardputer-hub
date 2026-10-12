@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cstddef>
 #include <cstdint>
 #include <vector>
 
@@ -95,6 +96,14 @@ inline bool isListDown(const InputEvent& event) {
     return (event.type == InputEventType::NamedKey && event.namedKey == NamedKey::Down) ||
            (event.type == InputEventType::PrintableCharacter && event.character == '.' &&
             !event.modifiers.shift);
+}
+
+// Lists wrap: Down from the last row selects the first, Up from the first row
+// selects the last.
+inline std::size_t stepListIndex(std::size_t index, std::size_t count, bool down) {
+    if (count == 0)
+        return 0;
+    return down ? (index + 1) % count : (index + count - 1) % count;
 }
 
 } // namespace cardputer_hub::core

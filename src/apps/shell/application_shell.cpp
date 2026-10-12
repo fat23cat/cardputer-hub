@@ -118,11 +118,11 @@ void ApplicationShell::playInputFeedback(const InputEvent& event) {
         const bool right = isPageRight(event);
         const char* id = "audio.volume.step";
         int value = audio_.volume(), minimum = 0, maximum = 100, step = 10;
+        bool cycles = false;
         if (settingsSelection_ == timeoutRow) {
             id = "display.timeout.step";
-            value = static_cast<int>(deviceSettings_.screenTimeout());
-            maximum = 2;
             step = 1;
+            cycles = true;
         } else if (settingsSelection_ == screenBrightnessRow) {
             id = "display.brightness.step";
             value = deviceSettings_.screenBrightness();
@@ -134,7 +134,7 @@ void ApplicationShell::playInputFeedback(const InputEvent& event) {
             maximum = 10;
             step = 1;
         }
-        const bool changesValue = right ? value < maximum : value > minimum;
+        const bool changesValue = cycles || (right ? value < maximum : value > minimum);
         const auto result =
             changesValue
                 ? actions_.dispatch({id,
@@ -194,11 +194,8 @@ void ApplicationShell::routeSystemEvent(const InputEvent& event) {
         const bool up = isListUp(event);
         const bool down = isListDown(event);
         if (up || down) {
-            const auto nextSelection = static_cast<std::uint8_t>(
-                down ? std::min<int>(settingsSelection_ + 1, settingsRowCount - 1)
-                     : std::max<int>(settingsSelection_ - 1, 0));
-            if (nextSelection != settingsSelection_)
-                settingsSelection_ = nextSelection;
+            settingsSelection_ = static_cast<std::uint8_t>(
+                stepListIndex(settingsSelection_, settingsRowCount, down));
         } else if (event.type == InputEventType::NamedKey && event.namedKey == NamedKey::Enter) {
             if (settingsSelection_ == bluetoothRow)
                 (void)actions_.dispatch({"ui.bluetooth", "settings", {}});

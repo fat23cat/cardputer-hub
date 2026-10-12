@@ -225,10 +225,8 @@ ActionHandlingResult HostSettings::handle(const Action& action) {
     } else if (!renaming_ && !hostStatus.pairing) {
         auto& cursor = detailHost_ ? detailFocus_ : focus_;
         const auto limit = detailHost_ ? 3 : count;
-        if (action.id == "hosts.up" && cursor > 0)
-            --cursor;
-        else if (action.id == "hosts.down" && cursor + 1 < limit)
-            ++cursor;
+        if (action.id == "hosts.up" || action.id == "hosts.down")
+            cursor = stepListIndex(cursor, limit, action.id == "hosts.down");
         else if (action.id == "hosts.rename" && focus_ >= 2 && focus_ < count) {
             renaming_ = true;
             entry_ = hosts_.settings().hosts[focus_ - 2].name;
