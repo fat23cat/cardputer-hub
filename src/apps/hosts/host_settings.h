@@ -11,6 +11,12 @@
 
 namespace cardputer_hub::apps {
 
+// The Bluetooth state words shared by the Bluetooth list and the STATUS sheet:
+// the connection (OFF, CONNECTING, SECURING, PAIRING, READY, ERROR) and the
+// saved switch (OFF, ON, or PAUSED while WEB ACCESS holds the radio).
+const char* hostConnectionWord(services::HostConnectionStatus status);
+const char* bluetoothSwitchWord(const services::HostStatusSnapshot& status);
+
 class HostSettings final : public core::IActionHandler {
   public:
     HostSettings(services::HostService& hosts, core::ActionBus& actions,

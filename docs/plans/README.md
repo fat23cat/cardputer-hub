@@ -64,7 +64,7 @@ ownership matrix with invariants. Do not rewrite older plans into that format.
 | [048](048-combined-ai-app.md#current-status) | Combined AI application with STATUS/USAGE navigation and preserved quota details | Software implemented; local gates pass; physical acceptance pending |
 | [049](049-service-status.md#current-status) | SERVICES HEALTH: GitHub, Anthropic, OpenAI and Cursor status pages over Wi-Fi or through Companion, with a fault cue | Software implemented; local gates pass; physical acceptance pending |
 | [050](050-web-access.md#current-status) | WEB ACCESS: Wi-Fi access point, signed-in local web UI with app tiles and the Inventory editor, running in the background | Software implemented; local gates pass; physical acceptance pending |
-| [051](051-g0-status-sheet.md#current-status) | G0 STATUS sheet: Wi-Fi, Bluetooth, Companion and battery over any screen | Planned; not implemented |
+| [051](051-g0-status-sheet.md#current-status) | G0 STATUS sheet: Wi-Fi, Bluetooth, Companion, WEB and battery over any screen | Software implemented; local gates pass; physical acceptance pending |
 | [052](052-led-canvas.md#current-status) | LED CANVAS: draw on the 8×8 matrix from the web UI with color modes, a finger-sized brush and a Cardputer Mini App | Software implemented; local gates pass; physical acceptance pending |
 
 The work referred to historically as 013 is the approved

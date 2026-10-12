@@ -111,6 +111,11 @@ CANVAS_SERVICE_INCLUDE = re.compile(
     r'^\s*#\s*include\s*"(?:apps/|hardware/|services/indicator/|services/web_access/)'
 )
 WEB_APP_FORBIDDEN = re.compile(r"\bsetEnabled\s*\(")
+# Plan 051: G0 is the shell's global control. The keyboard adapter reports the
+# button; only the shell gives it a meaning, and only the shell handles it.
+G0_KEY = re.compile(r"\bNamedKey::G0\b")
+G0_SOURCES = ("apps/shell/application_shell.cpp", "hardware/cardputer/cardputer_keyboard_adapter.cpp")
+STATUS_TOGGLE_ACTION = re.compile(r'"ui\.status\.toggle"')
 
 
 @dataclasses.dataclass(frozen=True)
@@ -378,6 +383,10 @@ def find_nfc_violations(source_root: pathlib.Path) -> list[Violation]:
                 report("canvas_engine_dependency", path, line_number, layer, raw_line)
             if relative.startswith("services/led_canvas/led_canvas_service") and CANVAS_SERVICE_INCLUDE.match(line):
                 report("canvas_service_dependency", path, line_number, layer, raw_line)
+            if relative not in G0_SOURCES and G0_KEY.search(line):
+                report("g0_outside_shell", path, line_number, layer, raw_line)
+            if not relative.startswith("apps/shell/") and STATUS_TOGGLE_ACTION.search(line):
+                report("status_toggle_outside_shell", path, line_number, layer, raw_line)
             if relative.startswith("services/led_canvas/led_canvas_web_endpoint") and re.match(
                 r'^\s*#\s*include\s*"(?:apps/|services/indicator/)', line
             ):
@@ -405,6 +414,11 @@ def find_nfc_violations(source_root: pathlib.Path) -> list[Violation]:
 
 
 NFC_VIOLATION_HELP = {
+    "g0_outside_shell": (
+        "only the keyboard adapter reports NamedKey::G0 and only ApplicationShell "
+        "maps it; Mini Apps and other screens never see G0"
+    ),
+    "status_toggle_outside_shell": "ui.status.toggle belongs to ApplicationShell alone.",
     "canvas_engine_dependency": "LED Canvas engine stays pure: no Services or hardware.",
     "canvas_service_dependency": "LED Canvas service owns input and settings, not rendering or web access.",
     "canvas_endpoint_dependency": "LED Canvas endpoint reaches only its service, never the engine or indicator.",

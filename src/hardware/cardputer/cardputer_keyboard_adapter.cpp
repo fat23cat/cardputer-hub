@@ -1,6 +1,7 @@
 #include "hardware/cardputer/cardputer_keyboard_adapter.h"
 
 #include <Adafruit_TCA8418.h>
+#include <M5Unified.hpp>
 #include <cstdint>
 #include <memory>
 
@@ -34,7 +35,14 @@ bool CardputerKeyboardAdapter::initialize() {
 }
 
 core::KeyboardPollResult CardputerKeyboardAdapter::poll(core::InputEvents& events) {
-    return pollKeyboard(events);
+    auto result = pollKeyboard(events);
+    // M5Unified debounces GPIO0 as BtnA; CardputerPlatform::update() runs
+    // M5.update() before this poll. The shell gives G0 its meaning.
+    if (M5.BtnA.wasPressed()) {
+        events.push_back({core::InputEventType::NamedKey, '\0', core::NamedKey::G0, {}});
+        result.physicalPress = true;
+    }
+    return result;
 }
 
 core::KeyboardPollResult CardputerKeyboardAdapter::pollKeyboard(core::InputEvents& events) {

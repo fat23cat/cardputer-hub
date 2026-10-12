@@ -13,6 +13,9 @@
 
 namespace cardputer_hub::apps {
 
+// The Wi-Fi state word shared by Wi-Fi Settings and the STATUS sheet.
+const char* wifiStatusWord(const services::WifiStatusSnapshot& status);
+
 class WiFiSettings {
   public:
     static constexpr std::chrono::milliseconds passphraseRevealDuration{2000};
@@ -64,7 +67,6 @@ class WiFiSettings {
     std::string fitSsid(const std::string& ssid) const;
     std::string visibleEditor(const std::string& text) const;
     std::string passphrasePreview() const;
-    const char* headerStatus(const services::WifiStatusSnapshot& status) const;
     const char* errorText(services::NetworkResult result) const;
     void handleStatus(const core::InputEvent& event, const services::WifiStatusSnapshot& status);
     void handleEditor(const core::InputEvent& event);

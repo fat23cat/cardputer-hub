@@ -12,23 +12,6 @@
 namespace cardputer_hub::apps {
 using namespace core;
 namespace {
-const char* label(services::HostConnectionStatus value) {
-    switch (value) {
-    case services::HostConnectionStatus::Off:
-        return "OFF";
-    case services::HostConnectionStatus::Connecting:
-        return "CONNECTING";
-    case services::HostConnectionStatus::Securing:
-        return "SECURING";
-    case services::HostConnectionStatus::Ready:
-        return "READY";
-    case services::HostConnectionStatus::Pairing:
-        return "PAIRING";
-    case services::HostConnectionStatus::Error:
-        return "ERROR";
-    }
-    return "ERROR";
-}
 const char* error(services::HostResult result) {
     switch (result) {
     case services::HostResult::Success:
@@ -56,6 +39,29 @@ std::string code(std::uint32_t value) {
     return buffer;
 }
 } // namespace
+
+const char* hostConnectionWord(services::HostConnectionStatus status) {
+    switch (status) {
+    case services::HostConnectionStatus::Off:
+        return "OFF";
+    case services::HostConnectionStatus::Connecting:
+        return "CONNECTING";
+    case services::HostConnectionStatus::Securing:
+        return "SECURING";
+    case services::HostConnectionStatus::Ready:
+        return "READY";
+    case services::HostConnectionStatus::Pairing:
+        return "PAIRING";
+    case services::HostConnectionStatus::Error:
+        return "ERROR";
+    }
+    return "ERROR";
+}
+
+const char* bluetoothSwitchWord(const services::HostStatusSnapshot& status) {
+    // While WEB ACCESS holds the radio, a saved On reads PAUSED.
+    return !status.connectionEnabled ? "OFF" : status.radioHeld ? "PAUSED" : "ON";
+}
 
 HostSettings::HostSettings(services::HostService& hosts, ActionBus& actions,
                            IDisplayAdapter& display)
@@ -251,7 +257,7 @@ void HostSettings::renderList() {
     const auto start = focus_ >= 4 ? focus_ - 3 : 0;
     ListFrame next;
     next.focusedRow = focus_ - start;
-    next.status = label(hostStatus.connection);
+    next.status = hostConnectionWord(hostStatus.connection);
     next.error = error(hostStatus.lastResult);
     if (hostStatus.lastResult == services::HostResult::HostSelectionRequired &&
         settings.hosts.empty())
@@ -263,10 +269,7 @@ void HostSettings::renderList() {
         }
         if (row == 0) {
             next.labels[slot] = "Bluetooth";
-            // While WEB ACCESS holds the radio, a saved On reads PAUSED.
-            next.values[slot] = !hostStatus.connectionEnabled ? "OFF"
-                                : hostStatus.radioHeld        ? "PAUSED"
-                                                              : "ON";
+            next.values[slot] = bluetoothSwitchWord(hostStatus);
         } else if (row == 1) {
             next.labels[slot] = "Add device";
         } else if (row - 2 < settings.hosts.size()) {
@@ -431,8 +434,8 @@ void HostSettings::render() {
                       : renaming_          ? "HOST NAME"
                                            : "BLUETOOTH",
                       normal);
-    display_.drawText({rightAlignedTextX(label(hostStatus.connection)), 6},
-                      label(hostStatus.connection), normal);
+    display_.drawText({rightAlignedTextX(hostConnectionWord(hostStatus.connection)), 6},
+                      hostConnectionWord(hostStatus.connection), normal);
     display_.fillRectangle({6, 20}, 228, 1, palette::ink);
     if (deleting_) {
         display_.drawText({6, 35}, "Delete host and its pairing?", normal);

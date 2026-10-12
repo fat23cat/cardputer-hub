@@ -3,7 +3,9 @@
 #include "apps/hosts/host_settings.h"
 #include "apps/launcher/launcher.h"
 #include "apps/network/wifi_settings.h"
+#include "apps/shell/status_sheet.h"
 #include "core/capabilities/capability_registry.h"
+#include "core/logging/logger.h"
 #include "core/navigation/navigation_stack.h"
 #include "services/audio/audio_service.h"
 #include "services/companion/companion_service.h"
@@ -28,6 +30,10 @@ class ApplicationShell final : public core::IActionHandler {
     void setCompanion(const services::CompanionService& companion) { companion_ = &companion; }
     // Home shows a WEB group while the local web UI is not Off.
     void setWebAccess(const services::WebAccessService& web) { webAccess_ = &web; }
+    // Receives the warning when the STATUS sheet cannot open.
+    void setLogger(core::Logger& logger) { logger_ = &logger; }
+    // G0 shows the STATUS sheet over any screen; Escape or G0 removes it.
+    bool statusSheetVisible() const { return statusSheetVisible_; }
 
   private:
     struct HomeStatusFrame {
@@ -61,6 +67,8 @@ class ApplicationShell final : public core::IActionHandler {
     void renderHome(std::chrono::milliseconds elapsed, std::optional<std::uint8_t> batteryPercent,
                     bool displayOff, bool transitionPaused);
     void renderSettings();
+    void closeStatusSheet();
+    void renderStatusSheet(std::optional<std::uint8_t> batteryPercent);
     bool atSettings() const;
     bool atBluetooth() const;
     bool atWifi() const;
@@ -78,6 +86,7 @@ class ApplicationShell final : public core::IActionHandler {
     core::CapabilityRegistry& capabilities_;
     const services::CompanionService* companion_ = nullptr;
     const services::WebAccessService* webAccess_ = nullptr;
+    core::Logger* logger_ = nullptr;
     Launcher launcher_;
     core::NavigationStack navigation_;
     std::optional<HomeStatusFrame> homeStatusFrame_;
@@ -93,5 +102,9 @@ class ApplicationShell final : public core::IActionHandler {
     bool showingMiniApp_ = false;
     bool miniAppUpdateInProgress_ = false;
     bool miniAppCloseRequested_ = false;
+    bool displayOff_ = false;
+    // Visible exactly while the display is in overlay mode.
+    bool statusSheetVisible_ = false;
+    StatusSheetView statusSheet_;
 };
 } // namespace cardputer_hub::apps

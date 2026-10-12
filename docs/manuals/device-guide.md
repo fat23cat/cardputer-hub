@@ -46,8 +46,8 @@ of AI to Apps, and from Apps to Home. In AI's usage details, Escape first return
 to USAGE. If Companion disappears
 while MAC CONTROL is open, the app closes and Apps returns; reconnect does not
 reopen it or repeat the last launch. Press plain **Tab** on the main keyboard
-to open the general Settings menu. Fn+Tab is inactive, and a normal G0 press
-has no application action. Settings lists Bluetooth, Wi-Fi, Sound volume, Screen
+to open the general Settings menu. Fn+Tab is inactive. Press **G0** on any
+screen to show the STATUS sheet (see below). Settings lists Bluetooth, Wi-Fi, Sound volume, Screen
 timeout, Screen brightness, and LED brightness.
 Selection changes immediately between rows in Apps, Settings, Bluetooth, and
 Wi-Fi. Host-list scrolling keeps the selected row visible.
@@ -69,6 +69,28 @@ while dimmed or off wakes the display and is not
 delivered as a command. Background work keeps running while the screen is
 dark. A Pomodoro phase change also wakes the display without switching the
 active app; the normal idle dim/off cycle then starts again.
+
+## STATUS
+
+Press the **G0** button on any screen to cover it with the STATUS sheet. Press
+G0 again, or Escape (backtick), to return to the same screen. The sheet lists:
+
+| Row | Shows |
+| --- | --- |
+| WI-FI | `CONNECTED`, `CONNECTING`, `OFF`, `NOT CONFIGURED` or `ERROR` |
+| BLUETOOTH | The connected computer's name, `CONNECTING`, `SECURING`, `PAIRING`, `OFF`, `ERROR`, or `PAUSED` while WEB ACCESS runs |
+| COMPANION | `READY`, `CONNECTING`, `WAITING BT` (Bluetooth is not connected), `OFFLINE` (the Mac app is not answering), `ERROR`, or which side to update |
+| WEB | `OFF`, `ON`, the number of connected browsers, or `ERROR` |
+| BATTERY | The estimated charge, red at 10% or less |
+
+A coloured dot before each value matches the Home status dots. The rows update
+while the sheet is shown. Everything underneath keeps running: a Pomodoro keeps
+counting, the LED matrix keeps animating, and an app that loses the Companion
+still closes to Apps. Other keys do nothing while the sheet is shown, and
+Escape that closes the sheet does not close the app beneath it. G0 does not
+open the sheet while a pairing code is shown, and a press that wakes a dark
+display only wakes it. The sheet closes by itself when a pairing code appears
+or the display turns off.
 
 ## Pomodoro
 
@@ -666,6 +688,7 @@ instead of moving a list.
 
 | Control | Behavior |
 | --- | --- |
+| G0 on any screen | Show or hide the STATUS sheet; Escape also hides it |
 | Left / Right on Home | Select APPS / SETTINGS |
 | Enter on Home | Open the selected action; APPS is selected by default |
 | Escape in Apps | Return Home |
@@ -740,8 +763,9 @@ or pairing view; leave that view using Back first. The existing Esc Home action
 in the Bluetooth list continues to return directly Home;
 opening/closing settings does not change saved host selection or BLE On/Off.
 
-Fn+Tab is inactive, and a normal G0 press does nothing. Holding G0 while
-starting or resetting the device still enters the firmware download mode.
+Fn+Tab is inactive. A normal G0 press shows or hides the STATUS sheet. Holding
+G0 while starting or resetting the device still enters the firmware download
+mode.
 The Living Orb pauses while Settings, Bluetooth, Wi-Fi, Apps,
 or SYSTEM is open. Screens change at once, without a slide.
 

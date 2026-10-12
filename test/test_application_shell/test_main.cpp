@@ -94,7 +94,8 @@ class Display final : public core::IDisplayAdapter {
   public:
     void beginFrame() override { dirty = false; }
     void endFrame() override {
-        if (dirty)
+        TEST_ASSERT_FALSE(region.has_value());
+        if (dirty && !overlay)
             ++presentations;
     }
     void beginTransition(core::SlideDirection direction) override {
@@ -110,7 +111,38 @@ class Display final : public core::IDisplayAdapter {
     bool transitionActive() const override {
         return emulateTransitions && transitionRemainingMilliseconds > 0;
     }
+    bool beginOverlay() override {
+        if (!overlayAvailable)
+            return false;
+        TEST_ASSERT_FALSE(overlay);
+        overlay = true;
+        ++overlayBegins;
+        return true;
+    }
+    void endOverlay() override {
+        TEST_ASSERT_TRUE(overlay);
+        TEST_ASSERT_FALSE(region.has_value());
+        overlay = false;
+        ++overlayEnds;
+        dirty = true;
+    }
+    void beginOverlayRegion(core::PixelRectangle area) override {
+        TEST_ASSERT_TRUE(overlay);
+        TEST_ASSERT_FALSE(region.has_value());
+        region = area;
+        regions.push_back(area);
+    }
+    void endOverlayRegion() override {
+        TEST_ASSERT_TRUE(region.has_value());
+        region.reset();
+    }
+    // Page drawing while the sheet covers the screen: kept, never presented.
+    void notePageDrawing() {
+        if (overlay && !region)
+            ++pageDrawsDuringOverlay;
+    }
     void clear(core::RgbColor) override {
+        notePageDrawing();
         ++frames;
         texts.clear();
         textStyles.clear();
@@ -118,6 +150,7 @@ class Display final : public core::IDisplayAdapter {
     }
     void fillRectangle(core::PixelPosition position, std::int32_t width, std::int32_t height,
                        core::RgbColor color) override {
+        notePageDrawing();
         TEST_ASSERT_TRUE(position.x >= 0 && position.y >= 0 && width > 0 && height > 0);
         TEST_ASSERT_TRUE(position.x + width <= 240 && position.y + height <= 135);
         fills.push_back({position, width, height, color});
@@ -131,6 +164,7 @@ class Display final : public core::IDisplayAdapter {
     };
     std::vector<Fill> fills;
     void drawText(core::PixelPosition position, const char* value, core::TextStyle style) override {
+        notePageDrawing();
         TEST_ASSERT_TRUE(position.x >= 0 && position.x < 240 && position.y >= 0 &&
                          position.y < 135);
         TEST_ASSERT_TRUE(position.x + core::textWidth(value, style.scale) <= 240);
@@ -156,6 +190,13 @@ class Display final : public core::IDisplayAdapter {
     bool dirty = false;
     bool emulateTransitions = false;
     std::int64_t transitionRemainingMilliseconds = 0;
+    bool overlayAvailable = true;
+    bool overlay = false;
+    int overlayBegins = 0;
+    int overlayEnds = 0;
+    int pageDrawsDuringOverlay = 0;
+    std::optional<core::PixelRectangle> region;
+    std::vector<core::PixelRectangle> regions;
 };
 
 class AudioAdapter final : public core::IAudioAdapter {
@@ -438,6 +479,11 @@ const core::InputEvent right{core::InputEventType::NamedKey, 0, core::NamedKey::
 const core::InputEvent keyA{core::InputEventType::PrintableCharacter, 'A', {}, {}};
 const core::InputEvent keyB{core::InputEventType::PrintableCharacter, 'B', {}, {}};
 const core::InputEvent keyC{core::InputEventType::PrintableCharacter, 'C', {}, {}};
+const core::InputEvent g0{core::InputEventType::NamedKey, 0, core::NamedKey::G0, {}};
+const core::InputEvent backtick{core::InputEventType::PrintableCharacter, '`', {}, {}};
+const core::InputEvent space{core::InputEventType::PrintableCharacter, ' ', {}, {}};
+const core::InputEvent comma{core::InputEventType::PrintableCharacter, ',', {}, {}};
+const core::InputEvent keyR{core::InputEventType::PrintableCharacter, 'r', {}, {}};
 
 std::optional<int> homeFocusPlateX(const Display& display) {
     for (auto it = display.fills.rbegin(); it != display.fills.rend(); ++it)
@@ -1960,6 +2006,275 @@ void test_screen_brightness_key_wakes_without_changing_setting() {
     TEST_ASSERT_EQUAL_UINT8(90, f.deviceSettings.screenBrightness());
 }
 
+class RecordingLogSink final : public core::ILogSink {
+  public:
+    void write(const core::LogRecord& record) override {
+        records.push_back({record.level, record.component, record.message});
+    }
+    struct Entry {
+        core::LogLevel level;
+        std::string component;
+        std::string message;
+    };
+    std::vector<Entry> records;
+};
+
+void activateApp(Fixture& f, const char* id = "weather", std::vector<std::string> required = {}) {
+    f.registerApp(id, std::move(required));
+    TEST_ASSERT_EQUAL_UINT8(static_cast<unsigned int>(apps::MiniAppActivationResult::Activated),
+                            static_cast<unsigned int>(f.miniApps.activate(id)));
+}
+
+// Starts pairing and lets HostService publish a comparison prompt.
+void publishPairingPrompt(Fixture& f) {
+    TEST_ASSERT_TRUE(f.hosts.start() == services::HostResult::Success);
+    TEST_ASSERT_TRUE(f.hosts.startPairing() == services::HostResult::Success);
+    const auto lifecycle = f.bluetoothAdapter.lifecycle;
+    f.bluetoothAdapter.events.push_back({connectivity::BluetoothEventType::AdvertisingStarted,
+                                         {},
+                                         connectivity::BluetoothFailureClass::Fatal,
+                                         lifecycle});
+    f.bluetoothAdapter.events.push_back({connectivity::BluetoothEventType::PeerConnected,
+                                         {8},
+                                         connectivity::BluetoothFailureClass::Fatal,
+                                         lifecycle});
+    connectivity::BluetoothEvent challenge{connectivity::BluetoothEventType::PairingChallenge,
+                                           {8},
+                                           connectivity::BluetoothFailureClass::Fatal,
+                                           lifecycle};
+    challenge.challengeType = connectivity::BluetoothPairingChallengeType::ConfirmComparison;
+    challenge.challengeValue = 654321;
+    f.bluetoothAdapter.events.push_back(challenge);
+    f.hosts.update(std::chrono::milliseconds(0));
+    TEST_ASSERT_TRUE(f.hosts.status().pairingPrompt.has_value());
+}
+
+void test_g0_opens_status_sheet_over_mini_app() {
+    Fixture f;
+    activateApp(f);
+    auto shell = f.makeShell();
+    shell.update({}, std::chrono::milliseconds(16));
+    f.audioAdapter.clips.clear();
+
+    shell.update({g0}, std::chrono::milliseconds(16));
+
+    TEST_ASSERT_TRUE(f.display.overlay);
+    TEST_ASSERT_EQUAL_INT(1, f.display.overlayBegins);
+    TEST_ASSERT_TRUE(f.display.shows("STATUS"));
+    TEST_ASSERT_TRUE(f.display.shows("G0 CLOSE"));
+    for (const auto* label : {"WI-FI", "BLUETOOTH", "COMPANION", "WEB", "BATTERY"})
+        TEST_ASSERT_TRUE(f.display.shows(label));
+    TEST_ASSERT_EQUAL_UINT(7, f.display.regions.size());
+    TEST_ASSERT_TRUE(f.app.received.empty());
+    TEST_ASSERT_EQUAL_UINT(1, keyPressCount(f.audioAdapter.clips));
+
+    // The app keeps running behind the sheet; a settled sheet draws nothing.
+    const auto updates = f.app.updateCount;
+    f.display.regions.clear();
+    shell.update({}, std::chrono::milliseconds(40));
+    TEST_ASSERT_EQUAL_INT(updates + 1, f.app.updateCount);
+    TEST_ASSERT_EQUAL_INT64(40, f.app.lastElapsed.count());
+    TEST_ASSERT_TRUE(f.display.regions.empty());
+    TEST_ASSERT_TRUE(f.miniApps.hasActiveApp());
+}
+
+void test_escape_closes_sheet_without_closing_app() {
+    Fixture f;
+    activateApp(f);
+    auto shell = f.makeShell();
+    shell.update({g0});
+
+    shell.update({backtick});
+    TEST_ASSERT_FALSE(f.display.overlay);
+    TEST_ASSERT_EQUAL_INT(1, f.display.overlayEnds);
+    TEST_ASSERT_TRUE(f.miniApps.hasActiveApp());
+    TEST_ASSERT_EQUAL_INT(0, f.app.backRequests);
+    TEST_ASSERT_EQUAL_INT(0, f.app.deactivateCount);
+    TEST_ASSERT_TRUE(f.app.received.empty());
+
+    // Fn+backtick closes it too, and G0 toggles it.
+    shell.update({g0});
+    shell.update({escape});
+    TEST_ASSERT_FALSE(f.display.overlay);
+    shell.update({g0});
+    shell.update({g0});
+    TEST_ASSERT_FALSE(f.display.overlay);
+    TEST_ASSERT_EQUAL_INT(3, f.display.overlayEnds);
+    TEST_ASSERT_EQUAL_INT(0, f.app.backRequests);
+    TEST_ASSERT_TRUE(f.miniApps.hasActiveApp());
+}
+
+void test_capability_loss_under_sheet_reveals_launcher() {
+    Fixture f;
+    TEST_ASSERT_TRUE(f.capabilities.registerCapability("COMPANION") ==
+                     core::CapabilityRegistrationResult::Registered);
+    activateApp(f, "mac-control", {"COMPANION"});
+    auto shell = f.makeShell();
+    shell.update({g0}, std::chrono::milliseconds(16));
+    TEST_ASSERT_TRUE(f.display.overlay);
+    const auto presentations = f.display.presentations;
+
+    TEST_ASSERT_TRUE(f.capabilities.removeCapability("COMPANION") ==
+                     core::CapabilityRemovalResult::Removed);
+    shell.update({}, std::chrono::milliseconds(16));
+
+    TEST_ASSERT_FALSE(f.miniApps.hasActiveApp());
+    TEST_ASSERT_TRUE(f.display.overlay);
+    TEST_ASSERT_TRUE(f.display.shows("APPS"));
+    TEST_ASSERT_TRUE(f.display.pageDrawsDuringOverlay > 0);
+    TEST_ASSERT_EQUAL_INT(presentations, f.display.presentations);
+
+    shell.update({g0}, std::chrono::milliseconds(16));
+    TEST_ASSERT_FALSE(f.display.overlay);
+    TEST_ASSERT_EQUAL_INT(presentations + 1, f.display.presentations);
+    // Launcher has focus again.
+    shell.update({escape}, std::chrono::milliseconds(16));
+    TEST_ASSERT_TRUE(f.display.shows("WiFi"));
+}
+
+void test_double_g0_leaves_one_overlay() {
+    Fixture f;
+    auto shell = f.makeShell();
+    shell.update({g0});
+    TEST_ASSERT_TRUE(f.display.overlay);
+
+    shell.update({g0, g0});
+
+    TEST_ASSERT_TRUE(f.display.overlay);
+    TEST_ASSERT_EQUAL_INT(2, f.display.overlayBegins);
+    TEST_ASSERT_EQUAL_INT(1, f.display.overlayEnds);
+}
+
+void test_sheet_consumes_other_keys() {
+    Fixture f;
+    activateApp(f);
+    auto shell = f.makeShell();
+    shell.update({g0});
+    f.display.regions.clear();
+    f.audioAdapter.clips.clear();
+
+    shell.update({enter, tab, space, comma, keyR, down});
+
+    TEST_ASSERT_TRUE(f.app.received.empty());
+    TEST_ASSERT_TRUE(f.display.overlay);
+    TEST_ASSERT_TRUE(f.display.regions.empty());
+    TEST_ASSERT_EQUAL_UINT(6, keyPressCount(f.audioAdapter.clips));
+
+    // Over a system screen as well: Tab does not open Settings.
+    Fixture home;
+    auto homeShell = home.makeShell();
+    homeShell.update({});
+    homeShell.update({g0});
+    home.display.texts.clear();
+    homeShell.update({tab, enter});
+    TEST_ASSERT_FALSE(home.display.shows("SETTINGS"));
+    homeShell.update({g0});
+    homeShell.update({});
+    TEST_ASSERT_FALSE(home.display.shows("SETTINGS"));
+}
+
+void test_home_ambient_pauses_under_sheet() {
+    Fixture f;
+    auto shell = f.makeShell();
+    shell.update({});
+    shell.update({g0});
+    const auto pageDraws = f.display.pageDrawsDuringOverlay;
+
+    shell.update({}, std::chrono::milliseconds(200));
+    shell.update({}, std::chrono::milliseconds(200));
+
+    TEST_ASSERT_EQUAL_INT(pageDraws, f.display.pageDrawsDuringOverlay);
+}
+
+void test_g0_rejected_during_pairing_prompt() {
+    Fixture f;
+    publishPairingPrompt(f);
+    auto shell = f.makeShell();
+    shell.update({});
+
+    shell.update({g0});
+
+    TEST_ASSERT_FALSE(f.display.overlay);
+    TEST_ASSERT_EQUAL_INT(0, f.display.overlayBegins);
+    TEST_ASSERT_TRUE(f.hosts.status().pairingPrompt.has_value());
+}
+
+void test_pairing_prompt_closes_sheet() {
+    Fixture f;
+    auto shell = f.makeShell();
+    shell.update({g0});
+    TEST_ASSERT_TRUE(f.display.overlay);
+
+    publishPairingPrompt(f);
+    shell.update({});
+
+    TEST_ASSERT_FALSE(f.display.overlay);
+    TEST_ASSERT_EQUAL_INT(1, f.display.overlayEnds);
+}
+
+void test_display_off_hides_sheet() {
+    Fixture f;
+    activateApp(f);
+    auto shell = f.makeShell();
+    shell.update({g0});
+    TEST_ASSERT_TRUE(f.display.overlay);
+
+    shell.update({}, std::chrono::milliseconds(16), std::nullopt, true);
+
+    TEST_ASSERT_FALSE(f.display.overlay);
+    TEST_ASSERT_TRUE(f.miniApps.hasActiveApp());
+    // A G0 that reaches the shell while the display is off opens nothing.
+    shell.update({g0}, std::chrono::milliseconds(16), std::nullopt, true);
+    TEST_ASSERT_FALSE(f.display.overlay);
+}
+
+void test_sheet_stays_hidden_without_overlay() {
+    Fixture f;
+    activateApp(f);
+    RecordingLogSink sink;
+    core::Logger logger{sink, core::LogLevel::Info};
+    auto shell = f.makeShell();
+    shell.setLogger(logger);
+    f.display.overlayAvailable = false;
+
+    shell.update({g0});
+
+    TEST_ASSERT_FALSE(f.display.overlay);
+    TEST_ASSERT_FALSE(f.display.shows("G0 CLOSE"));
+    TEST_ASSERT_TRUE(f.app.received.empty());
+    TEST_ASSERT_EQUAL_UINT(1, sink.records.size());
+    TEST_ASSERT_TRUE(sink.records[0].level == core::LogLevel::Warning);
+}
+
+void test_status_sheet_reads_service_snapshots() {
+    Fixture f;
+    test_support::FakeAccessPoint accessPoint;
+    test_support::FakeHttpServer server;
+    test_support::MapStorage webMemory;
+    core::Storage webStorage{webMemory};
+    test_support::CountingRandom random;
+    services::WebAccessService web(accessPoint, server, webStorage, random);
+    auto shell = f.makeShell();
+    shell.setWebAccess(web);
+    (void)web.setEnabled(true);
+    accessPoint.clients = 3;
+    web.update(services::WebAccessService::clientPollInterval);
+
+    shell.update({g0}, {}, std::uint8_t{9});
+
+    TEST_ASSERT_TRUE(f.display.shows("NOT CONFIGURED"));
+    TEST_ASSERT_TRUE(f.display.shows("WAITING BT"));
+    TEST_ASSERT_TRUE(f.display.shows("3 CLIENTS"));
+    const auto battery = f.display.styleOf("9%");
+    TEST_ASSERT_TRUE(battery.has_value());
+    TEST_ASSERT_EQUAL_UINT8(core::palette::vermilion.red, battery->foreground.red);
+
+    f.display.regions.clear();
+    shell.update({}, {}, std::uint8_t{8});
+    TEST_ASSERT_EQUAL_UINT(1, f.display.regions.size());
+    TEST_ASSERT_TRUE(f.display.shows("8%"));
+}
+
 } // namespace
 
 void setUp() {}
@@ -2029,5 +2344,16 @@ int main() {
     RUN_TEST(test_six_settings_rows_step_values_and_repaint_only_changed_row);
     RUN_TEST(test_led_brightness_key_wakes_without_changing_setting);
     RUN_TEST(test_screen_brightness_key_wakes_without_changing_setting);
+    RUN_TEST(test_g0_opens_status_sheet_over_mini_app);
+    RUN_TEST(test_escape_closes_sheet_without_closing_app);
+    RUN_TEST(test_capability_loss_under_sheet_reveals_launcher);
+    RUN_TEST(test_double_g0_leaves_one_overlay);
+    RUN_TEST(test_sheet_consumes_other_keys);
+    RUN_TEST(test_home_ambient_pauses_under_sheet);
+    RUN_TEST(test_g0_rejected_during_pairing_prompt);
+    RUN_TEST(test_pairing_prompt_closes_sheet);
+    RUN_TEST(test_display_off_hides_sheet);
+    RUN_TEST(test_sheet_stays_hidden_without_overlay);
+    RUN_TEST(test_status_sheet_reads_service_snapshots);
     return UNITY_END();
 }

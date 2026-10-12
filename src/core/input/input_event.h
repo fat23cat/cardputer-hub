@@ -28,6 +28,8 @@ enum class NamedKey : std::uint8_t {
     F11,
     F12,
     SystemMenu,
+    // The G0 button, reported by the keyboard adapter; not a keyboard key.
+    G0,
     Count,
 };
 
