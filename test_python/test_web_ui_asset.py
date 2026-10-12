@@ -43,6 +43,38 @@ class WebUiAssetTests(unittest.TestCase):
         )
         self.assertEqual(0, result.returncode, result.stderr)
 
+    def test_check_ignores_how_zlib_compressed_the_content(self) -> None:
+        sys.path.insert(0, str(ROOT / "scripts"))
+        try:
+            import generate_web_ui as generator
+        finally:
+            sys.path.pop(0)
+        header = HEADER.read_text(encoding="utf-8")
+        page = gzip.decompress(array_bytes("Page"))
+        # The same page compressed at another level: other bytes, same content.
+        recompressed = gzip.compress(page, compresslevel=1, mtime=0)
+        start = header.index("webUiPageData[] = {")
+        end = header.index("};", start)
+        rewritten = (
+            header[:start]
+            + "webUiPageData[] = {"
+            + ", ".join(f"0x{byte:02x}" for byte in recompressed)
+            + ",\n"
+            + header[end:]
+        )
+        self.assertNotEqual(header, rewritten)
+        self.assertEqual(generator.canonical(header), generator.canonical(rewritten))
+        # A changed page is still caught.
+        other = gzip.compress(page + b" ", compresslevel=9, mtime=0)
+        stale = (
+            header[:start]
+            + "webUiPageData[] = {"
+            + ", ".join(f"0x{byte:02x}" for byte in other)
+            + ",\n"
+            + header[end:]
+        )
+        self.assertNotEqual(generator.canonical(header), generator.canonical(stale))
+
     def test_generated_page_is_the_current_source(self) -> None:
         self.assertEqual(SOURCE.read_bytes(), gzip.decompress(array_bytes("Page")))
 

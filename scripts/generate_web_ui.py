@@ -10,8 +10,10 @@ from __future__ import annotations
 
 import argparse
 import gzip
+import hashlib
 import json
 import pathlib
+import re
 import struct
 import sys
 import zlib
@@ -183,6 +185,45 @@ def render(page: bytes) -> str:
     return "\n".join(lines)
 
 
+ARRAY = re.compile(r"inline constexpr unsigned char webUi(\w+)Data\[\] = \{(.*?)\};", re.S)
+SIZE_NOTE = re.compile(r"^// /\S*: .*$\n", re.M)
+PNG_SIGNATURE = b"\x89PNG\r\n\x1a\n"
+
+
+def png_content(data: bytes) -> bytes:
+    """IHDR and the inflated image data: what a PNG shows, not how it was compressed."""
+    position, header, image = len(PNG_SIGNATURE), b"", b""
+    while position < len(data):
+        (length,) = struct.unpack(">I", data[position : position + 4])
+        kind = data[position + 4 : position + 8]
+        body = data[position + 8 : position + 8 + length]
+        if kind == b"IHDR":
+            header = body
+        elif kind == b"IDAT":
+            image += body
+        position += 12 + length
+    return header + zlib.decompress(image)
+
+
+def canonical(header: str) -> str:
+    """The header with each array replaced by a digest of its decoded content.
+
+    zlib builds differ between platforms, so the same page and icons can
+    compress to different bytes; the check compares what they contain.
+    """
+
+    def decode(match: re.Match[str]) -> str:
+        name, body = match.group(1), match.group(2)
+        data = bytes(int(value, 16) for value in re.findall(r"0x([0-9a-f]{2})", body))
+        if name == "Page":
+            data = gzip.decompress(data)
+        elif data.startswith(PNG_SIGNATURE):
+            data = png_content(data)
+        return f"{name}: {hashlib.sha256(data).hexdigest()}"
+
+    return SIZE_NOTE.sub("", ARRAY.sub(decode, header))
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
@@ -192,7 +233,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     expected = render(SOURCE.read_bytes())
     if arguments.check:
         current = OUTPUT.read_text(encoding="utf-8") if OUTPUT.is_file() else ""
-        if current != expected:
+        if canonical(current) != canonical(expected):
             print(f"{OUTPUT.relative_to(ROOT)} is out of date; run {__file__}", file=sys.stderr)
             return 1
         return 0

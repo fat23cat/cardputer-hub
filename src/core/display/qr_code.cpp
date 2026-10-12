@@ -11,8 +11,10 @@ namespace {
 constexpr int minimumVersion = 1;
 constexpr int maximumVersion = 6;
 // Level M, indexed by version.
-constexpr std::array<int, maximumVersion + 1> eccPerBlock = {0, 10, 16, 26, 18, 24, 16};
-constexpr std::array<int, maximumVersion + 1> blocks = {0, 1, 1, 1, 2, 2, 4};
+constexpr int eccPerBlock[] = {0, 10, 16, 26, 18, 24, 16};
+constexpr int blocks[] = {0, 1, 1, 1, 2, 2, 4};
+static_assert(sizeof(eccPerBlock) / sizeof(eccPerBlock[0]) == maximumVersion + 1);
+static_assert(sizeof(blocks) / sizeof(blocks[0]) == maximumVersion + 1);
 // Format information: level M is 0b00.
 constexpr int levelBits = 0;
 
@@ -126,12 +128,16 @@ bool maskBit(int mask, int x, int y) {
 std::optional<QrCode> QrCode::encodeText(std::string_view text) {
     if (text.size() > maxTextBytes)
         return std::nullopt;
-    int version = minimumVersion;
     // Mode (4 bits), count (8 bits for versions 1-9), then the bytes.
     const auto neededBits = static_cast<int>(12 + 8 * text.size());
-    while (version <= maximumVersion && dataCodewords(version) * 8 < neededBits)
-        ++version;
-    if (version > maximumVersion)
+    int version = 0;
+    for (int candidate = minimumVersion; candidate <= maximumVersion; ++candidate) {
+        if (dataCodewords(candidate) * 8 >= neededBits) {
+            version = candidate;
+            break;
+        }
+    }
+    if (version == 0)
         return std::nullopt;
 
     const int capacityBits = dataCodewords(version) * 8;

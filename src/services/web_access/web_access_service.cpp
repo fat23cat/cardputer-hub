@@ -87,16 +87,18 @@ WebAccessService::Credentials WebAccessService::loadCredentials() {
         if (const auto config = decode(stored.data))
             return *(credentials_ = Credentials{config->ssid, config->passphrase});
     }
-    std::array<std::uint8_t, 2 + webAccessPasswordLength> random{};
-    random_.fill(random.data(), random.size());
+    std::array<std::uint8_t, 2> ssidBytes{};
+    std::array<std::uint8_t, webAccessPasswordLength> passwordBytes{};
+    random_.fill(ssidBytes.data(), ssidBytes.size());
+    random_.fill(passwordBytes.data(), passwordBytes.size());
     Credentials credentials;
     credentials.ssid = "HUB-";
-    for (std::size_t index = 0; index < 2; ++index) {
-        credentials.ssid.push_back(upperHexDigits[random[index] >> 4]);
-        credentials.ssid.push_back(upperHexDigits[random[index] & 0x0f]);
+    for (const auto byte : ssidBytes) {
+        credentials.ssid.push_back(upperHexDigits[byte >> 4]);
+        credentials.ssid.push_back(upperHexDigits[byte & 0x0f]);
     }
-    for (std::size_t index = 0; index < webAccessPasswordLength; ++index)
-        credentials.password.push_back(passwordAlphabet[random[2 + index] & 0x1f]);
+    for (const auto byte : passwordBytes)
+        credentials.password.push_back(passwordAlphabet[byte & 0x1f]);
     if (storage_.write(credentialsAddress(), encode(credentials.ssid, credentials.password)) !=
         core::StorageWriteStatus::Stored)
         log(core::LogLevel::Warning, "access point credentials not stored");
