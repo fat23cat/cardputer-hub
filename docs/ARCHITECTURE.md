@@ -2143,7 +2143,12 @@ its cached sample stale immediately and schedules recovery. Normal provider
 refreshes run every 30 seconds on a background dispatch timer, independent of
 the menu-bar run loop. Firmware `AiUsageService` polls the cached result every
 two seconds during initial discovery and every 10 seconds after discovery
-completes. Companion Diagnostics reads each provider's Mac-side cache freshness
+completes. It handles the `ai-usage.refresh` Action by sending the next request
+with the AI_USAGE refresh flag (after any read already outstanding); the Mac
+then refreshes its providers, which keep their own request limits such as
+Claude's one-minute interval. The Mac publishes each provider as it finishes
+and does not report when the whole refresh is done, so the service reads every
+two seconds for 20 seconds after sending the refresh. Companion Diagnostics reads each provider's Mac-side cache freshness
 to distinguish a failed source refresh from a delivery problem. The service
 keeps at most one request outstanding and clears its data when the active
 Companion session changes. Its UI revision changes only when presentation
@@ -2192,7 +2197,8 @@ user action, with a backup, and `AgentStatusReport` answers AI_AGENT_STATUS
 with only the applications whose hooks are installed, rereading that set at
 most every five seconds and at once after an install or removal. Firmware `AiAgentStatusService` polls the cached
 answer once a second only while AI is open (including USAGE and its details),
-keeps one request outstanding, marks delivery stale after three seconds and clears with the
+reads at once for the `ai-agent-status.refresh` Action (after any read already
+outstanding), keeps one request outstanding, marks delivery stale after three seconds and clears with the
 Companion session. `AiAgentStatusApp` renders one full-width state plate per installed
 application inside AI's STATUS page, `CHECKING AI` before the first answer and
 `NO AI HOOKS` when none is installed;

@@ -30,6 +30,7 @@ void AiAgentStatusService::clear() {
     snapshot_ = {};
     snapshot_.generation = generation;
     inFlight_ = false;
+    refreshPending_ = false;
     pollElapsed_ = {};
     sinceSample_ = {};
 }
@@ -42,6 +43,15 @@ void AiAgentStatusService::request() {
         return;
     inFlight_ = true;
     inFlightId_ = companion_.lastSubmittedRequestId();
+    refreshPending_ = false;
+}
+
+core::ActionHandlingResult AiAgentStatusService::handle(const core::Action& action) {
+    if (action.id != aiAgentStatusRefreshActionId || !monitoring_)
+        return core::ActionHandlingResult::Rejected;
+    refreshPending_ = true;
+    request();
+    return core::ActionHandlingResult::Handled;
 }
 
 void AiAgentStatusService::update(std::chrono::milliseconds elapsed) {
@@ -84,7 +94,7 @@ void AiAgentStatusService::update(std::chrono::milliseconds elapsed) {
         }
     }
     pollElapsed_ += elapsed;
-    if (pollElapsed_ >= pollInterval) {
+    if (pollElapsed_ >= pollInterval || refreshPending_) {
         pollElapsed_ %= pollInterval;
         request();
     }

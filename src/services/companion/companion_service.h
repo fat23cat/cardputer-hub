@@ -75,7 +75,8 @@ class CompanionService {
     CompanionSubmitResult activateApplication(std::string_view bundleId);
     CompanionSubmitResult requestSystemMetrics();
     CompanionSubmitResult requestSystemDetails(connectivity::SystemDetailsGroup group);
-    CompanionSubmitResult requestAiUsage();
+    // With refresh, the Mac also starts a provider refresh; later reads return it.
+    CompanionSubmitResult requestAiUsage(bool refresh = false);
     CompanionSubmitResult requestAgentStatus();
     CompanionSubmitResult requestServiceStatus(std::string_view url);
     bool hasPendingRequest(connectivity::CompanionOperation operation) const noexcept;

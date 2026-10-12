@@ -65,8 +65,9 @@ illegal `(kind, operation)` pairs, `status != OK` on REQUEST, EVENT and HELLO,
 HELLO with a non-zero session or request ID, a HELLO_ACK that is neither
 accepted (session non-zero, `OK`) nor mismatch (session `0`, `UNSUPPORTED`),
 REQUEST/RESPONSE with session or request ID `0`, EVENT with a non-zero request
-ID, PING payloads other than 4 bytes, non-empty APP_ACTIVE, SYSTEM_METRICS,
-AI_USAGE and AI_AGENT_STATUS requests, APP_ACTIVATE requests without a valid bundle identifier,
+ID, PING payloads other than 4 bytes, non-empty APP_ACTIVE, SYSTEM_METRICS
+and AI_AGENT_STATUS requests, AI_USAGE requests other than empty or the refresh
+flag, APP_ACTIVATE requests without a valid bundle identifier,
 SERVICE_STATUS requests without an https URL,
 and any payload that does not match its layout exactly.
 
@@ -197,7 +198,9 @@ percentages and non-ASCII names. The largest body, CPU with four 20-byte
 names, is 92 bytes. The Mac never sends process paths, user names or
 peripheral addresses.
 
-* AI_USAGE request: empty. `OK` response: bounded layout below. `NOT_AVAILABLE` or `MALFORMED`: empty response. Zero providers is a valid response.
+* AI_USAGE request: empty, or one byte `1=refresh`. Both are answered at once
+  from the Mac's cache; the refresh flag also starts a provider refresh (or one
+  more after a refresh already running), whose result later requests read. `OK` response: bounded layout below. `NOT_AVAILABLE` or `MALFORMED`: empty response. Zero providers is a valid response.
 
 | Field | Size | Values |
 | --- | --- | --- |

@@ -1399,6 +1399,79 @@ void test_expanded_resets_clear_on_real_session_switch() {
     TEST_ASSERT_TRUE(std::find(display.labels.begin(), display.labels.end(), "#1  OLD A") ==
                      display.labels.end());
 }
+
+void test_refresh_keeps_quick_reads_while_providers_answer_one_by_one() {
+    Fixture f;
+    f.ready();
+    auto cached = personalUsage(63, 81, 40, 90);
+    cached.generation = 4;
+    f.respondValue(cached);
+    const auto sent = f.transport.sent.size();
+    TEST_ASSERT_EQUAL_INT(core::ActionHandlingResult::Handled,
+                          f.usage.handle({services::aiUsageRefreshActionId, "test", {}}));
+    TEST_ASSERT_EQUAL_UINT(sent + 1, f.transport.sent.size());
+    TEST_ASSERT_EQUAL_UINT8(1, f.transport.last().payloadSize);
+    TEST_ASSERT_EQUAL_UINT8(companionAiUsageRefreshFlag, f.transport.last().payload[0]);
+
+    // The Mac answers from its cache at once, then publishes each provider as
+    // it finishes: Codex first, Claude a little later.
+    f.respondValue(cached);
+    f.usage.update(services::AiUsageService::discoveryPollInterval - std::chrono::milliseconds(1));
+    TEST_ASSERT_EQUAL_UINT(sent + 1, f.transport.sent.size());
+    f.usage.update(std::chrono::milliseconds(1));
+    TEST_ASSERT_EQUAL_UINT(sent + 2, f.transport.sent.size());
+    TEST_ASSERT_EQUAL_UINT8(0, f.transport.last().payloadSize);
+    auto codexFirst = personalUsage(60, 80, 40, 90);
+    codexFirst.generation = 5;
+    f.respondValue(codexFirst);
+    TEST_ASSERT_EQUAL_UINT8(60, f.usage.snapshot().providers[0].metrics[0].remainingPercent);
+    f.usage.update(services::AiUsageService::discoveryPollInterval);
+    TEST_ASSERT_EQUAL_UINT(sent + 3, f.transport.sent.size());
+    auto claudeToo = personalUsage(60, 80, 35, 88);
+    claudeToo.generation = 6;
+    f.respondValue(claudeToo);
+    TEST_ASSERT_EQUAL_UINT8(35, f.usage.snapshot().providers[1].metrics[0].remainingPercent);
+}
+
+void test_refresh_quick_reads_end_after_the_refresh_window() {
+    Fixture f;
+    f.ready();
+    f.respond(63);
+    TEST_ASSERT_EQUAL_INT(core::ActionHandlingResult::Handled,
+                          f.usage.handle({services::aiUsageRefreshActionId, "test", {}}));
+    // Nothing changes on the Mac, so every answer keeps the same generation.
+    const auto quickReads =
+        services::AiUsageService::refreshWindow / services::AiUsageService::discoveryPollInterval;
+    for (int i = 1; i < quickReads; ++i) {
+        f.respond(63);
+        const auto before = f.transport.sent.size();
+        f.usage.update(services::AiUsageService::discoveryPollInterval);
+        TEST_ASSERT_EQUAL_UINT(before + 1, f.transport.sent.size());
+    }
+    f.respond(63);
+    const auto sent = f.transport.sent.size();
+    f.usage.update(services::AiUsageService::discoveryPollInterval);
+    TEST_ASSERT_EQUAL_UINT(sent, f.transport.sent.size());
+}
+
+void test_refresh_during_a_read_is_sent_after_its_answer() {
+    Fixture f;
+    f.ready();
+    const auto sent = f.transport.sent.size();
+    TEST_ASSERT_EQUAL_INT(core::ActionHandlingResult::Handled,
+                          f.usage.handle({services::aiUsageRefreshActionId, "test", {}}));
+    TEST_ASSERT_EQUAL_UINT(sent, f.transport.sent.size());
+    f.respond(63);
+    TEST_ASSERT_EQUAL_UINT(sent + 1, f.transport.sent.size());
+    TEST_ASSERT_EQUAL_UINT8(1, f.transport.last().payloadSize);
+}
+
+void test_refresh_without_companion_is_rejected() {
+    Fixture f;
+    TEST_ASSERT_EQUAL_INT(core::ActionHandlingResult::Rejected,
+                          f.usage.handle({services::aiUsageRefreshActionId, "test", {}}));
+    TEST_ASSERT_TRUE(f.transport.sent.empty());
+}
 } // namespace
 
 int main() {
@@ -1413,6 +1486,10 @@ int main() {
     RUN_TEST(test_no_accounts_names_every_provider);
     RUN_TEST(test_service_polls_cached_snapshot_and_clears_on_session_change);
     RUN_TEST(test_ready_usage_polls_cached_snapshot_after_ten_seconds);
+    RUN_TEST(test_refresh_keeps_quick_reads_while_providers_answer_one_by_one);
+    RUN_TEST(test_refresh_quick_reads_end_after_the_refresh_window);
+    RUN_TEST(test_refresh_during_a_read_is_sent_after_its_answer);
+    RUN_TEST(test_refresh_without_companion_is_rejected);
     RUN_TEST(test_discovery_retries_without_visiting_mac_status_and_redraws_ready_usage);
     RUN_TEST(test_split_gauge_marks_both_ends_with_purple_and_30_quota_pixels_per_half);
     RUN_TEST(test_app_draws_remaining_quota_only_on_change);

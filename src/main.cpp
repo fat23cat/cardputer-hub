@@ -126,7 +126,7 @@ cardputer_hub::services::AiUsageIndicatorController aiUsageIndicator(aiUsage, in
 cardputer_hub::services::AiAgentStatusIndicatorController aiAgentStatusIndicator(aiAgentStatus,
                                                                                  indicator);
 cardputer_hub::apps::AiApp aiApp(aiUsage, aiUsageIndicator, aiAgentStatus, aiAgentStatusIndicator,
-                                 display);
+                                 actions, display);
 cardputer_hub::services::DeviceSettingsService deviceSettings(configuration, displayPower,
                                                               indicator);
 cardputer_hub::apps::ApplicationShell applicationShell(hosts, network, actions, display,
@@ -249,6 +249,9 @@ extern "C" void app_main(void) {
     (void)actions.registerHandler(cardputer_hub::services::hostAppActivateActionId, hostControl);
     (void)actions.registerHandler(cardputer_hub::services::serviceStatusRefreshActionId,
                                   serviceStatus);
+    (void)actions.registerHandler(cardputer_hub::services::aiUsageRefreshActionId, aiUsage);
+    (void)actions.registerHandler(cardputer_hub::services::aiAgentStatusRefreshActionId,
+                                  aiAgentStatus);
     (void)actions.registerHandler(cardputer_hub::services::webAccessSetEnabledActionId, webAccess);
     (void)webAccess.addApp(inventoryWeb);
     (void)hosts.start();

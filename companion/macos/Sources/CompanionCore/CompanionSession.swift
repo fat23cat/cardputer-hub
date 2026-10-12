@@ -217,6 +217,8 @@ public final class CompanionSession: CompanionRequesting {
             response.session = message.session
             response.requestId = message.requestId
             response.operation = .aiUsage
+            // The refresh flag starts a provider refresh; this answer is still the cache.
+            if message.payload == [1] { aiUsage?.refresh() }
             if let payload = aiUsage?.snapshot()?.encode() {
                 response.payload = payload
             } else {

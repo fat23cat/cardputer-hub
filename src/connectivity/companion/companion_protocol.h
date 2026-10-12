@@ -345,6 +345,10 @@ bool readBundleIdentifier(const CompanionEnvelope& message, char* destination, s
                           std::uint8_t& length);
 bool setSystemMetrics(CompanionEnvelope& message, const CompanionSystemMetrics& metrics);
 bool readSystemMetrics(const CompanionEnvelope& message, CompanionSystemMetrics& metrics);
+// AI_USAGE request: empty to read the Mac's cache, or the refresh flag (1) to
+// also start a provider refresh whose result later reads return.
+inline constexpr std::uint8_t companionAiUsageRefreshFlag = 1;
+bool setAiUsageRefreshRequest(CompanionEnvelope& message);
 bool setAiUsage(CompanionEnvelope& message, const CompanionAiUsage& usage);
 bool readAiUsage(const CompanionEnvelope& message, CompanionAiUsage& usage);
 // OK response: count (0-3), then one (application, state) pair per installed

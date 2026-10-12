@@ -606,7 +606,10 @@ Left/Right, including `,` / `/` without Fn, cycle the two pages. The last page
 is remembered within a firmware session; first entry opens STATUS. On USAGE,
 a Vermilion `!` beside STATUS means at least one agent has a fresh NEEDS YOU
 state. Agent polling continues throughout AI, including usage details; stale
-or missing delivery removes that mark. Companion loss closes AI through the
+or missing delivery removes that mark. R without Ctrl, Alt or Fn, on either
+page or in usage details, dispatches `ai-agent-status.refresh` and
+`ai-usage.refresh`; it adds no hint, indicator or redraw of its own, and the
+pages update as the answers arrive. Companion loss closes AI through the
 shared capability gate. Reconnect does not reopen it.
 USAGE uses the remaining 119 pixels without additional host label, connection
 chrome, cards, or footer. Existing text sizes and horizontal alignment remain;
@@ -667,7 +670,7 @@ delivery presents every plate as `--`. Before the first answer the screen shows
 a centered `CHECKING AI`; with no hooks installed it shows `NO AI HOOKS` above a
 quiet Ordinal `INSTALL IN COMPANION`. Plates appear or disappear when the
 installed set changes; otherwise only a plate whose state changes is redrawn,
-and settled plates draw nothing. There is no chat list, count, refresh control,
+and settled plates draw nothing. There is no chat list, count, on-screen refresh control,
 animation on status updates or Escape hint; Escape uses the shared exit. Unit Puzzle is
 used only while STATUS is visible (see Architecture §28). Switching pages
 releases the previous controller's claims before activating the next one;

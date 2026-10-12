@@ -2,14 +2,16 @@
 
 #include "apps/ai_agent_status/ai_agent_status_app.h"
 #include "apps/ai_usage/ai_usage_app.h"
+#include "core/actions/action_bus.h"
 
 namespace cardputer_hub::apps {
 
+// R on either page or in details refreshes agent states and usage now.
 class AiApp final : public IMiniApp {
   public:
     AiApp(services::AiUsageService& usage, services::AiUsageIndicatorController& usageIndicator,
           services::AiAgentStatusService& status,
-          services::AiAgentStatusIndicatorController& statusIndicator,
+          services::AiAgentStatusIndicatorController& statusIndicator, core::ActionBus& actions,
           core::IDisplayAdapter& display);
     void onActivate() override;
     void onDeactivate() override;
@@ -44,6 +46,7 @@ class AiApp final : public IMiniApp {
     IMiniApp& currentView();
 
     services::AiAgentStatusService& status_;
+    core::ActionBus& actions_;
     core::IDisplayAdapter& display_;
     ContentDisplay contentDisplay_;
     AiUsageApp usageView_;

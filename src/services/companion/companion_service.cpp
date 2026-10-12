@@ -282,11 +282,13 @@ CompanionService::requestSystemDetails(connectivity::SystemDetailsGroup group) {
     return submit(CompanionOperation::SystemDetails, request, false);
 }
 
-CompanionSubmitResult CompanionService::requestAiUsage() {
+CompanionSubmitResult CompanionService::requestAiUsage(bool refresh) {
     if (state_ != CompanionServiceState::Ready)
         return CompanionSubmitResult::NotReady;
-    return submit(CompanionOperation::AiUsage,
-                  makeRequest(session_, 0, CompanionOperation::AiUsage), false);
+    auto request = makeRequest(session_, 0, CompanionOperation::AiUsage);
+    if (refresh && !connectivity::setAiUsageRefreshRequest(request))
+        return CompanionSubmitResult::Invalid;
+    return submit(CompanionOperation::AiUsage, request, false);
 }
 
 CompanionSubmitResult CompanionService::requestAgentStatus() {

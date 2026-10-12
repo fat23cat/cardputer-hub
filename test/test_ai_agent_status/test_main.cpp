@@ -173,6 +173,37 @@ void test_service_polls_once_per_second_with_one_request_outstanding() {
     TEST_ASSERT_EQUAL_INT(2, f.transport.requests(CompanionOperation::AiAgentStatus));
 }
 
+void test_refresh_action_reads_status_at_once() {
+    Fixture f;
+    f.ready();
+    f.status.startMonitoring();
+    f.answer(statusOf(AgentState::Working, none, none));
+    f.tick(milliseconds(500));
+    TEST_ASSERT_EQUAL_INT(1, f.transport.requests(CompanionOperation::AiAgentStatus));
+    TEST_ASSERT_EQUAL_INT(core::ActionHandlingResult::Handled,
+                          f.status.handle({services::aiAgentStatusRefreshActionId, "test", {}}));
+    TEST_ASSERT_EQUAL_INT(2, f.transport.requests(CompanionOperation::AiAgentStatus));
+}
+
+void test_refresh_during_a_read_is_sent_after_its_answer() {
+    Fixture f;
+    f.ready();
+    f.status.startMonitoring();
+    TEST_ASSERT_EQUAL_INT(core::ActionHandlingResult::Handled,
+                          f.status.handle({services::aiAgentStatusRefreshActionId, "test", {}}));
+    TEST_ASSERT_EQUAL_INT(1, f.transport.requests(CompanionOperation::AiAgentStatus));
+    f.answer(statusOf(AgentState::Working, none, none));
+    TEST_ASSERT_EQUAL_INT(2, f.transport.requests(CompanionOperation::AiAgentStatus));
+}
+
+void test_refresh_while_closed_is_rejected() {
+    Fixture f;
+    f.ready();
+    TEST_ASSERT_EQUAL_INT(core::ActionHandlingResult::Rejected,
+                          f.status.handle({services::aiAgentStatusRefreshActionId, "test", {}}));
+    TEST_ASSERT_EQUAL_INT(0, f.transport.requests(CompanionOperation::AiAgentStatus));
+}
+
 void test_closed_app_polls_nothing() {
     Fixture f;
     f.ready();
@@ -506,6 +537,9 @@ void test_puzzle_cleared_when_stale() {
 int main() {
     UNITY_BEGIN();
     RUN_TEST(test_service_polls_once_per_second_with_one_request_outstanding);
+    RUN_TEST(test_refresh_action_reads_status_at_once);
+    RUN_TEST(test_refresh_during_a_read_is_sent_after_its_answer);
+    RUN_TEST(test_refresh_while_closed_is_rejected);
     RUN_TEST(test_closed_app_polls_nothing);
     RUN_TEST(test_delivery_stale_after_three_seconds);
     RUN_TEST(test_bad_status_payload_isolated);

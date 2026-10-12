@@ -246,7 +246,8 @@ public enum CompanionCodec {
             if message.kind == .request || message.status != .ok { return message.payload.isEmpty }
             return SystemMetricsSample.decode(message.payload) != nil
         case .aiUsage:
-            if message.kind == .request || message.status != .ok { return message.payload.isEmpty }
+            if message.kind == .request { return message.payload.isEmpty || message.payload == [1] }
+            if message.status != .ok { return message.payload.isEmpty }
             return AiUsageSnapshot.decode(message.payload) != nil
         case .systemDetails:
             if message.kind == .request {

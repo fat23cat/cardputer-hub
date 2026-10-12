@@ -61,6 +61,7 @@ void AiUsageService::clear() {
     sincePoll_ = {};
     sinceSample_ = {};
     countdownElapsed_ = {};
+    refresh_ = Refresh::None;
     ++revision_;
 }
 
@@ -68,11 +69,25 @@ void AiUsageService::request() {
     if (!available_ || inFlight_ ||
         companion_.hasPendingRequest(connectivity::CompanionOperation::AiUsage))
         return;
-    if (companion_.requestAiUsage() == CompanionSubmitResult::Submitted) {
+    const bool refresh = refresh_ == Refresh::Pending;
+    if (companion_.requestAiUsage(refresh) == CompanionSubmitResult::Submitted) {
         inFlight_ = true;
         requestId_ = companion_.lastSubmittedRequestId();
         sincePoll_ = {};
+        if (refresh) {
+            refresh_ = Refresh::Reading;
+            refreshElapsed_ = {};
+        }
     }
+}
+
+core::ActionHandlingResult AiUsageService::handle(const core::Action& action) {
+    if (action.id != aiUsageRefreshActionId || !available_)
+        return core::ActionHandlingResult::Rejected;
+    // A read already in flight is answered first; the refresh follows it.
+    refresh_ = Refresh::Pending;
+    request();
+    return core::ActionHandlingResult::Handled;
 }
 
 void AiUsageService::update(std::chrono::milliseconds elapsed) {
@@ -177,10 +192,15 @@ void AiUsageService::update(std::chrono::milliseconds elapsed) {
         if (changed)
             ++revision_;
     }
-    const auto interval = snapshot_.state == connectivity::AiUsageState::Discovering
-                              ? discoveryPollInterval
-                              : pollInterval;
-    if (sincePoll_ >= interval) {
+    if (refresh_ == Refresh::Reading) {
+        refreshElapsed_ += elapsed;
+        if (refreshElapsed_ >= refreshWindow)
+            refresh_ = Refresh::None;
+    }
+    const bool quick =
+        snapshot_.state == connectivity::AiUsageState::Discovering || refresh_ == Refresh::Reading;
+    if (sincePoll_ >= (quick ? discoveryPollInterval : pollInterval) ||
+        refresh_ == Refresh::Pending) {
         sincePoll_ = {};
         request();
     }

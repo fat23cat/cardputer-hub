@@ -201,6 +201,11 @@ void test_system_metrics_round_trip_and_bounds() {
 void test_ai_usage_round_trip_and_reset_credit_rules() {
     assertEncodedMatchesFixture(makeRequest(42, 7, CompanionOperation::AiUsage),
                                 "ai-usage-request.bin");
+    auto refresh = makeRequest(42, 7, CompanionOperation::AiUsage);
+    TEST_ASSERT_TRUE(setAiUsageRefreshRequest(refresh));
+    assertEncodedMatchesFixture(refresh, "ai-usage-refresh-request.bin");
+    refresh.payload[0] = 2; // the only request flag is refresh
+    TEST_ASSERT_FALSE(encodeCompanionMessage(refresh).has_value());
     CompanionAiUsage usage{};
     TEST_ASSERT_TRUE(readAiUsage(decodeFixture("ai-usage-response.bin"), usage));
     TEST_ASSERT_EQUAL_UINT8(static_cast<unsigned>(AiProvider::Claude),

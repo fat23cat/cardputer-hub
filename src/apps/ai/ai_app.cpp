@@ -19,13 +19,19 @@ bool horizontal(const core::InputEvent& event) {
         return false;
     return core::isPageLeft(event) || core::isPageRight(event);
 }
+
+bool refresh(const core::InputEvent& event) {
+    return event.type == core::InputEventType::PrintableCharacter &&
+           (event.character == 'r' || event.character == 'R') && !event.modifiers.fn &&
+           !event.modifiers.ctrl && !event.modifiers.alt && !event.modifiers.option;
+}
 } // namespace
 
 AiApp::AiApp(services::AiUsageService& usage, services::AiUsageIndicatorController& usageIndicator,
              services::AiAgentStatusService& status,
-             services::AiAgentStatusIndicatorController& statusIndicator,
+             services::AiAgentStatusIndicatorController& statusIndicator, core::ActionBus& actions,
              core::IDisplayAdapter& display)
-    : status_(status), display_(display), contentDisplay_(*this),
+    : status_(status), actions_(actions), display_(display), contentDisplay_(*this),
       usageView_(usage, usageIndicator, contentDisplay_),
       statusView_(status, statusIndicator, contentDisplay_, false) {}
 
@@ -134,6 +140,9 @@ void AiApp::update(const core::InputEvents& input, std::chrono::milliseconds ela
             page_ = page_ == Page::Status ? Page::Usage : Page::Status;
             headerDrawn_ = false;
             currentView().onActivate();
+        } else if (refresh(event)) {
+            (void)actions_.dispatch({services::aiAgentStatusRefreshActionId, "ai", {}});
+            (void)actions_.dispatch({services::aiUsageRefreshActionId, "ai", {}});
         } else {
             currentView().update({event}, {});
         }
