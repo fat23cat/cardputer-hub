@@ -354,7 +354,10 @@ opens STATUS, and later visits remember your last page until a restart. All
 account and agent information remains visible below the strip. On USAGE, a red
 `!` beside STATUS means an agent needs attention; switch to STATUS to see which
 one. This mark uses fresh agent data only. Status checks continue while AI is
-open on either page or in details. Unit Puzzle follows the page you are viewing.
+open on either page or in details. Press **R** anywhere in AI to check agents
+and usage now: agent states update within a moment, and the Mac rereads its AI
+accounts, so USAGE updates within a few seconds. Claude values still update at
+most about once a minute. Unit Puzzle follows the page you are viewing.
 Escape on a main page closes AI. Companion loss closes AI and clears its data;
 reconnecting does not reopen it.
 
@@ -631,6 +634,7 @@ instead of moving a list.
 | Up/Down on AI's USAGE dashboard (`;` / `.` without Fn also work) | Select a row and temporarily expand its quota metric on Unit Puzzle |
 | Enter in AI's USAGE with Codex Plus or Claude | Open LIMITS for the selected row's account (or the first such account); from details return to the dashboard |
 | Escape in AI's LIMITS / RESETS | Return to USAGE; another Escape closes AI |
+| R in AI | Check agent states and usage again now |
 | Left/Right in Codex Plus details | Switch LIMITS and RESETS |
 | Up/Down on the RESETS page | Scroll available reset-credit details |
 | Left/Right, 1–0, Fn+1–0 in LED GALLERY | Select one of twenty effects |

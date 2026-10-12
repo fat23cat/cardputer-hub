@@ -106,7 +106,7 @@ public final class AiUsageCollector: AiUsageCollecting {
         return cached
     }
 
-    func refresh() {
+    public func refresh() {
         refreshSerial.async { [weak self] in
             guard let self else { return }
             guard self.running else { return }

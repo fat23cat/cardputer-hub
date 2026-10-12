@@ -229,4 +229,6 @@ public struct AiUsageSnapshot: Equatable {
 
 public protocol AiUsageCollecting: AnyObject {
     func snapshot() -> AiUsageSnapshot?
+    /// Starts a provider refresh now, or once after a refresh already running.
+    func refresh()
 }

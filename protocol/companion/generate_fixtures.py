@@ -22,6 +22,9 @@ MARKER = 0xC7
 HELLO, HELLO_ACK, REQUEST, RESPONSE, EVENT = 1, 2, 3, 4, 5
 PING, APP_ACTIVE, APP_ACTIVATE, APP_ACTIVE_CHANGED = 1, 3, 4, 5
 SYSTEM_METRICS, AI_USAGE, SYSTEM_DETAILS = 6, 7, 8
+# An AI_USAGE request is empty, or one byte asking the Mac to refresh its
+# providers before later reads; either way it answers from its cache.
+AI_USAGE_REFRESH = 1
 # Inventory operations are requested by the Mac and answered by the Cardputer.
 INVENTORY_LIST, INVENTORY_GET, INVENTORY_PUT, INVENTORY_DELETE = 9, 10, 11, 12
 AI_AGENT_STATUS = 13
@@ -130,6 +133,8 @@ def fixtures(protocol: bytes) -> dict[str, bytes]:
             u32(12698) + u32(1843) + bytes([2]) + u16(102)
         ),
         "ai-usage-request.bin": envelope(REQUEST, SESSION, 7, AI_USAGE, OK, b""),
+        "ai-usage-refresh-request.bin": envelope(REQUEST, SESSION, 7, AI_USAGE, OK,
+                                                 bytes([AI_USAGE_REFRESH])),
         # state, provider count, generation; provider, plan, freshness, metric count;
         # metric kind, unit, used, limit, remaining, remaining %, reset epoch, reset
         # seconds; reset-credit flag.

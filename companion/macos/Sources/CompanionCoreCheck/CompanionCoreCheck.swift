@@ -842,7 +842,16 @@ var aiFixture = CompanionEnvelope()
                                         resetAt: 1780000000, resetRemainingSeconds: 3600)])])
             .encode()!
         expect(CompanionCodec.encode(aiFixture) == fixture("ai-usage-response.bin"), "AI usage fixture")
-        let aiSession = CompanionSession(applications: FakeApplications(), aiUsage: FakeAiUsage(resetUsage))
+        var refreshFixture = CompanionEnvelope()
+        refreshFixture.kind = .request; refreshFixture.session = 42
+        refreshFixture.requestId = 7; refreshFixture.operation = .aiUsage
+        refreshFixture.payload = [1]
+        expect(CompanionCodec.encode(refreshFixture) == fixture("ai-usage-refresh-request.bin"),
+               "AI usage refresh request fixture")
+        refreshFixture.payload = [2]
+        expect(CompanionCodec.encode(refreshFixture) == nil, "an unknown AI usage request flag is rejected")
+        let aiUsageSource = FakeAiUsage(resetUsage)
+        let aiSession = CompanionSession(applications: FakeApplications(), aiUsage: aiUsageSource)
         var aiSent: [[UInt8]] = []
         aiSession.outgoing = { aiSent.append($0) }
         aiSession.startHandshake()
@@ -857,6 +866,13 @@ var aiFixture = CompanionEnvelope()
         aiSession.handle(CompanionCodec.encode(aiRequest)!)
         expect(CompanionCodec.decode(aiSent.last!)?.payload == v4Payload,
                "AI request reads the cached snapshot with reset details")
+        expect(aiUsageSource.refreshes == 0, "a plain AI request only reads the cache")
+        var aiRefresh = aiRequest
+        aiRefresh.requestId = 9
+        aiRefresh.payload = [1]
+        aiSession.handle(CompanionCodec.encode(aiRefresh)!)
+        expect(aiUsageSource.refreshes == 1 && CompanionCodec.decode(aiSent.last!)?.payload == v4Payload,
+               "an AI refresh request starts a provider refresh and answers from the cache")
 
         let mismatched = CompanionSession(applications: FakeApplications(), metrics: FakeMetrics())
         var mismatchedSent: [[UInt8]] = []
@@ -1223,8 +1239,10 @@ final class FakeDetails: SystemDetailsCollecting {
 
 final class FakeAiUsage: AiUsageCollecting {
     private let value: AiUsageSnapshot
+    private(set) var refreshes = 0
     init(_ value: AiUsageSnapshot) { self.value = value }
     func snapshot() -> AiUsageSnapshot? { value }
+    func refresh() { refreshes += 1 }
 }
 
 final class FakeLoginRegistration: LoginRegistration {

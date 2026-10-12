@@ -40,6 +40,12 @@ class Transport : public ICompanionTransport {
         TEST_FAIL_MESSAGE("No request for the expected Companion operation");
         return {};
     }
+    int requests(CompanionOperation operation) const {
+        return static_cast<int>(std::count_if(sent.begin(), sent.end(), [&](const auto& payload) {
+            const auto message = test_support::companionDecode(payload);
+            return message.kind == CompanionKind::Request && message.operation == operation;
+        }));
+    }
     CompanionTransportState transportState = CompanionTransportState::Ready;
     std::deque<CompanionPayload> incoming;
     std::vector<CompanionPayload> sent;
@@ -157,7 +163,13 @@ struct Fixture {
     services::AiUsageIndicatorController quota{usage, indicator};
     services::AiAgentStatusIndicatorController agents{status, indicator};
     Display display;
-    apps::AiApp app{usage, quota, status, agents, display};
+    core::ActionBus actions;
+    apps::AiApp app{usage, quota, status, agents, actions, display};
+
+    Fixture() {
+        (void)actions.registerHandler(services::aiUsageRefreshActionId, usage);
+        (void)actions.registerHandler(services::aiAgentStatusRefreshActionId, status);
+    }
 
     void tick(milliseconds elapsed = {}) {
         companion.update(elapsed);
@@ -391,6 +403,32 @@ void test_hidden_status_updates_attention_without_redrawing_quota() {
     TEST_ASSERT_TRUE(f.display.has("--"));
 }
 
+void test_r_refreshes_agents_and_usage_on_either_page() {
+    Fixture f;
+    f.open();
+    f.answerUsage(workUsage());
+    f.answerStatus(AgentState::Working);
+    for (int page = 0; page < 2; ++page) {
+        const auto agentReads = f.transport.requests(CompanionOperation::AiAgentStatus);
+        const auto usageReads = f.transport.requests(CompanionOperation::AiUsage);
+        f.press(character('r'));
+        TEST_ASSERT_EQUAL_INT(agentReads + 1,
+                              f.transport.requests(CompanionOperation::AiAgentStatus));
+        TEST_ASSERT_EQUAL_INT(usageReads + 1, f.transport.requests(CompanionOperation::AiUsage));
+        const auto refresh = f.transport.request(CompanionOperation::AiUsage);
+        TEST_ASSERT_EQUAL_UINT8(1, refresh.payloadSize);
+        TEST_ASSERT_EQUAL_UINT8(companionAiUsageRefreshFlag, refresh.payload[0]);
+        f.answerUsage(workUsage());
+        f.answerStatus(AgentState::Working);
+        f.press(key(core::NamedKey::Right));
+    }
+    auto controlR = character('r');
+    controlR.modifiers.ctrl = true;
+    const auto usageReads = f.transport.requests(CompanionOperation::AiUsage);
+    f.press(controlR);
+    TEST_ASSERT_EQUAL_INT(usageReads, f.transport.requests(CompanionOperation::AiUsage));
+}
+
 void test_modified_horizontal_keys_do_not_switch_pages() {
     Fixture f;
     f.open();
@@ -450,6 +488,7 @@ int main() {
     RUN_TEST(test_detail_arrows_are_local_and_escape_returns_to_usage);
     RUN_TEST(test_detail_slides_follow_keys_and_keep_the_shell_frame_open);
     RUN_TEST(test_hidden_status_updates_attention_without_redrawing_quota);
+    RUN_TEST(test_r_refreshes_agents_and_usage_on_either_page);
     RUN_TEST(test_modified_horizontal_keys_do_not_switch_pages);
     RUN_TEST(test_new_companion_never_reuses_previous_host_quota_or_attention);
     return UNITY_END();

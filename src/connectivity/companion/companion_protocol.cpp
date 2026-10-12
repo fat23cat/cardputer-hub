@@ -148,7 +148,10 @@ bool operationPayloadValid(const CompanionEnvelope& message) noexcept {
         return readSystemMetrics(message, metrics);
     }
     case CompanionOperation::AiUsage: {
-        if (message.kind == CompanionKind::Request || message.status != CompanionStatus::Ok)
+        if (message.kind == CompanionKind::Request)
+            return message.payloadSize == 0 ||
+                   (message.payloadSize == 1 && message.payload[0] == companionAiUsageRefreshFlag);
+        if (message.status != CompanionStatus::Ok)
             return message.payloadSize == 0;
         CompanionAiUsage usage{};
         return readAiUsage(message, usage);
@@ -664,6 +667,14 @@ bool readAgentStatus(const CompanionEnvelope& message, CompanionAgentStatus& sta
         next = position + 1;
     }
     status = result;
+    return true;
+}
+
+bool setAiUsageRefreshRequest(CompanionEnvelope& message) {
+    if (message.operation != CompanionOperation::AiUsage || message.kind != CompanionKind::Request)
+        return false;
+    message.payload[0] = companionAiUsageRefreshFlag;
+    message.payloadSize = 1;
     return true;
 }
 
