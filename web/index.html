@@ -26,6 +26,7 @@ html, body { margin: 0; background: var(--bone); color: var(--ink); font-family:
 body { min-height: 100vh; -webkit-text-size-adjust: 100%; }
 a { color: var(--ink); }
 button, input, textarea { font: inherit; color: inherit; }
+button, a { touch-action: manipulation; }
 [hidden] { display: none !important; }
 .label { font: 600 12px/1 var(--mono); letter-spacing: .1em; text-transform: uppercase; }
 .quiet { color: var(--quiet); }
@@ -58,7 +59,7 @@ textarea.input { resize: vertical; min-height: 220px; }
 .wordmark { font: 700 28px/1 var(--mono); letter-spacing: .04em; color: var(--ink); text-decoration: none; }
 
 /* Header */
-.top { border-bottom: 1px solid var(--ink); }
+.top { position: sticky; top: 0; z-index: 10; background: var(--bone); border-bottom: 1px solid var(--ink); }
 .top-in { max-width: 1280px; margin: 0 auto; padding: 8px 16px; display: flex; flex-wrap: wrap;
   gap: 8px 24px; align-items: center; justify-content: space-between; }
 .top-left { display: flex; align-items: center; gap: 8px 20px; flex-wrap: wrap; min-width: 0; }
@@ -149,6 +150,47 @@ dialog::backdrop { background: rgba(23, 21, 15, .5); }
   .editor { padding: 16px; }
   .bar { position: sticky; bottom: 0; background: var(--bone); }
 }
+/* LED Canvas */
+.led-layout { display:grid; grid-template-columns:minmax(0,520px) minmax(0,1fr); gap:32px; }
+.led-panel-wrap { background:var(--ink); padding:20px; touch-action:none; overscroll-behavior:contain;
+  user-select:none; -webkit-user-select:none; -webkit-touch-callout:none; }
+.led-panel { display:grid; grid-template-columns:repeat(8,minmax(0,1fr)); gap:10px; touch-action:none;
+  user-select:none; -webkit-user-select:none; cursor:crosshair; aspect-ratio:1; }
+.led-cell { aspect-ratio:1; border-radius:22%; background:#29271F; pointer-events:none; }
+.led-panel-wrap.closed { opacity:.55; }
+.led-caption { display:flex; justify-content:space-between; gap:12px; margin:12px 0 20px; font-size:13px; color:var(--muted); }
+.led-controls { display:flex; flex-direction:column; gap:24px; min-width:0; }
+.led-controls section { display:flex; flex-direction:column; gap:12px; }
+.led-choices { display:flex; flex-wrap:wrap; gap:8px; }
+.led-choice { min-height:44px; border:1px solid var(--ink); background:transparent; padding:10px 14px;
+  cursor:pointer; font:600 12px/1.3 var(--mono); letter-spacing:.05em; text-align:left; border-radius:0; }
+.led-choice[aria-pressed="true"] { background:var(--ink); color:var(--bone); }
+.led-modes { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:8px; }
+.led-mode-colors { display:flex; gap:3px; margin-top:8px; padding:3px; background:var(--ink); width:max-content; }
+.led-mode-colors i { width:8px; height:8px; border-radius:2px; }
+.led-mode-note { display:none; }
+.led-segments { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); border:1px solid var(--ink); }
+.led-segments .led-choice { border:0; display:flex; align-items:center; justify-content:center; gap:8px; }
+.led-fade-row { display:flex; gap:8px; } .led-fade-row .led-segments { flex:1; }
+.led-modes small { display:block; margin-top:8px; font:400 13px/1.4 var(--sans); letter-spacing:0; color:var(--muted); }
+.led-modes [aria-pressed="true"] small { color:var(--light); }
+.led-swatches { display:flex; gap:6px; flex-wrap:wrap; }
+.led-swatch { width:44px; height:44px; border:3px solid transparent; outline:1px solid var(--pale); cursor:pointer; }
+.led-swatch[aria-pressed="true"] { border-color:var(--ink); outline-color:var(--ink); }
+.led-note { margin:0; color:var(--muted); font-size:13px; line-height:1.5; }
+.led-closed h2 { margin:0 0 10px; font-size:22px; }
+.led-closed p { font-size:15px; line-height:1.5; color:var(--muted); }
+.led-hover { font-size:13px; color:var(--muted); display:flex; gap:8px; align-items:center; }
+.led-hover input { width:18px; height:18px; accent-color:var(--ink); }
+@media (max-width:899px) {
+ .led-layout { grid-template-columns:minmax(0,1fr); gap:24px; }
+ .led-panel-wrap { padding:14px; } .led-panel { gap:7px; }
+ .led-modes { display:flex; flex-wrap:nowrap; overflow-x:auto; margin:0 -12px; padding:0 12px 4px; }
+ .led-modes .led-choice { flex:none; min-height:60px; } .led-modes small { display:none; }
+ .led-mode-note { display:block; min-height:44px; font-size:15px; }
+ .led-hover { display:none; }
+}
+
 </style>
 </head>
 <body>
@@ -188,6 +230,8 @@ const DESCRIPTION_LIMIT = 900;
 const RECORD_BYTES = 4096;
 
 const state = { hub: null, signedIn: false };
+let pageCleanup = null;
+function cleanPage() { if (pageCleanup) pageCleanup(); pageCleanup = null; }
 
 // ---- DOM helpers: user text is only ever set as text, never as markup ----
 function h(tag, props, ...children) {
@@ -226,6 +270,7 @@ class ApiError extends Error {
 async function api(path, options = {}) {
   const init = { method: options.method || "GET", credentials: "same-origin", headers: {} };
   if (init.method !== "GET") init.headers["X-Hub-Request"] = "1";
+  if (options.signal) init.signal = options.signal;
   if (options.body !== undefined) {
     init.headers["Content-Type"] = "application/json";
     init.body = typeof options.body === "string" ? options.body : JSON.stringify(options.body);
@@ -292,6 +337,7 @@ function preservingFocus(render) {
 }
 
 function signedOut() {
+  cleanPage();
   state.signedIn = false;
   state.hub = null;
   dirtyGuard = null;
@@ -369,6 +415,12 @@ function renderSignIn(message) {
 
 // ---- Apps: each web app of the firmware has a tile and a page here ----
 const apps = {
+  led: {
+    icon: () => svgIcon("M3 3h18v18H3z M3 9h18 M3 15h18 M9 3v18 M15 3v18"),
+    tile: (summary) => [h("span", { class: "tile-quiet mono", text: summary.open ? "READY · " + summary.fingers + " FINGERS" : "APP CLOSED" }),
+      h("span", { class: "tile-quiet", text: "Draw light on the 8 × 8 matrix. Seven color modes, a soft halo and fading trails." })],
+    page: (rest, serial) => ledCanvasPage(rest, serial),
+  },
   inventory: {
     icon: () => svgIcon("M3 7l9-4 9 4v10l-9 4-9-4z M3 7l9 4 9-4 M12 11v10"),
     tile(summary) {
@@ -420,6 +472,434 @@ function renderHome() {
       h("dl", { class: "facts" }, facts.map(([name, value, color]) =>
         h("div", {}, h("dt", { text: name.toUpperCase() }),
           h("dd", {}, color ? h("span", { class: "dot", style: "background:" + color }) : null, value))))));
+}
+
+// ---- LED model: constants match the pure firmware engine ----
+class LedCanvasModel {
+  constructor() {
+    this.K = {
+      fades: { short: 0.35, med: 1.0, long: 3.0 },
+      brushes: { auto: 0.75, fine: 0.4, wide: 1.05 },
+      ember: [[0, 0, 0], [110, 8, 0], [226, 60, 20], [255, 150, 30], [255, 236, 190]],
+      speed: [[20, 50, 200], [0, 170, 220], [230, 60, 30], [255, 190, 40], [255, 255, 235]],
+      rgb3: [[255, 30, 20], [30, 255, 40], [30, 70, 255]],
+      inks: [
+        { name: 'Vermilion', hex: '#FF461E', rgb: [255, 70, 30] },
+        { name: 'Amber', hex: '#FFB000', rgb: [255, 176, 0] },
+        { name: 'Leaf', hex: '#46DC3C', rgb: [70, 220, 60] },
+        { name: 'Cyan', hex: '#00C8FF', rgb: [0, 200, 255] },
+        { name: 'Blue', hex: '#285AFF', rgb: [40, 90, 255] },
+        { name: 'Violet', hex: '#B446FF', rgb: [180, 70, 255] },
+        { name: 'White', hex: '#FFFFFF', rgb: [255, 255, 255] }
+      ]
+    };
+    this.eng = this._mk("rainbow");
+  }
+  _mk(mode) { return { mode: mode, fade: 1, brush: 0.6, hold: false, ink: 0, rgb: new Float32Array(192), heat: new Float32Array(64), rings: [], hue: 0, strokes: 0, ptrs: {} }; }
+  _hsv(h, s, v) {
+    h = ((h % 1) + 1) % 1;
+    var i = Math.floor(h * 6), f = h * 6 - i, p = v * (1 - s), q = v * (1 - f * s), t = v * (1 - (1 - f) * s);
+    var m = [[v, t, p], [q, v, p], [p, v, t], [p, q, v], [t, p, v], [v, p, q]][i % 6];
+    return [m[0] * 255, m[1] * 255, m[2] * 255];
+  }
+  _ramp(st, t) {
+    t = Math.max(0, Math.min(1, t));
+    var n = st.length - 1, k = Math.min(n - 1, Math.floor(t * n)), f = t * n - k, a = st[k], b = st[k + 1];
+    return [a[0] + (b[0] - a[0]) * f, a[1] + (b[1] - a[1]) * f, a[2] + (b[2] - a[2]) * f];
+  }
+  _set(e, i, c) { e.rgb[i * 3] = c[0]; e.rgb[i * 3 + 1] = c[1]; e.rgb[i * 3 + 2] = c[2]; }
+  _lift(e, i, c, w) { for (var j = 0; j < 3; j++) { var v = c[j] * w; if (v > e.rgb[i * 3 + j]) e.rgb[i * 3 + j] = v; } }
+  _add(e, i, c) { for (var j = 0; j < 3; j++) e.rgb[i * 3 + j] = Math.min(255, e.rgb[i * 3 + j] + c[j]); }
+  _dab(e, i, c, w) { if (w >= 0.999) this._set(e, i, c); else this._lift(e, i, c, w); }
+  /* Full brightness under the finger, a dimmer halo around it. */
+  _weight(p, fx, fy, x, y) {
+    if (x === Math.floor(fx) && y === Math.floor(fy)) return 1;
+    var d = Math.hypot(x + 0.5 - fx, y + 0.5 - fy);
+    if (d <= p.r) return 1;
+    var t = 1 - (d - p.r) / 1.3;
+    return t > 0 ? 0.45 * t : 0;
+  }
+  _brush(e, p, fx, fy, entered) {
+    var m = e.mode, K = this.K, self = this, c = null;
+    var cx = Math.floor(fx), cy = Math.floor(fy), R = Math.ceil(p.r + 1.3);
+    if (m === 'rainbow') { if (entered) { e.hue = (e.hue + 0.04) % 1; p.hue = e.hue; } c = this._hsv(p.hue, 1, 1); }
+    else if (m === 'kaleidoscope') { if (entered) { e.hue = (e.hue + 0.025) % 1; p.hue = e.hue; } }
+    else if (m === 'velocity') c = this._ramp(K.speed, p.speed / 16);
+    else if (m === 'mix') c = K.rgb3[p.stroke % 3];
+    else if (m === 'ripple') {
+      c = [255, 255, 255];
+      if (entered) {
+        e.hue = (e.hue + 0.11) % 1;
+        e.rings.push({ x: fx, y: fy, age: 0, c: this._hsv(e.hue, 1, 1) });
+        if (e.rings.length > 10) e.rings.shift();
+      }
+    }
+    else if (m === 'solid') c = K.inks[e.ink].rgb;
+    if (m === 'mix' && !entered) return;
+    for (var y = Math.max(0, cy - R); y <= Math.min(7, cy + R); y++) {
+      for (var x = Math.max(0, cx - R); x <= Math.min(7, cx + R); x++) {
+        var w = this._weight(p, fx, fy, x, y), i = y * 8 + x;
+        if (w <= 0) continue;
+        if (m === 'embers') e.heat[i] = Math.max(e.heat[i], w);
+        else if (m === 'mix') { var a = w < 1 ? w * 0.5 : 1; this._add(e, i, [c[0] * a, c[1] * a, c[2] * a]); }
+        else if (m === 'kaleidoscope') {
+          [[x, y, 0], [7 - x, y, 0.25], [7 - x, 7 - y, 0.5], [x, 7 - y, 0.75]].forEach(function (q) { self._dab(e, q[1] * 8 + q[0], self._hsv(p.hue + q[2], 1, 1), w); });
+        }
+        else this._dab(e, i, c, w);
+      }
+    }
+  }
+  _stroke(e, id, fx, fy, now, fresh, r) {
+    fx = Math.max(0, Math.min(7.999, fx));
+    fy = Math.max(0, Math.min(7.999, fy));
+    var p = e.ptrs[id];
+    if (!p || fresh) p = e.ptrs[id] = { cx: -1, cy: -1, fx: fx, fy: fy, t: now, speed: 0, stroke: e.strokes++, r: r || e.brush, hue: e.hue };
+    else if (r) p.r = p.r * 0.7 + r * 0.3;
+    var ox = p.fx, oy = p.fy, dist = Math.hypot(fx - ox, fy - oy), dt = Math.max(0.008, (now - p.t) / 1000);
+    p.speed = p.speed * 0.6 + 0.4 * (dist / dt);
+    p.fx = fx; p.fy = fy; p.t = now;
+    if (p.cx < 0) { p.cx = Math.floor(fx); p.cy = Math.floor(fy); this._brush(e, p, fx, fy, true); return; }
+    var n = Math.max(1, Math.ceil(dist / 0.5));
+    for (var k = 1; k <= n; k++) {
+      var sx = ox + (fx - ox) * k / n, sy = oy + (fy - oy) * k / n, scx = Math.floor(sx), scy = Math.floor(sy);
+      var entered = scx !== p.cx || scy !== p.cy;
+      p.cx = scx; p.cy = scy;
+      this._brush(e, p, sx, sy, entered);
+    }
+  }
+  _tick(e, dt, now) {
+    var live = false, id, p, i, j;
+    for (id in e.ptrs) {
+      p = e.ptrs[id];
+      live = true;
+      if (p.cx >= 0) { if (now - p.t > 60) p.speed *= Math.exp(-dt * 5); this._brush(e, p, p.fx, p.fy, false); }
+    }
+    var k = e.hold ? 1 : Math.exp(-dt / e.fade);
+    for (j = 0; j < 192; j++) { e.rgb[j] *= k; if (e.rgb[j] < 2) e.rgb[j] = 0; else live = true; }
+    for (i = 0; i < 64; i++) {
+      if (!e.hold) e.heat[i] = Math.max(0, e.heat[i] - dt / (e.fade * 1.4));
+      if (e.heat[i] > 0) live = true;
+    }
+    for (var r = e.rings.length - 1; r >= 0; r--) {
+      var g = e.rings[r];
+      g.age += dt;
+      if (g.age > 1.3) { e.rings.splice(r, 1); continue; }
+      live = true;
+      var rad = g.age * 6, life = 1 - g.age / 1.3;
+      for (i = 0; i < 64; i++) {
+        var d = Math.hypot((i % 8) + 0.5 - g.x, Math.floor(i / 8) + 0.5 - g.y), w = (1 - Math.abs(d - rad) / 0.9) * life;
+        if (w > 0) this._lift(e, i, g.c, w);
+      }
+    }
+    return live;
+  }
+  _cells(e) {
+    var out = [], K = this.K;
+    for (var i = 0; i < 64; i++) {
+      var r = e.rgb[i * 3], g = e.rgb[i * 3 + 1], b = e.rgb[i * 3 + 2];
+      if (e.heat[i] > 0) { var h = this._ramp(K.ember, e.heat[i]); r = Math.max(r, h[0]); g = Math.max(g, h[1]); b = Math.max(b, h[2]); }
+      var l = Math.max(r, g, b) / 255;
+      if (l < 0.02) { out.push({ bg: '#29271F', glow: 'none' }); continue; }
+      var o = 41 * (1 - l);
+      out.push({
+        bg: 'rgb(' + Math.round(Math.max(r, o)) + ',' + Math.round(Math.max(g, o * 0.95)) + ',' + Math.round(Math.max(b, o * 0.76)) + ')',
+        glow: '0 0 ' + (4 + 14 * l).toFixed(1) + 'px ' + (1 + 2 * l).toFixed(1) + 'px rgba(' + Math.round(r) + ',' + Math.round(g) + ',' + Math.round(b) + ',' + (0.6 * l).toFixed(2) + ')'
+      });
+    }
+    return out;
+  }
+
+}
+
+const LED_MODES = [
+  ["rainbow", "Rainbow", "Hue steps forward with every LED; the tail runs through the spectrum."],
+  ["embers", "Embers", "White-hot under the finger, then orange, red and dark."],
+  ["velocity", "Velocity", "A slow drag glows blue; a fast flick flashes white."],
+  ["mix", "Mix", "Each stroke takes red, green or blue. Overlapping light adds up."],
+  ["ripple", "Ripple", "Every touch sends a ring of color across the panel."],
+  ["kaleidoscope", "Kaleidoscope", "Four mirrored copies turn around the color wheel."],
+  ["solid", "Solid", "One color of your choice, with the fade you set."],
+];
+
+const LED_MODE_COLORS = [
+  ["#FF2A2A", "#FFD400", "#2AE05A", "#2A7DFF"],
+  ["#FFECBE", "#FF9A1E", "#E23C14", "#6E0800"],
+  ["#1432C8", "#00AADC", "#E63C1E", "#FFFFEB"],
+  ["#FF1E14", "#1EFF28", "#1E46FF", "#FFFFFF"],
+  ["#FFFFFF", "#FF3CA0", "#3CC8FF", "#B4FF3C"],
+  ["#FF2A6E", "#FFC81E", "#1EDCB4", "#6E5AFF"],
+  ["#FF461E", "#FFB000", "#00C8FF", "#FFFFFF"],
+];
+
+// Keep the most recent intermediate points; reserve room for every active pointer's end.
+class LedStrokeQueue {
+  constructor() { this.pending = []; this.lastTime = null; }
+  trim() {
+    const i = this.pending.findIndex((p) => p[5] === 0);
+    if (i < 0) return false;
+    this.pending.splice(i, 1); return true;
+  }
+  canStart(active) {
+    while (this.pending.length >= 63 - active && this.trim()) {}
+    return this.pending.length < 63 - active;
+  }
+  add(point) {
+    if (this.pending.length === 64 && !this.trim()) return false;
+    this.pending.push(point); return true;
+  }
+  take() {
+    return this.pending.splice(0, 64).map((p) => {
+      const dt = this.lastTime === null ? 0 : Math.min(255, Math.max(0, Math.round(p[4] - this.lastTime)));
+      this.lastTime = p[4]; return [p[0], p[1], p[2], p[3], dt, p[5], ...p.slice(6)];
+    });
+  }
+}
+
+class LedCanvasPage {
+  constructor(serial) {
+    this.serial = serial; this.disposed = false; this.open = false; this.online = true;
+    this.model = new LedCanvasModel(); this.settings = { mode: "rainbow", fade: "medium", ink: 0, hold: false };
+    this.revision = null; this.pointers = new Map(); this.queue = new LedStrokeQueue();
+    this.client = crypto.getRandomValues(new Uint32Array(1))[0].toString(16).padStart(8, "0");
+    this.seq = 0; this.sending = false; this.retry = null; this.retryAt = 0; this.controllers = new Set();
+    this.hover = true; this.sizes = new Set(); this.trusted = false; this.touchSeen = false; this.cover = 0;
+    this.brush = "auto";
+    try { const saved = localStorage.getItem("hub-led-brush"); if (["auto", "fine", "wide"].includes(saved)) this.brush = saved; } catch (error) {}
+    this.buttons = []; this.settingsVersion = 0; this.settingsPending = false; this.polling = false;
+    this.build();
+    this.pause = () => this.endAll();
+    this.visibility = () => { if (document.hidden) this.endAll(); };
+    window.addEventListener("blur", this.pause); document.addEventListener("visibilitychange", this.visibility);
+    this.poll();
+    this.pollTimer = setInterval(() => { if (!this.pointers.size && !this.sending) this.poll(); }, 2000);
+    this.sendTimer = setInterval(() => this.flush(), 60);
+    this.keepTimer = setInterval(() => {
+      if (!this.open || !this.online) return;
+      for (const [id, p] of this.pointers) if (performance.now() - p.time >= 150) this.emit(id, p, 0);
+    }, 150);
+    const animate = (now) => {
+      if (this.disposed) return;
+      const dt = Math.min(.1, (now - (this.lastFrame || now)) / 1000); this.lastFrame = now;
+      this.model._tick(this.model.eng, dt, now);
+      this.model._cells(this.model.eng).forEach((c, i) => {
+        this.cells[i].style.background = c.bg; this.cells[i].style.boxShadow = c.glow;
+      });
+      this.raf = requestAnimationFrame(animate);
+    };
+    this.raf = requestAnimationFrame(animate);
+  }
+  current() { return !this.disposed && state.signedIn && this.serial === routeSerial; }
+  async request(path, options = {}) {
+    const controller = new AbortController(); this.controllers.add(controller);
+    const timer = setTimeout(() => controller.abort(), 3000);
+    try { return await api("/api/led" + path, { ...options, signal: controller.signal }); }
+    finally { clearTimeout(timer); this.controllers.delete(controller); }
+  }
+  dispose() {
+    this.disposed = true;
+    clearInterval(this.pollTimer); clearInterval(this.sendTimer); clearInterval(this.keepTimer); cancelAnimationFrame(this.raf);
+    window.removeEventListener("blur", this.pause); document.removeEventListener("visibilitychange", this.visibility);
+    for (const controller of this.controllers) controller.abort();
+    this.pointers.clear(); // Firmware's 500 ms timeout also covers navigation and suspended pages.
+  }
+  build() {
+    this.mark = h("span", { class: "dot" }); this.label = h("span", { text: "CONNECTING" });
+    this.cells = Array.from({ length: 64 }, () => h("div", { class: "led-cell" }));
+    this.panel = h("div", { class: "led-panel", role: "img", "aria-label": "LED panel, 8 by 8. Draw with a finger, pen or mouse." }, this.cells);
+    this.panelWrap = h("div", { class: "led-panel-wrap closed" }, this.panel);
+    // iOS can still recognize legacy pinch/double-tap gestures over a drawing surface.
+    // Cancel only here: scrolling and accessibility zoom remain available elsewhere.
+    const drawingGesture = (event) => { if (event.cancelable) event.preventDefault(); };
+    for (const type of ["touchstart", "touchmove", "touchend", "gesturestart", "gesturechange", "gestureend"])
+      this.panelWrap.addEventListener(type, drawingGesture, { passive: false });
+    this.panel.addEventListener("pointerdown", (e) => this.down(e));
+    this.panel.addEventListener("pointermove", (e) => this.move(e));
+    for (const name of ["pointerup", "pointercancel", "pointerleave", "lostpointercapture"])
+      this.panel.addEventListener(name, (e) => {
+        if (name === "pointerleave" && this.panel.hasPointerCapture(e.pointerId)) return;
+        this.end(e.pointerId);
+      });
+    this.closed = h("div", { class: "led-closed" },
+      h("h2", { text: "Open LED CANVAS on the Cardputer" }),
+      h("p", { text: "Apps › LED CANVAS. The panel here wakes as soon as the app is open; this page checks by itself, no reload needed." }),
+      h("span", { class: "status quiet" }, h("span", { class: "dot", style: "background:var(--blue)" }), "WAITING FOR THE APP"));
+    this.caption = h("div", { class: "led-caption" }, h("span", { text: "Touch, drag, leave a trail." }), h("span", { class: "mono", text: "8 × 8" }));
+    this.note = h("p", { class: "led-note" });
+    const choice = (key, value, text, action, ...children) => {
+      const button = h("button", { class: "led-choice", type: "button", "aria-pressed": "false", onclick: action }, text, children);
+      this.buttons.push({ button, key, value }); return button;
+    };
+    const modes = LED_MODES.map(([id, name, hint], i) => choice("mode", id, name.toUpperCase(), () => this.change("mode", id),
+      h("span", { class: "led-mode-colors", "aria-hidden": "true" }, LED_MODE_COLORS[i].map((color) => h("i", { style: "background:" + color }))),
+      h("small", { text: hint })));
+    this.modeNote = h("p", { class: "led-note led-mode-note" });
+    this.inks = h("div", { class: "led-swatches", "aria-label": "Solid ink" }, this.model.K.inks.map((ink, i) => {
+      const b = choice("ink", i, "", () => this.change("ink", i));
+      b.className = "led-swatch"; b.style.background = ink.hex; b.setAttribute("aria-label", ink.name); return b;
+    }));
+    const brushes = ["auto", "fine", "wide"].map((id) => choice("brush", id, id.toUpperCase(), () => {
+      this.brush = id; try { localStorage.setItem("hub-led-brush", id); } catch (error) {} this.controls();
+    }, h("span", { "aria-hidden": "true", style: "width:" + (id === "auto" ? 14 : id === "fine" ? 8 : 16) + "px;height:" + (id === "auto" ? 14 : id === "fine" ? 8 : 16) + "px;border-radius:50%;border:1.5px solid currentColor;background:" + (id === "auto" ? "transparent" : "currentColor") })));
+    const fades = ["short", "medium", "long"].map((id) => choice("fade", id, id.toUpperCase(), () => this.change("fade", id)));
+    const hold = choice("hold", true, "HOLD", () => this.change("hold", !this.settings.hold));
+    this.clearButton = h("button", { class: "btn", type: "button", text: "CLEAR PANEL", onclick: () => this.clear() });
+    const section = (label, ...nodes) => h("section", {}, h("h2", { class: "label", style: "margin:0", text: label }), nodes);
+    this.controlPanel = h("div", { class: "led-controls" },
+      section("MODE", h("div", { class: "led-modes" }, modes), this.modeNote, this.inks),
+      section("BRUSH", h("div", { class: "led-segments" }, brushes), this.note),
+      section("FADE", h("div", { class: "led-fade-row" }, h("div", { class: "led-segments" }, fades), hold)), this.clearButton,
+      h("p", { class: "led-note", text: "Brightness follows the LED limit set on the Cardputer." }));
+    const hoverInput = h("input", { type: "checkbox", checked: true, onchange: () => { this.hover = hoverInput.checked; this.endAll(); } });
+    this.hoverControl = h("label", { class: "led-hover" }, hoverInput, "Draw on hover");
+    this.problem = h("p", { class: "error", role: "status", hidden: true });
+    show(h("div", { class: "section-head" }, h("h1", { class: "label", style: "margin:0", text: "LED CANVAS" }),
+      h("span", { class: "status" }, this.mark, this.label)),
+      h("div", { class: "led-layout" }, h("div", {}, this.panelWrap, this.caption, this.closed, this.hoverControl), this.controlPanel), this.problem);
+    this.controls(); this.displayStatus();
+  }
+  controls() {
+    for (const { button, key, value } of this.buttons)
+      button.setAttribute("aria-pressed", String((key === "brush" ? this.brush : this.settings[key]) === value));
+    this.inks.hidden = this.settings.mode !== "solid";
+    this.modeNote.hidden = this.settings.mode === "solid";
+    this.modeNote.textContent = LED_MODES.find((mode) => mode[0] === this.settings.mode)[2];
+    this.note.textContent = this.brush === "fine" ? "One LED with a soft halo" : this.brush === "wide" ? "Five LEDs with a soft halo"
+      : this.trusted ? "Your finger covers " + this.cover.toFixed(1) + " LEDs"
+      : this.touchSeen ? "Size not reported here, using Wide" : "Sized from your finger; mouse uses Fine";
+  }
+  displayStatus() {
+    this.label.textContent = !this.online ? "RECONNECTING" : !this.open ? "APP CLOSED" : this.pointers.size ? "LIVE" : "READY";
+    this.mark.style.background = !this.online || !this.open ? "var(--vermilion)" : this.pointers.size ? "var(--leaf)" : "var(--blue)";
+    this.panelWrap.classList.toggle("closed", !this.open);
+    this.closed.hidden = this.open; this.caption.hidden = !this.open; this.controlPanel.hidden = !this.open; this.hoverControl.hidden = !this.open;
+    this.clearButton.disabled = !this.open || !this.online;
+  }
+  apply(result) {
+    if (!this.current()) return;
+    if (!result.open) {
+      this.pointers.clear(); this.queue.pending = []; this.retry = null;
+      this.model.eng = this.model._mk(this.settings.mode);
+    }
+    this.open = result.open; this.online = true;
+    if (result.settings && !this.settingsPending) {
+      this.settings = { ...result.settings }; this.revision = result.revision; this.syncModel(); this.controls();
+    } else if (result.revision !== this.revision && !this.settingsPending) this.poll();
+    this.displayStatus();
+  }
+  syncModel() {
+    Object.assign(this.model.eng, this.settings, { fade: { short: .35, medium: 1, long: 3 }[this.settings.fade] });
+  }
+  async poll() {
+    if (this.polling || !this.current()) return; this.polling = true;
+    try { this.apply(await this.request("")); this.problem.hidden = true; }
+    catch (error) { if (this.current()) this.failed(error); }
+    finally { this.polling = false; }
+  }
+  failed(error) {
+    if (error.status === 409 && error.body.error === "app-closed") {
+      this.apply({ open: false, revision: this.revision }); return;
+    }
+    this.online = false; this.displayStatus(); this.problem.hidden = false;
+    this.problem.textContent = "Connection interrupted. Rejoining automatically…";
+  }
+  change(key, value) {
+    this.settings[key] = value; ++this.settingsVersion; this.syncModel(); this.controls(); this.saveSettings();
+  }
+  async saveSettings() {
+    if (this.settingsPending || !this.current()) return;
+    this.settingsPending = true;
+    while (this.current()) {
+      const version = this.settingsVersion;
+      try {
+        const result = await this.request("/settings", { method: "PUT", body: { ...this.settings } });
+        this.revision = result.revision; this.open = result.open; this.online = true; this.displayStatus();
+      } catch (error) { if (this.current()) this.failed(error); break; }
+      if (version === this.settingsVersion) break;
+    }
+    this.settingsPending = false;
+  }
+  radius(e) {
+    if (this.brush !== "auto") return this.brush === "fine" ? .4 : 1.05;
+    if (e.pointerType !== "touch") return .4;
+    const size = Math.max(e.width || 0, e.height || 0); this.touchSeen = true;
+    if (size > 2) { this.sizes.add(Math.round(size)); if (this.sizes.size > 1) this.trusted = true; }
+    // Retain only the two distinct sizes needed to trust contact reporting.
+    if (this.sizes.size > 2) this.sizes.delete(this.sizes.values().next().value);
+    this.cover = size / (this.panel.getBoundingClientRect().width / 8); this.controls();
+    return this.trusted ? Math.max(.3, Math.min(1.8, this.cover / 2 + .1)) : 1.05;
+  }
+  coordinates(e) {
+    const r = this.panel.getBoundingClientRect();
+    return [Math.max(0, Math.min(2047, Math.round((e.clientX - r.left) / r.width * 2048))),
+      Math.max(0, Math.min(2047, Math.round((e.clientY - r.top) / r.height * 2048)))];
+  }
+  down(e, hover = false) {
+    if (!this.open || !this.online || this.clearing || this.pointers.has(e.pointerId) || this.pointers.size >= 5 || !this.queue.canStart(this.pointers.size)) return;
+    if (e.pointerType === "mouse" && !hover && e.button !== 0) return;
+    const used = new Set(Array.from(this.pointers.values(), (p) => p.slot)); let slot = 0; while (used.has(slot)) ++slot;
+    const [x, y] = this.coordinates(e); const p = { slot, x, y, radius: Math.round(this.radius(e) * 16), time: 0 };
+    this.pointers.set(e.pointerId, p);
+    if (!hover) { try { this.panel.setPointerCapture(e.pointerId); } catch (error) {} }
+    this.emit(e.pointerId, p, 1); this.displayStatus();
+  }
+  move(e) {
+    if (!this.pointers.has(e.pointerId)) {
+      if (e.pointerType === "mouse" && (this.hover || (e.buttons & 1))) this.down(e, !(e.buttons & 1));
+      return;
+    }
+    const p = this.pointers.get(e.pointerId); [p.x, p.y] = this.coordinates(e); p.radius = Math.round(this.radius(e) * 16);
+    this.emit(e.pointerId, p, 0);
+  }
+  emit(id, p, flags) {
+    const now = performance.now(); p.time = now;
+    const sample = [p.slot, p.x, p.y, p.radius, now, flags];
+    if (!this.queue.add(sample)) return;
+    this.model._stroke(this.model.eng, p.slot, p.x / 256, p.y / 256, now, !!(flags & 1), p.radius / 16);
+    const pointer = this.model.eng.ptrs[p.slot];
+    const hue = ["rainbow", "kaleidoscope"].includes(this.settings.mode) ? pointer.hue : this.model.eng.hue;
+    // Carry the ending phase and stroke ink, so reloads, other clients and thinned
+    // points cannot move the matrix onto a different color cycle. No RGB frames are sent.
+    sample.push(Math.round(((hue % 1 + 1) % 1) * 10000) % 10000, pointer.stroke % 3);
+    if (flags & 2) delete this.model.eng.ptrs[p.slot];
+    if (this.queue.pending.length >= 48) this.flush();
+  }
+  end(id) {
+    const p = this.pointers.get(id); if (!p) return;
+    this.emit(id, p, 2); this.pointers.delete(id); this.displayStatus();
+  }
+  endAll() { for (const id of Array.from(this.pointers.keys())) this.end(id); this.flush(); }
+  async flush() {
+    if (this.clearing || this.sending || !this.current() || !this.open || performance.now() < this.retryAt || (!this.retry && !this.queue.pending.length)) return;
+    const batch = this.retry || { client: this.client, seq: ++this.seq, p: this.queue.take() };
+    this.sending = true;
+    try {
+      const result = await this.request("/strokes", { method: "POST", body: batch });
+      this.retry = null; this.retryAt = 0; this.apply(result); this.problem.hidden = true;
+    } catch (error) {
+      if (this.current()) {
+        this.failed(error);
+        if (error.status === 0) { this.retry = batch; this.retryAt = performance.now() + 500; }
+      }
+    } finally { this.sending = false; }
+  }
+  async clear() {
+    if (!this.open || this.clearing) return;
+    this.clearing = true;
+    this.endAll(); this.queue.pending = []; this.retry = null;
+    // A stroke already being accepted must finish before Clear, or it could relight the panel.
+    while (this.sending && this.current()) await new Promise((resolve) => setTimeout(resolve, 20));
+    // The in-flight request may have recreated a retry while Clear waited.
+    this.queue = new LedStrokeQueue(); this.retry = null; this.retryAt = 0;
+    if (this.current()) {
+      try { await this.request("/clear", { method: "POST" }); this.model.eng = this.model._mk(this.settings.mode); this.syncModel(); }
+      catch (error) { if (this.current()) this.failed(error); }
+    }
+    this.clearing = false;
+  }
+}
+async function ledCanvasPage(rest, serial) {
+  dirtyGuard = null; renderHeader("led");
+  const page = new LedCanvasPage(serial); pageCleanup = () => page.dispose();
 }
 
 // ---- Inventory ----
@@ -894,6 +1374,7 @@ async function deleteRecord(record) {
 
 // ---- Routing ----
 async function route() {
+  cleanPage();
   if (!state.signedIn) return;
   const serial = ++routeSerial;
   const parts = location.hash.replace(/^#\/?/, "").split("/");

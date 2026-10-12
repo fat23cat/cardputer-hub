@@ -30,7 +30,7 @@ supply drop, its header shows `RESET: PANIC`, `RESET: WATCHDOG` or
 crash and Hub when Hub is launched with `go`, and Hub then sees an ordinary
 restart; to catch such a crash, run `make monitor` over USB; **POMODORO**, a
 background focus timer; **SERVICES HEALTH**, the public status of GitHub,
-Anthropic, OpenAI and Cursor; **LED GALLERY**, an 8×8 matrix animation app; **NFC**, an inventory of NFC-tagged boxes and bags, when an
+Anthropic, OpenAI and Cursor; **LED GALLERY**, an 8×8 matrix animation app; **LED CANVAS**, drawing from a browser; **NFC**, an inventory of NFC-tagged boxes and bags, when an
 M5Stack Unit NFC is connected; **WEB ACCESS**, the Cardputer's own Wi-Fi
 network with a browser page for the inventory; and **MAC CONTROL** when a live Cardputer Companion
 session is ready. **MAC STATUS** and **AI** appear with that session too. AI's
@@ -41,7 +41,7 @@ firmware binds **1** to Telegram. Empty numbered tiles do nothing. Left and
 Right move between pages when more than one page exists. A bound press expands
 that tile in blue while the Mac opens the app, then flashes green on success or
 red if the app is not found, and returns to the grid. Escape returns from
-SYSTEM, POMODORO, SERVICES HEALTH, LED GALLERY, NFC, WEB ACCESS, MAC CONTROL, MAC STATUS, or either main page
+SYSTEM, POMODORO, SERVICES HEALTH, LED GALLERY, LED CANVAS, NFC, WEB ACCESS, MAC CONTROL, MAC STATUS, or either main page
 of AI to Apps, and from Apps to Home. In AI's usage details, Escape first returns
 to USAGE. If Companion disappears
 while MAC CONTROL is open, the app closes and Apps returns; reconnect does not
@@ -106,6 +106,48 @@ their own. The LCD can dim and turn off while the LED animation continues. The
 matrix uses the global LED brightness setting, 1% to 10% in 1% steps (default
 3%). The shared output path limits every app to 10%. If Pomodoro is active, its
 LED progress returns when you close Gallery.
+
+## LED CANVAS
+
+**LED CANVAS** is always available in Apps, immediately after LED GALLERY.
+With a Unit Puzzle attached, a phone or computer can draw light on its 8×8
+matrix. Open LED CANVAS; if it says `WEB ACCESS OFF` or `WEB ACCESS ERROR`,
+press **Enter** to start or retry WEB ACCESS. Press **Q** to show the network
+join QR code; Q or Escape returns. Join the network and sign in at
+`http://192.168.4.1` as described under [WEB ACCESS](#web-access), then choose
+its **LED** tile or tab.
+
+Draw with a finger, pen or mouse. Touches inside the panel draw rather than
+zooming or scrolling the page; scroll or zoom using the area outside the panel.
+Up to five touches per browser are supported;
+up to four browsers can draw together, mixing their light on the matrix.
+On a computer, **Draw on hover** starts enabled; uncheck it to draw only while
+holding the mouse button. The LED under the pointer is brightest, with a softer
+halo around it. The browser shows an immediate preview of its own strokes;
+the physical matrix combines every browser. Generated colors follow the same
+stroke phase on both sides, including after Clear or reloading the page.
+
+Choose a mode: **Rainbow** changes hue as you cross LEDs; **Embers** cools from
+white through orange and red; **Velocity** follows stroke speed; **Mix** cycles
+red, green and blue ink per browser and adds crossing strokes; **Ripple** sends moving
+rings; **Kaleidoscope** mirrors into four colors; **Solid** uses one of seven
+ink swatches. **Fade** offers Short, Medium and Long. **Hold** freezes fading
+while rings continue moving; **Clear Panel** empties the drawing.
+
+**Brush** is AUTO, FINE or WIDE. Mouse and pen use Fine in AUTO. For touch,
+AUTO uses the contact size only after the browser reports two different sizes;
+until then it uses Wide. A browser that reports no size or one fixed size keeps
+Wide and shows `Size not reported here, using Wide`. The brush is remembered
+in this browser. Mode, fade, ink and Hold are shared with the Cardputer and
+other browsers; they last until the next reboot.
+
+The Cardputer shows `WAITING FOR A TOUCH`, then `LIVE` with the finger count,
+mode and fade. **Space** toggles Hold and the **del** key clears. **Escape**
+closes LED CANVAS, releases the matrix to Pomodoro or another lower-priority
+app and leaves WEB ACCESS running. The phone shows **APP CLOSED** and wakes
+when Canvas is opened again. The drawing starts empty on reopen. WEB ACCESS's
+Bluetooth pause still applies; LED brightness follows the global 1–10% limit
+(default 3%). The LCD does not mirror the drawing.
 
 ## NFC
 
@@ -516,7 +558,7 @@ check after startup are silent. The LED is not used.
 
 **WEB ACCESS** turns the Cardputer into a small Wi-Fi network with a web page,
 so a phone or a computer can work with Hub data in a browser. The page is a
-start screen with one tile per web app; the first app is **Inventory**.
+start screen with one tile per web app; the apps are **Inventory** and **LED**.
 
 Open WEB ACCESS from Apps. It is off after every start of the Cardputer: the
 screen says `OFF` and `ENTER START`. Press **Enter**. The screen then shows four
@@ -548,9 +590,10 @@ On the phone or computer:
 3. Sign in with login `admin` and the same password.
 
 The start screen shows the **Inventory** tile with the number of containers on
-the microSD card, and a DEVICE block with the network, the connected devices,
+the microSD card, the **LED** tile for [LED CANVAS](#led-canvas), and a DEVICE block with the network, the connected devices,
 the microSD card and the address. The header has a tab for each app; `HUB`
-returns to the start screen and **SIGN OUT** ends the browser's session.
+returns to the start screen and **SIGN OUT** ends the browser's session. This
+header stays visible at the top while you scroll.
 
 **Inventory** lists every container record, sorted by name, with a search
 field that matches names and descriptions. On a computer the list and the
@@ -629,6 +672,10 @@ instead of moving a list.
 | Enter on SYSTEM | Open the read-only system status list |
 | Escape in SYSTEM | Return to Apps |
 | Escape in POMODORO | Return to Apps; the timer keeps running |
+| Space / del in LED CANVAS | Toggle Hold / clear the drawing |
+| Q in LED CANVAS | Show or dismiss the network join QR code |
+| Enter in LED CANVAS with WEB ACCESS off or in error | Start or retry WEB ACCESS |
+| Escape in LED CANVAS | Close Canvas; matrix ownership returns and WEB ACCESS stays on |
 | Escape in LED GALLERY | Return to Apps; Pomodoro LED progress returns if active |
 | Left/Right on AI's main pages (`,` / `/` without Fn also work) | Switch STATUS and USAGE |
 | Up/Down on AI's USAGE dashboard (`;` / `.` without Fn also work) | Select a row and temporarily expand its quota metric on Unit Puzzle |
@@ -784,7 +831,7 @@ Fresh pairing, two-computer addition/switching, and reconnection to the last
 selected host after Reset/power-on were confirmed on Cardputer-Adv. Extended
 Off, report/interruption and USB hotplug acceptance remains tracked in
 [plan 017](../plans/017-hid-transport-arbitration.md#0-current-closeout-status).
-The current firmware includes Apps, SYSTEM, POMODORO, SERVICES HEALTH, LED GALLERY, NFC when a Unit NFC is
+The current firmware includes Apps, SYSTEM, POMODORO, SERVICES HEALTH, LED GALLERY, LED CANVAS, NFC when a Unit NFC is
 connected at startup, WEB ACCESS, MAC CONTROL when
 Companion is ready, and MAC STATUS and AI with that Companion
 session. AI's STATUS page has not yet been checked with the real desktop apps on

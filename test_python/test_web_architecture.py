@@ -67,6 +67,20 @@ class WebArchitectureTests(unittest.TestCase):
             ),
         )
 
+    def test_led_canvas_ownership_boundaries(self) -> None:
+        for path, include, expected in (
+            ("apps/led_canvas/led_canvas_engine.cpp", "services/led_canvas/led_canvas_service.h", "canvas_engine_dependency"),
+            ("services/led_canvas/led_canvas_service.cpp", "services/indicator/indicator_service.h", "canvas_service_dependency"),
+            ("services/led_canvas/led_canvas_service.cpp", "services/web_access/web_access_service.h", "canvas_service_dependency"),
+            ("services/led_canvas/led_canvas_web_endpoint.cpp", "apps/led_canvas/led_canvas_engine.h", "canvas_endpoint_dependency"),
+        ):
+            with self.subTest(path=path, include=include):
+                self.assertEqual([expected], self.kinds({path: f'#include "{include}"\n'}))
+        self.assertEqual(
+            ["web_app_mutates_service"],
+            self.kinds({"apps/led_canvas/led_canvas_app.cpp": "web_.setEnabled(true);\n"}),
+        )
+
     def test_web_access_app_changes_the_service_only_through_actions(self) -> None:
         self.assertEqual(
             ["web_app_mutates_service"],

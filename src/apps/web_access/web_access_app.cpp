@@ -2,9 +2,9 @@
 
 #include "core/display/contextual_footer.h"
 #include "core/display/palette.h"
-#include "core/display/qr_code.h"
 #include "core/display/screen_header.h"
 #include "core/display/text_layout.h"
+#include "core/display/web_join_code.h"
 
 #include <algorithm>
 
@@ -15,8 +15,6 @@ using core::NamedKey;
 using services::WebAccessState;
 
 constexpr float passwordTextScale = 2.0f;
-// Two modules of light border at least, inside the 135-pixel height.
-constexpr std::int32_t qrMaxModulePixels = 4;
 
 bool isEnter(const core::InputEvent& event) {
     return event.type == InputEventType::NamedKey && event.namedKey == NamedKey::Enter &&
@@ -47,9 +45,7 @@ std::string groupedPassword(const std::string& password) {
 }
 } // namespace
 
-std::int32_t webAccessQrModulePixels(int modules) {
-    return std::clamp<std::int32_t>(135 / (modules + 4), 1, qrMaxModulePixels);
-}
+std::int32_t webAccessQrModulePixels(int modules) { return core::webJoinQrModulePixels(modules); }
 
 bool WebAccessApp::handleBack() {
     if (!showingQr_)
@@ -152,38 +148,7 @@ void WebAccessApp::drawBody(const Frame& frame) {
 }
 
 void WebAccessApp::drawQr(const Frame& frame) {
-    const core::TextStyle quiet{core::palette::ordinal, core::palette::bone, core::systemTextScale};
-    const auto code = core::QrCode::encodeText(core::wifiQrPayload(frame.ssid, frame.password));
-    if (!code)
-        return;
-    const auto modulePixels = webAccessQrModulePixels(code->size());
-    const auto extent = code->size() * modulePixels;
-    const auto left = (240 - extent) / 2;
-    const auto top = (135 - extent) / 2;
-    // One rectangle per run of dark modules in a row.
-    for (int y = 0; y < code->size(); ++y) {
-        for (int x = 0; x < code->size();) {
-            if (!code->module(x, y)) {
-                ++x;
-                continue;
-            }
-            int end = x;
-            while (end < code->size() && code->module(end, y))
-                ++end;
-            display_.fillRectangle({left + x * modulePixels, top + y * modulePixels},
-                                   (end - x) * modulePixels, modulePixels, core::palette::ink);
-            x = end;
-        }
-    }
-    // The side labels keep the code's two-module light border clear.
-    const auto border = 2 * modulePixels;
-    const auto side = [&](std::int32_t y, const char* text, bool rightSide) {
-        const auto columnLeft = rightSide ? left + extent + border : 0;
-        display_.drawText({core::centeredTextX(text, columnLeft, left - border), y}, text, quiet);
-    };
-    side(54, "SCAN", false);
-    side(70, "TO JOIN", false);
-    side(62, "Q CLOSE", true);
+    core::drawWebJoinCode(display_, frame.ssid, frame.password);
 }
 
 } // namespace cardputer_hub::apps

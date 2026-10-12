@@ -166,7 +166,11 @@ For the local web UI (plan 050) the script also enforces that only
 `src/hardware/esp32/http/esp32_http_server.cpp` includes `esp_http_server.h`;
 that `services/web_access/` and `InventoryWebEndpoint` include no file storage,
 removable storage or `InventoryStore`; and that the WEB ACCESS Mini App never
-calls a service mutator such as `setEnabled()` directly.
+calls a service mutator such as `setEnabled()` directly. Plan 052 extends the
+web storage and Action-only rules to LED CANVAS. Its engine may include no
+Services or hardware implementation; its input Service may include neither
+IndicatorService nor WebAccessService nor Mini Apps; its endpoint never
+includes the engine or IndicatorService.
 
 ---
 
@@ -2370,6 +2374,57 @@ eight. `InventoryWebEndpoint` is the first: a paged list (`?after=<id>`, at most
 `{"id","damaged":true}`), get, put and delete over `InventoryService`'s domain
 operations with the same canonical JSON and revision checks as the Companion
 endpoint.
+
+**LED CANVAS (plan 052)** adds the `led` web app after Inventory and an always
+available Mini App after LED GALLERY. `LedCanvasService` owns RAM-only settings,
+revision, the active flag, four LRU clients with five pointer slots each,
+deduplicated batch sequence numbers, a sorted 256-point playout queue and clear
+generation. It accepts input only while the Mini App is open. Points are
+scheduled at `max(arrival + 100 ms, client last scheduled time) + cumulative
+batch dt`, preserving each client's packet order without delaying other clients.
+Overflow drops the oldest queued points. Silent pointers end after 500 ms; already queued playout is
+allowed to finish before expiry. End tracking also stops a rendered pointer
+whose End was lost to overflow. Close, Clear and `IWebApp::reset()` drop pending
+input and reset client playout times; Close resets clients as well. Settings
+survive app reopen, but no data
+is persisted across boot.
+
+`LedCanvasWebEndpoint` maps authenticated `GET /api/led`, `POST /strokes`,
+`PUT /settings` and `POST /clear` to that Service. It strictly validates full
+settings and batches of at most 64 points within the existing 5 KiB body limit.
+Closed drawing/Clear returns 409 `app-closed`; settings remain editable while
+closed. `WebAccessService` retains its existing session, CSRF marker and routing
+contracts. The wire/model data types and constants live in
+`core/indicator/led_canvas_types.h`; the pure, deterministic `LedCanvasEngine`
+contains no Service dependencies. The Mini App creates it on the heap only
+while active and publishes its logical frames at approximately 30 FPS through
+one ForegroundApplication `IndicatorClaim`. It publishes the final dark frame,
+then stops frame updates until there is activity. Close releases the claim so
+Pomodoro or another lower claim returns. LCD state follows the Service and WEB
+ACCESS status; it never mirrors the matrix. WEB ACCESS starts only through
+`web.set-enabled`; Hold and Clear use `led-canvas.set-hold` (`hold`: bool) and
+`led-canvas.clear`. Both Mini Apps share `core/display/web_join_code` to draw
+the network join QR code.
+
+The `#/led` page runs the same color/fade model for a local preview and sends
+points rather than frames. It batches about every 60 ms or at 48 points, with
+one stroke request in flight, stable sequence numbers on retry and bounded
+pending input. Clear blocks stroke requests until it finishes, waits for an
+in-flight stroke, then discards any retry that request recreated and resets the
+browser sampling timeline. Admission reserves room for pointer ends; intermediate samples
+are thinned under pressure. Stationary pointers send a heartbeat every 150 ms;
+navigation, suspension and network loss are also covered by the device timeout.
+Brush AUTO/FINE/WIDE is localStorage per browser; shared mode, fade, ink and
+Hold are synchronized by revisions and 2 s idle polls. AUTO trusts contact size
+only after two distinct rounded touch sizes, otherwise uses Wide; mouse and pen
+use Fine. Each point additionally carries its ending hue phase (0–9999, one turn = 10000)
+and Mix stroke ink (0–2). The engine still computes RGB, interpolation, halo,
+rings and fading. These bounded input stamps prevent independent browser/engine
+color counters from drifting after reload, Clear, thinning or another browser
+drawing. Rainbow and Kaleidoscope retain the hue per pointer while it is
+stationary; Mix cycles per browser. Clear resets the engine's hue/stroke counters
+as well as drawing buffers. Six-field legacy points remain accepted. Preview
+shows that browser's strokes; the matrix mixes all browsers.
 
 BLE and the access point share the ESP32-S3 radio. With BLE advertising or
 connected, phones failed the WPA2 handshake on the device, so

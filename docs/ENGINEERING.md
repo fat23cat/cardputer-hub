@@ -1054,6 +1054,14 @@ The WEB ACCESS page is edited in `web/index.html` and compiled into the
 firmware as `src/services/web_access/web_ui_asset.h`. Regenerate the header
 after every page change with `uv run --frozen python scripts/generate_web_ui.py`;
 `test_python/test_web_ui_asset.py` fails while the two differ.
+The LED page model, bounded batch queue, pointer admission, retry and lifecycle
+checks run with `node test_web/led_canvas.cjs`; Python test discovery runs them
+when Node.js is available, otherwise reports a skip. They exercise the actual
+inline page code without browser packages. With Node.js and a C++ compiler
+available, `test_led_canvas_ui` also compiles the pure engine into a temporary
+read-only test bridge and compares its RGB output with the actual inline JS
+model for all seven modes (one-channel-unit rounding tolerance). For a visible UI check, serve the
+page with mock local HTTP endpoints and inspect both phone and desktop widths.
 
 Use narrow commands while iterating, then run the applicable CI-equivalent gate
 once after the last material change. Examples:

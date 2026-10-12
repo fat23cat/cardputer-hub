@@ -1,5 +1,6 @@
 #include "apps/ai/ai_app.h"
 #include "apps/hosts/host_settings.h"
+#include "apps/led_canvas/led_canvas_app.h"
 #include "apps/led_gallery/led_gallery_app.h"
 #include "apps/mac_control/mac_control_app.h"
 #include "apps/mac_status/mac_status_app.h"
@@ -42,6 +43,7 @@
 #include "services/inventory/inventory_companion_endpoint.h"
 #include "services/inventory/inventory_service.h"
 #include "services/inventory/inventory_web_endpoint.h"
+#include "services/led_canvas/led_canvas_web_endpoint.h"
 #include "services/mac_status/mac_status_service.h"
 #include "services/network/network_service.h"
 #include "services/nfc/nfc_service.h"
@@ -146,6 +148,9 @@ cardputer_hub::hardware::Esp32HttpServer httpServer;
 cardputer_hub::services::WebAccessService webAccess(wifiAdapter, httpServer, configurationStorage,
                                                     randomSource, &logger);
 cardputer_hub::services::InventoryWebEndpoint inventoryWeb(inventory);
+cardputer_hub::services::LedCanvasService ledCanvas;
+cardputer_hub::services::LedCanvasWebEndpoint ledCanvasWeb(ledCanvas);
+cardputer_hub::apps::LedCanvasApp ledCanvasApp(ledCanvas, webAccess, actions, indicator, display);
 // BLE and the access point share the radio; Bluetooth pauses while it runs.
 cardputer_hub::services::WebAccessBluetoothPause webAccessBluetoothPause(webAccess, hosts);
 cardputer_hub::apps::WebAccessApp webAccessApp(webAccess, actions, display);
@@ -254,6 +259,9 @@ extern "C" void app_main(void) {
                                   aiAgentStatus);
     (void)actions.registerHandler(cardputer_hub::services::webAccessSetEnabledActionId, webAccess);
     (void)webAccess.addApp(inventoryWeb);
+    (void)webAccess.addApp(ledCanvasWeb);
+    (void)actions.registerHandler(cardputer_hub::services::ledCanvasHoldActionId, ledCanvas);
+    (void)actions.registerHandler(cardputer_hub::services::ledCanvasClearActionId, ledCanvas);
     (void)hosts.start();
     logHeap("bluetooth");
     (void)network.start();
@@ -288,6 +296,8 @@ extern "C" void app_main(void) {
     (void)miniApps.registerInstance("pomodoro", pomodoroApp);
     (void)appRegistry.registerApp({"led-gallery", "LED GALLERY", "led-gallery", "led-gallery", {}});
     (void)miniApps.registerInstance("led-gallery", ledGallery);
+    (void)appRegistry.registerApp({"led-canvas", "LED CANVAS", "led-canvas", "led-canvas", {}});
+    (void)miniApps.registerInstance("led-canvas", ledCanvasApp);
     (void)appRegistry.registerApp(
         {"nfc", "NFC", "nfc", "nfc", {cardputer_hub::services::nfcReaderCapabilityId}});
     (void)miniApps.registerInstance("nfc", nfcApp);

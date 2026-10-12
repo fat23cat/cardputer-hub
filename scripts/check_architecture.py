@@ -99,12 +99,17 @@ FILE_STORAGE_INCLUDE = re.compile(r'^\s*#\s*include\s*"(?:core/storage/|services
 # records only through InventoryService.
 HTTPD_SERVER_SOURCE = "hardware/esp32/http/esp32_http_server.cpp"
 HTTPD_INCLUDE = re.compile(r'^\s*#\s*include\s*[<"]\s*esp_http_server\.h')
-WEB_TREES = ("services/web_access/", "services/inventory/inventory_web_endpoint")
+WEB_TREES = ("services/web_access/", "services/inventory/inventory_web_endpoint",
+             "services/led_canvas/led_canvas_web_endpoint")
 WEB_FILE_INCLUDE = re.compile(
     r'^\s*#\s*include\s*"(?:core/storage/files/|services/storage/'
     r'|services/inventory/inventory_store\.h)'
 )
-WEB_APP_TREE = "apps/web_access/"
+WEB_APP_TREES = ("apps/web_access/", "apps/led_canvas/")
+CANVAS_ENGINE_INCLUDE = re.compile(r'^\s*#\s*include\s*[<"](?:services/|hardware/|esp_|Arduino)')
+CANVAS_SERVICE_INCLUDE = re.compile(
+    r'^\s*#\s*include\s*"(?:apps/|hardware/|services/indicator/|services/web_access/)'
+)
 WEB_APP_FORBIDDEN = re.compile(r"\bsetEnabled\s*\(")
 
 
@@ -367,8 +372,16 @@ def find_nfc_violations(source_root: pathlib.Path) -> list[Violation]:
                 line
             ):
                 report("web_file_access", path, line_number, layer, raw_line)
-            if relative.startswith(WEB_APP_TREE) and WEB_APP_FORBIDDEN.search(line):
+            if any(relative.startswith(tree) for tree in WEB_APP_TREES) and WEB_APP_FORBIDDEN.search(line):
                 report("web_app_mutates_service", path, line_number, layer, raw_line)
+            if relative.startswith("apps/led_canvas/led_canvas_engine") and CANVAS_ENGINE_INCLUDE.match(line):
+                report("canvas_engine_dependency", path, line_number, layer, raw_line)
+            if relative.startswith("services/led_canvas/led_canvas_service") and CANVAS_SERVICE_INCLUDE.match(line):
+                report("canvas_service_dependency", path, line_number, layer, raw_line)
+            if relative.startswith("services/led_canvas/led_canvas_web_endpoint") and re.match(
+                r'^\s*#\s*include\s*"(?:apps/|services/indicator/)', line
+            ):
+                report("canvas_endpoint_dependency", path, line_number, layer, raw_line)
 
     reader_header = source_root / NFC_READER_HEADER
     if reader_header.is_file():
@@ -392,6 +405,9 @@ def find_nfc_violations(source_root: pathlib.Path) -> list[Violation]:
 
 
 NFC_VIOLATION_HELP = {
+    "canvas_engine_dependency": "LED Canvas engine stays pure: no Services or hardware.",
+    "canvas_service_dependency": "LED Canvas service owns input and settings, not rendering or web access.",
+    "canvas_endpoint_dependency": "LED Canvas endpoint reaches only its service, never the engine or indicator.",
     "vendor_nfc_include": (
         "the NFC vendor library may be included only by "
         "src/hardware/nfc/st25r3916_adapter.cpp"
