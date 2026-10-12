@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Cardputer LED CANVAS, web access off</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+body{margin:0}
+</style>
+</helmet>
+<div style="width: 720px; height: 405px; position: relative; overflow: hidden; background: #F4F2EC; color: #17150F; font: 600 30px/27px ui-monospace, 'SF Mono', Menlo, Consolas, monospace; letter-spacing: 3px; white-space: nowrap">
+  <div style="position: absolute; left: 18px; top: 18px">LED CANVAS</div>
+  <div style="position: absolute; right: 15px; top: 18px; color: #ABA89D">WEB OFF</div>
+  <div style="position: absolute; left: 18px; top: 60px; width: 684px; height: 3px; background: #17150F"></div>
+  <div style="position: absolute; left: 0; right: 0; top: 120px; text-align: center; font-size: 54px; line-height: 48px; letter-spacing: 3.6px">WEB ACCESS OFF</div>
+  <div style="position: absolute; left: 0; right: 0; top: 204px; text-align: center; color: #ABA89D">THE PHONE DRAWS OVER WI-FI</div>
+  <div style="position: absolute; right: 15px; top: 342px; color: #ABA89D">ENTER START</div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":720,"height":405}}'>
+class Component extends DCLogic {
+  renderVals() { return {}; }
+}
+</script>
+</body>
+</html>

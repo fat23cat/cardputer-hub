@@ -1,0 +1,392 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>LED canvas, desktop</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+body{margin:0}
+a{color:#17150F}a:hover{color:#1B4FD0}
+button{font:inherit;color:inherit;cursor:pointer;border-radius:0}
+button:focus-visible,a:focus-visible,input:focus-visible{outline:2px solid #1B4FD0;outline-offset:2px}
+</style>
+</helmet>
+<div style="min-height: 940px; background: #F4F2EC; color: #17150F; font-family: system-ui, -apple-system, 'Segoe UI', 'Helvetica Neue', sans-serif">
+  <header style="border-bottom: 1px solid #17150F">
+    <div style="max-width: 1280px; margin: 0 auto; padding: 8px 16px; box-sizing: border-box; display: flex; flex-wrap: wrap; gap: 8px 24px; align-items: center; justify-content: space-between">
+      <div style="display: flex; align-items: center; gap: 8px 20px; flex-wrap: wrap; min-width: 0">
+        <a href="#" style="font: 700 28px/1 ui-monospace, 'SF Mono', Menlo, Consolas, monospace; letter-spacing: 0.04em; color: #17150F; text-decoration: none">HUB</a>
+        <nav aria-label="Apps" style="display: flex; gap: 4px">
+          <a href="#" style="display: inline-flex; align-items: center; min-height: 40px; padding: 0 14px; border: 1px solid transparent; font: 600 13px/1 ui-monospace, 'SF Mono', Menlo, Consolas, monospace; letter-spacing: 0.12em; text-decoration: none; color: #17150F">INVENTORY</a>
+          <a href="#" aria-current="page" style="display: inline-flex; align-items: center; min-height: 40px; padding: 0 14px; border: 1px solid #17150F; font: 600 13px/1 ui-monospace, 'SF Mono', Menlo, Consolas, monospace; letter-spacing: 0.12em; text-decoration: none; background: #17150F; color: #F4F2EC">LED</a>
+        </nav>
+      </div>
+      <button type="button" style="background: none; border: 0; padding: 12px 0; font: 600 12px/1 ui-monospace, 'SF Mono', Menlo, Consolas, monospace; letter-spacing: 0.06em; text-decoration: underline">SIGN OUT</button>
+    </div>
+  </header>
+  <main style="max-width: 1280px; margin: 0 auto; padding: 24px 16px 48px; box-sizing: border-box">
+    <div style="display: flex; justify-content: space-between; align-items: baseline; gap: 16px; border-bottom: 1px solid #17150F; padding-bottom: 10px; margin-bottom: 24px">
+      <h1 style="margin: 0; font: 600 12px/1 ui-monospace, 'SF Mono', Menlo, Consolas, monospace; letter-spacing: 0.1em">LED CANVAS</h1>
+      <span style="display: inline-flex; align-items: center; gap: 8px; font: 600 12px/1 ui-monospace, 'SF Mono', Menlo, Consolas, monospace; letter-spacing: 0.1em"><span style="width: 8px; height: 8px; background: #4CB949; display: inline-block"></span>LIVE ON CARDPUTER</span>
+    </div>
+    <div style="display: flex; flex-wrap: wrap; gap: 32px; align-items: flex-start">
+      <div style="flex: 1 1 480px; max-width: 640px; min-width: 0; display: flex; flex-direction: column; gap: 10px">
+        <div style="background: #17150F; padding: 22px; overflow: hidden">
+          <div aria-label="LED panel, 8 by 8" onPointerDown="{{onDown}}" onPointerMove="{{onMove}}" onPointerUp="{{onUp}}" onPointerCancel="{{onUp}}" onPointerLeave="{{onUp}}" style="display: grid; grid-template-columns: repeat(8, minmax(0, 1fr)); gap: 12px; touch-action: none; user-select: none; -webkit-user-select: none; cursor: crosshair">
+            <sc-for list="{{cells}}" as="c" hint-placeholder-count="64">
+              <div style="aspect-ratio: 1 / 1; border-radius: 22%; background: {{c.bg}}; box-shadow: {{c.glow}}"></div>
+            </sc-for>
+          </div>
+        </div>
+        <div style="display: flex; justify-content: space-between; gap: 12px; font-size: 14px; line-height: 1.4; color: #5F5C53">
+          <span>{{caption}}</span>
+          <span style="font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace">8×8</span>
+        </div>
+      </div>
+      <div style="flex: 999 1 340px; min-width: 0; display: flex; flex-direction: column; gap: 28px">
+        <section style="display: flex; flex-direction: column; gap: 10px">
+          <h2 style="margin: 0; font: 600 12px/1 ui-monospace, 'SF Mono', Menlo, Consolas, monospace; letter-spacing: 0.1em; color: #75726A">MODE</h2>
+          <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 8px">
+            <sc-for list="{{modes}}" as="m" hint-placeholder-count="7">
+              <button type="button" aria-pressed="{{m.pressed}}" onClick="{{m.pick}}" style="min-height: 76px; padding: 12px 14px; border: 1px solid #17150F; background: {{m.bg}}; color: {{m.fg}}; display: flex; gap: 14px; align-items: flex-start; text-align: left">
+                <span style="flex: none; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 3px; padding: 4px; background: #17150F">
+                  <sc-for list="{{m.sw}}" as="s" hint-placeholder-count="4"><span style="width: 9px; height: 9px; border-radius: 2px; background: {{s.c}}"></span></sc-for>
+                </span>
+                <span style="display: flex; flex-direction: column; gap: 6px; min-width: 0">
+                  <span style="font: 600 13px/1 ui-monospace, 'SF Mono', Menlo, Consolas, monospace; letter-spacing: 0.08em; text-transform: uppercase">{{m.name}}</span>
+                  <span style="font-size: 13px; line-height: 1.4; color: {{m.sub}}">{{m.hint}}</span>
+                </span>
+              </button>
+            </sc-for>
+          </div>
+          <sc-if value="{{isSolid}}" hint-placeholder-val="{{false}}">
+            <div role="group" aria-label="Color" style="display: flex; gap: 6px; flex-wrap: wrap; padding-top: 6px">
+              <sc-for list="{{inks}}" as="k" hint-placeholder-count="7">
+                <button type="button" aria-label="{{k.name}}" aria-pressed="{{k.pressed}}" onClick="{{k.pick}}" style="width: 44px; height: 44px; padding: 4px; border: 2px solid {{k.ring}}; background: transparent"><span style="display: block; width: 100%; height: 100%; background: {{k.hex}}; box-shadow: inset 0 0 0 1px rgba(23,21,15,0.2)"></span></button>
+              </sc-for>
+            </div>
+          </sc-if>
+        </section>
+        <div style="display: flex; flex-wrap: wrap; gap: 28px 24px">
+          <section style="flex: 1 1 280px; display: flex; flex-direction: column; gap: 10px">
+            <div style="display: flex; justify-content: space-between; align-items: baseline; gap: 12px">
+              <h2 style="margin: 0; font: 600 12px/1 ui-monospace, 'SF Mono', Menlo, Consolas, monospace; letter-spacing: 0.1em; color: #75726A">BRUSH</h2>
+              <span style="font-size: 13px; color: #5F5C53">{{brushNote}}</span>
+            </div>
+            <div role="group" aria-label="Brush" style="display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); border: 1px solid #17150F">
+              <sc-for list="{{brushes}}" as="b" hint-placeholder-count="3">
+                <button type="button" aria-pressed="{{b.pressed}}" onClick="{{b.pick}}" style="min-height: 44px; border: 0; background: {{b.bg}}; color: {{b.fg}}; display: flex; align-items: center; justify-content: center; gap: 8px; font: 600 12px/1 ui-monospace, 'SF Mono', Menlo, Consolas, monospace; letter-spacing: 0.08em">
+                  <span aria-hidden="true" style="width: {{b.dot}}px; height: {{b.dot}}px; border-radius: 50%; border: 1.5px solid currentColor; background: {{b.fill}}"></span>{{b.label}}
+                </button>
+              </sc-for>
+            </div>
+          </section>
+          <section style="flex: 1 1 280px; display: flex; flex-direction: column; gap: 10px">
+            <h2 style="margin: 0; font: 600 12px/1 ui-monospace, 'SF Mono', Menlo, Consolas, monospace; letter-spacing: 0.1em; color: #75726A">FADE</h2>
+            <div style="display: flex; gap: 8px">
+              <div role="group" aria-label="Fade" style="flex: 1; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); border: 1px solid #17150F">
+                <sc-for list="{{fades}}" as="f" hint-placeholder-count="3">
+                  <button type="button" aria-pressed="{{f.pressed}}" onClick="{{f.pick}}" style="min-height: 44px; border: 0; background: {{f.bg}}; color: {{f.fg}}; font: 600 12px/1 ui-monospace, 'SF Mono', Menlo, Consolas, monospace; letter-spacing: 0.08em">{{f.label}}</button>
+                </sc-for>
+              </div>
+              <button type="button" aria-pressed="{{holdPressed}}" onClick="{{toggleHold}}" style="min-height: 44px; padding: 0 18px; border: 1px solid #17150F; background: {{holdBg}}; color: {{holdFg}}; font: 600 12px/1 ui-monospace, 'SF Mono', Menlo, Consolas, monospace; letter-spacing: 0.08em">HOLD</button>
+            </div>
+          </section>
+        </div>
+        <label style="display: flex; align-items: center; gap: 10px; min-height: 44px; font-size: 14px; cursor: pointer">
+          <input type="checkbox" checked="{{hover}}" onChange="{{toggleHover}}" style="width: 18px; height: 18px; margin: 0; accent-color: #17150F">
+          Draw on hover, no click needed
+        </label>
+        <div style="display: flex; gap: 12px; align-items: center; flex-wrap: wrap; border-top: 1px solid #DEDBD1; padding-top: 20px">
+          <button type="button" onClick="{{clear}}" style="min-height: 44px; padding: 0 18px; border: 1px solid #17150F; background: transparent; font: 600 13px/1 ui-monospace, 'SF Mono', Menlo, Consolas, monospace; letter-spacing: 0.08em">CLEAR PANEL</button>
+          <span style="font-size: 13px; color: #5F5C53">Brightness follows the LED limit set on the Cardputer.</span>
+        </div>
+      </div>
+    </div>
+  </main>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1280,"height":940}}'>
+class Component extends DCLogic {
+  constructor(props) {
+    super(props);
+    this.K = {
+      fades: { short: 0.35, med: 1.0, long: 3.0 },
+      brushes: { auto: 0.75, fine: 0.4, wide: 1.05 },
+      ember: [[0, 0, 0], [110, 8, 0], [226, 60, 20], [255, 150, 30], [255, 236, 190]],
+      speed: [[20, 50, 200], [0, 170, 220], [230, 60, 30], [255, 190, 40], [255, 255, 235]],
+      rgb3: [[255, 30, 20], [30, 255, 40], [30, 70, 255]],
+      inks: [
+        { name: 'Vermilion', hex: '#FF461E', rgb: [255, 70, 30] },
+        { name: 'Amber', hex: '#FFB000', rgb: [255, 176, 0] },
+        { name: 'Leaf', hex: '#46DC3C', rgb: [70, 220, 60] },
+        { name: 'Cyan', hex: '#00C8FF', rgb: [0, 200, 255] },
+        { name: 'Blue', hex: '#285AFF', rgb: [40, 90, 255] },
+        { name: 'Violet', hex: '#B446FF', rgb: [180, 70, 255] },
+        { name: 'White', hex: '#FFFFFF', rgb: [255, 255, 255] }
+      ]
+    };
+    this.MODES = [
+      { id: 'rainbow', name: 'Rainbow', hint: 'Hue steps forward with every LED; the tail runs through the spectrum.', sw: ['#FF2A2A', '#FFD400', '#2AE05A', '#2A7DFF'] },
+      { id: 'embers', name: 'Embers', hint: 'Burns white-hot, cools through orange and red to dark.', sw: ['#FFECBE', '#FF9A1E', '#E23C14', '#6E0800'] },
+      { id: 'speed', name: 'Velocity', hint: 'Slow drag glows deep blue, a fast flick flashes white.', sw: ['#1432C8', '#00AADC', '#E63C1E', '#FFFFEB'] },
+      { id: 'mix', name: 'Mix', hint: 'Strokes take red, green, blue in turn; overlaps add up like light.', sw: ['#FF1E14', '#1EFF28', '#1E46FF', '#FFFFFF'] },
+      { id: 'ripple', name: 'Ripple', hint: 'Every touch sends a ring of color across the panel.', sw: ['#FFFFFF', '#FF3CA0', '#3CC8FF', '#B4FF3C'] },
+      { id: 'mirror', name: 'Kaleidoscope', hint: 'Four mirrored copies spin around the color wheel.', sw: ['#FF2A6E', '#FFC81E', '#1EDCB4', '#6E5AFF'] },
+      { id: 'solid', name: 'Solid', hint: 'One color of your choice, with the fade you set.', sw: ['#FF461E', '#FFB000', '#00C8FF', '#FFFFFF'] }
+    ];
+    this.state = { mode: 'embers', fade: 'med', brush: 'auto', hold: false, ink: 0, demo: true, hover: true, tick: 0 };
+    this.eng = this._mk('embers');
+    this.eng.fade = this.K.fades.med;
+    this.eng.brush = this.K.brushes.auto;
+    this.scratch = {};
+    this.sizes = {};
+    this.loop = this.loop.bind(this);
+    this.onDown = this.onDown.bind(this);
+    this.onMove = this.onMove.bind(this);
+    this.onUp = this.onUp.bind(this);
+  }
+
+  componentDidMount() { this.t0 = performance.now(); this.raf = requestAnimationFrame(this.loop); }
+  componentWillUnmount() { cancelAnimationFrame(this.raf); }
+
+  loop(now) {
+    this.raf = requestAnimationFrame(this.loop);
+    var dt = Math.min(0.1, (now - (this.lt || now)) / 1000);
+    this.lt = now;
+    this.acc = (this.acc || 0) + dt;
+    if (this.acc < 0.022) return;
+    var step = this.acc;
+    this.acc = 0;
+    if (this.state.demo) this._drive(this.eng, this.state.mode, (now - this.t0) / 1000, step, this.scratch, now);
+    var live = this._tick(this.eng, step, now);
+    if (live || this.wasLive || this.dirty) this.setState({ tick: (this.state.tick + 1) % 100000 });
+    this.wasLive = live;
+    this.dirty = false;
+  }
+
+  /* ---- input: press to draw; with hover on, the mouse draws just by moving ---- */
+  _pt(ev) {
+    var r = ev.currentTarget.getBoundingClientRect();
+    return [(ev.clientX - r.left) / r.width * 8, (ev.clientY - r.top) / r.height * 8];
+  }
+  _radius(ev) {
+    var b = this.state.brush;
+    if (b !== 'auto') return this.K.brushes[b];
+    if (ev.pointerType === 'mouse') return this.K.brushes.fine;
+    var pitch = ev.currentTarget.getBoundingClientRect().width / 8, size = Math.max(ev.width || 0, ev.height || 0);
+    this.touchSeen = true;
+    if (size > 2) { this.sizes[Math.round(size)] = 1; if (Object.keys(this.sizes).length > 1) this.trusted = true; }
+    if (!this.trusted) return this.K.brushes.wide;
+    this.cover = size / pitch;
+    return Math.max(0.3, Math.min(1.8, size / 2 / pitch + 0.1));
+  }
+  _take() { if (this.state.demo) { this.eng.ptrs = {}; this.setState({ demo: false }); } }
+  onDown(ev) {
+    this._take();
+    try { ev.currentTarget.setPointerCapture(ev.pointerId); } catch (err) {}
+    var q = this._pt(ev);
+    this._stroke(this.eng, ev.pointerId, q[0], q[1], performance.now(), true, this._radius(ev));
+  }
+  onMove(ev) {
+    var known = !!this.eng.ptrs[ev.pointerId];
+    if (!known && !(this.state.hover && ev.pointerType === 'mouse')) return;
+    if (!known) this._take();
+    var q = this._pt(ev);
+    this._stroke(this.eng, ev.pointerId, q[0], q[1], performance.now(), !known, this._radius(ev));
+  }
+  onUp(ev) { delete this.eng.ptrs[ev.pointerId]; }
+
+  /* ---- LED engine (the same model the Cardputer would run) ---- */
+  _mk(mode) { return { mode: mode, fade: 1, brush: 0.6, hold: false, ink: 0, rgb: new Float32Array(192), heat: new Float32Array(64), rings: [], hue: 0, strokes: 0, ptrs: {} }; }
+  _hsv(h, s, v) {
+    h = ((h % 1) + 1) % 1;
+    var i = Math.floor(h * 6), f = h * 6 - i, p = v * (1 - s), q = v * (1 - f * s), t = v * (1 - (1 - f) * s);
+    var m = [[v, t, p], [q, v, p], [p, v, t], [p, q, v], [t, p, v], [v, p, q]][i % 6];
+    return [m[0] * 255, m[1] * 255, m[2] * 255];
+  }
+  _ramp(st, t) {
+    t = Math.max(0, Math.min(1, t));
+    var n = st.length - 1, k = Math.min(n - 1, Math.floor(t * n)), f = t * n - k, a = st[k], b = st[k + 1];
+    return [a[0] + (b[0] - a[0]) * f, a[1] + (b[1] - a[1]) * f, a[2] + (b[2] - a[2]) * f];
+  }
+  _set(e, i, c) { e.rgb[i * 3] = c[0]; e.rgb[i * 3 + 1] = c[1]; e.rgb[i * 3 + 2] = c[2]; }
+  _lift(e, i, c, w) { for (var j = 0; j < 3; j++) { var v = c[j] * w; if (v > e.rgb[i * 3 + j]) e.rgb[i * 3 + j] = v; } }
+  _add(e, i, c) { for (var j = 0; j < 3; j++) e.rgb[i * 3 + j] = Math.min(255, e.rgb[i * 3 + j] + c[j]); }
+  _dab(e, i, c, w) { if (w >= 0.999) this._set(e, i, c); else this._lift(e, i, c, w); }
+  /* Full brightness under the finger, a dimmer halo around it. */
+  _weight(p, fx, fy, x, y) {
+    if (x === Math.floor(fx) && y === Math.floor(fy)) return 1;
+    var d = Math.hypot(x + 0.5 - fx, y + 0.5 - fy);
+    if (d <= p.r) return 1;
+    var t = 1 - (d - p.r) / 1.3;
+    return t > 0 ? 0.45 * t : 0;
+  }
+  _brush(e, p, fx, fy, entered) {
+    var m = e.mode, K = this.K, self = this, c = null;
+    var cx = Math.floor(fx), cy = Math.floor(fy), R = Math.ceil(p.r + 1.3);
+    if (m === 'rainbow') { if (entered) e.hue += 0.04; c = this._hsv(e.hue, 1, 1); }
+    else if (m === 'mirror') { if (entered) e.hue += 0.025; }
+    else if (m === 'speed') c = this._ramp(K.speed, p.speed / 16);
+    else if (m === 'mix') c = K.rgb3[p.stroke % 3];
+    else if (m === 'ripple') {
+      c = [255, 255, 255];
+      if (entered) {
+        e.hue += 0.11;
+        e.rings.push({ x: fx, y: fy, age: 0, c: this._hsv(e.hue, 1, 1) });
+        if (e.rings.length > 10) e.rings.shift();
+      }
+    }
+    else if (m === 'solid') c = K.inks[e.ink].rgb;
+    if (m === 'mix' && !entered) return;
+    for (var y = Math.max(0, cy - R); y <= Math.min(7, cy + R); y++) {
+      for (var x = Math.max(0, cx - R); x <= Math.min(7, cx + R); x++) {
+        var w = this._weight(p, fx, fy, x, y), i = y * 8 + x;
+        if (w <= 0) continue;
+        if (m === 'embers') e.heat[i] = Math.max(e.heat[i], w);
+        else if (m === 'mix') { var a = w < 1 ? w * 0.5 : 1; this._add(e, i, [c[0] * a, c[1] * a, c[2] * a]); }
+        else if (m === 'mirror') {
+          [[x, y, 0], [7 - x, y, 0.25], [7 - x, 7 - y, 0.5], [x, 7 - y, 0.75]].forEach(function (q) { self._dab(e, q[1] * 8 + q[0], self._hsv(e.hue + q[2], 1, 1), w); });
+        }
+        else this._dab(e, i, c, w);
+      }
+    }
+  }
+  _stroke(e, id, fx, fy, now, fresh, r) {
+    fx = Math.max(0, Math.min(7.999, fx));
+    fy = Math.max(0, Math.min(7.999, fy));
+    var p = e.ptrs[id];
+    if (!p || fresh) p = e.ptrs[id] = { cx: -1, cy: -1, fx: fx, fy: fy, t: now, speed: 0, stroke: e.strokes++, r: r || e.brush };
+    else if (r) p.r = p.r * 0.7 + r * 0.3;
+    var ox = p.fx, oy = p.fy, dist = Math.hypot(fx - ox, fy - oy), dt = Math.max(0.008, (now - p.t) / 1000);
+    p.speed = p.speed * 0.6 + 0.4 * (dist / dt);
+    p.fx = fx; p.fy = fy; p.t = now;
+    if (p.cx < 0) { p.cx = Math.floor(fx); p.cy = Math.floor(fy); this._brush(e, p, fx, fy, true); return; }
+    var n = Math.max(1, Math.ceil(dist / 0.5));
+    for (var k = 1; k <= n; k++) {
+      var sx = ox + (fx - ox) * k / n, sy = oy + (fy - oy) * k / n, scx = Math.floor(sx), scy = Math.floor(sy);
+      var entered = scx !== p.cx || scy !== p.cy;
+      p.cx = scx; p.cy = scy;
+      this._brush(e, p, sx, sy, entered);
+    }
+  }
+  _tick(e, dt, now) {
+    var live = false, id, p, i, j;
+    for (id in e.ptrs) {
+      p = e.ptrs[id];
+      live = true;
+      if (p.cx >= 0) { if (now - p.t > 60) p.speed *= Math.exp(-dt * 5); this._brush(e, p, p.fx, p.fy, false); }
+    }
+    var k = e.hold ? 1 : Math.exp(-dt / e.fade);
+    for (j = 0; j < 192; j++) { e.rgb[j] *= k; if (e.rgb[j] < 2) e.rgb[j] = 0; else live = true; }
+    for (i = 0; i < 64; i++) {
+      if (!e.hold) e.heat[i] = Math.max(0, e.heat[i] - dt / (e.fade * 1.4));
+      if (e.heat[i] > 0) live = true;
+    }
+    for (var r = e.rings.length - 1; r >= 0; r--) {
+      var g = e.rings[r];
+      g.age += dt;
+      if (g.age > 1.3) { e.rings.splice(r, 1); continue; }
+      live = true;
+      var rad = g.age * 6, life = 1 - g.age / 1.3;
+      for (i = 0; i < 64; i++) {
+        var d = Math.hypot((i % 8) + 0.5 - g.x, Math.floor(i / 8) + 0.5 - g.y), w = (1 - Math.abs(d - rad) / 0.9) * life;
+        if (w > 0) this._lift(e, i, g.c, w);
+      }
+    }
+    return live;
+  }
+  _drive(e, key, T, dt, s, now) {
+    var sin = Math.sin, cos = Math.cos, k, ph, u, a;
+    if (key === 'speed') {
+      s.a = (s.a || 0) + dt * (0.5 + 2.6 * (0.5 + 0.5 * sin(T * 0.9)));
+      this._stroke(e, 'd', 3.9 + 3.2 * cos(s.a * 2.2), 3.9 + 3.2 * sin(s.a * 2.2), now, false);
+    } else if (key === 'mix') {
+      k = Math.floor(T / 1.4); ph = (T % 1.4) / 1.4;
+      if (ph < 0.8) { u = ph / 0.8; a = k * 1.05; this._stroke(e, 'm' + k, 3.9 + cos(a) * (8.4 * u - 4.2), 3.9 + sin(a) * (8.4 * u - 4.2), now, false); }
+      else delete e.ptrs['m' + k];
+    } else if (key === 'ripple') {
+      k = Math.floor(T / 0.6);
+      if (T % 0.6 < 0.07) this._stroke(e, 't' + k, ((k * 5 + 2) % 8) + 0.5, ((k * 3 + 5) % 8) + 0.5, now, false);
+      else delete e.ptrs['t' + k];
+    } else if (key === 'two') {
+      this._stroke(e, 'a', 3.9 + 3.5 * sin(T * 1.3), 2.6 + 1.4 * sin(T * 2.6), now, false); e.ptrs.a.stroke = 0;
+      this._stroke(e, 'b', 2.6 + 1.4 * sin(T * 2.2), 3.9 + 3.5 * sin(T * 1.0), now, false); e.ptrs.b.stroke = 1;
+    } else if (key === 'mirror') {
+      this._stroke(e, 'd', 1.9 + 1.85 * sin(T * 2.1), 1.9 + 1.85 * sin(T * 1.3 + 1), now, false);
+    } else {
+      if (key === 'solid' && s.auto) e.ink = Math.floor(T / 2.5) % 7;
+      this._stroke(e, 'd', 3.9 + 3.4 * sin(T * 1.7), 3.9 + 3.4 * sin(T * 1.1 + 0.6), now, false);
+    }
+  }
+  _cells(e) {
+    var out = [], K = this.K;
+    for (var i = 0; i < 64; i++) {
+      var r = e.rgb[i * 3], g = e.rgb[i * 3 + 1], b = e.rgb[i * 3 + 2];
+      if (e.heat[i] > 0) { var h = this._ramp(K.ember, e.heat[i]); r = Math.max(r, h[0]); g = Math.max(g, h[1]); b = Math.max(b, h[2]); }
+      var l = Math.max(r, g, b) / 255;
+      if (l < 0.02) { out.push({ bg: '#29271F', glow: 'none' }); continue; }
+      var o = 41 * (1 - l);
+      out.push({
+        bg: 'rgb(' + Math.round(Math.max(r, o)) + ',' + Math.round(Math.max(g, o * 0.95)) + ',' + Math.round(Math.max(b, o * 0.76)) + ')',
+        glow: '0 0 ' + (6 + 20 * l).toFixed(1) + 'px ' + (1 + 3 * l).toFixed(1) + 'px rgba(' + Math.round(r) + ',' + Math.round(g) + ',' + Math.round(b) + ',' + (0.6 * l).toFixed(2) + ')'
+      });
+    }
+    return out;
+  }
+
+  renderVals() {
+    var st = this.state, self = this;
+    var brushNote = st.brush === 'fine' ? 'One LED with a soft halo' : st.brush === 'wide' ? 'Five LEDs with a soft halo'
+      : this.trusted ? 'Your finger covers ' + this.cover.toFixed(1) + ' LEDs'
+      : this.touchSeen ? 'Touch size not reported, using Wide' : 'Mouse draws Fine; touch sizes from the finger';
+    return {
+      cells: this._cells(this.eng),
+      caption: st.demo ? 'Preview. Move the cursor over the panel to draw.' : (st.hover ? 'Drawing live. Click to start a new stroke.' : 'Drawing live. Hold the button and drag.'),
+      isSolid: st.mode === 'solid',
+      brushNote: brushNote,
+      modes: this.MODES.map(function (m) {
+        var on = m.id === st.mode;
+        return {
+          name: m.name,
+          hint: m.hint,
+          sw: m.sw.map(function (c) { return { c: c }; }),
+          bg: on ? '#17150F' : 'transparent',
+          fg: on ? '#F4F2EC' : '#17150F',
+          sub: on ? '#CED0CB' : '#5F5C53',
+          pressed: on ? 'true' : 'false',
+          pick: function () { self.eng.mode = m.id; self.scratch = {}; self.setState({ mode: m.id }); }
+        };
+      }),
+      inks: this.K.inks.map(function (k, idx) {
+        var on = idx === st.ink;
+        return { name: k.name, hex: k.hex, ring: on ? '#17150F' : 'transparent', pressed: on ? 'true' : 'false', pick: function () { self.eng.ink = idx; self.setState({ ink: idx }); } };
+      }),
+      brushes: [['auto', 'AUTO', 14, 'transparent'], ['fine', 'FINE', 8, 'currentColor'], ['wide', 'WIDE', 16, 'currentColor']].map(function (b) {
+        var on = b[0] === st.brush;
+        return { label: b[1], dot: b[2], fill: b[3], bg: on ? '#17150F' : 'transparent', fg: on ? '#F4F2EC' : '#17150F', pressed: on ? 'true' : 'false', pick: function () { self.eng.brush = self.K.brushes[b[0]]; self.setState({ brush: b[0] }); } };
+      }),
+      fades: [['short', 'SHORT'], ['med', 'MEDIUM'], ['long', 'LONG']].map(function (f) {
+        var on = f[0] === st.fade;
+        return { label: f[1], bg: on ? '#17150F' : 'transparent', fg: on ? '#F4F2EC' : '#17150F', pressed: on ? 'true' : 'false', pick: function () { self.eng.fade = self.K.fades[f[0]]; self.setState({ fade: f[0] }); } };
+      }),
+      holdPressed: st.hold ? 'true' : 'false',
+      holdBg: st.hold ? '#17150F' : 'transparent',
+      holdFg: st.hold ? '#F4F2EC' : '#17150F',
+      toggleHold: function () { self.eng.hold = !st.hold; self.setState({ hold: !st.hold }); },
+      hover: st.hover,
+      toggleHover: function () { self.setState({ hover: !st.hover }); },
+      clear: function () { var e = self.eng; e.rgb.fill(0); e.heat.fill(0); e.rings = []; self.dirty = true; },
+      onDown: this.onDown,
+      onMove: this.onMove,
+      onUp: this.onUp
+    };
+  }
+}
+</script>
+</body>
+</html>

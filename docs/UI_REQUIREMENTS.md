@@ -768,7 +768,40 @@ ignored while the code is shown. Error shows
 client-count change repaints only the header. The browser page follows the same
 palette (Bone, Ink, Blue, Vermilion, Leaf), flat one-pixel rules, numbered rows,
 an Ink selection plate and uppercase tracked monospaced labels, using the
-browser's own system fonts because the access point has no internet.
+browser's own system fonts because the access point has no internet. Its shared
+HUB/app tabs/network/SIGN OUT header stays at the top while scrolling, with an
+opaque Bone background; its natural height follows mobile wrapping.
+LED CANVAS uses the standard `LED CANVAS` header, with `WEB OFF`, Vermilion
+`WEB ERROR`, or the same WEB ACCESS client count at the right. Off/Error show
+centred 2× `WEB ACCESS OFF` / `WEB ACCESS ERROR`, a quiet
+`THE PHONE DRAWS OVER WI-FI`, and `ENTER START` / `ENTER RETRY` in the right
+footer slot. Waiting shows NETWORK, OPEN and TAB LED with right-aligned values,
+a Blue mark beside centred `WAITING FOR A TOUCH`, and `Q JOIN CODE`. Live lasts
+while a pointer is down or for 3 s after input; it shows a Leaf mark with
+`LIVE  N FINGERS` (singular for one), a centred 2× mode name, quiet FADE plus
+HOLD, and `SPACE HOLD` / `SPACE RESUME` with `DEL CLEAR`. Q uses the same shared
+full-screen join code as WEB ACCESS; Q or Escape dismisses it. Escape otherwise
+closes Canvas and leaves WEB ACCESS running. Unchanged LCD state does not
+repaint; matrix animation runs separately at about 30 FPS and uses the existing
+global brightness limit.
+
+The LED web tab uses a dark 8×8 panel with glow, mode chips on phones or
+mode cards with descriptions on desktop, Solid ink swatches, AUTO/FINE/WIDE
+brush choices and contact-size notes, FADE, HOLD and CLEAR PANEL. Desktop hover
+drawing defaults on with a checkbox. The panel and its padding own touch
+interaction: `touch-action: none` plus cancelable, non-passive touch/gesture
+handlers suppress pinch and double-tap zoom within that area. Scrolling and
+pinch zoom elsewhere remain available; buttons/links use manipulation gestures.
+APP CLOSED dims the dark panel and asks
+the user to open LED CANVAS; 2 s polling wakes it without reloading. Connection
+failures show RECONNECTING and retry automatically. Brush choice is local to
+the browser; mode, fade, ink and Hold follow device revisions. No frames cross
+the network: points carry a bounded ending hue phase and Mix ink so the drawn
+color stays consistent after Clear/reload and across browsers. Stationary
+Rainbow/Kaleidoscope pointers keep their own hue. The preview contains the
+local browser's strokes. Physical
+acceptance of contact reporting, latency and low-brightness halos is pending.
+
 Idle dimming, the final off fade and wake-input consumption are implemented for
 every screen and Mini App from the shared runtime input path; physical
 acceptance on Cardputer-Adv is pending. Remaining semantic

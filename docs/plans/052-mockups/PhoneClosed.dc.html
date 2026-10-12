@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>LED canvas, app closed</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+body{margin:0}
+a{color:#17150F}a:hover{color:#1B4FD0}
+button{font:inherit;color:inherit;cursor:pointer;border-radius:0}
+</style>
+</helmet>
+<div style="width: 390px; height: 720px; box-sizing: border-box; overflow: hidden; background: #F4F2EC; color: #17150F; font-family: system-ui, -apple-system, 'Segoe UI', 'Helvetica Neue', sans-serif; display: flex; flex-direction: column">
+  <header style="border-bottom: 1px solid #17150F; padding: 8px 16px; display: flex; flex-direction: column; gap: 4px">
+    <div style="display: flex; align-items: center; justify-content: space-between; gap: 12px">
+      <a href="#" style="font: 700 28px/1 ui-monospace, 'SF Mono', Menlo, Consolas, monospace; letter-spacing: 0.04em; color: #17150F; text-decoration: none; padding: 8px 0">HUB</a>
+      <button type="button" style="background: none; border: 0; padding: 12px 0; font: 600 12px/1 ui-monospace, 'SF Mono', Menlo, Consolas, monospace; letter-spacing: 0.06em; text-decoration: underline">SIGN OUT</button>
+    </div>
+    <nav aria-label="Apps" style="display: flex; gap: 4px">
+      <a href="#" style="display: inline-flex; align-items: center; min-height: 40px; padding: 0 14px; border: 1px solid transparent; font: 600 13px/1 ui-monospace, 'SF Mono', Menlo, Consolas, monospace; letter-spacing: 0.12em; text-decoration: none; color: #17150F">INVENTORY</a>
+      <a href="#" aria-current="page" style="display: inline-flex; align-items: center; min-height: 40px; padding: 0 14px; border: 1px solid #17150F; font: 600 13px/1 ui-monospace, 'SF Mono', Menlo, Consolas, monospace; letter-spacing: 0.12em; text-decoration: none; background: #17150F; color: #F4F2EC">LED</a>
+    </nav>
+  </header>
+  <main style="flex: 1; padding: 20px 16px 24px; display: flex; flex-direction: column; gap: 20px">
+    <div style="display: flex; justify-content: space-between; align-items: baseline; border-bottom: 1px solid #17150F; padding-bottom: 10px">
+      <h1 style="margin: 0; font: 600 12px/1 ui-monospace, 'SF Mono', Menlo, Consolas, monospace; letter-spacing: 0.1em">LED CANVAS</h1>
+      <span style="display: inline-flex; align-items: center; gap: 8px; font: 600 12px/1 ui-monospace, 'SF Mono', Menlo, Consolas, monospace; letter-spacing: 0.1em"><span style="width: 8px; height: 8px; background: #E2451E; display: inline-block"></span>APP CLOSED</span>
+    </div>
+    <div aria-hidden="true" style="background: #17150F; padding: 14px; opacity: 0.55">
+      <div style="display: grid; grid-template-columns: repeat(8, minmax(0, 1fr)); gap: 7px">
+        <sc-for list="{{cells}}" as="c" hint-placeholder-count="64">
+          <div style="aspect-ratio: 1 / 1; border-radius: 22%; background: #29271F"></div>
+        </sc-for>
+      </div>
+    </div>
+    <div style="display: flex; flex-direction: column; gap: 10px">
+      <h2 style="margin: 0; font-size: 22px; line-height: 1.25; font-weight: 650">Open LED CANVAS on the Cardputer</h2>
+      <p style="margin: 0; font-size: 15px; line-height: 1.5; color: #5F5C53">Apps › LED CANVAS. The panel here wakes as soon as the app is open; this page checks by itself, no reload needed.</p>
+    </div>
+    <div style="display: flex; align-items: center; gap: 10px; font: 600 12px/1 ui-monospace, 'SF Mono', Menlo, Consolas, monospace; letter-spacing: 0.1em; color: #75726A">
+      <span style="width: 8px; height: 8px; background: #1B4FD0; display: inline-block"></span>WAITING FOR THE APP
+    </div>
+  </main>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":390,"height":720}}'>
+class Component extends DCLogic {
+  renderVals() {
+    var cells = [];
+    for (var i = 0; i < 64; i++) cells.push({ i: i });
+    return { cells: cells };
+  }
+}
+</script>
+</body>
+</html>

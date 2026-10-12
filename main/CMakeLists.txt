@@ -1,4 +1,9 @@
 set(CARDPUTER_HUB_SOURCES
+    "${CMAKE_CURRENT_LIST_DIR}/../src/core/display/web_join_code.cpp"
+    "${CMAKE_CURRENT_LIST_DIR}/../src/services/led_canvas/led_canvas_service.cpp"
+    "${CMAKE_CURRENT_LIST_DIR}/../src/services/led_canvas/led_canvas_web_endpoint.cpp"
+    "${CMAKE_CURRENT_LIST_DIR}/../src/apps/led_canvas/led_canvas_engine.cpp"
+    "${CMAKE_CURRENT_LIST_DIR}/../src/apps/led_canvas/led_canvas_app.cpp"
     "${CMAKE_CURRENT_LIST_DIR}/../src/core/display/display_glyphs.cpp"
     "${CMAKE_CURRENT_LIST_DIR}/../src/core/display/qr_code.cpp"
     "${CMAKE_CURRENT_LIST_DIR}/../src/core/display/text_layout.cpp"
