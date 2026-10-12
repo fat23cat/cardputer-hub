@@ -2443,16 +2443,24 @@ in-flight stroke, then discards any retry that request recreated and resets the
 browser sampling timeline. Admission reserves room for pointer ends; intermediate samples
 are thinned under pressure. Stationary pointers send a heartbeat every 150 ms;
 navigation, suspension and network loss are also covered by the device timeout.
-Brush AUTO/FINE/WIDE is localStorage per browser; shared mode, fade, ink and
-Hold are synchronized by revisions and 2 s idle polls. AUTO trusts contact size
-only after two distinct rounded touch sizes, otherwise uses Wide; mouse and pen
-use Fine. Each point additionally carries its ending hue phase (0–9999, one turn = 10000)
+Brush THIN/FINE/WIDE and the separate Glow switch are localStorage per browser;
+shared mode, fade, ink and Hold are synchronized by revisions and 2 s idle polls.
+THIN replaces AUTO and has radius zero, guaranteeing only the pointer's LED in
+the core. FINE and WIDE retain radii 0.4 and 1.05 cells and the original radial
+weight function. Glow defaults on; turning it off removes the neighbouring
+halo from new dabs and the browser's shadows without changing the brush core,
+mode effects or fading of existing trails. Contact size does not override the
+selected brush. Legacy stored AUTO becomes THIN.
+Each point additionally carries its ending hue phase (0–9999, one turn = 10000)
 and Mix stroke ink (0–2). The engine still computes RGB, interpolation, halo,
 rings and fading. These bounded input stamps prevent independent browser/engine
 color counters from drifting after reload, Clear, thinning or another browser
 drawing. Rainbow and Kaleidoscope retain the hue per pointer while it is
 stationary; Mix cycles per browser. Clear resets the engine's hue/stroke counters
-as well as drawing buffers. Six-field legacy points remain accepted. Preview
+as well as drawing buffers. Nine-field points append a Glow bit (0 or 1) after
+the hue and Mix ink fields. Six- and eight-field legacy points remain accepted
+with Glow on. Radius accepts zero for THIN or the existing 5–29 range in
+sixteenths of a cell; the endpoint and Service reject other values. Preview
 shows that browser's strokes; the matrix mixes all browsers.
 
 BLE and the access point share the ESP32-S3 radio. With BLE advertising or

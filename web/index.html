@@ -182,6 +182,12 @@ dialog::backdrop { background: rgba(23, 21, 15, .5); }
 .led-closed p { font-size:15px; line-height:1.5; color:var(--muted); }
 .led-hover { font-size:13px; color:var(--muted); display:flex; gap:8px; align-items:center; }
 .led-hover input { width:18px; height:18px; accent-color:var(--ink); }
+.led-glow { display:flex; align-items:center; gap:10px; min-height:44px; font-size:13px; }
+.led-glow input { appearance:none; position:relative; width:36px; height:20px; margin:0;
+  border:1px solid var(--ink); background:transparent; border-radius:0; cursor:pointer; }
+.led-glow input::before { content:""; position:absolute; width:14px; height:14px; left:2px; top:2px; background:var(--ink); }
+.led-glow input:checked { background:var(--ink); }
+.led-glow input:checked::before { background:var(--bone); transform:translateX(16px); }
 @media (max-width:899px) {
  .led-layout { grid-template-columns:minmax(0,1fr); gap:24px; }
  .led-panel-wrap { padding:14px; } .led-panel { gap:7px; }
@@ -479,7 +485,7 @@ class LedCanvasModel {
   constructor() {
     this.K = {
       fades: { short: 0.35, med: 1.0, long: 3.0 },
-      brushes: { auto: 0.75, fine: 0.4, wide: 1.05 },
+      brushes: { thin: 0, fine: 0.4, wide: 1.05 },
       ember: [[0, 0, 0], [110, 8, 0], [226, 60, 20], [255, 150, 30], [255, 236, 190]],
       speed: [[20, 50, 200], [0, 170, 220], [230, 60, 30], [255, 190, 40], [255, 255, 235]],
       rgb3: [[255, 30, 20], [30, 255, 40], [30, 70, 255]],
@@ -516,6 +522,7 @@ class LedCanvasModel {
     if (x === Math.floor(fx) && y === Math.floor(fy)) return 1;
     var d = Math.hypot(x + 0.5 - fx, y + 0.5 - fy);
     if (d <= p.r) return 1;
+    if (!p.glow) return 0;
     var t = 1 - (d - p.r) / 1.3;
     return t > 0 ? 0.45 * t : 0;
   }
@@ -549,12 +556,13 @@ class LedCanvasModel {
       }
     }
   }
-  _stroke(e, id, fx, fy, now, fresh, r) {
+  _stroke(e, id, fx, fy, now, fresh, r, glow = true) {
     fx = Math.max(0, Math.min(7.999, fx));
     fy = Math.max(0, Math.min(7.999, fy));
     var p = e.ptrs[id];
-    if (!p || fresh) p = e.ptrs[id] = { cx: -1, cy: -1, fx: fx, fy: fy, t: now, speed: 0, stroke: e.strokes++, r: r || e.brush, hue: e.hue };
-    else if (r) p.r = p.r * 0.7 + r * 0.3;
+    if (!p || fresh) p = e.ptrs[id] = { cx: -1, cy: -1, fx: fx, fy: fy, t: now, speed: 0, stroke: e.strokes++, r: r ?? e.brush, hue: e.hue };
+    else if (r !== undefined) p.r = r === 0 ? 0 : p.r * 0.7 + r * 0.3;
+    p.glow = glow;
     var ox = p.fx, oy = p.fy, dist = Math.hypot(fx - ox, fy - oy), dt = Math.max(0.008, (now - p.t) / 1000);
     p.speed = p.speed * 0.6 + 0.4 * (dist / dt);
     p.fx = fx; p.fy = fy; p.t = now;
@@ -593,7 +601,7 @@ class LedCanvasModel {
     }
     return live;
   }
-  _cells(e) {
+  _cells(e, glow = true) {
     var out = [], K = this.K;
     for (var i = 0; i < 64; i++) {
       var r = e.rgb[i * 3], g = e.rgb[i * 3 + 1], b = e.rgb[i * 3 + 2];
@@ -603,7 +611,7 @@ class LedCanvasModel {
       var o = 41 * (1 - l);
       out.push({
         bg: 'rgb(' + Math.round(Math.max(r, o)) + ',' + Math.round(Math.max(g, o * 0.95)) + ',' + Math.round(Math.max(b, o * 0.76)) + ')',
-        glow: '0 0 ' + (4 + 14 * l).toFixed(1) + 'px ' + (1 + 2 * l).toFixed(1) + 'px rgba(' + Math.round(r) + ',' + Math.round(g) + ',' + Math.round(b) + ',' + (0.6 * l).toFixed(2) + ')'
+        glow: glow ? '0 0 ' + (4 + 14 * l).toFixed(1) + 'px ' + (1 + 2 * l).toFixed(1) + 'px rgba(' + Math.round(r) + ',' + Math.round(g) + ',' + Math.round(b) + ',' + (0.6 * l).toFixed(2) + ')' : 'none'
       });
     }
     return out;
@@ -662,9 +670,12 @@ class LedCanvasPage {
     this.revision = null; this.pointers = new Map(); this.queue = new LedStrokeQueue();
     this.client = crypto.getRandomValues(new Uint32Array(1))[0].toString(16).padStart(8, "0");
     this.seq = 0; this.sending = false; this.retry = null; this.retryAt = 0; this.controllers = new Set();
-    this.hover = true; this.sizes = new Set(); this.trusted = false; this.touchSeen = false; this.cover = 0;
-    this.brush = "auto";
-    try { const saved = localStorage.getItem("hub-led-brush"); if (["auto", "fine", "wide"].includes(saved)) this.brush = saved; } catch (error) {}
+    this.hover = true; this.brush = "thin"; this.glow = true;
+    try {
+      const saved = localStorage.getItem("hub-led-brush");
+      if (["thin", "fine", "wide"].includes(saved)) this.brush = saved;
+      this.glow = localStorage.getItem("hub-led-glow") !== "false";
+    } catch (error) {}
     this.buttons = []; this.settingsVersion = 0; this.settingsPending = false; this.polling = false;
     this.build();
     this.pause = () => this.endAll();
@@ -681,7 +692,7 @@ class LedCanvasPage {
       if (this.disposed) return;
       const dt = Math.min(.1, (now - (this.lastFrame || now)) / 1000); this.lastFrame = now;
       this.model._tick(this.model.eng, dt, now);
-      this.model._cells(this.model.eng).forEach((c, i) => {
+      this.model._cells(this.model.eng, this.glow).forEach((c, i) => {
         this.cells[i].style.background = c.bg; this.cells[i].style.boxShadow = c.glow;
       });
       this.raf = requestAnimationFrame(animate);
@@ -737,16 +748,23 @@ class LedCanvasPage {
       const b = choice("ink", i, "", () => this.change("ink", i));
       b.className = "led-swatch"; b.style.background = ink.hex; b.setAttribute("aria-label", ink.name); return b;
     }));
-    const brushes = ["auto", "fine", "wide"].map((id) => choice("brush", id, id.toUpperCase(), () => {
+    const brushes = ["thin", "fine", "wide"].map((id) => choice("brush", id, id.toUpperCase(), () => {
       this.brush = id; try { localStorage.setItem("hub-led-brush", id); } catch (error) {} this.controls();
-    }, h("span", { "aria-hidden": "true", style: "width:" + (id === "auto" ? 14 : id === "fine" ? 8 : 16) + "px;height:" + (id === "auto" ? 14 : id === "fine" ? 8 : 16) + "px;border-radius:50%;border:1.5px solid currentColor;background:" + (id === "auto" ? "transparent" : "currentColor") })));
+    }, h("span", { "aria-hidden": "true", style: "width:" + (id === "thin" ? 4 : id === "fine" ? 8 : 16) + "px;height:" + (id === "thin" ? 4 : id === "fine" ? 8 : 16) + "px;border-radius:50%;border:1.5px solid currentColor;background:currentColor" })));
+    this.glowInput = h("input", { type: "checkbox", role: "switch", checked: this.glow, onchange: () => {
+      this.glow = this.glowInput.checked;
+      try { localStorage.setItem("hub-led-glow", String(this.glow)); } catch (error) {}
+      for (const [id, p] of this.pointers) this.emit(id, p, 0);
+      this.controls(); this.flush();
+    } });
+    const glowControl = h("label", { class: "led-glow" }, this.glowInput, "Glow");
     const fades = ["short", "medium", "long"].map((id) => choice("fade", id, id.toUpperCase(), () => this.change("fade", id)));
     const hold = choice("hold", true, "HOLD", () => this.change("hold", !this.settings.hold));
     this.clearButton = h("button", { class: "btn", type: "button", text: "CLEAR PANEL", onclick: () => this.clear() });
     const section = (label, ...nodes) => h("section", {}, h("h2", { class: "label", style: "margin:0", text: label }), nodes);
     this.controlPanel = h("div", { class: "led-controls" },
       section("MODE", h("div", { class: "led-modes" }, modes), this.modeNote, this.inks),
-      section("BRUSH", h("div", { class: "led-segments" }, brushes), this.note),
+      section("BRUSH", h("div", { class: "led-segments" }, brushes), this.note, glowControl),
       section("FADE", h("div", { class: "led-fade-row" }, h("div", { class: "led-segments" }, fades), hold)), this.clearButton,
       h("p", { class: "led-note", text: "Brightness follows the LED limit set on the Cardputer." }));
     const hoverInput = h("input", { type: "checkbox", checked: true, onchange: () => { this.hover = hoverInput.checked; this.endAll(); } });
@@ -763,9 +781,8 @@ class LedCanvasPage {
     this.inks.hidden = this.settings.mode !== "solid";
     this.modeNote.hidden = this.settings.mode === "solid";
     this.modeNote.textContent = LED_MODES.find((mode) => mode[0] === this.settings.mode)[2];
-    this.note.textContent = this.brush === "fine" ? "One LED with a soft halo" : this.brush === "wide" ? "Five LEDs with a soft halo"
-      : this.trusted ? "Your finger covers " + this.cover.toFixed(1) + " LEDs"
-      : this.touchSeen ? "Size not reported here, using Wide" : "Sized from your finger; mouse uses Fine";
+    this.glowInput.checked = this.glow;
+    this.note.textContent = (this.brush === "wide" ? "Five LEDs" : "One LED") + (this.glow ? " with a soft halo" : " without glow");
   }
   displayStatus() {
     this.label.textContent = !this.online ? "RECONNECTING" : !this.open ? "APP CLOSED" : this.pointers.size ? "LIVE" : "READY";
@@ -819,14 +836,7 @@ class LedCanvasPage {
     this.settingsPending = false;
   }
   radius(e) {
-    if (this.brush !== "auto") return this.brush === "fine" ? .4 : 1.05;
-    if (e.pointerType !== "touch") return .4;
-    const size = Math.max(e.width || 0, e.height || 0); this.touchSeen = true;
-    if (size > 2) { this.sizes.add(Math.round(size)); if (this.sizes.size > 1) this.trusted = true; }
-    // Retain only the two distinct sizes needed to trust contact reporting.
-    if (this.sizes.size > 2) this.sizes.delete(this.sizes.values().next().value);
-    this.cover = size / (this.panel.getBoundingClientRect().width / 8); this.controls();
-    return this.trusted ? Math.max(.3, Math.min(1.8, this.cover / 2 + .1)) : 1.05;
+    return this.model.K.brushes[this.brush];
   }
   coordinates(e) {
     const r = this.panel.getBoundingClientRect();
@@ -854,12 +864,12 @@ class LedCanvasPage {
     const now = performance.now(); p.time = now;
     const sample = [p.slot, p.x, p.y, p.radius, now, flags];
     if (!this.queue.add(sample)) return;
-    this.model._stroke(this.model.eng, p.slot, p.x / 256, p.y / 256, now, !!(flags & 1), p.radius / 16);
+    this.model._stroke(this.model.eng, p.slot, p.x / 256, p.y / 256, now, !!(flags & 1), p.radius / 16, this.glow);
     const pointer = this.model.eng.ptrs[p.slot];
     const hue = ["rainbow", "kaleidoscope"].includes(this.settings.mode) ? pointer.hue : this.model.eng.hue;
     // Carry the ending phase and stroke ink, so reloads, other clients and thinned
     // points cannot move the matrix onto a different color cycle. No RGB frames are sent.
-    sample.push(Math.round(((hue % 1 + 1) % 1) * 10000) % 10000, pointer.stroke % 3);
+    sample.push(Math.round(((hue % 1 + 1) % 1) * 10000) % 10000, pointer.stroke % 3, this.glow ? 1 : 0);
     if (flags & 2) delete this.model.eng.ptrs[p.slot];
     if (this.queue.pending.length >= 48) this.flush();
   }

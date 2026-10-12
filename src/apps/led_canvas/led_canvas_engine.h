@@ -22,6 +22,7 @@ class LedCanvasEngine {
         std::uint32_t stroke = 0;
         std::uint64_t time = 0;
         float hue = 0;
+        bool glow = true;
     };
     struct Ring {
         float x = 0, y = 0, age = 0;

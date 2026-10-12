@@ -33,6 +33,7 @@ struct LedCanvasPoint {
     std::uint16_t hue = 0;
     std::uint8_t mixInk = 0;
     bool hasColor = false;
+    bool glow = true;
 };
 struct LedCanvasBatch {
     std::uint32_t client = 0, seq = 0;
