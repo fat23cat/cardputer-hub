@@ -246,8 +246,9 @@ The common motion grammar is:
 * Home's bottom action focus uses a damped horizontal spring; text and its
   opaque background invert only inside the moving plate, including partial
   intersections with either label;
-* horizontal page changes use one short cubic-eased slide, approximately
-  220 ms on the target hardware;
+* horizontal page changes are presented at once; the earlier 220 ms slide
+  needed a second full-screen buffer that the heap cannot spare next to Wi-Fi
+  and BLE;
 * full-screen takeovers grow from the element or region that originated the
   event when that spatial relationship is meaningful;
 * dismissal reverses the entrance instead of introducing an unrelated exit;
@@ -436,7 +437,12 @@ percentage aligned to x=232 (or `--%` when unavailable). Wi-Fi is hollow
 Ordinal when unconfigured, Pale when disabled, Blue while connecting, Leaf
 when connected, and Vermilion on error. Bluetooth is hollow Ordinal when Off,
 Blue while connecting, securing, or pairing, Leaf when Ready, and Vermilion on
-error. These slots never move when states or battery width change.
+error. These slots never move when states or battery width change. While WEB
+ACCESS is not Off, a third group follows at a fixed slot: a dot at (104, 8) and
+the label `WEB` at x=114, Leaf while it runs and Vermilion after a failure, with
+the connected-client count (1–9) in quiet Ordinal at x=142 while one or more
+clients are connected. The group's area is cleared while WEB ACCESS is Off and
+repaints only when its state or count changes.
 Home contains no clock, connection-state text, or title.
 
 The ambient viewport (y=22..95) shows a deterministic 40-particle Living Orb. It breathes,
@@ -495,11 +501,8 @@ system-screen control, not a global shortcut for future text-entry Mini Apps.
 The Cardputer adapter composes drawing into a persistent RGB565 canvas and copies
 only completed dirty regions to the LCD. Settled functional views cause no display transfer; Home transfers only its
 changed regions, including the bounded ambient orb.
-Page changes use a 220 ms cubic ease-out slide: forward navigation enters from
-right, Back from left. Home, Settings, Bluetooth, host actions, rename/delete,
-and pairing participate; focus moves, typed characters, and status updates do
-not restart transitions. The Home Living Orb pauses during a slide. Input remains
-live; a newer navigation transition starts from the currently presented pixels.
+Page changes are presented at once, without a slide (removed to keep 64.8 KB
+of heap free next to Wi-Fi and BLE). Input remains live.
 No event is queued for later host replay. Animation positions update at most
 once per 16 ms and stop at completion. The Home bottom action plate moves
 horizontally. Vertical focus in Launcher, Settings, Bluetooth, and Wi-Fi lists
@@ -553,7 +556,7 @@ Physical Cardputer-Adv validation must confirm:
 
 This document includes delivered behavior and future requirements. Home,
 Settings/Bluetooth/Wi-Fi and sound-volume rows, synthesized key feedback, per-host
-menus, partial frame presentation, page slides, the ambient orb, and the
+menus, partial frame presentation, the ambient orb, and the
 two-second segmented startup splash are implemented.
 Normal firmware rate-limits idle UI work to 50 Hz, processes semantic input on
 the loop where it is sampled, and uses typed render-state snapshots so unchanged
@@ -568,7 +571,7 @@ POMODORO uses the standard header with the phase as its title and a quiet `N/4`
 cycle counter. Its right footer slot shows `SPACE  START`, `SPACE  PAUSE`, or,
 while paused, `SPACE  RESUME` beneath a centered Ink `PAUSED`. MAC
 CONTROL has no internal chrome: bound tiles show a number and label; unbound
-tiles keep only the number. Digit keys 1–6 activate the current page slot, Left/Right slide
+tiles keep only the number. Digit keys 1–6 activate the current page slot, Left/Right switch
 between pages. A bound press waits on the resting grid; success lights that
 tile Leaf for 1.5 s, failure Vermilion for 2 s. Status is colour only. The tile
 then returns to the resting grid. Companion loss closes MAC CONTROL
@@ -584,7 +587,7 @@ charging. The overview has no title, connection label or connection dot. It
 shows five small page dots at the bottom edge and four detail pages follow: CPU / TOP APPS, POWER, NETWORK and MEMORY / DISK. Each
 detail page has a one-line header with the title and a quiet `N/5` counter,
 one-pixel rules, and four label/value rows with right-aligned values. Left and
-Right (`,` / `/`, with or without Fn) slide between pages and wrap. The app always
+Right (`,` / `/`, with or without Fn) switch between pages and wrap. The app always
 opens on the overview. Missing metrics and stale snapshots show `--` in their
 own fields; a Mac without a battery shows `NO BATTERY`, and a CPU page with
 no app at 1% or more shows `APPS IDLE` rather than empty rows. Labels are
@@ -598,8 +601,7 @@ MiniAppRuntime.
 AI is one Launcher entry requiring the live `COMPANION` capability. Its main
 pages have a 16-pixel navigation strip: `AI`, `STATUS`, `USAGE`, and Left/Right
 marks. The current page uses Ink/Bone inversion; the other label is Ordinal.
-Left/Right, including `,` / `/` without Fn, cycle the two pages with the shared
-220 ms slide in the direction of the pressed key. The last page
+Left/Right, including `,` / `/` without Fn, cycle the two pages. The last page
 is remembered within a firmware session; first entry opens STATUS. On USAGE,
 a Vermilion `!` beside STATUS means at least one agent has a fresh NEEDS YOU
 state. Agent polling continues throughout AI, including usage details; stale
@@ -631,8 +633,7 @@ and an unknown expiry shows `EXP --`. A missing rolling window shows `--` in
 its LIMITS column; reset details remain available. Titles outside the display
 font use `RESET CREDIT`. The physical `,` / `/` keys switch
 detail pages without Fn; the physical `;` / `.` keys scroll RESETS without Fn.
-LIMITS/RESETS switches use the common directional slide; scrolling rows remains
-immediate.
+LIMITS/RESETS switches and scrolling rows are immediate.
 Logical arrow keys also work. Enter returns to
 the dashboard. Details use the full 240×135 display without the main navigation
 strip. Both detail pages show `STALE` when the provider data is stale.
@@ -712,8 +713,7 @@ container shows its name as the title, a rule, and up to seven description
 lines in Ink: each line break starts a line and long lines word-wrap by code
 point. The right header slot shows the page counter (`1/2`) when there is more
 than one page and Leaf `SAVED` right after a registration. Up/Down (`;` / `.`)
-and Left/Right (`,` / `/`, with or without Fn) change pages without wrapping and
-slide in the direction of travel. A container without a description shows
+and Left/Right (`,` / `/`, with or without Fn) change pages without wrapping. A container without a description shows
 `NO DESCRIPTION YET` and `WRITE IT IN MAC COMPANION`. Text renders in UTF-8
 with the Cyrillic glyphs of the system font; an unsupported character is a
 box. Removing a known container's tag keeps its name and description on screen,
@@ -741,6 +741,30 @@ Only changed regions repaint, so the waiting screen redraws just the header
 status once every ten seconds; there is no animation and no key hint. R requests a new
 round through the Action Bus. A page that worsens to MINOR or above plays the
 fault cue once per round while the app is open (§7).
+WEB ACCESS uses the standard header `WEB ACCESS` with a right status: quiet
+Ordinal `OFF`, the client count (`NO CLIENTS`, `1 CLIENT`, `N CLIENTS`), or
+Vermilion `ERROR`. Off shows two centred lines (`STARTS A WI-FI NETWORK`, quiet
+`FOR A PHONE OR COMPUTER`), a quiet `BLUETOOTH PAUSES WHILE ON` lower down, and
+the footer `ESC BACK` / `ENTER START`. While it runs Bluetooth is held off, so
+Home's BT dot is hollow, and the Bluetooth row and SYSTEM show `PAUSED` for a
+saved On. SYSTEM's header names an abnormal last reset in Vermilion
+(`RESET: PANIC`, `WATCHDOG`, `BROWNOUT`). Running
+shows four fixed rows `01`–`04` (NETWORK, PASSWORD, OPEN, LOGIN); the password
+is the screen's one dominant value, centred below its label at 2× scale in
+groups of four, while the other values are right-aligned at the system scale.
+The footer is `ESC BACKGROUND` / `ENTER STOP` with a quiet `Q QR` between them;
+the rows are information, not a list, so there is no selection plate. **Q**
+replaces the screen with a full-screen join code: a QR Code (level M) of
+`WIFI:T:WPA;S:…;P:…;;` in Ink on Bone, centred at four pixels per module with at
+least a two-module light border, quiet `SCAN` / `TO JOIN` on the left and
+`Q CLOSE` on the right, outside the border. Q or Escape returns; Enter is
+ignored while the code is shown. Error shows
+`WI-FI DID NOT START` and `ESC BACK` / `ENTER RETRY`. Enter dispatches
+`web.set-enabled`; Escape closes the app and leaves the service running. A
+client-count change repaints only the header. The browser page follows the same
+palette (Bone, Ink, Blue, Vermilion, Leaf), flat one-pixel rules, numbered rows,
+an Ink selection plate and uppercase tracked monospaced labels, using the
+browser's own system fonts because the access point has no internet.
 Idle dimming, the final off fade and wake-input consumption are implemented for
 every screen and Mini App from the shared runtime input path; physical
 acceptance on Cardputer-Adv is pending. Remaining semantic

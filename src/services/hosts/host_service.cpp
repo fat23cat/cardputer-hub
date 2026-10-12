@@ -70,8 +70,12 @@ HostStatusSnapshot HostService::status() const {
     }
 
     const auto bluetoothState = bluetooth_.state();
-    snapshot.connectionEnabled =
-        bluetoothState != BluetoothState::Disabled && bluetoothState != BluetoothState::Error;
+    // While held the radio is off but the saved On/Off still applies: the
+    // Bluetooth toggle shows and flips that setting.
+    snapshot.connectionEnabled = radioHeld_ ? settings().bluetoothEnabled
+                                            : bluetoothState != BluetoothState::Disabled &&
+                                                  bluetoothState != BluetoothState::Error;
+    snapshot.radioHeld = radioHeld_;
     if (isFailure(lastResult_) || bluetoothState == BluetoothState::Error) {
         snapshot.connection = HostConnectionStatus::Error;
     } else if (bluetoothState == BluetoothState::Disabled) {
@@ -187,6 +191,11 @@ HostResult HostService::apply() {
     pairing_ = false;
     challenge_.reset();
     challengePeer_.reset();
+    if (radioHeld_) {
+        return bluetooth_.disable() == BluetoothDisableResult::AdapterError
+                   ? fail(HostResult::BluetoothError)
+                   : lastResult_ = HostResult::Success;
+    }
     if (!settings().bluetoothEnabled) {
         return bluetooth_.disable() == BluetoothDisableResult::AdapterError
                    ? fail(HostResult::BluetoothError)
@@ -230,6 +239,15 @@ HostResult HostService::selectHost(std::uint32_t id) {
     if (save(value) != HostResult::Success)
         return lastResult_;
     return apply();
+}
+
+void HostService::setRadioHold(bool held) {
+    if (held == radioHeld_)
+        return;
+    radioHeld_ = held;
+    if (!ready_)
+        return;
+    (void)apply();
 }
 
 HostResult HostService::setEnabled(bool enabled) {
@@ -322,6 +340,8 @@ HostResult HostService::startPairing() {
         return lastResult_;
     if (pairing_)
         return HostResult::Success;
+    if (radioHeld_)
+        return lastResult_ = HostResult::RadioHeld;
     if (settings().hosts.size() >= BluetoothService::maximumBondCount)
         return lastResult_ = HostResult::CapacityReached;
     if (initializeIdle() != HostResult::Success)

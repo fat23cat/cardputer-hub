@@ -126,7 +126,6 @@ class EspIdfBuildConfigurationTests(unittest.TestCase):
 
         expected_settings = (
             "CONFIG_COMPILER_OPTIMIZATION_SIZE=y",
-            "CONFIG_ESP_WIFI_SOFTAP_SUPPORT=n",
             "CONFIG_ESP_WIFI_ENTERPRISE_SUPPORT=n",
         )
         for setting in expected_settings:
@@ -141,6 +140,26 @@ class EspIdfBuildConfigurationTests(unittest.TestCase):
         )
         for setting in deferred_settings:
             self.assertNotIn(setting, configuration)
+
+    def test_wifi_and_tls_leave_heap_for_bluetooth(self) -> None:
+        # With Wi-Fi and BLE both running the heap fell to 17 KiB with a 7.7 KiB
+        # largest block, and allocations aborted the device.
+        configuration = self.read("sdkconfig.defaults")
+        for setting in (
+            "CONFIG_ESP_WIFI_IRAM_OPT=n",
+            "CONFIG_ESP_WIFI_RX_IRAM_OPT=n",
+            "CONFIG_ESP_WIFI_STATIC_RX_BUFFER_NUM=6",
+            "CONFIG_MBEDTLS_DYNAMIC_BUFFER=y",
+        ):
+            self.assertIn(setting, configuration)
+
+    def test_web_access_enables_the_access_point_and_http_server(self) -> None:
+        configuration = self.read("sdkconfig.defaults")
+        component = self.read("main/CMakeLists.txt")
+
+        self.assertIn("CONFIG_ESP_WIFI_SOFTAP_SUPPORT=y", configuration)
+        self.assertIn("CONFIG_HTTPD_MAX_REQ_HDR_LEN=2048", configuration)
+        self.assertIn("esp_http_server", component)
 
     def test_firmware_size_command_reports_the_completed_production_build(self) -> None:
         makefile = self.read("Makefile")
@@ -175,6 +194,7 @@ class EspIdfBuildConfigurationTests(unittest.TestCase):
             (
                 "#define CONFIG_COMPILER_OPTIMIZATION_SIZE 1",
                 "#define CONFIG_MBEDTLS_CERTIFICATE_BUNDLE 1",
+                "#define CONFIG_ESP_WIFI_SOFTAP_SUPPORT 1",
                 "#define CONFIG_ESP_WIFI_ENABLE_WPA3_SAE 1",
             )
         )
@@ -200,8 +220,8 @@ class EspIdfBuildConfigurationTests(unittest.TestCase):
                     "CONFIG_MBEDTLS_CERTIFICATE_BUNDLE must be enabled",
                 ),
                 (
-                    valid_header + "\n#define CONFIG_ESP_WIFI_SOFTAP_SUPPORT 1\n",
-                    "CONFIG_ESP_WIFI_SOFTAP_SUPPORT must be disabled",
+                    valid_header.replace("#define CONFIG_ESP_WIFI_SOFTAP_SUPPORT 1", ""),
+                    "CONFIG_ESP_WIFI_SOFTAP_SUPPORT must be enabled",
                 ),
                 (
                     valid_header + "\n#define CONFIG_ESP_WIFI_ENTERPRISE_SUPPORT 1\n",
@@ -425,6 +445,8 @@ class EspIdfBuildConfigurationTests(unittest.TestCase):
             "        hosts.update(elapsed);\n"
             "        companion.update(elapsed);\n"
             "        inventoryCompanion.update(elapsed);\n"
+            "        webAccess.update(elapsed);\n"
+            "        webAccessBluetoothPause.update();\n"
             "        hostControl.update();\n"
             "        macStatus.update(elapsed);\n"
             "        aiUsage.update(elapsed);\n"
@@ -449,6 +471,10 @@ class EspIdfBuildConfigurationTests(unittest.TestCase):
             "            const auto uiElapsed = uiScheduler.elapsedForUpdate(elapsed, !input.empty());\n"
             "            if (uiElapsed)\n"
             "                applicationShell.update(input, *uiElapsed, battery.percent(), runtime.displayOff());\n"
+            "        }\n"
+            "        if (now - lastHeapLogMilliseconds >= 60'000) {\n"
+            "            lastHeapLogMilliseconds = now;\n"
+            "            logHeap();\n"
             "        }\n"
             "        vTaskDelay(pdMS_TO_TICKS(1));",
             entrypoint,
@@ -622,7 +648,12 @@ class EspIdfBuildConfigurationTests(unittest.TestCase):
 
     def test_network_identity_logs_are_suppressed_before_wifi_init(self) -> None:
         adapter = self.read("src/hardware/esp32/wifi/esp32_wifi_adapter.cpp")
-        initialization = adapter[adapter.index("Esp32WifiAdapter::initializeStation()") :]
+        # The station and the WEB ACCESS access point share one driver
+        # initialization.
+        initialization = adapter[adapter.index("bool Esp32WifiAdapter::ensureDriver()") :]
+        for entry in ("Esp32WifiAdapter::initializeStation()", "Esp32WifiAdapter::startAccessPoint("):
+            body = adapter[adapter.index(entry) :]
+            self.assertIn("ensureDriver()", body[: body.index("\n}\n")])
 
         self.assertLess(
             initialization.index("suppressIdentityBearingWifiLogTags();"),
@@ -634,13 +665,14 @@ class EspIdfBuildConfigurationTests(unittest.TestCase):
         )
         self.assertIn('"wifi"', adapter)
         self.assertIn('"esp_netif_handlers"', adapter)
+        self.assertIn('"esp_netif_lwip"', adapter)
 
     def test_wifi_initializes_default_nvs_without_bluetooth_ordering_dependency(self) -> None:
         adapter = self.read("src/hardware/esp32/wifi/esp32_wifi_adapter.cpp")
-        initialization = adapter[adapter.index("Esp32WifiAdapter::initializeStation()") :]
+        initialization = adapter[adapter.index("bool Esp32WifiAdapter::ensureDriver()") :]
 
         nvs_initialization = initialization.index("nvs_flash_init()")
-        wifi_initialization = initialization.index("initializeWifiDriver()")
+        wifi_initialization = initialization.index("esp_wifi_init(&config)")
         self.assertLess(nvs_initialization, wifi_initialization)
 
 

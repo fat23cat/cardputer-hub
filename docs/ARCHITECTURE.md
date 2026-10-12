@@ -67,6 +67,7 @@ Core principle:
 │ IndicatorService                     │
 │ PomodoroService                      │
 │ NfcService / InventoryService        │
+│ WebAccessService                     │
 │ RemovableStorageService              │
 │ ConfigurationService                 │
 │ RemoteControlService                 │
@@ -160,6 +161,12 @@ includes no storage or configuration; board filesystem and SD card headers are
 included only under `src/hardware/storage/microsd/`; and Companion protocol and
 service code never includes File Storage, so inventory records cross BLE only
 through `InventoryService`.
+
+For the local web UI (plan 050) the script also enforces that only
+`src/hardware/esp32/http/esp32_http_server.cpp` includes `esp_http_server.h`;
+that `services/web_access/` and `InventoryWebEndpoint` include no file storage,
+removable storage or `InventoryStore`; and that the WEB ACCESS Mini App never
+calls a service mutator such as `setEnabled()` directly.
 
 ---
 
@@ -282,7 +289,10 @@ Bluetooth domain state and the active host name, and `BatteryService` supplies
 the estimate. The host row is visible only for a Ready connection with a name;
 it remains reserved while empty and truncates its display label when needed.
 The body is a 40-particle neutral Living Orb owned by Home presentation code.
-Home never uses application-specific Services to decorate its idle view.
+Home never uses application-specific Services to decorate its idle view. The
+one system-level exception is the WEB group: while `WebAccessService` is not
+Off, the status bar shows its dot and client count from
+`WebAccessService::status()`, set through `ApplicationShell::setWebAccess()`.
 
 `ApplicationShell` owns a NavigationStack rooted at `home`. Home selects `APPS`
 on each entry. Left/Right selects `APPS` or `SETTINGS`; plain Enter routes the
@@ -365,20 +375,11 @@ both glyph foreground and opaque background, and only that intersection counts
 as drawing damage. Home draws inverted text inside the moving focus plate and
 normal text outside it, with disjoint clips: a text pixel is painted only once
 even on the direct-draw fallback.
-`SlideTransition` in System Core provides bounded, testable 220 ms cubic timing
-and pixel composition for interruption. Views request forward/backward presentation through the
-optional display transition contract, before replacing page content; the shell
-supplies monotonic elapsed time each frame. UI navigation semantics remain in
-the shell/HostSettings, and LCD snapshot memory and presentation remain in the
-adapter. A transient second RGB565 buffer starts with the outgoing pixels and is
-advanced into one complete composed frame per animation step. It is freed when
-the slide finishes; allocation failure falls back to immediate completed
-presentation. Each step is transferred once as a full frame instead of relying
-on consecutive cropped DMA transfers. New navigation during a slide reuses that
-currently visible composition, keeping input responsive without jumping to a
-hidden destination.
-Multiple navigation Actions in one input poll retain one source snapshot and
-target the final page. Direct drawing remains available for startup
+Views still request forward/backward presentation through the optional display
+transition contract before replacing page content, but the Cardputer adapter
+presents the destination at once. The 220 ms slide was removed: it needed a
+transient second 64.8 KB RGB565 buffer, and that allocation next to Wi-Fi and
+BLE could exhaust the internal heap (devices restarted while opening lists). Direct drawing remains available for startup
 and allocation failure. UI objects retain ownership of
 layout and view state; the adapter owns canvas memory and physical LCD I/O.
 
@@ -696,6 +697,21 @@ CPU1 at priority 1, away from the UI loop on CPU0, and follows at most three
 redirects, only to https. It knows nothing about what it fetches. Choosing Wi-Fi or the Companion for a
 status page is `ServiceStatusService` data routing, not a transport router.
 
+`IHttpServer`, also under `connectivity/http`, is the inbound boundary of the
+local web UI (plan 050). The server runs on its own task and holds at most one
+request at a time: the main loop takes it with `poll()` as a copied
+`HttpRequest` (method, path, query, the Cookie and `X-Hub-Request` headers and a
+body of at most 5 KiB) and answers it with `respond()`; an answer for a request
+that is no longer waiting is dropped. `stop()` ends a waiting request. The
+server knows nothing about routes, sessions or apps. `Esp32HttpServer`
+implements it with `esp_http_server` on port 80, one task on CPU1, four sockets
+with LRU purge, a one-second receive and two-second send timeout, and three
+seconds for a request body; `stop()` abandons a body still arriving, so it
+returns within about a second. It closes, unanswered, every
+connection whose local address is not the access-point interface's, answers
+413 to a larger body before reading it, and answers 503 when the main loop has
+not responded within three seconds.
+
 The shared HID boundary is `IHidTransport` under `connectivity/hid`. It accepts
 only hardware-neutral six-key keyboard reports or one Consumer Page usage,
 reports explicit `Unavailable`, `Starting`, `Ready`, `Busy`, and `Error`
@@ -763,8 +779,17 @@ contents must never be logged.
 
 The Connectivity service does not self-start; normal firmware restores enabled
 intent through `NetworkService`. Scanning, interactive provisioning,
-captive-portal handling, access-point mode, and enterprise Wi-Fi remain outside
-this boundary. Connectivity may later expose shared networking infrastructure
+captive-portal handling, and enterprise Wi-Fi remain outside this boundary.
+
+Access-point mode is a separate, smaller contract in
+`connectivity/wifi/wifi_access_point.h`: `WifiAccessPointConfig` (SSID 1–32 and
+WPA2 passphrase 8–63 printable ASCII bytes, `validWifiAccessPointConfig()`) and
+`IWifiAccessPointAdapter` (`startAccessPoint`, `stopAccessPoint`,
+`accessPointClientCount`). It runs beside the station and never changes the
+station's intent, credentials or retry policy. Its only user is
+`WebAccessService`; there is no access-point Service.
+
+Connectivity may later expose shared networking infrastructure
 such as:
 
 ```text
@@ -1214,7 +1239,9 @@ HostProfile
 
 The implementation provides `start`, `update`, `selectHost`, `setEnabled`,
 `renameHost`, `setHostPlatform`, `setHostCapability`,
-`setHostMappingTemplate`, `startPairing`, `cancelPairing`, and `deleteHost`.
+`setHostMappingTemplate`, `startPairing`, `cancelPairing`, and `deleteHost`,
+plus `setRadioHold`, which is not an Action: only `WebAccessBluetoothPause`
+calls it (see §37), and the snapshot reports it as `radioHeld`.
 UI intentions use the shared ActionBus: `host.select` (`id`),
 `host.bluetooth` (`enabled`), `host.rename` (`id`, `name`),
 `host.platform` (`id`, `platform`; empty clears), `host.capability` (`id`,
@@ -2302,6 +2329,52 @@ authorization, protocol operations, and Service ownership remain distinct.
 
 ## 37. Local Web UI
 
+**Delivered as WEB ACCESS (plan 050).** `WebAccessService`
+(`services/web_access`) runs a WPA2 access point through
+`IWifiAccessPointAdapter`, an HTTP server through `IHttpServer`, sign-in, and
+the routing to registered web apps. It is Off at every boot and changes state
+only through the `web.set-enabled` Action, which the WEB ACCESS Mini App
+dispatches. Its states are `Off`, `Running` and `Error`; a failure while
+starting rolls back whatever started, and a server that stops by itself also
+enters `Error`. The network name (`HUB-` and four random hex digits) and a
+twelve-character password from a five-bit unambiguous alphabet are generated
+once from `IRandomSource` and kept in the configuration storage at `web/access`
+(format byte 1, then length-prefixed SSID and password); an unreadable record is
+replaced. `app_main` calls `update()` once per loop; it answers at most one
+request per call, so every Service it reaches runs on the main loop only.
+
+Routes: `GET /` serves the page, `web/index.html` gzipped at build time into
+`services/web_access/web_ui_asset.h` by `scripts/generate_web_ui.py`, which also
+draws the home-screen icons (`/apple-touch-icon.png`, `/icon-192.png`,
+`/icon-512.png`) and writes `/manifest.webmanifest`; these are served without a
+session;
+`POST`/`DELETE /api/session` sign in and out; `GET /api/hub` returns the
+device block and the app list with each app's summary; `/api/<id>/…` goes to
+the app with that id. Apps implement `IWebApp` (`id`, `title`, `summaryJson`,
+`handle`, `reset`); registration order is the order of tiles and tabs, at most
+eight. `InventoryWebEndpoint` is the first: a paged list (`?after=<id>`, at most
+16 records and about 6 KiB per page, damaged files as
+`{"id","damaged":true}`), get, put and delete over `InventoryService`'s domain
+operations with the same canonical JSON and revision checks as the Companion
+endpoint.
+
+BLE and the access point share the ESP32-S3 radio. With BLE advertising or
+connected, phones failed the WPA2 handshake on the device, so
+`WebAccessBluetoothPause`, updated once per loop after `WebAccessService`,
+holds Bluetooth off through `HostService::setRadioHold()` while the service is
+Running. The hold changes no saved setting: `apply()` keeps the radio off while
+held, host selection and On/Off made meanwhile are saved and applied when the
+hold ends, and pairing is refused with `HostResult::RadioHeld`.
+
+The page is one self-contained file (no external resources; the network has no
+internet) that renders every record value as text, never as markup. It is a
+shell: a start screen of app tiles, header tabs, and one page per app. It
+updates in place: page changes render from what the page already holds and
+refresh in the background, choosing a record swaps only the editor, and a
+loading notice appears only after 300 ms.
+
+The longer-term direction below still applies to remote control in general.
+
 A future local Web UI may run directly from Cardputer.
 
 ```text
@@ -2420,6 +2493,17 @@ Action Bus
 The exact security mechanism may be decided later.
 
 Remote APIs must not be designed around unrestricted arbitrary command execution.
+
+The local web UI's boundary (plan 050): only devices that know the WPA2
+password reach it, and only on the access-point interface. Sign-in compares the
+login `admin` and the same password in constant time; five failures lock it for
+30 s. A session is a 128-bit random token in an `HttpOnly; SameSite=Strict`
+cookie; at most four exist, each ends after 30 idle minutes, and all end when
+the service stops. Every non-GET API request must carry `X-Hub-Request: 1`,
+which a cross-site form cannot send. The page is served with a restrictive
+Content-Security-Policy, and API responses are `no-store` and `nosniff`.
+Credentials, tokens, request bodies, paths and client addresses are not logged.
+The connection itself is plain HTTP inside the WPA2 network.
 
 The host companion has a separate outbound integration boundary. BLE link
 encryption, authenticated bonding, and selected-host filtering are prerequisites,
@@ -2942,8 +3026,8 @@ framework default NVS partition before Wi-Fi so startup does not depend on
 Bluetooth having run first. It exclusively initializes the driver, constructs
 its default station interface through checked allocation, attachment, and
 handler-registration operations, rolls back the interface and driver after any
-partial initialization failure, selects station mode and RAM-backed
-configuration storage, begins exactly one association attempt per Service
+partial initialization failure, selects station mode (APSTA while the access
+point also runs) and RAM-backed configuration storage, begins exactly one association attempt per Service
 request, and propagates connect and disconnect operation failures. It does not
 initialize Arduino's Wi-Fi facade, whose event handler has independent
 reconnect behavior and emits network identity at high framework log levels. The
@@ -2957,8 +3041,26 @@ before reporting `Connected`; an unassociated or DHCP-pending attempt remains
 Only ESP-IDF's ordinary not-connected result represents that in-progress state;
 other access-point query failures are fatal adapter errors. RSSI is optional and
 comes from the current ESP-IDF access-point record, so an asynchronous link loss
-cannot be mistaken for a valid measurement. The adapter is compiled but not
-constructed by `main.cpp`.
+cannot be mistaken for a valid measurement.
+
+The same `Esp32WifiAdapter` implements `IWifiAccessPointAdapter` over the one
+driver. It initializes the driver for whichever half starts first, creates the
+default access-point interface (192.168.4.1/24 with DHCP) once, and switches the
+mode between `STA`, `AP` and `APSTA` as halves start and stop, stopping the
+driver when neither is active. The access point is WPA2-PSK with PMF capable,
+at most four clients, and in APSTA follows the station's channel. The DHCP
+server's per-client log lines are suppressed.
+
+Wi-Fi and BLE share about 274 KiB of internal heap with the 64.8 KiB display
+canvas. Measured on the device with both running and a Mac connected, the heap
+fell to 17 KiB with a 7.7 KiB largest block, and a configuration save that
+reserved its 10 KiB worst case aborted the device when Wi-Fi was turned on. The
+build therefore keeps the Wi-Fi fast paths in flash (`CONFIG_ESP_WIFI_IRAM_OPT`
+and `CONFIG_ESP_WIFI_RX_IRAM_OPT` off), holds six static RX buffers, and uses
+mbedTLS dynamic buffers; `ConfigurationService::save()` grows its buffer with
+the record instead. The same scenario then left 40 KiB free, a 33 KiB minimum
+and a 31 KiB largest block. `app_main` logs these three heap figures once a
+minute, and the last abnormal reset at start.
 
 `BluetoothService` and `IBluetoothAdapter` likewise contain no ESP32 types.
 `Esp32BluetoothAdapter` uses the pinned framework's direct ESP-IDF Bluetooth
@@ -3173,7 +3275,7 @@ Transport expansion does not block the BLE-only software scope.
 - [x] NavigationStack/ActionBus integration and modal-aware Back behavior.
 - [x] Plain Tab for built-in settings; Fn+Tab is inactive and normal G0 has no application action.
 - [x] Shared palette, bitmap typography, buffered dirty-region presentation.
-- [x] Non-blocking 220 ms page slides and interruption from the visible frame.
+- [x] Page changes presented at once (the 220 ms slide was removed to save 64.8 KB of heap).
 - [x] AppRegistry-driven Launcher and navigation into registered Mini Apps.
 - [ ] Configurable global shortcuts and broader shell controls.
 - [x] Live Home Wi-Fi status from NetworkService; no clock placeholder.
@@ -3280,7 +3382,7 @@ physical acceptance remain.
 - [ ] TelegramService and Telegram integration.
 - [ ] MediaService.
 - [ ] Home Assistant.
-- [ ] Web UI.
+- [x] Local web UI shell and the Inventory web app (WEB ACCESS, plan 050).
 - [ ] Companion Wi-Fi/USB transports, explicit selection policy, and session
   handoff if a second transport is justified.
 - [ ] Companion media, clipboard, notification, system-information, file, OTA,
@@ -3346,7 +3448,6 @@ TelegramService
 Telegram Bot
 VpsService
 VPS Monitor
-Local Web UI
 VPS backend
 polished macOS menu-bar companion
 Windows/Linux companion

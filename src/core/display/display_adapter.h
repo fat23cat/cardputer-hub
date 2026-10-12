@@ -1,10 +1,12 @@
 #pragma once
 
-#include "core/display/slide_transition.h"
+#include <chrono>
 #include <cstdint>
 #include <optional>
 
 namespace cardputer_hub::core {
+
+enum class SlideDirection { Forward, Backward };
 
 struct RgbColor {
     std::uint8_t red;
@@ -38,8 +40,9 @@ class IDisplayAdapter {
     // Simple adapters may draw immediately; settled views issue no drawing calls.
     virtual void beginFrame() {}
     virtual void endFrame() {}
-    // Advance at frame start, then request a transition before replacing a page.
-    // Adapters without snapshot support present the destination immediately.
+    // Page-change hooks. Views request a transition before replacing a page;
+    // the Cardputer adapter presents the destination at once (a slide needed a
+    // second full-screen buffer the heap cannot spare next to Wi-Fi and BLE).
     virtual void advanceTransition(std::chrono::milliseconds) {}
     virtual void beginTransition(SlideDirection) {}
     virtual bool transitionActive() const { return false; }

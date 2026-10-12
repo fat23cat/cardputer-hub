@@ -1,3 +1,4 @@
+#include "../support/web_access_fakes.h"
 #include "apps/hosts/host_settings.h"
 #include "apps/network/wifi_settings.h"
 #include "apps/nfc/nfc_app.h"
@@ -1741,6 +1742,57 @@ void test_home_names_the_side_to_update_after_a_companion_mismatch() {
     TEST_ASSERT_TRUE(f.display.shows("REBUILD BOTH"));
 }
 
+bool webDotHasColor(const Display& display, core::RgbColor color) {
+    return std::any_of(display.fills.begin(), display.fills.end(), [&](const Display::Fill& fill) {
+        return fill.position.x >= apps::homeWebDotPosition.x &&
+               fill.position.x < apps::homeWebDotPosition.x + 5 &&
+               fill.position.y >= apps::homeWebDotPosition.y &&
+               fill.position.y < apps::homeWebDotPosition.y + 5 && fill.color.red == color.red &&
+               fill.color.green == color.green && fill.color.blue == color.blue;
+    });
+}
+
+void test_home_shows_web_group_while_web_access_runs() {
+    Fixture f;
+    test_support::FakeAccessPoint accessPoint;
+    test_support::FakeHttpServer server;
+    test_support::MapStorage webMemory;
+    core::Storage webStorage{webMemory};
+    test_support::CountingRandom random;
+    services::WebAccessService web(accessPoint, server, webStorage, random);
+    auto shell = f.makeShell();
+    shell.setWebAccess(web);
+    shell.update({});
+    TEST_ASSERT_FALSE(f.display.shows("WEB"));
+
+    (void)web.setEnabled(true);
+    f.display.fills.clear();
+    f.display.texts.clear();
+    shell.update({});
+    TEST_ASSERT_TRUE(f.display.shows("WEB"));
+    TEST_ASSERT_TRUE(webDotHasColor(f.display, core::palette::leaf));
+
+    accessPoint.clients = 2;
+    web.update(services::WebAccessService::clientPollInterval);
+    f.display.texts.clear();
+    shell.update({});
+    TEST_ASSERT_TRUE(f.display.shows("2"));
+
+    accessPoint.failStart = true;
+    (void)web.setEnabled(false);
+    (void)web.setEnabled(true);
+    f.display.fills.clear();
+    shell.update({});
+    TEST_ASSERT_TRUE(webDotHasColor(f.display, core::palette::vermilion));
+
+    (void)web.setEnabled(false);
+    f.display.fills.clear();
+    f.display.texts.clear();
+    shell.update({});
+    TEST_ASSERT_FALSE(f.display.shows("WEB"));
+    TEST_ASSERT_FALSE(webDotHasColor(f.display, core::palette::vermilion));
+}
+
 void test_home_ready_host_row_updates_without_moving_orb_or_actions() {
     Fixture f;
     connectivity::BluetoothBondReference bond{};
@@ -1921,6 +1973,7 @@ int main() {
     RUN_TEST(test_bluetooth_fake_defaults_have_no_bond_or_ready_hid);
     RUN_TEST(test_companion_availability_alone_keeps_home_device_row_empty);
     RUN_TEST(test_home_names_the_side_to_update_after_a_companion_mismatch);
+    RUN_TEST(test_home_shows_web_group_while_web_access_runs);
     RUN_TEST(test_home_ready_host_row_updates_without_moving_orb_or_actions);
     RUN_TEST(test_home_orb_does_not_advance_while_display_off);
     RUN_TEST(test_home_entering_while_display_off_defers_ambient_frame);

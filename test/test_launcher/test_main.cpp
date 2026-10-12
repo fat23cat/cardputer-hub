@@ -287,6 +287,13 @@ void test_known_icon_and_fallback_are_14_by_14() {
     TEST_ASSERT_TRUE(fallbackInk);
 }
 
+void test_web_access_icon_is_dedicated_and_14_by_14() {
+    TEST_ASSERT_TRUE(apps::assets::appIconRows("web-access") == apps::assets::webAccessAppIcon);
+    for (int y = 0; y < apps::assets::appIconSize; ++y)
+        TEST_ASSERT_EQUAL_UINT(apps::assets::appIconSize,
+                               std::strlen(apps::assets::webAccessAppIcon[y]));
+}
+
 void test_nfc_icon_is_dedicated_and_14_by_14() {
     TEST_ASSERT_TRUE(apps::assets::appIconRows("nfc") == apps::assets::nfcAppIcon);
     TEST_ASSERT_TRUE(apps::assets::appIconRows("ai-status") == apps::assets::aiStatusAppIcon);
@@ -496,6 +503,7 @@ int main() {
     RUN_TEST(test_three_row_window_keeps_selection_visible);
     RUN_TEST(test_known_icon_and_fallback_are_14_by_14);
     RUN_TEST(test_nfc_icon_is_dedicated_and_14_by_14);
+    RUN_TEST(test_web_access_icon_is_dedicated_and_14_by_14);
     RUN_TEST(test_selected_icon_is_inverted);
     RUN_TEST(test_unselected_ordinals_are_quiet);
     RUN_TEST(test_availability_indicators_use_leaf_and_vermilion);

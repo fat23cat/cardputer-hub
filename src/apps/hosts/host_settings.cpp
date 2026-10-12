@@ -45,6 +45,8 @@ const char* error(services::HostResult result) {
         return "Pair missing - select another";
     case services::HostResult::CapacityReached:
         return "Host list is full";
+    case services::HostResult::RadioHeld:
+        return "Paused for WEB ACCESS";
     }
     return "Error";
 }
@@ -261,7 +263,10 @@ void HostSettings::renderList() {
         }
         if (row == 0) {
             next.labels[slot] = "Bluetooth";
-            next.values[slot] = hostStatus.connectionEnabled ? "ON" : "OFF";
+            // While WEB ACCESS holds the radio, a saved On reads PAUSED.
+            next.values[slot] = !hostStatus.connectionEnabled ? "OFF"
+                                : hostStatus.radioHeld        ? "PAUSED"
+                                                              : "ON";
         } else if (row == 1) {
             next.labels[slot] = "Add device";
         } else if (row - 2 < settings.hosts.size()) {

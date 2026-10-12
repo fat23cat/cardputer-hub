@@ -8,7 +8,9 @@ shows a compact device-status bar above a gently moving 40-particle Living Orb.
 The fixed WiFi and BT groups use a dot and label. WiFi is hollow when no network
 is saved, pale when off, blue while connecting, green when connected, and red
 on error. BT is hollow when off, blue while connecting or pairing, green when
-ready, and red on error. The right-aligned
+ready, and red on error. While WEB ACCESS is on, a third group, `WEB`, follows
+with a green dot and the number of connected phones or computers (none when no
+one is connected), or a red dot if it could not start. The right-aligned
 battery percentage has no icon; it shows `--%` when unavailable. Battery is
 sampled every five seconds, and the voltage-based estimate can be less
 accurate with USB power connected. A row below the Orb shows a round green dot
@@ -22,10 +24,15 @@ each time Home opens. Press **Left** or **Right** to select an action, then
 **Enter** to open it. Plain **Tab** opens Settings directly. The
 list currently contains **SYSTEM**, a read-only status screen for battery,
 Bluetooth, the selected host, Wi-Fi, and the firmware build (date and
-commit, as `BUILD`); **POMODORO**, a
+commit, as `BUILD`). If Hub itself restarted after a crash, a watchdog or a
+supply drop, its header shows `RESET: PANIC`, `RESET: WATCHDOG` or
+`RESET: BROWNOUT` in red until the next start. CRUB's own menu sits between a
+crash and Hub when Hub is launched with `go`, and Hub then sees an ordinary
+restart; to catch such a crash, run `make monitor` over USB; **POMODORO**, a
 background focus timer; **SERVICES HEALTH**, the public status of GitHub,
 Anthropic, OpenAI and Cursor; **LED GALLERY**, an 8×8 matrix animation app; **NFC**, an inventory of NFC-tagged boxes and bags, when an
-M5Stack Unit NFC is connected; and **MAC CONTROL** when a live Cardputer Companion
+M5Stack Unit NFC is connected; **WEB ACCESS**, the Cardputer's own Wi-Fi
+network with a browser page for the inventory; and **MAC CONTROL** when a live Cardputer Companion
 session is ready. **MAC STATUS** and **AI** appear with that session too. AI's
 **USAGE** page shows automatically discovered Codex, Cursor and Claude account
 quota; **STATUS** shows whether their desktop agents are working. MAC CONTROL is a full-screen
@@ -34,7 +41,7 @@ firmware binds **1** to Telegram. Empty numbered tiles do nothing. Left and
 Right move between pages when more than one page exists. A bound press expands
 that tile in blue while the Mac opens the app, then flashes green on success or
 red if the app is not found, and returns to the grid. Escape returns from
-SYSTEM, POMODORO, SERVICES HEALTH, LED GALLERY, NFC, MAC CONTROL, MAC STATUS, or either main page
+SYSTEM, POMODORO, SERVICES HEALTH, LED GALLERY, NFC, WEB ACCESS, MAC CONTROL, MAC STATUS, or either main page
 of AI to Apps, and from Apps to Home. In AI's usage details, Escape first returns
 to USAGE. If Companion disappears
 while MAC CONTROL is open, the app closes and Apps returns; reconnect does not
@@ -183,10 +190,11 @@ automatically. If the record could not be deleted after a verified erase,
 with unrelated NDEF data can also be erased after confirmation, without
 deleting any inventory record. Locked or reserved areas are not erased.
 
-**Edit on the Mac.** With Cardputer Companion connected, choose **Inventory**
-in its menu (see [Inventory on the Mac](#inventory-on-the-mac)). Saved edits appear
-on the Cardputer the next time the sticker is tapped, or at once if it is on
-the reader.
+**Edit on the Mac or in a browser.** With Cardputer Companion connected, choose
+**Inventory** in its menu (see [Inventory on the Mac](#inventory-on-the-mac)), or
+start [WEB ACCESS](#web-access) and open the Inventory app on a phone or
+computer. Saved edits appear on the Cardputer the next time the sticker is
+tapped, or at once if it is on the reader.
 
 The ID on a sticker is a locator, not a secret: copying it to another sticker
 makes both open the same record. Physical acceptance of NFC writing, microSD
@@ -341,8 +349,7 @@ loss closes MAC STATUS and reconnect does not reopen it automatically.
 ## AI
 
 Open **AI** in Apps. The top strip shows **STATUS** and **USAGE**; press
-Left/Right (the `,` / `/` keys also work without Fn) to cycle between the pages
-with a short slide in the direction you press. The first visit
+Left/Right (the `,` / `/` keys also work without Fn) to cycle between the pages. The first visit
 opens STATUS, and later visits remember your last page until a restart. All
 account and agent information remains visible below the strip. On USAGE, a red
 `!` beside STATUS means an agent needs attention; switch to STATUS to see which
@@ -407,7 +414,7 @@ screen shows the number of available reset credits. Its absence means that
 the count is unavailable; `R×0` means none remain. Press Enter for LIMITS
 (two separate columns for used, left and reset timing). Press the `,` / `/`
 keys marked Left / Right without Fn to switch to RESETS (count, short titles
-and expiry), with a short slide in the pressed direction. Expiry appears in days,
+and expiry). Expiry appears in days,
 hours, or minutes; `EXP NOW` means it has
 elapsed, and `EXP --` means its timing is unknown. Up/Down scrolls when there
 are more than two detail rows; the `;` / `.` keys work without Fn. Enter
@@ -501,6 +508,85 @@ When a page gets worse than the last level seen since startup, to `MINOR` or
 above, SERVICES HEALTH plays a short descending fault sound, at most once per round
 and only while the app is open. Recovery, planned maintenance and the first
 check after startup are silent. The LED is not used.
+
+## WEB ACCESS
+
+**WEB ACCESS** turns the Cardputer into a small Wi-Fi network with a web page,
+so a phone or a computer can work with Hub data in a browser. The page is a
+start screen with one tile per web app; the first app is **Inventory**.
+
+Open WEB ACCESS from Apps. It is off after every start of the Cardputer: the
+screen says `OFF` and `ENTER START`. Press **Enter**. The screen then shows four
+rows:
+
+| Row | Meaning |
+| --- | --- |
+| `NETWORK` | The network name, `HUB-` and four characters. |
+| `PASSWORD` | Twelve lowercase letters and digits, without `l`, `o`, `0` and `1`, shown large in three groups of four. The spaces between the groups are not part of the password. |
+| `OPEN` | The address to open in the browser, `192.168.4.1`. |
+| `LOGIN` | The login for the page, `admin`. |
+
+Press **Q** to show a QR code over the whole screen. Point the iPhone or
+Android camera at it and tap the suggestion to join the network without typing
+the password. Press **Q** or **Escape** to return; **Enter** does nothing while
+the code is shown.
+
+The network name and password are created the first time and kept, so a phone
+that joined once rejoins later without typing them again. The header's right
+corner counts the connected devices (`NO CLIENTS`, `1 CLIENT`, `2 CLIENTS`); at
+most four can join.
+
+On the phone or computer:
+
+1. Join the Wi-Fi network: scan the QR code (**Q**), or choose `NETWORK` and type
+   the `PASSWORD`. A phone may warn that the network has no internet; stay
+   connected to it.
+2. Open `http://192.168.4.1` in the browser.
+3. Sign in with login `admin` and the same password.
+
+The start screen shows the **Inventory** tile with the number of containers on
+the microSD card, and a DEVICE block with the network, the connected devices,
+the microSD card and the address. The header has a tab for each app; `HUB`
+returns to the start screen and **SIGN OUT** ends the browser's session.
+
+**Inventory** lists every container record, sorted by name, with a search
+field that matches names and descriptions. On a computer the list and the
+editor sit side by side; on a phone, tap a container to edit it and use the
+back arrow to return. The editor works like the Companion's: the **name** has
+up to 32 characters, the **description** up to 900 characters with line breaks,
+and the counters show what is left. **Save** commits the next revision;
+**Reload** discards the edits; **Delete…** asks first and removes the record
+from the microSD card for good. Erase the tag on the Cardputer to reuse it. If
+the record was changed on the Cardputer or the Mac since it was opened, saving
+shows **Changed on the Cardputer** and keeps your text so you can copy it;
+**Reload** shows the current version. A record the Cardputer cannot read is
+listed as **Damaged record** and can only be deleted. Records cannot be created
+in the browser: a new container needs its tag on the reader.
+
+**Bluetooth pauses while WEB ACCESS runs.** Bluetooth and the Cardputer's Wi-Fi
+network share one radio, and with Bluetooth on, phones could not join. While
+WEB ACCESS is on, Bluetooth is off: the Mac connection, MAC CONTROL, MAC STATUS,
+AI and the Companion's Inventory are unavailable, Home's BT dot is hollow, the
+Bluetooth row and SYSTEM show `PAUSED`, and pairing a new computer shows
+`Paused for WEB ACCESS`. Choosing a host or turning
+Bluetooth on or off meanwhile is remembered; when WEB ACCESS stops, Bluetooth
+returns to its saved setting by itself.
+
+Press **Escape** to leave WEB ACCESS: the network and the page keep running in
+the background while you use other apps, and Home shows the `WEB` group. Open
+WEB ACCESS again and press **Enter** to stop it; stopping signs every browser
+out. A wrong password five times in a row blocks signing in for 30 seconds, and
+a browser that does nothing for 30 minutes is signed out. If the network could
+not start, the screen shows `WI-FI DID NOT START` and **Enter** tries again.
+
+**Add it to the iPhone home screen.** In Safari, open `http://192.168.4.1`, tap
+Share › **Add to Home Screen**. The Hub icon then opens the page full screen,
+without Safari's bars. It works only while the phone is on the Cardputer's
+network, and the home-screen app signs in separately from Safari.
+
+The page is served only on the Cardputer's own network, never on the home Wi-Fi
+the Cardputer may be connected to at the same time; both keep working. The
+connection is plain HTTP inside the WPA2-protected network.
 
 ## Wi-Fi
 
@@ -606,10 +692,7 @@ opening/closing settings does not change saved host selection or BLE On/Off.
 Fn+Tab is inactive, and a normal G0 press does nothing. Holding G0 while
 starting or resetting the device still enters the firmware download mode.
 The Living Orb pauses while Settings, Bluetooth, Wi-Fi, Apps,
-or SYSTEM is open and during screen transitions. Screens slide in from the right when opening and
-from the left when returning, taking about 220 ms. You can keep pressing keys
-during a transition; navigation does not wait for the animation to finish.
-Moving between rows and live Bluetooth status updates do not slide the screen.
+or SYSTEM is open. Screens change at once, without a slide.
 
 These keys operate Cardputer locally. The current settings screen does not
 forward typing, shortcuts, or media commands to the computer. Firmware Services
@@ -698,12 +781,16 @@ selected host after Reset/power-on were confirmed on Cardputer-Adv. Extended
 Off, report/interruption and USB hotplug acceptance remains tracked in
 [plan 017](../plans/017-hid-transport-arbitration.md#0-current-closeout-status).
 The current firmware includes Apps, SYSTEM, POMODORO, SERVICES HEALTH, LED GALLERY, NFC when a Unit NFC is
-connected at startup, MAC CONTROL when
+connected at startup, WEB ACCESS, MAC CONTROL when
 Companion is ready, and MAC STATUS and AI with that Companion
 session. AI's STATUS page has not yet been checked with the real desktop apps on
 both Macs or on a physical Unit Puzzle. SERVICES HEALTH has not yet been checked on a
 physical Cardputer over Wi-Fi or through the Companion; it reads only the four
-built-in status pages, which cannot be changed on the device. It does not include profile-metadata editing or template
+built-in status pages, which cannot be changed on the device. WEB ACCESS has
+not yet been checked on a physical Cardputer with a phone and a computer
+([plan 050](../plans/050-web-access.md#9-physical-acceptance)); its network name
+and password cannot be changed on the device, it has no captive portal, `.local`
+name or HTTPS, and it does not start by itself. It does not include profile-metadata editing or template
 resolution, Action-to-HID mappings, a Mac companion CLI/control protocol,
 Wi-Fi network scanning, or weather/VPS/Telegram features. Boot and other status
 sound cues from the broader UI requirements remain planned; only SERVICES HEALTH's fault

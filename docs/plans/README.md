@@ -63,6 +63,8 @@ ownership matrix with invariants. Do not rewrite older plans into that format.
 | [047](047-ai-agent-status.md#current-status) | AI STATUS: desktop-agent activity through Companion on the LCD and an adaptive Unit Puzzle view | Software implemented; automated gates pass; hook check and physical acceptance pending |
 | [048](048-combined-ai-app.md#current-status) | Combined AI application with STATUS/USAGE navigation and preserved quota details | Software implemented; local gates pass; physical acceptance pending |
 | [049](049-service-status.md#current-status) | SERVICES HEALTH: GitHub, Anthropic, OpenAI and Cursor status pages over Wi-Fi or through Companion, with a fault cue | Software implemented; local gates pass; physical acceptance pending |
+| [050](050-web-access.md#current-status) | WEB ACCESS: Wi-Fi access point, signed-in local web UI with app tiles and the Inventory editor, running in the background | Software implemented; local gates pass; physical acceptance pending |
+| [051](051-g0-status-sheet.md#current-status) | G0 STATUS sheet: Wi-Fi, Bluetooth, Companion and battery over any screen | Planned; not implemented |
 
 The work referred to historically as 013 is the approved
 [UI requirements](../UI_REQUIREMENTS.md); there is no separate plan-013 file.

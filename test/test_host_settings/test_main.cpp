@@ -443,6 +443,21 @@ void test_host_status_changes_redraw_only_status_and_bluetooth_row() {
     TEST_ASSERT_EQUAL_INT32(24, f.display.rectangles.back().position.y);
 }
 
+void test_bluetooth_row_shows_paused_while_web_access_holds_the_radio() {
+    Fixture f;
+    auto value = f.config.value();
+    value.host.activeHost = 8;
+    TEST_ASSERT_TRUE(f.config.save(value) == services::ConfigurationResult::Success);
+    f.adapter.hardwareExpected = true;
+    f.adapter.bonded.push_back(value.host.hosts.front().bond);
+    TEST_ASSERT_TRUE(f.hosts.start() == services::HostResult::Success);
+    TEST_ASSERT_TRUE(f.hosts.setEnabled(true) == services::HostResult::Success);
+    f.hosts.setRadioHold(true);
+    f.ui.update({});
+    TEST_ASSERT_TRUE(std::find(f.display.texts.begin(), f.display.texts.end(), "PAUSED") !=
+                     f.display.texts.end());
+}
+
 void test_bluetooth_header_status_is_right_aligned() {
     Fixture f;
     f.ui.update({});
@@ -1066,6 +1081,7 @@ int main() {
     RUN_TEST(test_transactional_modals_show_contextual_footers);
     RUN_TEST(test_rename_input_redraws_once_and_unchanged_rename_state_stays_idle);
     RUN_TEST(test_host_status_changes_redraw_only_status_and_bluetooth_row);
+    RUN_TEST(test_bluetooth_row_shows_paused_while_web_access_holds_the_radio);
     RUN_TEST(test_bluetooth_header_status_is_right_aligned);
     RUN_TEST(test_shorter_bluetooth_status_erases_the_previous_label);
     RUN_TEST(test_home_bluetooth_status_change_redraws_only_the_bt_slot);

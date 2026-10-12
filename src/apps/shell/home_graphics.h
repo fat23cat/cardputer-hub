@@ -3,12 +3,16 @@
 #include "services/companion/companion_service.h"
 #include "services/hosts/host_service.h"
 #include "services/network/network_service.h"
+#include "services/web_access/web_access_service.h"
+#include <cstddef>
 #include <optional>
 #include <string>
 
 namespace cardputer_hub::apps {
 inline constexpr core::PixelPosition homeWifiDotPosition{8, 8};
 inline constexpr core::PixelPosition homeBluetoothDotPosition{62, 8};
+// Shown only while WEB ACCESS is not Off.
+inline constexpr core::PixelPosition homeWebDotPosition{104, 8};
 inline constexpr core::PixelPosition homeAmbientOrigin{0, 22};
 inline constexpr std::int32_t homeAmbientWidth = 240;
 inline constexpr std::int32_t homeAmbientHeight = 74;
@@ -31,6 +35,11 @@ HomeStatusIndicator homeBluetoothIndicator(services::HostConnectionStatus status
 void drawHomeStatusBar(core::IDisplayAdapter& display);
 void drawHomeWifi(core::IDisplayAdapter& display, HomeStatusIndicator indicator);
 void drawHomeBluetooth(core::IDisplayAdapter& display, HomeStatusIndicator indicator);
+// Nothing while WEB ACCESS is Off; Leaf while it runs, Vermilion after a failure.
+std::optional<HomeStatusIndicator> homeWebIndicator(services::WebAccessState state);
+// Clears the group, then draws the dot, the label and the client count.
+void drawHomeWeb(core::IDisplayAdapter& display, std::optional<HomeStatusIndicator> indicator,
+                 std::size_t clients);
 std::string homeConnectedDeviceName(const services::HostStatusSnapshot& status);
 // `warning` swaps the Leaf dot for Vermilion, for a Companion mismatch notice.
 void drawHomeConnectedDevice(core::IDisplayAdapter& display, const std::string& name,
