@@ -623,7 +623,8 @@ let v2 = CompanionSession(applications: FakeApplications(), metrics: collector,
         ]
         expect(AiUsageNormalization.codex(selectedCodex)?.metrics.first?.remainingPercent == 63,
                "canonical Codex bucket wins over legacy data")
-        let invalidBuckets: [Any] = [[:], "invalid", ["codex": NSNull()], ["codex": []]]
+        let invalidBuckets: [Any] = [[String: Any](), "invalid", ["codex": NSNull()],
+                                     ["codex": [Any]()]]
         for buckets in invalidBuckets {
             expect(AiUsageNormalization.codex(["rateLimitsByLimitId": buckets,
                                                "rateLimits": plus["rateLimits"]!]) == nil,
@@ -770,7 +771,8 @@ let v2 = CompanionSession(applications: FakeApplications(), metrics: collector,
                businessSample?.metrics.first?.remaining == 235 &&
                businessSample?.metrics.first?.remainingPercent == 1,
                "real Business numeric strings and fractional credits normalized")
-        expect(AiUsageNormalization.codex(["rateLimitsByLimitId": ["codex": business]])?
+        expect(AiUsageNormalization.codex(["rateLimitsByLimitId": ["codex": business]],
+                                          now: displayNow)?
             .metrics == businessSample?.metrics, "canonical Business credits remain supported")
         expect(AiUsageNormalization.codex(["ordinaryUsageAllowed": false,
                                            "rateLimitsByLimitId": ["codex": business]]) == nil,
