@@ -120,7 +120,12 @@ final class CodexUsageProvider: AiUsageProviderRefreshing {
         } else if id == activeId {
             activeId = nil
             let result = object["result"] as? [String: Any]
-            finish(result.flatMap { AiUsageNormalization.codex($0, accountPlan: accountPlan) })
+            if result?["ordinaryUsageAllowed"] as? Bool == false {
+                // A backend restriction is unavailable, not a retryable transport failure.
+                finish(nil, unavailable: true)
+            } else {
+                finish(result.flatMap { AiUsageNormalization.codex($0, accountPlan: accountPlan) })
+            }
         }
     }
 
@@ -151,10 +156,15 @@ final class CodexUsageProvider: AiUsageProviderRefreshing {
         if !wasRefreshing { recoveryHandler?() }
     }
 
-    private func finish(_ result: AiUsageProviderSnapshot?, absent: Bool = false) {
+    private func finish(_ result: AiUsageProviderSnapshot?, absent: Bool = false,
+                        unavailable: Bool = false) {
         timeout?.cancel(); timeout = nil
         watchdogId &+= 1
         let done = completion; completion = nil
-        done?(absent ? .absent : result.map { .sample($0) } ?? .failed)
+        if unavailable {
+            done?(.unavailable)
+        } else {
+            done?(absent ? .absent : result.map { .sample($0) } ?? .failed)
+        }
     }
 }
