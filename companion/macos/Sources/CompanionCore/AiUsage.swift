@@ -64,9 +64,9 @@ public struct AiUsageProviderSnapshot: Equatable {
         self.metrics = metrics; self.resetCredits = resetCredits
     }
 
-    /// Brings a stale sample up to `now`: countdowns are recomputed from their
-    /// epochs, and a rolling window whose reset time has passed no longer holds
-    /// the sampled usage, so it shows as reset with an unknown next reset.
+    /// Recompute countdowns without fabricating a quota recovery.
+    /// A reset deadline passing does not establish that usage was replenished;
+    /// retain the last observed percentage as historical until a new read.
     public func aged(now: Date) -> AiUsageProviderSnapshot {
         func remaining(until epoch: UInt32) -> UInt32 {
             UInt32(max(0, Double(epoch) - now.timeIntervalSince1970))
@@ -75,16 +75,7 @@ public struct AiUsageProviderSnapshot: Equatable {
         for index in result.metrics.indices {
             let metric = result.metrics[index]
             guard metric.resetAt != 0 else { continue }
-            let seconds = remaining(until: metric.resetAt)
-            if seconds == 0, metric.kind == .fiveHour || metric.kind == .week,
-               metric.unit == .percent {
-                result.metrics[index] = AiUsageMetric(kind: metric.kind, unit: .percent, used: 0,
-                                                      limit: 100, remaining: 100,
-                                                      remainingPercent: 100, resetAt: 0,
-                                                      resetRemainingSeconds: 0)
-            } else {
-                result.metrics[index].resetRemainingSeconds = seconds
-            }
+            result.metrics[index].resetRemainingSeconds = remaining(until: metric.resetAt)
         }
         if var resets = result.resetCredits {
             for index in resets.credits.indices where resets.credits[index].expiresAt != 0 {

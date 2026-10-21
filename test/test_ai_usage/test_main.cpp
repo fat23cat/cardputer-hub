@@ -941,6 +941,18 @@ void test_reset_text_distinguishes_unknown_from_known_zero() {
     app.update({}, {});
     TEST_ASSERT_TRUE(std::find(display.labels.begin(), display.labels.end(), "RESET 6D 23H") !=
                      display.labels.end());
+
+    // A passed deadline cannot replenish the last server-observed quota.
+    f.usage.update(std::chrono::seconds(30));
+    value.providers[0].freshness = connectivity::AiFreshness::Stale;
+    value.providers[0].metrics[0].resetRemainingSeconds = 0;
+    f.respondValue(value);
+    display.labels.clear();
+    app.update({}, {});
+    TEST_ASSERT_TRUE(std::find(display.labels.begin(), display.labels.end(), "RESET DUE") !=
+                     display.labels.end());
+    TEST_ASSERT_TRUE(std::find(display.labels.begin(), display.labels.end(), "63% LEFT") !=
+                     display.labels.end());
 }
 
 void test_remaining_percent_is_right_aligned_in_all_layouts() {

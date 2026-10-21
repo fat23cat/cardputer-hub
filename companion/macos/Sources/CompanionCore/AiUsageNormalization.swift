@@ -104,12 +104,27 @@ public enum AiUsageNormalization {
 
     public static func codex(_ result: [String: Any], accountPlan: String? = nil,
                              now: Date = Date()) -> AiUsageProviderSnapshot? {
-        let limits = dictionary(result["rateLimitsByLimitId"]).flatMap { dictionary($0["codex"]) }
-            ?? dictionary(result["rateLimits"]) ?? result
+        // Permission is independent of the displayed quota.
+        if result["ordinaryUsageAllowed"] as? Bool == false { return nil }
+        let limits: [String: Any]
+        let hasBucketMap = result["rateLimitsByLimitId"] != nil &&
+            !(result["rateLimitsByLimitId"] is NSNull)
+        if hasBucketMap {
+            // A present map is authoritative; never borrow another product's legacy data.
+            guard let buckets = dictionary(result["rateLimitsByLimitId"]),
+                  let codex = dictionary(buckets["codex"]) else { return nil }
+            limits = codex
+        } else if let raw = result["rateLimits"], !(raw is NSNull) {
+            guard let legacy = dictionary(raw) else { return nil }
+            limits = legacy
+        } else {
+            limits = result
+        }
+        if let limitId = limits["limitId"], !(limitId is NSNull),
+           limitId as? String != "codex" { return nil }
         let detectedPlan = plan(limits["planType"] as? String ?? accountPlan)
         if detectedPlan != .plus, let credits = dictionary(limits["individualLimit"]) ??
-                dictionary(dictionary(result["rateLimits"])?["individualLimit"]) ??
-                dictionary(result["individualLimit"]),
+                (hasBucketMap ? nil : dictionary(result["individualLimit"])),
            let limit = whole(credits["limit"]), let used = whole(credits["used"]),
            let remainingPercent = percent(credits["remainingPercent"]), limit > 0, used <= limit {
             let (resetAt, remainingSeconds) = reset(credits["resetsAt"], now: now)

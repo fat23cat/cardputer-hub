@@ -96,10 +96,7 @@ public final class AiUsageCollector: AiUsageCollecting {
             }
             guard cached.providers[index].freshness == .stale else { continue }
             let aged = cached.providers[index].aged(now: currentTime)
-            // Countdowns alone are not a new generation; a window that reset is.
-            if aged.metrics.map(\.resetAt) != cached.providers[index].metrics.map(\.resetAt) {
-                expired = true
-            }
+            // Aging only adjusts countdowns; it cannot establish a new quota window.
             cached.providers[index] = aged
         }
         if expired { cached.generation &+= 1 }
