@@ -94,8 +94,22 @@ does not contain it, and reads rate limits from Codex app-server. It checks the
 existing Cursor Agent Keychain session for personal usage and derives the
 request cookie in memory from the token's user ID. It refreshes these
 sources in the background about once a minute; Cardputer requests read the
-cached snapshot immediately. Wake requests coalesce with an active refresh;
-provider failures retry with a capped 30-second backoff, and Codex process exits
+cached snapshot immediately. Wake requests coalesce with an active refresh.
+
+The Codex child disables analytics, OpenTelemetry exporters, plugins, hooks,
+and apps through process arguments, preserving the user's config and sign-in.
+A present non-null `rateLimitsByLimitId` map must contain a valid Codex bucket;
+legacy data cannot substitute another product's quota. An explicit
+`ordinaryUsageAllowed: false`, a map without a `codex` bucket, or another
+product's `limitId` keeps prior usage stale without failure retries; malformed
+responses still retry with backoff;
+normal refreshes resume fresh reporting when the backend permits it again.
+Cached reset countdowns never replenish usage: after the deadline, the last
+observed quota stays visible as historical (`STALE`, `RESET DUE`) until a fresh
+provider reading arrives. This applies to Codex and Claude rolling windows;
+Business credits and Cursor spend also retain their last observed values.
+
+Provider failures retry with a capped 30-second backoff, and Codex process exits
 between refreshes trigger recovery. Failed login-shell discovery is retried on
 the next discovery cycle. Codex Plus rolling windows, Business credits,
 and Cursor Enterprise personal spend are detected from provider data. No
@@ -134,7 +148,7 @@ minutes; relaunch Companion to grant access. The Companion never refreshes or
 changes that credential: while Claude Code is not running and its token has
 expired, the last sample stays visible as stale. Stale samples keep counting
 down to their reset times; a stale 5-hour or weekly window whose reset time has
-passed is shown as 100% left with an unknown next reset. At most two providers
+passed retains its last observed quota and shows `RESET DUE`. At most two providers
 reach the Cardputer, in the order Codex, Cursor, Claude; Diagnostics marks any provider the connected Cardputer
 does not receive as not sent.
 Claude usage is a private provider adapter that may need updating if the

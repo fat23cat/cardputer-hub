@@ -941,6 +941,60 @@ void test_reset_text_distinguishes_unknown_from_known_zero() {
     app.update({}, {});
     TEST_ASSERT_TRUE(std::find(display.labels.begin(), display.labels.end(), "RESET 6D 23H") !=
                      display.labels.end());
+
+    // A passed deadline cannot replenish the last server-observed quota.
+    f.usage.update(std::chrono::seconds(30));
+    value.providers[0].freshness = connectivity::AiFreshness::Stale;
+    value.providers[0].metrics[0].resetRemainingSeconds = 0;
+    f.respondValue(value);
+    display.labels.clear();
+    app.update({}, {});
+    TEST_ASSERT_TRUE(std::find(display.labels.begin(), display.labels.end(), "RESET DUE") !=
+                     display.labels.end());
+    TEST_ASSERT_TRUE(std::find(display.labels.begin(), display.labels.end(), "63% LEFT") !=
+                     display.labels.end());
+}
+
+void test_reaching_reset_deadline_redraws_due_promptly() {
+    Fixture f;
+    f.ready();
+    f.respond(1);
+    auto value = f.usage.snapshot();
+    value.providers[0].metrics[0].resetAt = 12345;
+    value.providers[0].metrics[0].resetRemainingSeconds = 45;
+    f.usage.update(std::chrono::seconds(30));
+    f.respondValue(value);
+
+    Display display;
+    apps::AiUsageApp app(f.usage, f.gauge, display);
+    app.onActivate();
+    app.update({}, {});
+
+    // A Companion correction to zero changes `0H 0M` into `DUE`.
+    value.providers[0].metrics[0].resetRemainingSeconds = 0;
+    f.usage.update(std::chrono::seconds(30));
+    TEST_ASSERT_EQUAL_UINT32(15, f.usage.snapshot().providers[0].metrics[0].resetRemainingSeconds);
+    const auto beforeCorrection = f.usage.revision();
+    f.respondValue(value);
+    TEST_ASSERT_TRUE(f.usage.revision() > beforeCorrection);
+    display.labels.clear();
+    app.update({}, std::chrono::seconds(1));
+    TEST_ASSERT_TRUE(std::find(display.labels.begin(), display.labels.end(), "RESET DUE") !=
+                     display.labels.end());
+
+    // The local countdown reaching zero is also a visible change.
+    value.providers[0].metrics[0].resetAt = 12346;
+    value.providers[0].metrics[0].resetRemainingSeconds = 20;
+    f.usage.update(std::chrono::seconds(30));
+    f.respondValue(value);
+    app.update({}, std::chrono::seconds(1));
+    const auto beforeDeadline = f.usage.revision();
+    f.usage.update(std::chrono::seconds(20));
+    TEST_ASSERT_TRUE(f.usage.revision() > beforeDeadline);
+    display.labels.clear();
+    app.update({}, std::chrono::seconds(1));
+    TEST_ASSERT_TRUE(std::find(display.labels.begin(), display.labels.end(), "RESET DUE") !=
+                     display.labels.end());
 }
 
 void test_remaining_percent_is_right_aligned_in_all_layouts() {
@@ -1506,6 +1560,7 @@ int main() {
     RUN_TEST(test_identical_poll_keeps_revision_freshness_and_countdown);
     RUN_TEST(test_reset_countdown_does_not_rewind_on_cached_poll_or_percent_change);
     RUN_TEST(test_reset_text_distinguishes_unknown_from_known_zero);
+    RUN_TEST(test_reaching_reset_deadline_redraws_due_promptly);
     RUN_TEST(test_remaining_percent_is_right_aligned_in_all_layouts);
     RUN_TEST(test_home_then_work_replaces_provider_set_and_puzzle);
     RUN_TEST(test_work_usage_renders_business_credits_and_cursor_spend);
