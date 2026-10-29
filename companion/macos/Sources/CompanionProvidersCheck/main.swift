@@ -1058,10 +1058,15 @@ func claudeExpiredTokenIsUnavailable() {
     http.respond(status: 401)
     expect(waitUntil { unauthorized.done })
     expect(unauthorized.outcome == .failed)
+    // The Keychain is read again at once, but a rejected token pauses requests.
     let reads = credentials.reads
+    let paused = refreshed(provider)
+    expect(waitUntil { paused.done })
+    expect(paused.outcome == .unavailable && credentials.reads == reads + 1)
+    expect(http.requests.count == 1)
+    clock.now = Date(timeIntervalSince1970: 10_060)
     _ = refreshed(provider)
     expect(waitUntil { http.requests.count == 2 })
-    expect(credentials.reads == reads + 1)
 
     credentials.result = .failed
     clock.now = Date(timeIntervalSince1970: 50_000)
