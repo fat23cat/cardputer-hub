@@ -1,4 +1,5 @@
 import CompanionCore
+import Foundation
 
 enum AiUsageRefreshOutcome: Equatable {
     case sample(AiUsageProviderSnapshot)
@@ -27,4 +28,17 @@ protocol AiUsageProviderRefreshing: AnyObject {
 
 extension AiUsageProviderRefreshing {
     func setRecoveryHandler(_ handler: @escaping () -> Void) {}
+}
+
+/// Calls a refresh completion at most once, whichever of the read timeout and
+/// the result comes first.
+final class RefreshCompletion {
+    private let lock = NSLock()
+    private var done: ((AiUsageRefreshOutcome) -> Void)?
+    init(_ done: @escaping (AiUsageRefreshOutcome) -> Void) { self.done = done }
+    var finished: Bool { lock.lock(); defer { lock.unlock() }; return done == nil }
+    func callAsFunction(_ outcome: AiUsageRefreshOutcome) {
+        lock.lock(); let callback = done; done = nil; lock.unlock()
+        callback?(outcome)
+    }
 }

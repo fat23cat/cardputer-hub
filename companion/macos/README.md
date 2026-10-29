@@ -95,9 +95,14 @@ existing Cursor Agent Keychain session for personal usage and derives the
 request cookie in memory from the token's user ID. It refreshes these
 sources in the background about once a minute; Cardputer requests read the
 cached snapshot immediately. Wake requests coalesce with an active refresh.
+A Cursor Keychain prompt is waited on for at most five seconds per refresh, so
+Codex and Claude keep updating while it is open; the answer is used by the next
+refresh without prompting again.
 
 The Codex child disables analytics, OpenTelemetry exporters, plugins, hooks,
 and apps through process arguments, preserving the user's config and sign-in.
+When Codex is installed but signed out, it is omitted and the account is checked
+again on each refresh without restarting the child.
 A present non-null `rateLimitsByLimitId` map must contain a valid Codex bucket;
 legacy data cannot substitute another product's quota. An explicit
 `ordinaryUsageAllowed: false`, a map without a `codex` bucket, or another

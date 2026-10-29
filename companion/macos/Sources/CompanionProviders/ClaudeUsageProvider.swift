@@ -54,19 +54,6 @@ final class KeychainClaudeCredentials: ClaudeCredentialReading {
     }
 }
 
-/// Calls a refresh completion at most once, whichever of the read timeout and
-/// the result comes first.
-private final class RefreshCompletion {
-    private let lock = NSLock()
-    private var done: ((AiUsageRefreshOutcome) -> Void)?
-    init(_ done: @escaping (AiUsageRefreshOutcome) -> Void) { self.done = done }
-    var finished: Bool { lock.lock(); defer { lock.unlock() }; return done == nil }
-    func callAsFunction(_ outcome: AiUsageRefreshOutcome) {
-        lock.lock(); let callback = done; done = nil; lock.unlock()
-        callback?(outcome)
-    }
-}
-
 final class ClaudeUsageProvider: AiUsageProviderRefreshing {
     /// A declined initial prompt pauses even silent reads for this interval.
     static let deniedRetryInterval: TimeInterval = 3600

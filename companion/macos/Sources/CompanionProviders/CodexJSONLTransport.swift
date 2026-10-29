@@ -1,3 +1,4 @@
+import Darwin
 import Foundation
 
 protocol CodexJSONLTransport: AnyObject {
@@ -5,7 +6,8 @@ protocol CodexJSONLTransport: AnyObject {
     var onExit: (() -> Void)? { get set }
     var isRunning: Bool { get }
     func start(path: String) -> Bool
-    func send(_ data: Data)
+    /// False when the child no longer reads its input (it exited or closed it).
+    func send(_ data: Data) -> Bool
     func stop()
 }
 
@@ -47,6 +49,9 @@ final class ProcessCodexJSONLTransport: CodexJSONLTransport {
         process.arguments = Self.launchArguments
         let input = Pipe(); let output = Pipe(); let errors = Pipe()
         process.standardInput = input
+        // A child that exits closes its input; writing then must fail with
+        // EPIPE instead of raising SIGPIPE, which would end Companion.
+        _ = fcntl(input.fileHandleForWriting.fileDescriptor, F_SETNOSIGPIPE, 1)
         process.standardOutput = output
         process.standardError = errors
         errors.fileHandleForReading.readabilityHandler = { handle in
@@ -68,7 +73,15 @@ final class ProcessCodexJSONLTransport: CodexJSONLTransport {
         return true
     }
 
-    func send(_ data: Data) { input?.fileHandleForWriting.write(data) }
+    func send(_ data: Data) -> Bool {
+        guard let handle = input?.fileHandleForWriting else { return false }
+        do {
+            try handle.write(contentsOf: data)
+            return true
+        } catch {
+            return false
+        }
+    }
 
     func stop() {
         onData = nil

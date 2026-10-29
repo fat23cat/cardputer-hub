@@ -2175,9 +2175,15 @@ be `codex`. Top-level `ordinaryUsageAllowed: false`, a map without a `codex`
 bucket, or another product's `limitId` makes Codex unavailable, marking any
 prior sample stale without a failure retry; only an unreadable response is a
 retryable failure. Normal refreshes can restore it after the restriction is
-lifted. Cursor reads the existing
+lifted. An `account/read` result with a null account reports Codex absent
+without a limits request; the next refresh reads the account again in the same
+process. A write to a child that has closed its input fails without SIGPIPE and
+resets the transport as a provider failure. Cursor reads the existing
 Agent token through Keychain, derives its request cookie in memory, and calls
-the usage adapter over HTTPS.
+the usage adapter over HTTPS. Its Keychain read runs on a Cursor-owned queue: a
+refresh reports waiting after five seconds, or while an earlier read is still
+open, so a prompt never blocks other providers or collector stop, and an answer
+that arrives later serves the next refresh without another read.
 Claude reads Claude Code's existing OAuth credential, retains the token only
 in memory, and rechecks it every five minutes. Only its first read after
 Companion launches may show an authorization prompt; wake, periodic rechecks,
