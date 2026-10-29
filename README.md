@@ -129,6 +129,9 @@ page within a firmware session. USAGE shows discovered Codex/Cursor/Claude quota
 from the Companion and publishes a remaining-quota gauge on Unit Puzzle while
 that page or its details are visible. Provider collection
 is automatic on the Mac; firmware receives only normalized usage numbers.
+When a cached rolling window's reset deadline passes, USAGE retains its last
+reported quota as historical (`STALE`, `RESET DUE`) until a fresh provider
+reading confirms a new percentage; the device never assumes 100% remaining.
 STATUS shows whether Codex, Claude Code and Cursor desktop agents are
 working, need you, or are done, from lifecycle hooks that Companion installs
 on request; only application states cross BLE. Status polling continues on

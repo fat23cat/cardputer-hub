@@ -446,7 +446,8 @@ values as `STALE` while retrying quietly every five minutes. Relaunch Companion
 to grant access again if needed. At most two providers appear,
 in the order Codex, Cursor, Claude. When Claude Code has not run for several
 hours, Claude values stay visible marked `STALE` until you use it again; a
-stale window whose reset time has passed shows 100% left and `--`. Signing out
+stale window whose reset time has passed keeps its last reported quota and shows
+`DUE` (`RESET DUE` in details) until a fresh reading confirms the quota. Signing out
 of Claude Code or switching accounts shows up within about five minutes. Bars and `LEFT` percentages show remaining capacity.
 Business credits and Cursor Enterprise spend show **used / limit** in credits
 or dollars alongside the remaining percentage, its bar and the reset time.

@@ -10,6 +10,19 @@ protocol CodexJSONLTransport: AnyObject {
 }
 
 final class ProcessCodexJSONLTransport: CodexJSONLTransport {
+    // Restrict only this child; keep the user's configuration and authentication intact.
+    static let launchArguments = [
+        "-c", "analytics.enabled=false",
+        "-c", "otel.exporter=\"none\"",
+        "-c", "otel.trace_exporter=\"none\"",
+        "-c", "otel.metrics_exporter=\"none\"",
+        "-c", "features.plugins=false",
+        "-c", "features.remote_plugin=false",
+        "-c", "features.hooks=false",
+        "-c", "features.apps=false",
+        "app-server", "--listen", "stdio://",
+    ]
+
     private let lock = NSLock()
     private var dataHandler: ((Data) -> Void)?
     private var exitHandler: (() -> Void)?
@@ -31,7 +44,7 @@ final class ProcessCodexJSONLTransport: CodexJSONLTransport {
     func start(path: String) -> Bool {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: path)
-        process.arguments = ["app-server", "--listen", "stdio://"]
+        process.arguments = Self.launchArguments
         let input = Pipe(); let output = Pipe(); let errors = Pipe()
         process.standardInput = input
         process.standardOutput = output

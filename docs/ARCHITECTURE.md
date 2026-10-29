@@ -2151,7 +2151,18 @@ background and answers BLE requests from a lock-protected cache. The macOS
 `CompanionProviders` target owns the collector and replaceable Codex JSONL,
 Cursor credential, and Cursor HTTP boundaries. Codex finds its executable in
 direct locations or through a bounded login-shell lookup on each unsuccessful
-discovery cycle, then uses a local app-server process. Cursor reads the existing
+discovery cycle, then uses a local app-server process with child-only overrides
+that disable analytics, OpenTelemetry exporters, plugins, hooks, and apps. The
+user's Codex configuration and authentication remain unchanged. A non-null
+`rateLimitsByLimitId` map is authoritative: only its `codex` entry can supply
+limits, including Business credits; a malformed or absent Codex entry cannot
+fall back to legacy or top-level usage. Legacy and direct results remain
+supported when the map is absent or null; any supplied non-null `limitId` must
+be `codex`. Top-level `ordinaryUsageAllowed: false`, a map without a `codex`
+bucket, or another product's `limitId` makes Codex unavailable, marking any
+prior sample stale without a failure retry; only an unreadable response is a
+retryable failure. Normal refreshes can restore it after the restriction is
+lifted. Cursor reads the existing
 Agent token through Keychain, derives its request cookie in memory, and calls
 the usage adapter over HTTPS.
 Claude reads Claude Code's existing OAuth credential, retains the token only
@@ -2190,6 +2201,10 @@ service advances reset countdowns while the Mini App is closed and reconciles
 each response against the current countdown: cached samples cannot increase
 the time remaining, while a lower reported
 remaining time corrects it promptly. A new reset identity starts a new countdown.
+Passing a reset deadline only reduces its countdown to zero: cached quotas,
+including Claude rolling windows, retain their last observed usage, remaining
+percentage, and reset identity until a new provider response arrives. The UI
+shows the known elapsed deadline as `DUE`; no timer replenishes quota.
 `AiUsageApp` and the Puzzle controller consume only the bounded snapshot; neither
 parses provider JSON or BLE envelopes.
 

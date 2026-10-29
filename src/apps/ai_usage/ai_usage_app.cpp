@@ -143,6 +143,8 @@ void valueText(char* out, std::size_t size, const connectivity::AiUsageMetric& m
 void durationText(char* out, std::size_t size, std::uint32_t resetAt, std::uint32_t seconds) {
     if (resetAt == 0)
         std::snprintf(out, size, "--");
+    else if (seconds == 0)
+        std::snprintf(out, size, "DUE");
     else if (seconds >= 86400)
         std::snprintf(out, size, "%luD %luH", static_cast<unsigned long>(seconds / 86400),
                       static_cast<unsigned long>((seconds % 86400) / 3600));

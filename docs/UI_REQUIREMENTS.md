@@ -690,7 +690,8 @@ a selection; the details do not repeat the selection. Claude details have no
 RESETS page or footer. With three or four metrics, the Puzzle overview uses
 four two-row bands, each with two purple end pixels and 14 quota pixels; an
 unused band stays dark. A stale rolling window whose reset time has passed
-arrives as 100% left with an unknown reset and keeps the `STALE` mark. The
+keeps its last observed percentage and the `STALE` mark, with `DUE` in the reset
+column (`RESET DUE` in details), until a fresh provider response updates it. The
 empty state lists `CODEX / CURSOR / CLAUDE` with a schema 3 Companion and
 `CODEX / CURSOR` with an older one.
 STATUS uses the content area beneath AI's navigation strip: one full-width
