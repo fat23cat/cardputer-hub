@@ -330,7 +330,11 @@ connected Cardputer, read from its microSD card; `Damaged record` marks a file
 the Cardputer refuses. Select a container to load it, then edit its **name**
 (up to 32 characters) and its **description** — free text with line breaks of
 up to 900 characters, for example one thing per line or a comma-separated list
-— with normal macOS text input, including Cyrillic. The window counts the
+— with normal macOS text input, including Cyrillic. Lists continue like in
+Apple Notes: press Enter at the end of a line that starts with `-`, `•`, `*`,
+or a number such as `1.` and the next line starts with the same marker (the
+number counts on); Enter on an empty item removes the marker and ends the
+list, and Shift+Enter inserts a plain line break. The window counts the
 characters as you type. Press **Save** (⌘S) to send the record; the Cardputer
 checks it and saves it as the next revision, and the window shows `Saved`.
 Spaces at the ends of lines and blank lines at the start or end are removed
@@ -624,8 +628,8 @@ header stays visible at the top while you scroll.
 field that matches names and descriptions. On a computer the list and the
 editor sit side by side; on a phone, tap a container to edit it and use the
 back arrow to return. The editor works like the Companion's: the **name** has
-up to 32 characters, the **description** up to 900 characters with line breaks,
-and the counters show what is left. **Save** commits the next revision;
+up to 32 characters, the **description** up to 900 characters with line breaks
+and the same list continuation on Enter, and the counters show what is left. **Save** commits the next revision;
 **Reload** discards the edits; **Delete…** asks first and removes the record
 from the microSD card for good. Erase the tag on the Cardputer to reuse it. If
 the record was changed on the Cardputer or the Mac since it was opened, saving

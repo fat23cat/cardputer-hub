@@ -1069,6 +1069,31 @@ var aiFixture = CompanionEnvelope()
                [.description], "edge breaks and tabs are refused")
         expect(InventoryText.normalizeDescription("  Штаны,  шорты  \r\nНоски\t3 пары\r\n\n") ==
                "Штаны,  шорты\nНоски 3 пары", "descriptions are normalized for saving")
+        func continued(_ text: String, at caret: Int) -> (String, Int)? {
+            guard let edit = InventoryListContinuation.newline(in: text,
+                                                               selection: NSRange(location: caret, length: 0))
+            else { return nil }
+            let result = (text as NSString).replacingCharacters(in: edit.range, with: edit.replacement)
+            return (result, edit.caret)
+        }
+        expect(continued("-тест", at: 5).map { $0.0 == "-тест\n-" && $0.1 == 7 } == true,
+               "Enter after a dash item starts the next dash item")
+        expect(continued("Полка\n- шорты", at: 13).map { $0.0 == "Полка\n- шорты\n- " && $0.1 == 16 } == true,
+               "the next item keeps the marker spacing")
+        expect(continued("• носки", at: 7)?.0 == "• носки\n• " && continued("* носки", at: 7)?.0 == "* носки\n* ",
+               "bullet markers continue")
+        expect(continued("1. Лыжи", at: 7)?.0 == "1. Лыжи\n2. " && continued("9) Палки", at: 8)?.0 == "9) Палки\n10) ",
+               "numbered items count on")
+        expect(continued("- шорты", at: 4).map { $0.0 == "- шо\n- рты" && $0.1 == 7 } == true,
+               "Enter inside an item splits it into two items")
+        expect(continued("- шорты\n- ", at: 10).map { $0.0 == "- шорты\n" && $0.1 == 8 } == true &&
+               continued("-тест\n-", at: 7)?.0 == "-тест\n",
+               "Enter on an empty item ends the list")
+        expect(continued("Шорты", at: 5) == nil && continued("1.5 м кабель", at: 12) == nil &&
+               continued("- шорты", at: 1) == nil && continued("", at: 0) == nil,
+               "plain lines and the marker itself keep an ordinary newline")
+        expect(InventoryListContinuation.newline(in: "- шорты", selection: NSRange(location: 2, length: 3)) == nil,
+               "a selection keeps an ordinary newline")
         expect(InventoryRecord.decode(Array("{\"schema\":2,\"id\":\"0f1e2d3c4b5a69788796a5b4c3d2e1f0\",\"revision\":1,\"name\":\"Box\",\"description\":\"\",\"items\":[]}".utf8)) == nil,
                "unknown record fields are refused")
 

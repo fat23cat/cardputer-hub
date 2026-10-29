@@ -2292,7 +2292,10 @@ session, or ten idle seconds, discards a partial upload, and nothing is
 replayed. On macOS, `CompanionSession.sendRequest()` keeps one request
 outstanding with a four-second timeout and fails it when the session resets;
 `InventoryClient` performs paged list, chunked get (restarting once the
-revision changes mid-download) and chunked put; `InventoryEditorModel` owns the
+revision changes mid-download) and chunked put; `InventoryListContinuation`
+holds the Enter rule that continues `-`, `•`, `*` and numbered description
+lists and ends them on an empty item (the WEB ACCESS page's `continueList`
+applies the same rule); `InventoryEditorModel` owns the
 window's states (disconnected, loading, clean, dirty, saving, saved, conflict,
 error), lists afresh for every session, re-reads the selected record (dropping
 it when the new listing no longer has it, and turning a draft based on an older

@@ -1054,6 +1054,8 @@ The WEB ACCESS page is edited in `web/index.html` and compiled into the
 firmware as `src/services/web_access/web_ui_asset.h`. Regenerate the header
 after every page change with `uv run --frozen python scripts/generate_web_ui.py`;
 `test_python/test_web_ui_asset.py` fails while the two differ.
+The inventory description list continuation runs with
+`node test_web/inventory_list.cjs` (discovered the same way).
 The LED page model, bounded batch queue, pointer admission, retry and lifecycle
 checks run with `node test_web/led_canvas.cjs`; Python test discovery runs them
 when Node.js is available, otherwise reports a skip. They exercise the actual
