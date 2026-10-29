@@ -93,7 +93,7 @@ Codex executable, including through the user's login shell when the GUI PATH
 does not contain it, and reads rate limits from Codex app-server. It checks the
 existing Cursor Agent Keychain session for personal usage and derives the
 request cookie in memory from the token's user ID. It refreshes these
-sources in the background about once a minute; Cardputer requests read the
+sources in the background about every two minutes; Cardputer requests read the
 cached snapshot immediately. Wake requests coalesce with an active refresh.
 A Cursor Keychain prompt is waited on for at most five seconds per refresh, so
 Codex and Claude keep updating while it is open; the answer is used by the next
@@ -128,15 +128,16 @@ Codex Plus also sends its known reset-credit count and up to four
 available detail rows from the same rate-limits refresh, never more than the
 available count. Titles are uppercased and shortened to a compact display label
 on the Mac. A single failed refresh keeps the most recent sample fresh for up
-to 90 seconds; a longer gap marks it stale. Reset details are read-only.
+to three and a half minutes; a longer gap marks it stale. Reset details are read-only.
 
 The Companion also reads Claude subscription usage. It uses the
 `Claude Code-credentials` Keychain item that Claude Code already keeps and asks
 the Claude usage service for the plan-wide 5-hour and weekly windows at most
-once a minute, because that service rate-limits frequent callers. A
-rate-limit response pauses requests for its `Retry-After` time or a pause that
-doubles from one minute up to 30 minutes; the last sample stays shown for
-about two and a half minutes, then it is marked stale. The first
+once per two-minute refresh (never sooner than 110 seconds apart), because
+that service rate-limits frequent callers. A rate-limit response pauses
+requests for its `Retry-After` time or a pause that doubles from 110 seconds up
+to 30 minutes; the last sample stays shown for about three minutes, then it is
+marked stale. The first
 read after launching Companion may show a macOS Keychain prompt; choose
 **Always Allow**. A refresh waits
 at most five seconds for that prompt, so other providers keep updating at

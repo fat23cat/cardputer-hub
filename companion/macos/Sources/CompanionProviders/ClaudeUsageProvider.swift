@@ -61,12 +61,14 @@ final class ClaudeUsageProvider: AiUsageProviderRefreshing {
     /// sooner, so the Keychain item is read again after this interval.
     static let credentialRecheckInterval: TimeInterval = 300
     /// The usage service rate-limits its callers, so it is asked at most this
-    /// often; refreshes in between report the last sample.
-    static let requestInterval: TimeInterval = 60
+    /// often; refreshes in between report the last sample. Just under the
+    /// collector's two-minute period, so a timer firing a little early still
+    /// asks while wake and Cardputer refreshes in between do not.
+    static let requestInterval: TimeInterval = 110
     /// Upper bound of the pause after repeated rate-limit responses.
     static let maximumRateLimitPause: TimeInterval = 1800
-    /// A sample stays current for one request interval plus the collector's
-    /// 90-second freshness window.
+    /// A sample stays current for one request interval plus 90 seconds, so a
+    /// throttled or rate-limited refresh can keep serving it.
     static let sampleLifetime: TimeInterval = requestInterval + 90
     private let credentials: ClaudeCredentialReading
     private let http: AiUsageHTTPTransport
@@ -222,7 +224,7 @@ final class ClaudeUsageProvider: AiUsageProviderRefreshing {
                 rateLimitPause = 0
                 finish(.sample(sample))
             default:
-                // Keep collector retries from reaching the service more than once a minute.
+                // Keep collector retries from reaching the service more than once per interval.
                 nextRequestAt = currentTime.addingTimeInterval(Self.requestInterval)
                 finish(.failed)
             }

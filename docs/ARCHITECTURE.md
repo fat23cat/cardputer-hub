@@ -2198,18 +2198,19 @@ interaction policy and restores it before other reads proceed. This uses the
 legacy API because file-based Keychain ACL prompts do not honor the modern
 query's authentication context.
 Authentication stays on the Mac. Absent providers are omitted; a failed refresh
-retains the previous provider and marks it stale after 90 seconds without a
+retains the previous provider and marks it stale after 210 seconds (one
+refresh period plus 90 seconds) without a
 successful sample. A refresh requested during an active cycle runs once after
 that cycle. Provider failures retry after 1, 2, 4, 8, 16, then at most 30
 seconds; a successful cycle resets the delay. An idle Codex process exit marks
 its cached sample stale immediately and schedules recovery. Normal provider
-refreshes run every 30 seconds on a background dispatch timer, independent of
+refreshes run every two minutes on a background dispatch timer, independent of
 the menu-bar run loop. Firmware `AiUsageService` polls the cached result every
 two seconds during initial discovery and every 10 seconds after discovery
 completes. It handles the `ai-usage.refresh` Action by sending the next request
 with the AI_USAGE refresh flag (after any read already outstanding); the Mac
 then refreshes its providers, which keep their own request limits such as
-Claude's one-minute interval. The Mac publishes each provider as it finishes
+Claude's 110-second interval, just under the refresh period. The Mac publishes each provider as it finishes
 and does not report when the whole refresh is done, so the service reads every
 two seconds for 20 seconds after sending the refresh. Companion Diagnostics reads each provider's Mac-side cache freshness
 to distinguish a failed source refresh from a delivery problem. The service
