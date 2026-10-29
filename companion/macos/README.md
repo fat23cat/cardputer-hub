@@ -146,7 +146,11 @@ authorization keeps a working token. If authorization is needed after that
 token expires, the last sample becomes stale and silent checks retry every five
 minutes; relaunch Companion to grant access. The Companion never refreshes or
 changes that credential: while Claude Code is not running and its token has
-expired, the last sample stays visible as stale. Stale samples keep counting
+expired, the last sample stays visible as stale. If the usage service rejects
+the token, Companion reads the Keychain item again but waits a minute before
+asking the service; until Claude Code saves a working token, Diagnostics shows
+Claude as `No sample` (or its last sample as stale). Running `claude` in a
+terminal, or `/login` there, renews that item. Stale samples keep counting
 down to their reset times; a stale 5-hour or weekly window whose reset time has
 passed retains its last observed quota and shows `RESET DUE`. At most two providers
 reach the Cardputer, in the order Codex, Cursor, Claude; Diagnostics marks any provider the connected Cardputer

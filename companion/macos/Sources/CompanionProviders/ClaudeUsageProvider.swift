@@ -210,6 +210,10 @@ final class ClaudeUsageProvider: AiUsageProviderRefreshing {
             switch response?.statusCode {
             case 401, 403:
                 if self.credential?.accessToken == credential.accessToken { self.credential = nil }
+                // The Keychain is read again on the next refresh, but a stale
+                // token Claude Code has not replaced must not reach the service
+                // on every collector retry.
+                nextRequestAt = currentTime.addingTimeInterval(Self.requestInterval)
                 finish(.failed)
             case 429:
                 // Waiting is the only fix, so this is not a failure to retry.

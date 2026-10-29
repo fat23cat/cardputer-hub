@@ -132,8 +132,9 @@ readAiUsage → AiUsageService → aiUsageVisibleMetrics()
   unavailable. The collector therefore never retries into a rate limit.
 * HTTP 401/403 or a malformed response is a provider failure: the previous
   sample turns stale after 90 seconds and the collector retries with backoff;
-  the provider itself sends at most one request a minute after other
-  failures.
+  the provider itself sends at most one request a minute after any
+  failure. After 401/403 the Keychain is read again on the next refresh, but
+  even an unchanged stale token waits out that minute.
 * A missing Keychain item is absence. A declined or cancelled Keychain prompt
   hides Claude for one hour before the Companion asks again.
 * The token never leaves the Mac and never appears in logs or diagnostics.
@@ -248,6 +249,7 @@ When:
 
 Then:
 - the cached token is dropped and re-read on the next refresh
+- no further usage request is sent for one minute
 - the prior sample becomes stale after 90 seconds; retries use backoff
 
 ### Scenario: Keychain prompt left open
