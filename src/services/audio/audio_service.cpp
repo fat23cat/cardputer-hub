@@ -51,7 +51,7 @@ bool AudioService::play(AudioCue cue) {
 }
 
 core::ActionHandlingResult AudioService::handle(const core::Action& action) {
-    if (action.id != "audio.volume.step")
+    if (action.id != audioVolumeStepActionId)
         return core::ActionHandlingResult::Rejected;
     const auto* value = action.findParameter("delta");
     const auto* delta = value ? std::get_if<std::int32_t>(value) : nullptr;

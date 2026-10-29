@@ -18,6 +18,8 @@ class MiniAppRuntime;
 
 class ApplicationShell final : public core::IActionHandler {
   public:
+    // Only the Shell maps G0 to this Action and handles it.
+    static constexpr char statusToggleActionId[] = "ui.status.toggle";
     ApplicationShell(services::HostService& hosts, services::NetworkService& network,
                      core::ActionBus& actions, core::IDisplayAdapter& display,
                      HostSettings& settings, WiFiSettings& wifiSettings,

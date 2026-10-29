@@ -11,6 +11,18 @@
 
 namespace cardputer_hub::apps {
 
+inline constexpr char hostSettingsUpActionId[] = "hosts.up";
+inline constexpr char hostSettingsDownActionId[] = "hosts.down";
+inline constexpr char hostSettingsConfirmActionId[] = "hosts.confirm";
+inline constexpr char hostSettingsBackActionId[] = "hosts.back";
+inline constexpr char hostSettingsRenameActionId[] = "hosts.rename";
+inline constexpr char hostSettingsTextActionId[] = "hosts.text";
+inline constexpr char hostSettingsEraseActionId[] = "hosts.erase";
+inline constexpr const char* hostSettingsActionIds[] = {
+    hostSettingsUpActionId,   hostSettingsDownActionId,   hostSettingsConfirmActionId,
+    hostSettingsBackActionId, hostSettingsRenameActionId, hostSettingsTextActionId,
+    hostSettingsEraseActionId};
+
 // The Bluetooth state words shared by the Bluetooth list and the STATUS sheet:
 // the connection (OFF, CONNECTING, SECURING, PAIRING, READY, ERROR) and the
 // saved switch (OFF, ON, or PAUSED while WEB ACCESS holds the radio).

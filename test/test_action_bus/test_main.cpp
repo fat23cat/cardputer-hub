@@ -1,5 +1,6 @@
 #include <unity.h>
 
+#include <array>
 #include <cstdint>
 #include <string>
 #include <variant>
@@ -16,6 +17,7 @@ using cardputer_hub::core::ActionValue;
 using cardputer_hub::core::DispatchResult;
 using cardputer_hub::core::IActionHandler;
 using cardputer_hub::core::RegistrationResult;
+using cardputer_hub::core::RejectedRegistration;
 
 class RecordingActionHandler final : public IActionHandler {
   public:
@@ -180,6 +182,47 @@ void test_action_bus_keeps_first_handler_and_routes_all_sources_by_action_id() {
     TEST_ASSERT_EQUAL_INT(0, replacementHandler.callCount);
 }
 
+void test_action_bus_records_every_rejected_registration_for_startup_reporting() {
+    ActionBus bus;
+    RecordingActionHandler firstHandler;
+    RecordingActionHandler replacementHandler;
+
+    (void)bus.registerHandler("host.select", firstHandler);
+    (void)bus.registerHandler("", firstHandler);
+    (void)bus.registerHandler("host.select", replacementHandler);
+    (void)bus.registerHandler("host.pair", firstHandler);
+
+    const auto& rejected = bus.rejectedRegistrations();
+    TEST_ASSERT_EQUAL_UINT32(2, rejected.size());
+    TEST_ASSERT_EQUAL_STRING("", rejected[0].actionId.c_str());
+    TEST_ASSERT_EQUAL_UINT8(static_cast<unsigned int>(RegistrationResult::InvalidId),
+                            static_cast<unsigned int>(rejected[0].result));
+    TEST_ASSERT_EQUAL_STRING("host.select", rejected[1].actionId.c_str());
+    TEST_ASSERT_EQUAL_UINT8(static_cast<unsigned int>(RegistrationResult::DuplicateId),
+                            static_cast<unsigned int>(rejected[1].result));
+}
+
+void test_action_bus_registers_an_id_list_and_reports_its_first_failure() {
+    ActionBus bus;
+    RecordingActionHandler handler;
+    RecordingActionHandler other;
+    constexpr const char* ids[] = {"host.select", "host.pair", "host.select", ""};
+    (void)bus.registerHandler("host.pair", other);
+
+    const auto result = bus.registerHandlers(ids, handler);
+
+    TEST_ASSERT_EQUAL_UINT8(static_cast<unsigned int>(RegistrationResult::DuplicateId),
+                            static_cast<unsigned int>(result));
+    TEST_ASSERT_EQUAL_UINT32(3, bus.rejectedRegistrations().size());
+    (void)bus.dispatch({"host.select", "test", {}});
+    (void)bus.dispatch({"host.pair", "test", {}});
+    TEST_ASSERT_EQUAL_INT(1, handler.callCount);
+    TEST_ASSERT_EQUAL_INT(1, other.callCount);
+    TEST_ASSERT_EQUAL_UINT8(
+        static_cast<unsigned int>(RegistrationResult::Registered),
+        static_cast<unsigned int>(bus.registerHandlers(std::array{"host.rename"}, handler)));
+}
+
 } // namespace
 
 void setUp() {}
@@ -197,5 +240,7 @@ int main() {
     RUN_TEST(test_action_bus_reports_unsupported_actions_and_matches_ids_exactly);
     RUN_TEST(test_action_bus_rejects_malformed_actions_without_invoking_a_handler);
     RUN_TEST(test_action_bus_keeps_first_handler_and_routes_all_sources_by_action_id);
+    RUN_TEST(test_action_bus_records_every_rejected_registration_for_startup_reporting);
+    RUN_TEST(test_action_bus_registers_an_id_list_and_reports_its_first_failure);
     return UNITY_END();
 }

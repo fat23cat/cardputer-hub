@@ -1,4 +1,5 @@
 #include "apps/shell/application_shell.h"
+#include "apps/common/shell_actions.h"
 #include "apps/runtime/mini_app_runtime.h"
 #include "apps/shell/home_ambient.h"
 #include "apps/shell/home_graphics.h"
@@ -20,14 +21,13 @@ constexpr std::uint8_t timeoutRow = 3;
 constexpr std::uint8_t screenBrightnessRow = 4;
 constexpr std::uint8_t ledBrightnessRow = 5;
 
-constexpr char statusToggleActionId[] = "ui.status.toggle";
-
 // Global controls, checked before any screen or Mini App sees an event.
 struct GlobalShortcut {
     NamedKey key;
     const char* actionId;
 };
-constexpr GlobalShortcut globalShortcuts[] = {{NamedKey::G0, statusToggleActionId}};
+constexpr GlobalShortcut globalShortcuts[] = {
+    {NamedKey::G0, ApplicationShell::statusToggleActionId}};
 
 const char* globalShortcutAction(const InputEvent& event) {
     if (event.type != InputEventType::NamedKey)
@@ -50,13 +50,8 @@ ApplicationShell::ApplicationShell(services::HostService& hosts, services::Netwo
       miniApps_(miniApps), capabilities_(capabilities),
       launcher_(miniApps.apps(), miniApps, actions, display) {
     (void)navigation_.resetTo("home");
-    (void)actions_.registerHandler("ui.settings", *this);
-    (void)actions_.registerHandler("ui.bluetooth", *this);
-    (void)actions_.registerHandler("ui.wifi", *this);
-    (void)actions_.registerHandler("ui.launcher", *this);
-    (void)actions_.registerHandler("ui.back", *this);
-    (void)actions_.registerHandler("app.open", *this);
-    (void)actions_.registerHandler("app.close", *this);
+    // Startup reports any refusal through ActionBus::rejectedRegistrations().
+    (void)actions_.registerHandlers(shellNavigationActionIds, *this);
     (void)actions_.registerHandler(statusToggleActionId, *this);
 }
 
@@ -116,19 +111,19 @@ void ApplicationShell::playInputFeedback(const InputEvent& event) {
                             (isPageLeft(event) || isPageRight(event));
     if (adjustable) {
         const bool right = isPageRight(event);
-        const char* id = "audio.volume.step";
+        const char* id = services::audioVolumeStepActionId;
         int value = audio_.volume(), minimum = 0, maximum = 100, step = 10;
         bool cycles = false;
         if (settingsSelection_ == timeoutRow) {
-            id = "display.timeout.step";
+            id = services::displayTimeoutStepActionId;
             step = 1;
             cycles = true;
         } else if (settingsSelection_ == screenBrightnessRow) {
-            id = "display.brightness.step";
+            id = services::displayBrightnessStepActionId;
             value = deviceSettings_.screenBrightness();
             minimum = 20;
         } else if (settingsSelection_ == ledBrightnessRow) {
-            id = "indicator.brightness.step";
+            id = services::indicatorBrightnessStepActionId;
             value = deviceSettings_.ledBrightness();
             minimum = 1;
             maximum = 10;
@@ -157,7 +152,7 @@ void ApplicationShell::routeMiniAppEvent(const InputEvent& event) {
         // and stays open; otherwise Escape closes it.
         if (miniApps_.handleBack())
             return;
-        (void)actions_.dispatch({"app.close", "shell", {}});
+        (void)actions_.dispatch({appCloseActionId, "shell", {}});
         restoreLauncherFromMiniApp(false);
         return;
     }
@@ -176,10 +171,10 @@ void ApplicationShell::routeSystemEvent(const InputEvent& event) {
     if (atWifi() && wifiSettings_.modal()) {
         wifiSettings_.update({event});
     } else if (settingsChord) {
-        (void)actions_.dispatch({"ui.settings", "shell", {}});
+        (void)actions_.dispatch({uiSettingsActionId, "shell", {}});
     } else if (homeEnter) {
         (void)actions_.dispatch(
-            {homeSettingsFocused_ ? "ui.settings" : "ui.launcher", "shell", {}});
+            {homeSettingsFocused_ ? uiSettingsActionId : uiLauncherActionId, "shell", {}});
     } else if (atHome() && plain && !event.modifiers.shift && !event.modifiers.fn &&
                (isPageLeft(event) || isPageRight(event))) {
         homeSettingsFocused_ = isPageRight(event);
@@ -198,11 +193,11 @@ void ApplicationShell::routeSystemEvent(const InputEvent& event) {
                 stepListIndex(settingsSelection_, settingsRowCount, down));
         } else if (event.type == InputEventType::NamedKey && event.namedKey == NamedKey::Enter) {
             if (settingsSelection_ == bluetoothRow)
-                (void)actions_.dispatch({"ui.bluetooth", "settings", {}});
+                (void)actions_.dispatch({uiBluetoothActionId, "settings", {}});
             else if (settingsSelection_ == wifiRow)
-                (void)actions_.dispatch({"ui.wifi", "settings", {}});
+                (void)actions_.dispatch({uiWifiActionId, "settings", {}});
         } else if (isPlainEscape(event))
-            (void)actions_.dispatch({"ui.back", "settings", {}});
+            (void)actions_.dispatch({uiBackActionId, "settings", {}});
     }
 }
 
@@ -247,7 +242,7 @@ ActionHandlingResult ApplicationShell::handle(const Action& action) {
         statusSheet_.reset();
         return ActionHandlingResult::Handled;
     }
-    if (action.id == "ui.settings") {
+    if (action.id == uiSettingsActionId) {
         if ((atBluetooth() && settings_.modal()) || (atWifi() && wifiSettings_.modal()))
             return ActionHandlingResult::Rejected;
         if (atHome()) {
@@ -259,21 +254,21 @@ ActionHandlingResult ApplicationShell::handle(const Action& action) {
             (void)navigation_.back();
             settingsFrame_.reset();
         }
-    } else if (action.id == "ui.bluetooth") {
+    } else if (action.id == uiBluetoothActionId) {
         if (!atSettings())
             return ActionHandlingResult::Rejected;
         display_.beginTransition(SlideDirection::Forward);
         (void)navigation_.push("bluetooth");
         settings_.activate();
-    } else if (action.id == "ui.wifi") {
+    } else if (action.id == uiWifiActionId) {
         if (!atSettings())
             return ActionHandlingResult::Rejected;
         display_.beginTransition(SlideDirection::Forward);
         (void)navigation_.push("wifi");
         wifiSettings_.activate();
-    } else if (action.id == "ui.back") {
+    } else if (action.id == uiBackActionId) {
         if (atBluetooth() && settings_.modal()) {
-            (void)actions_.dispatch({"hosts.back", "shell", {}});
+            (void)actions_.dispatch({hostSettingsBackActionId, "shell", {}});
         } else if (atWifi() && wifiSettings_.modal()) {
             wifiSettings_.update({{InputEventType::NamedKey, 0, NamedKey::Escape, {}}});
         } else if (atWifi()) {
@@ -299,12 +294,12 @@ ActionHandlingResult ApplicationShell::handle(const Action& action) {
             homeRenderedPlateX_.reset();
             homePlateMotion_.reset(0);
         }
-    } else if (action.id == "ui.launcher") {
+    } else if (action.id == uiLauncherActionId) {
         if (!atHome())
             return ActionHandlingResult::Rejected;
         display_.beginTransition(SlideDirection::Forward);
         ensureLauncher();
-    } else if (action.id == "app.open") {
+    } else if (action.id == appOpenActionId) {
         const auto* value = action.findParameter("appId");
         const auto* appId = value ? std::get_if<std::string>(value) : nullptr;
         if (appId == nullptr || appId->empty())
@@ -319,7 +314,7 @@ ActionHandlingResult ApplicationShell::handle(const Action& action) {
         showingMiniApp_ = true;
         launcher_.deactivate();
         display_.beginTransition(SlideDirection::Forward);
-    } else if (action.id == "app.close") {
+    } else if (action.id == appCloseActionId) {
         if (!miniApps_.hasActiveApp())
             return ActionHandlingResult::Rejected;
         if (miniAppUpdateInProgress_) {

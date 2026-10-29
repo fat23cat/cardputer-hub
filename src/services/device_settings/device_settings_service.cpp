@@ -19,18 +19,18 @@ core::ActionHandlingResult DeviceSettingsService::handle(const core::Action& act
     if (!delta || configuration_.ensureLoaded() != ConfigurationResult::Success)
         return core::ActionHandlingResult::Rejected;
     auto next = configuration_.value();
-    if (action.id == "display.timeout.step" && (*delta == -1 || *delta == 1)) {
+    if (action.id == displayTimeoutStepActionId && (*delta == -1 || *delta == 1)) {
         // Normal, Long and Never form a cycle in both directions.
         constexpr std::int32_t modes = 3;
         const auto requested =
             (static_cast<std::int32_t>(screenTimeout()) + *delta + modes) % modes;
         next.device.screenTimeout = static_cast<core::ScreenTimeoutMode>(requested);
-    } else if (action.id == "display.brightness.step" && (*delta == -10 || *delta == 10)) {
+    } else if (action.id == displayBrightnessStepActionId && (*delta == -10 || *delta == 10)) {
         const auto requested = static_cast<std::int32_t>(screenBrightness()) + *delta;
         if (requested < 20 || requested > 100)
             return core::ActionHandlingResult::Rejected;
         next.device.screenBrightness = static_cast<std::uint8_t>(requested);
-    } else if (action.id == "indicator.brightness.step" && (*delta == -1 || *delta == 1)) {
+    } else if (action.id == indicatorBrightnessStepActionId && (*delta == -1 || *delta == 1)) {
         const auto requested = static_cast<std::int32_t>(ledBrightness()) + *delta;
         if (requested < 1 || requested > 10)
             return core::ActionHandlingResult::Rejected;
@@ -40,9 +40,9 @@ core::ActionHandlingResult DeviceSettingsService::handle(const core::Action& act
     }
     if (configuration_.save(next) != ConfigurationResult::Success)
         return core::ActionHandlingResult::Rejected;
-    if (action.id == "display.timeout.step")
+    if (action.id == displayTimeoutStepActionId)
         display_.setTimeoutMode(screenTimeout());
-    else if (action.id == "display.brightness.step")
+    else if (action.id == displayBrightnessStepActionId)
         display_.setBrightnessPercent(screenBrightness());
     else
         indicator_.setMaximumBrightnessPercent(ledBrightness());

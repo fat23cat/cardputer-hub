@@ -7,6 +7,12 @@
 
 namespace cardputer_hub::services {
 
+inline constexpr char displayTimeoutStepActionId[] = "display.timeout.step";
+inline constexpr char displayBrightnessStepActionId[] = "display.brightness.step";
+inline constexpr char indicatorBrightnessStepActionId[] = "indicator.brightness.step";
+inline constexpr const char* deviceSettingsActionIds[] = {
+    displayTimeoutStepActionId, displayBrightnessStepActionId, indicatorBrightnessStepActionId};
+
 class DeviceSettingsService final : public core::IActionHandler {
   public:
     DeviceSettingsService(ConfigurationService& configuration,

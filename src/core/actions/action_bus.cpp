@@ -32,6 +32,7 @@ bool isValid(const Action& action) {
 
 RegistrationResult ActionBus::registerHandler(std::string_view actionId, IActionHandler& handler) {
     if (actionId.empty()) {
+        rejected_.push_back({std::string(actionId), RegistrationResult::InvalidId});
         return RegistrationResult::InvalidId;
     }
 
@@ -39,6 +40,7 @@ RegistrationResult ActionBus::registerHandler(std::string_view actionId, IAction
         registrations_.cbegin(), registrations_.cend(),
         [actionId](const auto& registration) { return registration.actionId == actionId; });
     if (duplicate) {
+        rejected_.push_back({std::string(actionId), RegistrationResult::DuplicateId});
         return RegistrationResult::DuplicateId;
     }
 

@@ -1,5 +1,6 @@
 #include "apps/launcher/launcher.h"
 
+#include "apps/common/shell_actions.h"
 #include "apps/launcher/launcher_graphics.h"
 #include "core/display/palette.h"
 #include "core/display/text_layout.h"
@@ -88,7 +89,7 @@ void Launcher::handle(const InputEvent& event) {
         return;
     }
     if (isPlainEscape(event)) {
-        (void)actions_.dispatch({"ui.back", "launcher", {}});
+        (void)actions_.dispatch({uiBackActionId, "launcher", {}});
         return;
     }
     if (event.type == InputEventType::NamedKey && event.namedKey == NamedKey::Enter)
@@ -113,7 +114,7 @@ void Launcher::launchSelected() {
         startOverlay(overlayReasonFor(availability));
         return;
     }
-    (void)actions_.dispatch({"app.open", "launcher", {{"appId", apps_.apps()[selected_].id}}});
+    (void)actions_.dispatch({appOpenActionId, "launcher", {{"appId", apps_.apps()[selected_].id}}});
 }
 
 void Launcher::clearOverlay() {

@@ -12,6 +12,12 @@
 
 namespace cardputer_hub::services {
 
+inline constexpr char networkSetEnabledActionId[] = "network.set-enabled";
+inline constexpr char networkConfigureActionId[] = "network.configure";
+inline constexpr char networkForgetActionId[] = "network.forget";
+inline constexpr const char* networkServiceActionIds[] = {
+    networkSetEnabledActionId, networkConfigureActionId, networkForgetActionId};
+
 enum class NetworkResult : std::uint8_t {
     Success,
     InvalidInput,

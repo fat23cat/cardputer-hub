@@ -1,5 +1,6 @@
 #include "apps/network/wifi_settings.h"
 
+#include "apps/common/shell_actions.h"
 #include "core/display/contextual_footer.h"
 #include "core/display/palette.h"
 #include "core/display/text_layout.h"
@@ -146,7 +147,7 @@ void WiFiSettings::cancelEditor() {
 }
 
 void WiFiSettings::submitConfiguration() {
-    dispatch("network.configure",
+    dispatch(services::networkConfigureActionId,
              {{"ssid", ssidDraft_.value}, {"passphrase", passphraseDraft_.value}});
     const auto result = network_.status().lastResult;
     if (result == services::NetworkResult::Success ||
@@ -178,7 +179,7 @@ void WiFiSettings::handleEditor(const InputEvent& event) {
             } else if (view_ == View::Passphrase)
                 submitConfiguration();
             else if (view_ == View::Forget) {
-                dispatch("network.forget");
+                dispatch(services::networkForgetActionId);
                 view_ = View::Status;
                 resetFocus(false);
             }
@@ -210,11 +211,11 @@ void WiFiSettings::handleStatus(const InputEvent& event,
     if (up || down)
         focusedKind_ = visible[stepListIndex(focus, visible.size(), down)].kind;
     else if (escape)
-        dispatch("ui.back");
+        dispatch(uiBackActionId);
     else if (event.type == InputEventType::NamedKey && event.namedKey == NamedKey::Enter) {
         switch (visible[resolveFocus(visible)].kind) {
         case RowKind::Toggle:
-            dispatch("network.set-enabled", {{"enabled", !status.enabled}});
+            dispatch(services::networkSetEnabledActionId, {{"enabled", !status.enabled}});
             break;
         case RowKind::Configure:
         case RowKind::Change:

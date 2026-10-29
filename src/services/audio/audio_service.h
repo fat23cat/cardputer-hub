@@ -9,6 +9,8 @@
 
 namespace cardputer_hub::services {
 
+inline constexpr char audioVolumeStepActionId[] = "audio.volume.step";
+
 // Fault: an incident started, such as a status page getting worse.
 enum class AudioCue : std::uint8_t { KeyPress, StepLeft, StepRight, Fault };
 enum class AudioResult : std::uint8_t { Success, InvalidVolume, StorageError, AdapterError };
