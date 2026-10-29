@@ -9,7 +9,7 @@ int main() {
                             cardputer_hub::core::LedCanvasFade::Medium, 3, true});
         if (command == 0)
             engine.clear();
-        else if (command == 1) {
+        else if (command == 1 || command == 3) {
             unsigned pointer, x, y, radius, flags, hue, ink;
             std::uint64_t time;
             std::cin >> pointer >> x >> y >> radius >> flags >> time >> hue >> ink;
@@ -23,6 +23,11 @@ int main() {
             point.point.hue = static_cast<std::uint16_t>(hue);
             point.point.mixInk = static_cast<std::uint8_t>(ink);
             point.point.hasColor = true;
+            if (command == 3) {
+                unsigned glow;
+                std::cin >> glow;
+                point.point.glow = glow != 0;
+            }
             engine.point(point);
         } else if (command == 2) {
             unsigned elapsed;

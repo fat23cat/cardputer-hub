@@ -2151,7 +2151,18 @@ background and answers BLE requests from a lock-protected cache. The macOS
 `CompanionProviders` target owns the collector and replaceable Codex JSONL,
 Cursor credential, and Cursor HTTP boundaries. Codex finds its executable in
 direct locations or through a bounded login-shell lookup on each unsuccessful
-discovery cycle, then uses a local app-server process. Cursor reads the existing
+discovery cycle, then uses a local app-server process with child-only overrides
+that disable analytics, OpenTelemetry exporters, plugins, hooks, and apps. The
+user's Codex configuration and authentication remain unchanged. A non-null
+`rateLimitsByLimitId` map is authoritative: only its `codex` entry can supply
+limits, including Business credits; a malformed or absent Codex entry cannot
+fall back to legacy or top-level usage. Legacy and direct results remain
+supported when the map is absent or null; any supplied non-null `limitId` must
+be `codex`. Top-level `ordinaryUsageAllowed: false`, a map without a `codex`
+bucket, or another product's `limitId` makes Codex unavailable, marking any
+prior sample stale without a failure retry; only an unreadable response is a
+retryable failure. Normal refreshes can restore it after the restriction is
+lifted. Cursor reads the existing
 Agent token through Keychain, derives its request cookie in memory, and calls
 the usage adapter over HTTPS.
 Claude reads Claude Code's existing OAuth credential, retains the token only
@@ -2190,6 +2201,10 @@ service advances reset countdowns while the Mini App is closed and reconciles
 each response against the current countdown: cached samples cannot increase
 the time remaining, while a lower reported
 remaining time corrects it promptly. A new reset identity starts a new countdown.
+Passing a reset deadline only reduces its countdown to zero: cached quotas,
+including Claude rolling windows, retain their last observed usage, remaining
+percentage, and reset identity until a new provider response arrives. The UI
+shows the known elapsed deadline as `DUE`; no timer replenishes quota.
 `AiUsageApp` and the Puzzle controller consume only the bounded snapshot; neither
 parses provider JSON or BLE envelopes.
 
@@ -2446,16 +2461,24 @@ in-flight stroke, then discards any retry that request recreated and resets the
 browser sampling timeline. Admission reserves room for pointer ends; intermediate samples
 are thinned under pressure. Stationary pointers send a heartbeat every 150 ms;
 navigation, suspension and network loss are also covered by the device timeout.
-Brush AUTO/FINE/WIDE is localStorage per browser; shared mode, fade, ink and
-Hold are synchronized by revisions and 2 s idle polls. AUTO trusts contact size
-only after two distinct rounded touch sizes, otherwise uses Wide; mouse and pen
-use Fine. Each point additionally carries its ending hue phase (0–9999, one turn = 10000)
+Brush THIN/FINE/WIDE and the separate Glow switch are localStorage per browser;
+shared mode, fade, ink and Hold are synchronized by revisions and 2 s idle polls.
+THIN replaces AUTO and has radius zero, guaranteeing only the pointer's LED in
+the core. FINE and WIDE retain radii 0.4 and 1.05 cells and the original radial
+weight function. Glow defaults on; turning it off removes the neighbouring
+halo from new dabs and the browser's shadows without changing the brush core,
+mode effects or fading of existing trails. Contact size does not override the
+selected brush. Legacy stored AUTO becomes THIN.
+Each point additionally carries its ending hue phase (0–9999, one turn = 10000)
 and Mix stroke ink (0–2). The engine still computes RGB, interpolation, halo,
 rings and fading. These bounded input stamps prevent independent browser/engine
 color counters from drifting after reload, Clear, thinning or another browser
 drawing. Rainbow and Kaleidoscope retain the hue per pointer while it is
 stationary; Mix cycles per browser. Clear resets the engine's hue/stroke counters
-as well as drawing buffers. Six-field legacy points remain accepted. Preview
+as well as drawing buffers. Nine-field points append a Glow bit (0 or 1) after
+the hue and Mix ink fields. Six- and eight-field legacy points remain accepted
+with Glow on. Radius accepts zero for THIN or the existing 5–29 range in
+sixteenths of a cell; the endpoint and Service reject other values. Preview
 shows that browser's strokes; the matrix mixes all browsers.
 
 BLE and the access point share the ESP32-S3 radio. With BLE advertising or

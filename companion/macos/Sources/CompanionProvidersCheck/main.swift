@@ -195,6 +195,37 @@ private func waitUntil(_ condition: () -> Bool) -> Bool {
     return condition()
 }
 
+func codexChildReceivesIsolatedLaunchArguments() {
+    let arguments = ["analytics.enabled=false", "otel.exporter=\"none\"",
+                     "otel.trace_exporter=\"none\"", "otel.metrics_exporter=\"none\"",
+                     "features.plugins=false", "features.remote_plugin=false",
+                     "features.hooks=false", "features.apps=false"].flatMap { ["-c", $0] } +
+        ["app-server", "--listen", "stdio://"]
+    expect(ProcessCodexJSONLTransport.launchArguments == arguments)
+    // Exercise Process wiring too: the fake executable echoes its actual argv.
+    let directory = FileManager.default.temporaryDirectory
+        .appendingPathComponent(UUID().uuidString)
+    let transport = ProcessCodexJSONLTransport()
+    defer {
+        transport.stop()
+        try? FileManager.default.removeItem(at: directory)
+    }
+    do {
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let script = directory.appendingPathComponent("codex")
+        try "#!/bin/sh\nprintf '%s\\n' \"$@\"\n".write(to: script, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: script.path)
+        let lock = NSLock()
+        var received = Data()
+        transport.onData = { data in lock.lock(); received.append(data); lock.unlock() }
+        expect(transport.start(path: script.path))
+        let expected = Data((arguments.joined(separator: "\n") + "\n").utf8)
+        expect(waitUntil { lock.lock(); defer { lock.unlock() }; return received == expected })
+    } catch {
+        expect(false)
+    }
+}
+
 func codexRestartsAfterExitAndIgnoresOldProcessOutput() {
     let locator = CodexExecutableLocator(environment: { ["PATH": "/fake"] }, home: "/none",
         isExecutable: { $0 == "/fake/codex" }, loginShellPath: { nil })
@@ -335,6 +366,60 @@ private final class FakeRetryScheduler {
         lock.unlock()
         action()
     }
+}
+
+func codexRestrictionKeepsHistoryWithoutFailureRetry() {
+    let locator = CodexExecutableLocator(environment: { ["PATH": "/fake"] }, home: "/none",
+        isExecutable: { $0 == "/fake/codex" }, loginShellPath: { nil })
+    let factory = FakeCodexFactory()
+    let codex = CodexUsageProvider(locator: locator, transportFactory: { factory.make() })
+    let cursor = FakeUsageProvider()
+    let scheduler = FakeRetryScheduler()
+    let collector = AiUsageCollector(codex: codex, cursor: cursor,
+                                     scheduleRetry: scheduler.schedule)
+    defer { collector.stop() }
+    collector.start()
+    expect(waitUntil { factory.at(0)?.latest("initialize") != nil && cursor.pending == 1 })
+    guard let transport = factory.at(0) else { return }
+    cursor.complete(nil, absent: true)
+    transport.emit(["id": 1, "result": [:]])
+    expect(waitUntil { transport.latest("account/read") != nil })
+    transport.emit(["id": 2, "result": ["account": ["planType": "plus"]]])
+    expect(waitUntil { transport.latest("account/rateLimits/read") != nil })
+    guard let id = transport.latest("account/rateLimits/read")?["id"] as? Int else {
+        expect(false); return
+    }
+    let limits: [String: Any] = ["planType": "plus", "limitId": "codex",
+        "primary": ["usedPercent": 90, "windowDurationMins": 300]]
+    transport.emit(["id": id, "result": ["rateLimitsByLimitId": ["codex": limits]]])
+    expect(waitUntil { collector.snapshot()?.providers.first?.metrics.first?.remainingPercent == 10 })
+
+    func refreshLimits(_ result: [String: Any]) {
+        let previous = transport.latest("account/rateLimits/read")?["id"] as? Int
+        collector.refresh()
+        expect(waitUntil { cursor.pending == 1 &&
+            transport.latest("account/rateLimits/read")?["id"] as? Int != previous })
+        guard cursor.pending == 1,
+              let next = transport.latest("account/rateLimits/read")?["id"] as? Int else {
+            expect(false); return
+        }
+        cursor.complete(nil, absent: true)
+        transport.emit(["id": next, "result": result])
+    }
+    refreshLimits(["ordinaryUsageAllowed": false, "rateLimitsByLimitId": ["codex": limits]])
+    expect(waitUntil { collector.snapshot()?.providers.first?.freshness == .stale })
+    expect(collector.snapshot()?.providers.first?.metrics.first?.remainingPercent == 10)
+    expect(scheduler.delays.isEmpty && transport.isRunning)
+
+    refreshLimits(["ordinaryUsageAllowed": true, "rateLimitsByLimitId": ["codex": limits]])
+    expect(waitUntil { collector.snapshot()?.providers.first?.freshness == .fresh })
+    refreshLimits(["rateLimitsByLimitId": ["different": limits], "rateLimits": limits])
+    expect(waitUntil { collector.snapshot()?.providers.first?.freshness == .stale })
+    expect(scheduler.delays.isEmpty)
+
+    refreshLimits(["rateLimitsByLimitId": "invalid"])
+    expect(waitUntil { scheduler.delays == [1] })
+    expect(collector.snapshot()?.providers.first?.metrics.first?.remainingPercent == 10)
 }
 
 private final class FakePeriodicScheduler {
@@ -1090,7 +1175,7 @@ func collectorPublishesPersonalCodexAndClaude() {
     collector.stop()
 }
 
-func collectorShowsElapsedStaleWindowsAsReset() {
+func collectorShowsElapsedStaleWindowsAsHistorical() {
     let clock = TestClock()
     let codex = FakeUsageProvider()
     let cursor = FakeUsageProvider()
@@ -1106,7 +1191,17 @@ func collectorShowsElapsedStaleWindowsAsReset() {
     clock.now = Date(timeIntervalSince1970: 10_801)
     let metric = collector.snapshot()?.providers.first?.metrics.first
     expect(collector.snapshot()?.providers.first?.freshness == .stale)
-    expect(metric?.remainingPercent == 100 && metric?.resetAt == 0)
+    expect(metric?.remainingPercent == 10 && metric?.used == 90 &&
+           metric?.resetAt == 10_800 && metric?.resetRemainingSeconds == 0)
+    collector.refresh()
+    expect(waitUntil { codex.pending == 1 && cursor.pending == 1 })
+    let fresh = AiUsageNormalization.codex(["planType": "plus",
+        "primary": ["usedPercent": 0, "windowDurationMins": 300, "resetsAt": 28_800]],
+        now: clock.now)!
+    codex.complete(fresh)
+    cursor.complete(nil, absent: true)
+    expect(waitUntil { collector.snapshot()?.providers.first?.freshness == .fresh &&
+        collector.snapshot()?.providers.first?.metrics.first?.remainingPercent == 100 })
     collector.stop()
 }
 
@@ -1117,8 +1212,10 @@ func collectorShowsElapsedStaleWindowsAsReset() {
         cursorOmitsAbsentCredentialAndRejectsMalformedJWT()
         codexExecutableDiscoveryChecksDirectPathsBeforeLoginShell()
         codexExecutableDiscoveryCachesSuccessAndRetriesNegativeLoginShellResult()
+        codexChildReceivesIsolatedLaunchArguments()
         codexRestartsAfterExitAndIgnoresOldProcessOutput()
         codexProviderHandlesAbsenceAndRealBusinessLimits()
+        codexRestrictionKeepsHistoryWithoutFailureRetry()
         collectorPublishesHomeAndWorkProviderSets()
         collectorRefreshesEveryThirtySecondsOutsideMainRunLoop()
         collectorExpiresCachedFreshnessWhileRefreshIsPending()
@@ -1145,7 +1242,7 @@ func collectorShowsElapsedStaleWindowsAsReset() {
         claudeDenialPausesKeychainReads()
         collectorKeepsUnavailableSampleStaleWithoutRetry()
         collectorPublishesPersonalCodexAndClaude()
-        collectorShowsElapsedStaleWindowsAsReset()
+        collectorShowsElapsedStaleWindowsAsHistorical()
         if failures > 0 { exit(1) }
         print("companion provider checks passed")
     }

@@ -611,6 +611,71 @@ let v2 = CompanionSession(applications: FakeApplications(), metrics: collector,
         expect(plusSample?.metrics.map(\.kind) == [.fiveHour, .week],
                "Codex windows identified by duration")
         expect(plusSample?.metrics.first?.remainingPercent == 63, "Codex shows remaining quota")
+        let noCodexBucket: [String: Any] = [
+            "rateLimitsByLimitId": ["different": ["limitId": "different"]],
+            "rateLimits": plus["rateLimits"]!,
+        ]
+        expect(AiUsageNormalization.codex(noCodexBucket) == nil,
+               "present bucket map never falls back to another product")
+        let selectedCodex: [String: Any] = [
+            "rateLimitsByLimitId": ["codex": plus["rateLimits"]!],
+            "rateLimits": ["limitId": "different"],
+        ]
+        expect(AiUsageNormalization.codex(selectedCodex)?.metrics.first?.remainingPercent == 63,
+               "canonical Codex bucket wins over legacy data")
+        let invalidBuckets: [Any] = [[String: Any](), "invalid", ["codex": NSNull()],
+                                     ["codex": [Any]()]]
+        for buckets in invalidBuckets {
+            expect(AiUsageNormalization.codex(["rateLimitsByLimitId": buckets,
+                                               "rateLimits": plus["rateLimits"]!]) == nil,
+                   "malformed authoritative buckets cannot fall back to legacy limits")
+        }
+        let invalidIds: [Any] = ["different", 42]
+        for invalidId in invalidIds {
+            var foreign = plus["rateLimits"] as! [String: Any]
+            foreign["limitId"] = invalidId
+            expect(AiUsageNormalization.codex(["rateLimits": foreign]) == nil &&
+                   AiUsageNormalization.codex(["rateLimitsByLimitId": ["codex": foreign]]) == nil,
+                   "foreign or malformed bucket identity is never reported as Codex")
+        }
+        expect(AiUsageNormalization.codex(["rateLimits": "invalid"]) == nil,
+               "malformed legacy limits are rejected")
+        expect(AiUsageNormalization.codex(["ordinaryUsageAllowed": false,
+                                           "rateLimits": plus["rateLimits"]!]) == nil,
+               "backend permission false blocks apparently available quota")
+        let permissions: [Any] = [true, NSNull()]
+        for permission in permissions {
+            expect(AiUsageNormalization.codex(["ordinaryUsageAllowed": permission,
+                                               "rateLimits": plus["rateLimits"]!])?.metrics.count == 2,
+                   "allowed or unknown permission preserves legacy support")
+        }
+        expect(AiUsageNormalization.codex(["rateLimitsByLimitId": NSNull(),
+                                           "rateLimits": plus["rateLimits"]!])?.metrics.count == 2,
+               "null bucket map preserves legacy support")
+        var foreignLegacy = plus["rateLimits"] as! [String: Any]
+        foreignLegacy["limitId"] = "different"
+        let unavailableReadings: [[String: Any]] = [
+            ["ordinaryUsageAllowed": false, "rateLimits": plus["rateLimits"]!],
+            noCodexBucket, ["rateLimitsByLimitId": [String: Any]()],
+            ["rateLimitsByLimitId": ["codex": NSNull()]], ["rateLimits": foreignLegacy],
+        ]
+        for result in unavailableReadings {
+            expect(AiUsageNormalization.codexReading(result) == .unavailable,
+                   "restricted or absent Codex quota is unavailable, not a failure")
+        }
+        var numericId = plus["rateLimits"] as! [String: Any]
+        numericId["limitId"] = 42
+        let invalidReadings: [[String: Any]] = [
+            ["rateLimitsByLimitId": "invalid"], ["rateLimitsByLimitId": ["codex": [Any]()]],
+            ["rateLimits": "invalid"], ["rateLimits": numericId], [:],
+        ]
+        for result in invalidReadings {
+            expect(AiUsageNormalization.codexReading(result) == .invalid,
+                   "malformed Codex quota stays a retryable failure")
+        }
+        expect(AiUsageNormalization.codexReading(selectedCodex) ==
+               AiUsageNormalization.codex(selectedCodex).map { .sample($0) },
+               "readable Codex quota is a sample")
         var plusWithSpend = plus
         var plusLimits = plusWithSpend["rateLimits"] as! [String: Any]
         plusLimits["individualLimit"] = ["limit": 100, "used": 1,
@@ -730,6 +795,16 @@ let v2 = CompanionSession(applications: FakeApplications(), metrics: collector,
                businessSample?.metrics.first?.remaining == 235 &&
                businessSample?.metrics.first?.remainingPercent == 1,
                "real Business numeric strings and fractional credits normalized")
+        expect(AiUsageNormalization.codex(["rateLimitsByLimitId": ["codex": business]],
+                                          now: displayNow)?
+            .metrics == businessSample?.metrics, "canonical Business credits remain supported")
+        expect(AiUsageNormalization.codex(["ordinaryUsageAllowed": false,
+                                           "rateLimitsByLimitId": ["codex": business]]) == nil,
+               "backend permission also blocks Business credits")
+        expect(AiUsageNormalization.codex([
+            "rateLimitsByLimitId": ["codex": ["planType": "business"]],
+            "rateLimits": business, "individualLimit": business["individualLimit"]!,
+        ]) == nil, "canonical bucket never borrows legacy or top-level Business credits")
         let overflowingBusiness: [String: Any] = ["planType": "business",
             "individualLimit": ["limit": "4294967295.9", "used": "1",
                                 "remainingPercent": 1]]
@@ -798,8 +873,15 @@ let v2 = CompanionSession(applications: FakeApplications(), metrics: collector,
         var elapsed = claudeSample!
         elapsed.freshness = .stale
         let reset = elapsed.aged(now: Date(timeIntervalSince1970: 20_000))
-        expect(reset.metrics.first?.remainingPercent == 100 && reset.metrics.first?.used == 0 &&
-               reset.metrics.first?.resetAt == 0, "elapsed window shows as reset")
+        expect(reset.metrics.first?.remainingPercent == elapsed.metrics.first?.remainingPercent &&
+               reset.metrics.first?.used == elapsed.metrics.first?.used &&
+               reset.metrics.first?.resetAt == elapsed.metrics.first?.resetAt &&
+               reset.metrics.first?.resetRemainingSeconds == 0,
+               "elapsed stale window keeps its last observation until a new read")
+        let expiredWeek = elapsed.aged(now: Date(timeIntervalSince1970: 100_000))
+        expect(expiredWeek.metrics.map(\.remainingPercent) == elapsed.metrics.map(\.remainingPercent) &&
+               expiredWeek.metrics.allSatisfy { $0.resetRemainingSeconds == 0 },
+               "both expired Claude windows retain historical quota")
         expect(reset.metrics.last?.remainingPercent == elapsed.metrics.last?.remainingPercent &&
                reset.metrics.last?.resetRemainingSeconds == 86_400 - 20_000,
                "pending window keeps usage and recounts its reset")

@@ -14,12 +14,13 @@ class Element {
   hasPointerCapture(id) { return this.capture === id; }
 }
 const requests = [];
+const preferences=new Map();
 const shared = { open: true, revision: 0, fingers: 0, settings: { mode: 'rainbow', fade: 'medium', ink: 0, hold: false } };
 let handler = async () => ({ ...shared });
 const context = vm.createContext({ console, Float32Array, Uint32Array, Map, Set, Math, Object, Array, String,
   AbortController, crypto: { getRandomValues: (a) => { a[0] = 123; return a; } }, performance: { now: () => now },
   setTimeout: (fn,ms) => { timeouts.set(++timeoutId,{fn,ms}); return timeoutId; }, clearTimeout(id) { timeouts.delete(id); }, setInterval: () => 1, clearInterval() {}, requestAnimationFrame: () => 1, cancelAnimationFrame() {},
-  localStorage: { getItem: () => null, setItem() {} }, state: { signedIn: true }, routeSerial: 1,
+  localStorage: { getItem: key=>preferences.get(key)??null, setItem(key,value) { preferences.set(key,String(value)); } }, state: { signedIn: true }, routeSerial: 1,
   window: { addEventListener() {}, removeEventListener() {} }, document: { addEventListener() {}, removeEventListener() {} },
   h: (tag, props) => new Element(props), show() {},
   api: async (path, options) => { requests.push({ path, options }); return handler(path,options); }
@@ -30,6 +31,17 @@ const tick = () => new Promise((resolve) => setImmediate(resolve));
 function event(id, type='touch', size=10, x=175, y=175) { return { pointerId:id, pointerType:type, width:size,height:size,clientX:x,clientY:y,button:0,buttons:1 }; }
 function deferred() { let resolve,reject; const promise=new Promise((a,b)=>{resolve=a;reject=b;});return { promise,resolve,reject }; }
 (async () => {
+  const pixel=new Model();pixel.eng.mode='solid';pixel.eng.ink=6;
+  pixel._stroke(pixel.eng,0,3.99,3.99,0,true,0,false);
+  assert.equal(Array.from(pixel.eng.rgb).filter(v=>v>0).length,3,
+    'Thin with Glow off must draw exactly one LED at the edge of a cell');
+  assert.ok(pixel._cells(pixel.eng,false).every(c=>c.glow==='none'));
+  const fine=new Model();fine.eng.mode='solid';fine.eng.ink=6;
+  fine._stroke(fine.eng,0,3.5,3.5,0,true,.4,true);
+  assert.ok(fine.eng.rgb[28*3]>0&&fine.eng.rgb[28*3]<255,'Fine retains the original soft halo');
+  const wide=new Model();wide.eng.mode='solid';wide.eng.ink=6;
+  wide._stroke(wide.eng,0,3.5,3.5,0,true,1.05,false);
+  assert.equal(Array.from(wide.eng.rgb).filter(v=>v===255).length,15,'Wide retains its five-LED core');
   const m=new Model(),e=m.eng;
   e.mode='solid';e.ink=6;m._stroke(e,0,3.5,3.5,0,true,.4);
   assert.equal(e.rgb[27*3],255);assert.ok(e.rgb[28*3]>0&&e.rgb[28*3]<255);
@@ -52,6 +64,8 @@ function deferred() { let resolve,reject; const promise=new Promise((a,b)=>{reso
   for(let i=0;i<100;++i){if(!q.canStart(0))break;q.add([0,1,1,6,i,1]);q.add([0,1,1,6,i,2]);}
   assert.ok(q.pending.length<=64);assert.ok(q.pending.every(p=>p[5]!==0));
   const p=new Page(1);await tick();assert.equal(p.open,true);assert.equal(p.closed.hidden,true);
+  assert.equal(p.brush,'thin');assert.equal(p.glow,true);
+  assert.deepEqual(Array.from(p.buttons.filter(b=>b.key==='brush'),b=>b.value),['thin','fine','wide']);
   let prevented=0;
   for(const type of ['touchstart','touchmove','touchend','gesturestart','gesturechange','gestureend']) {
     assert.equal(typeof p.panelWrap.events[type],'function','Drawing owns '+type);
@@ -63,13 +77,21 @@ function deferred() { let resolve,reject; const promise=new Promise((a,b)=>{reso
 
   for(let i=0;i<6;++i)p.down(event(i));assert.equal(p.pointers.size,5);
   for(const [i,sample] of p.queue.pending.entries()) {
-    assert.equal(sample.length,8,'Each point carries its preview color phase');
+    assert.equal(sample.length,9,'Each point carries its preview color phase and Glow switch');
     assert.equal(sample[6],(i+1)*400);assert.equal(sample[7],i%3);
+    assert.equal(sample[3],0);assert.equal(sample[8],1);
   }
   p.endAll();await tick();
-  assert.equal(requests.at(-1).options.body.p[0].length,8,'The sender preserves phase metadata');
-  assert.equal(p.radius(event(9)),1.05);assert.ok(Math.abs(p.radius(event(10,'touch',20))-.3)<1e-8);
-  assert.equal(p.radius(event(11,'mouse',99)),.4);assert.equal(p.radius(event(12,'pen',99)),.4);
+  assert.equal(requests.at(-1).options.body.p[0].length,9,'The sender preserves phase and Glow metadata');
+  assert.equal(p.radius(event(9)),0);assert.equal(p.radius(event(10,'touch',20)),0);
+  p.brush='fine';assert.equal(p.radius(event(11,'mouse',99)),.4);
+  p.brush='wide';assert.equal(p.radius(event(12,'pen',99)),1.05);p.brush='thin';
+  p.down(event(13));p.glowInput.checked=false;p.glowInput.onchange();
+  assert.equal(p.glow,false);assert.equal(preferences.get('hub-led-glow'),'false');
+  assert.equal(p.model.eng.ptrs[0].glow,false,'Glow toggles without ending an active stroke');
+  await tick();assert.ok(requests.at(-1).options.body.p.some(sample=>sample[8]===0));
+  const remembered=new Page(1);await tick();assert.equal(remembered.glow,false);remembered.dispose();
+  p.endAll();await tick();
   p.hover=false;p.move({...event(20,'mouse'),buttons:0});assert.equal(p.pointers.size,0);
   p.hover=true;p.move({...event(20,'mouse'),buttons:0});assert.equal(p.pointers.size,1);p.endAll();await tick();
   const inFlight=deferred();handler=()=>inFlight.promise;

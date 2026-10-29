@@ -146,7 +146,7 @@ Up to five touches per browser are supported;
 up to four browsers can draw together, mixing their light on the matrix.
 On a computer, **Draw on hover** starts enabled; uncheck it to draw only while
 holding the mouse button. The LED under the pointer is brightest, with a softer
-halo around it. The browser shows an immediate preview of its own strokes;
+halo around it while **Glow** is on. The browser shows an immediate preview of its own strokes;
 the physical matrix combines every browser. Generated colors follow the same
 stroke phase on both sides, including after Clear or reloading the page.
 
@@ -157,11 +157,12 @@ rings; **Kaleidoscope** mirrors into four colors; **Solid** uses one of seven
 ink swatches. **Fade** offers Short, Medium and Long. **Hold** freezes fading
 while rings continue moving; **Clear Panel** empties the drawing.
 
-**Brush** is AUTO, FINE or WIDE. Mouse and pen use Fine in AUTO. For touch,
-AUTO uses the contact size only after the browser reports two different sizes;
-until then it uses Wide. A browser that reports no size or one fixed size keeps
-Wide and shows `Size not reported here, using Wide`. The brush is remembered
-in this browser. Mode, fade, ink and Hold are shared with the Cardputer and
+**Brush** is THIN, FINE or WIDE. THIN replaces AUTO and is the smallest brush;
+FINE and WIDE retain their previous sizes. The separate **Glow** switch defaults
+on and enables the soft halo. Choose **THIN** and switch **Glow off** for exactly
+one LED without glow. Existing trails fade normally after switching it off;
+Ripple rings and Kaleidoscope mirrors still work as before. Brush and Glow are
+remembered in this browser. Mode, fade, ink and Hold are shared with the Cardputer and
 other browsers; they last until the next reboot.
 
 The Cardputer shows `WAITING FOR A TOUCH`, then `LIVE` with the finger count,
@@ -449,7 +450,8 @@ values as `STALE` while retrying quietly every five minutes. Relaunch Companion
 to grant access again if needed. At most two providers appear,
 in the order Codex, Cursor, Claude. When Claude Code has not run for several
 hours, Claude values stay visible marked `STALE` until you use it again; a
-stale window whose reset time has passed shows 100% left and `--`. Signing out
+stale window whose reset time has passed keeps its last reported quota and shows
+`DUE` (`RESET DUE` in details) until a fresh reading confirms the quota. Signing out
 of Claude Code or switching accounts shows up within about five minutes. Bars and `LEFT` percentages show remaining capacity.
 Business credits and Cursor Enterprise spend show **used / limit** in credits
 or dollars alongside the remaining percentage, its bar and the reset time.

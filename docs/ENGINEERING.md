@@ -1062,7 +1062,8 @@ when Node.js is available, otherwise reports a skip. They exercise the actual
 inline page code without browser packages. With Node.js and a C++ compiler
 available, `test_led_canvas_ui` also compiles the pure engine into a temporary
 read-only test bridge and compares its RGB output with the actual inline JS
-model for all seven modes (one-channel-unit rounding tolerance). For a visible UI check, serve the
+model for all seven modes, legacy points, and THIN/FINE/WIDE with Glow on and
+off (one-channel-unit rounding tolerance). For a visible UI check, serve the
 page with mock local HTTP endpoints and inspect both phone and desktop widths.
 
 Use narrow commands while iterating, then run the applicable CI-equivalent gate
