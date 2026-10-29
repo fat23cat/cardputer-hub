@@ -157,14 +157,14 @@ WifiStatusSnapshot NetworkService::status() const {
 }
 
 core::ActionHandlingResult NetworkService::handle(const core::Action& action) {
-    if (action.id == "network.set-enabled") {
+    if (action.id == networkSetEnabledActionId) {
         const auto* enabled = parameter<bool>(action, "enabled");
         if (!enabled)
             return core::ActionHandlingResult::Rejected;
         (void)setEnabled(*enabled);
         return core::ActionHandlingResult::Handled;
     }
-    if (action.id == "network.configure") {
+    if (action.id == networkConfigureActionId) {
         const auto* ssid = parameter<std::string>(action, "ssid");
         const auto* passphrase = parameter<std::string>(action, "passphrase");
         if (!ssid || !passphrase)
@@ -172,7 +172,7 @@ core::ActionHandlingResult NetworkService::handle(const core::Action& action) {
         (void)configure(*ssid, *passphrase);
         return core::ActionHandlingResult::Handled;
     }
-    if (action.id == "network.forget") {
+    if (action.id == networkForgetActionId) {
         (void)forget();
         return core::ActionHandlingResult::Handled;
     }

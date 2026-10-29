@@ -240,28 +240,30 @@ extern "C" void app_main(void) {
     else
         (void)puzzleLeds.begin();
     logHeap("nfc and leds");
-    for (const auto* id : {"host.select", "host.bluetooth", "host.rename", "host.platform",
-                           "host.capability", "host.mapping-template", "host.pair",
-                           "host.cancel-pairing", "host.pair-response", "host.delete"}) {
-        (void)actions.registerHandler(id, hosts);
-    }
-    (void)actions.registerHandler("audio.volume.step", audio);
-    for (const auto* id :
-         {"display.timeout.step", "display.brightness.step", "indicator.brightness.step"})
-        (void)actions.registerHandler(id, deviceSettings);
-    for (const auto* id : {"network.set-enabled", "network.configure", "network.forget"})
-        (void)actions.registerHandler(id, network);
-    (void)actions.registerHandler(cardputer_hub::services::hostAppActivateActionId, hostControl);
-    (void)actions.registerHandler(cardputer_hub::services::serviceStatusRefreshActionId,
-                                  serviceStatus);
-    (void)actions.registerHandler(cardputer_hub::services::aiUsageRefreshActionId, aiUsage);
-    (void)actions.registerHandler(cardputer_hub::services::aiAgentStatusRefreshActionId,
-                                  aiAgentStatus);
-    (void)actions.registerHandler(cardputer_hub::services::webAccessSetEnabledActionId, webAccess);
+    namespace services = cardputer_hub::services;
+    (void)actions.registerHandlers(services::hostServiceActionIds, hosts);
+    (void)actions.registerHandler(services::audioVolumeStepActionId, audio);
+    (void)actions.registerHandlers(services::deviceSettingsActionIds, deviceSettings);
+    (void)actions.registerHandlers(services::networkServiceActionIds, network);
+    (void)actions.registerHandler(services::hostAppActivateActionId, hostControl);
+    (void)actions.registerHandler(services::serviceStatusRefreshActionId, serviceStatus);
+    (void)actions.registerHandler(services::aiUsageRefreshActionId, aiUsage);
+    (void)actions.registerHandler(services::aiAgentStatusRefreshActionId, aiAgentStatus);
+    (void)actions.registerHandler(services::webAccessSetEnabledActionId, webAccess);
     (void)webAccess.addApp(inventoryWeb);
     (void)webAccess.addApp(ledCanvasWeb);
-    (void)actions.registerHandler(cardputer_hub::services::ledCanvasHoldActionId, ledCanvas);
-    (void)actions.registerHandler(cardputer_hub::services::ledCanvasClearActionId, ledCanvas);
+    (void)actions.registerHandler(services::ledCanvasHoldActionId, ledCanvas);
+    (void)actions.registerHandler(services::ledCanvasClearActionId, ledCanvas);
+    // Every Action owner has registered by now, including the Shell and Host
+    // settings constructed above. A refused ID leaves that Action unrouted.
+    for (const auto& rejected : actions.rejectedRegistrations()) {
+        const bool duplicate =
+            rejected.result == cardputer_hub::core::RegistrationResult::DuplicateId;
+        const std::string message = std::string("refused ") +
+                                    (duplicate ? "duplicate" : "invalid") + " Action ID '" +
+                                    rejected.actionId + "'";
+        logger.error("actions", message.c_str());
+    }
     (void)hosts.start();
     logHeap("bluetooth");
     (void)network.start();

@@ -1963,6 +1963,19 @@ reports handled, rejected, invalid, or unsupported outcomes. Source metadata
 and parameters are delivered unchanged to the handler and do not affect route
 selection.
 
+The handling owner declares each Action ID once as an `inline constexpr`
+constant in its own header, plus an array of every ID it registers when it
+handles more than one; registration and dispatch sites use those constants,
+never repeated string literals. Shell navigation IDs (`ui.*`, `app.open`,
+`app.close`) live in `apps/common/shell_actions.h` because every screen and
+Mini App dispatches them; `ui.status.toggle` stays an `ApplicationShell`
+member because only the Shell maps G0. `registerHandlers()` registers an owner's ID array
+and returns its first refusal. The bus records every refused registration
+(empty or duplicate ID); after all owners have registered, startup logs each
+one at error level, since a refused ID leaves its Action unrouted. The
+`test_action_catalog` host test registers every production ID set into one bus
+and fails on any refusal, so a colliding ID is caught before firmware runs.
+
 UI should not embed low-level implementation commands when a logical Action is
 appropriate.
 

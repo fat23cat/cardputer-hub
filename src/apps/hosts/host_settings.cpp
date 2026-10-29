@@ -1,5 +1,6 @@
 #include "apps/hosts/host_settings.h"
 
+#include "apps/common/shell_actions.h"
 #include "apps/hosts/assets/micro5_digits.h"
 #include "core/display/contextual_footer.h"
 #include "core/display/monochrome_bitmap.h"
@@ -66,10 +67,8 @@ const char* bluetoothSwitchWord(const services::HostStatusSnapshot& status) {
 HostSettings::HostSettings(services::HostService& hosts, ActionBus& actions,
                            IDisplayAdapter& display)
     : hosts_(hosts), actions_(actions), display_(display) {
-    for (const auto* id : {"hosts.up", "hosts.down", "hosts.confirm", "hosts.back", "hosts.rename",
-                           "hosts.text", "hosts.erase"}) {
-        (void)actions_.registerHandler(id, *this);
-    }
+    // Startup reports any refusal through ActionBus::rejectedRegistrations().
+    (void)actions_.registerHandlers(hostSettingsActionIds, *this);
 }
 
 void HostSettings::dispatch(const char* id, std::vector<ActionParameter> parameters) {
@@ -101,33 +100,33 @@ void HostSettings::update(const InputEvents& input) {
         if (event.type == InputEventType::NamedKey) {
             switch (event.namedKey) {
             case NamedKey::Up:
-                dispatch("hosts.up");
+                dispatch(hostSettingsUpActionId);
                 break;
             case NamedKey::Down:
-                dispatch("hosts.down");
+                dispatch(hostSettingsDownActionId);
                 break;
             case NamedKey::Enter:
-                dispatch("hosts.confirm");
+                dispatch(hostSettingsConfirmActionId);
                 break;
             case NamedKey::Escape:
-                dispatch("hosts.back");
+                dispatch(hostSettingsBackActionId);
                 break;
             case NamedKey::Backspace:
-                dispatch("hosts.erase");
+                dispatch(hostSettingsEraseActionId);
                 break;
             default:
                 break;
             }
         } else if (!renaming_ && !event.modifiers.shift && event.character == '`') {
-            dispatch("hosts.back");
+            dispatch(hostSettingsBackActionId);
         } else if (!renaming_ && !currentStatus.pairing && !event.modifiers.shift &&
                    (event.character == ';' || event.character == '.')) {
-            dispatch(event.character == ';' ? "hosts.up" : "hosts.down");
+            dispatch(event.character == ';' ? hostSettingsUpActionId : hostSettingsDownActionId);
         } else if (!renaming_ && !currentStatus.pairing &&
                    (event.character == 'r' || event.character == 'R')) {
-            dispatch("hosts.rename");
+            dispatch(hostSettingsRenameActionId);
         } else
-            dispatch("hosts.text", {{"text", std::string(1, event.character)}});
+            dispatch(hostSettingsTextActionId, {{"text", std::string(1, event.character)}});
     }
     render();
 }
@@ -136,10 +135,11 @@ ActionHandlingResult HostSettings::handle(const Action& action) {
     const auto hostStatus = hosts_.status();
     const auto count = hosts_.settings().hosts.size() + 2;
     if (deleting_) {
-        if (action.id == "hosts.back")
+        if (action.id == hostSettingsBackActionId)
             deleting_ = false;
-        else if (action.id == "hosts.confirm") {
-            dispatch("host.delete", {{"id", static_cast<std::int32_t>(*detailHost_)}});
+        else if (action.id == hostSettingsConfirmActionId) {
+            dispatch(services::hostDeleteActionId,
+                     {{"id", static_cast<std::int32_t>(*detailHost_)}});
             if (hosts_.status().lastResult == services::HostResult::Success) {
                 deleting_ = false;
                 detailHost_.reset();
@@ -149,18 +149,18 @@ ActionHandlingResult HostSettings::handle(const Action& action) {
         }
         return ActionHandlingResult::Handled;
     }
-    if (action.id == "hosts.back") {
+    if (action.id == hostSettingsBackActionId) {
         if (renaming_) {
             renaming_ = false;
             entry_.clear();
         } else if (hostStatus.pairing)
-            dispatch("host.cancel-pairing");
+            dispatch(services::hostCancelPairingActionId);
         else if (detailHost_) {
             detailHost_.reset();
             activate();
         } else
-            dispatch("ui.back");
-    } else if (action.id == "hosts.text") {
+            dispatch(uiBackActionId);
+    } else if (action.id == hostSettingsTextActionId) {
         const auto* value = action.findParameter("text");
         const auto* text = value ? std::get_if<std::string>(value) : nullptr;
         if (!text || text->size() != 1)
@@ -173,13 +173,13 @@ ActionHandlingResult HostSettings::handle(const Action& action) {
         else if (challenge && challenge->type == services::HostPairingPromptType::EnterPasskey &&
                  entry_.size() < 6 && c >= '0' && c <= '9')
             entry_ += c;
-    } else if (action.id == "hosts.erase") {
+    } else if (action.id == hostSettingsEraseActionId) {
         if (!entry_.empty())
             entry_.pop_back();
-    } else if (action.id == "hosts.confirm") {
+    } else if (action.id == hostSettingsConfirmActionId) {
         if (renaming_) {
             if (focus_ >= 2 && focus_ < count) {
-                dispatch("host.rename",
+                dispatch(services::hostRenameActionId,
                          {{"id", static_cast<std::int32_t>(hosts_.settings().hosts[focus_ - 2].id)},
                           {"name", entry_}});
                 if (hosts_.status().lastResult == services::HostResult::Success) {
@@ -192,7 +192,7 @@ ActionHandlingResult HostSettings::handle(const Action& action) {
             if (challenge && challenge->type != services::HostPairingPromptType::DisplayPasskey &&
                 (challenge->type != services::HostPairingPromptType::EnterPasskey ||
                  entry_.size() == 6)) {
-                dispatch("host.pair-response",
+                dispatch(services::hostPairResponseActionId,
                          {{"generation", static_cast<std::int32_t>(challenge->generation)},
                           {"accepted", true},
                           {"passkey",
@@ -201,22 +201,23 @@ ActionHandlingResult HostSettings::handle(const Action& action) {
             }
         } else if (detailHost_) {
             if (detailFocus_ == 0) {
-                dispatch("host.select", {{"id", static_cast<std::int32_t>(*detailHost_)}});
+                dispatch(services::hostSelectActionId,
+                         {{"id", static_cast<std::int32_t>(*detailHost_)}});
                 if (hosts_.status().lastResult == services::HostResult::Success) {
                     detailHost_.reset();
                     activate();
                 }
             } else if (detailFocus_ == 1) {
-                dispatch("hosts.rename");
+                dispatch(hostSettingsRenameActionId);
             } else {
                 deleting_ = true;
             }
         } else if (focus_ == 0) {
-            dispatch("host.bluetooth", {{"enabled", !hostStatus.connectionEnabled}});
+            dispatch(services::hostBluetoothActionId, {{"enabled", !hostStatus.connectionEnabled}});
             if (hosts_.status().lastResult == services::HostResult::HostSelectionRequired)
                 focus_ = hosts_.settings().hosts.empty() ? 1 : 2;
         } else if (focus_ == 1)
-            dispatch("host.pair");
+            dispatch(services::hostPairActionId);
         else if (focus_ < count) {
             detailHost_ = hosts_.settings().hosts[focus_ - 2].id;
             detailFocus_ = 0;
@@ -225,9 +226,9 @@ ActionHandlingResult HostSettings::handle(const Action& action) {
     } else if (!renaming_ && !hostStatus.pairing) {
         auto& cursor = detailHost_ ? detailFocus_ : focus_;
         const auto limit = detailHost_ ? 3 : count;
-        if (action.id == "hosts.up" || action.id == "hosts.down")
-            cursor = stepListIndex(cursor, limit, action.id == "hosts.down");
-        else if (action.id == "hosts.rename" && focus_ >= 2 && focus_ < count) {
+        if (action.id == hostSettingsUpActionId || action.id == hostSettingsDownActionId)
+            cursor = stepListIndex(cursor, limit, action.id == hostSettingsDownActionId);
+        else if (action.id == hostSettingsRenameActionId && focus_ >= 2 && focus_ < count) {
             renaming_ = true;
             entry_ = hosts_.settings().hosts[focus_ - 2].name;
         }

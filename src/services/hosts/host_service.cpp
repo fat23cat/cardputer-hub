@@ -464,31 +464,31 @@ void HostService::update(std::chrono::milliseconds elapsed) {
 
 core::ActionHandlingResult HostService::handle(const core::Action& action) {
     HostResult result = HostResult::InvalidInput;
-    if (action.id == "host.select") {
+    if (action.id == hostSelectActionId) {
         if (const auto* id = parameter<std::int32_t>(action, "id"); id && *id > 0)
             result = selectHost(static_cast<std::uint32_t>(*id));
-    } else if (action.id == "host.bluetooth") {
+    } else if (action.id == hostBluetoothActionId) {
         if (const auto* enabled = parameter<bool>(action, "enabled"))
             result = setEnabled(*enabled);
-    } else if (action.id == "host.rename") {
+    } else if (action.id == hostRenameActionId) {
         const auto* id = parameter<std::int32_t>(action, "id");
         const auto* name = parameter<std::string>(action, "name");
         if (id && *id > 0 && name)
             result = renameHost(static_cast<std::uint32_t>(*id), *name);
-    } else if (action.id == "host.platform") {
+    } else if (action.id == hostPlatformActionId) {
         const auto* id = parameter<std::int32_t>(action, "id");
         const auto* platform = parameter<std::string>(action, "platform");
         if (id && *id > 0 && platform)
             result = setHostPlatform(static_cast<std::uint32_t>(*id),
                                      platform->empty() ? std::nullopt
                                                        : std::optional<HostPlatformId>{*platform});
-    } else if (action.id == "host.capability") {
+    } else if (action.id == hostCapabilityActionId) {
         const auto* id = parameter<std::int32_t>(action, "id");
         const auto* capability = parameter<std::string>(action, "capability");
         const auto* enabled = parameter<bool>(action, "enabled");
         if (id && *id > 0 && capability && enabled)
             result = setHostCapability(static_cast<std::uint32_t>(*id), *capability, *enabled);
-    } else if (action.id == "host.mapping-template") {
+    } else if (action.id == hostMappingTemplateActionId) {
         const auto* id = parameter<std::int32_t>(action, "id");
         const auto* mappingTemplate = parameter<std::string>(action, "template");
         if (id && *id > 0 && mappingTemplate)
@@ -496,14 +496,14 @@ core::ActionHandlingResult HostService::handle(const core::Action& action) {
                 static_cast<std::uint32_t>(*id),
                 mappingTemplate->empty() ? std::nullopt
                                          : std::optional<HostMappingTemplateId>{*mappingTemplate});
-    } else if (action.id == "host.pair")
+    } else if (action.id == hostPairActionId)
         result = startPairing();
-    else if (action.id == "host.cancel-pairing")
+    else if (action.id == hostCancelPairingActionId)
         result = cancelPairing();
-    else if (action.id == "host.delete") {
+    else if (action.id == hostDeleteActionId) {
         if (const auto* id = parameter<std::int32_t>(action, "id"); id && *id > 0)
             result = deleteHost(static_cast<std::uint32_t>(*id));
-    } else if (action.id == "host.pair-response" && pairing_ && challenge_) {
+    } else if (action.id == hostPairResponseActionId && pairing_ && challenge_) {
         const auto* generation = parameter<std::int32_t>(action, "generation");
         const auto* accepted = parameter<bool>(action, "accepted");
         const auto* passkey = parameter<std::string>(action, "passkey");

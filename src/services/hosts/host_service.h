@@ -9,6 +9,22 @@
 
 namespace cardputer_hub::services {
 
+inline constexpr char hostSelectActionId[] = "host.select";
+inline constexpr char hostBluetoothActionId[] = "host.bluetooth";
+inline constexpr char hostRenameActionId[] = "host.rename";
+inline constexpr char hostPlatformActionId[] = "host.platform";
+inline constexpr char hostCapabilityActionId[] = "host.capability";
+inline constexpr char hostMappingTemplateActionId[] = "host.mapping-template";
+inline constexpr char hostPairActionId[] = "host.pair";
+inline constexpr char hostCancelPairingActionId[] = "host.cancel-pairing";
+inline constexpr char hostPairResponseActionId[] = "host.pair-response";
+inline constexpr char hostDeleteActionId[] = "host.delete";
+inline constexpr const char* hostServiceActionIds[] = {
+    hostSelectActionId,   hostBluetoothActionId,     hostRenameActionId,
+    hostPlatformActionId, hostCapabilityActionId,    hostMappingTemplateActionId,
+    hostPairActionId,     hostCancelPairingActionId, hostPairResponseActionId,
+    hostDeleteActionId};
+
 enum class HostResult {
     Success,
     InvalidInput,
