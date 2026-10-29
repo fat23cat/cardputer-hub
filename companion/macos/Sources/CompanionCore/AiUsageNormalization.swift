@@ -1,7 +1,18 @@
 import Foundation
 
+/// What a Codex rate-limit response says about Codex quota.
+public enum CodexUsageReading: Equatable {
+    case sample(AiUsageProviderSnapshot)
+    /// The backend withholds ordinary usage or reports no Codex bucket;
+    /// retrying the same request cannot produce one.
+    case unavailable
+    /// The response cannot be read as Codex quota.
+    case invalid
+}
+
 public enum AiUsageNormalization {
     private static func dictionary(_ value: Any?) -> [String: Any]? { value as? [String: Any] }
+    private static func present(_ value: Any?) -> Any? { value is NSNull ? nil : value }
     private static func number(_ value: Any?) -> Double? {
         let number: Double
         if let value = value as? NSNumber {
@@ -104,27 +115,36 @@ public enum AiUsageNormalization {
 
     public static func codex(_ result: [String: Any], accountPlan: String? = nil,
                              now: Date = Date()) -> AiUsageProviderSnapshot? {
+        guard case .sample(let sample) = codexReading(result, accountPlan: accountPlan, now: now)
+        else { return nil }
+        return sample
+    }
+
+    public static func codexReading(_ result: [String: Any], accountPlan: String? = nil,
+                                    now: Date = Date()) -> CodexUsageReading {
         // Permission is independent of the displayed quota.
-        if result["ordinaryUsageAllowed"] as? Bool == false { return nil }
+        if result["ordinaryUsageAllowed"] as? Bool == false { return .unavailable }
         let limits: [String: Any]
-        let hasBucketMap = result["rateLimitsByLimitId"] != nil &&
-            !(result["rateLimitsByLimitId"] is NSNull)
-        if hasBucketMap {
+        let bucketMap = present(result["rateLimitsByLimitId"])
+        if let bucketMap {
             // A present map is authoritative; never borrow another product's legacy data.
-            guard let buckets = dictionary(result["rateLimitsByLimitId"]),
-                  let codex = dictionary(buckets["codex"]) else { return nil }
+            guard let buckets = dictionary(bucketMap) else { return .invalid }
+            guard let bucket = present(buckets["codex"]) else { return .unavailable }
+            guard let codex = dictionary(bucket) else { return .invalid }
             limits = codex
-        } else if let raw = result["rateLimits"], !(raw is NSNull) {
-            guard let legacy = dictionary(raw) else { return nil }
+        } else if let raw = present(result["rateLimits"]) {
+            guard let legacy = dictionary(raw) else { return .invalid }
             limits = legacy
         } else {
             limits = result
         }
-        if let limitId = limits["limitId"], !(limitId is NSNull),
-           limitId as? String != "codex" { return nil }
+        if let limitId = present(limits["limitId"]) {
+            guard let limitId = limitId as? String else { return .invalid }
+            guard limitId == "codex" else { return .unavailable }
+        }
         let detectedPlan = plan(limits["planType"] as? String ?? accountPlan)
         if detectedPlan != .plus, let credits = dictionary(limits["individualLimit"]) ??
-                (hasBucketMap ? nil : dictionary(result["individualLimit"])),
+                (bucketMap == nil ? dictionary(result["individualLimit"]) : nil),
            let limit = whole(credits["limit"]), let used = whole(credits["used"]),
            let remainingPercent = percent(credits["remainingPercent"]), limit > 0, used <= limit {
             let (resetAt, remainingSeconds) = reset(credits["resetsAt"], now: now)
@@ -132,9 +152,9 @@ public enum AiUsageNormalization {
                                        limit: limit, remaining: limit - used,
                                        remainingPercent: remainingPercent, resetAt: resetAt,
                                        resetRemainingSeconds: remainingSeconds)
-            return AiUsageProviderSnapshot(provider: .codex,
-                                           plan: detectedPlan == .unknown ? .business : detectedPlan,
-                                           metrics: [metric])
+            return .sample(AiUsageProviderSnapshot(
+                provider: .codex, plan: detectedPlan == .unknown ? .business : detectedPlan,
+                metrics: [metric]))
         }
         var metrics: [AiUsageMetric] = []
         for field in ["primary", "secondary"] {
@@ -149,14 +169,14 @@ public enum AiUsageNormalization {
                                          remainingPercent: 100 - usedPercent,
                                          resetAt: resetAt, resetRemainingSeconds: remainingSeconds))
         }
-        guard !metrics.isEmpty else { return nil }
+        guard !metrics.isEmpty else { return .invalid }
         metrics.sort { $0.kind.rawValue < $1.kind.rawValue }
         let normalizedPlan = detectedPlan == .unknown ? AiPlan.plus : detectedPlan
         let resetValue = limits["rateLimitResetCredits"] ?? result["rateLimitResetCredits"]
-        return AiUsageProviderSnapshot(provider: .codex, plan: normalizedPlan,
-                                       metrics: Array(metrics.prefix(2)),
-                                       resetCredits: normalizedPlan == .plus
-                                           ? resetCredits(resetValue, now: now) : nil)
+        return .sample(AiUsageProviderSnapshot(provider: .codex, plan: normalizedPlan,
+                                               metrics: Array(metrics.prefix(2)),
+                                               resetCredits: normalizedPlan == .plus
+                                                   ? resetCredits(resetValue, now: now) : nil))
     }
 
     public static func claude(_ response: [String: Any], subscriptionType: String?,

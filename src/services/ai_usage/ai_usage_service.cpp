@@ -39,6 +39,8 @@ bool samePresentation(const connectivity::CompanionAiUsage& left,
 }
 
 bool resetLabelChanges(std::uint32_t oldSeconds, std::uint32_t newSeconds) noexcept {
+    if ((oldSeconds == 0) != (newSeconds == 0))
+        return true; // A known elapsed deadline shows as DUE.
     if (oldSeconds >= 86400 || newSeconds >= 86400)
         return (oldSeconds >= 86400) != (newSeconds >= 86400) ||
                oldSeconds / 3600 != newSeconds / 3600;
@@ -107,10 +109,12 @@ void AiUsageService::update(std::chrono::milliseconds elapsed) {
     if (passedSeconds > 0) {
         countdownElapsed_ -= std::chrono::seconds(passedSeconds);
         const auto step = static_cast<std::uint64_t>(passedSeconds);
+        bool deadlineReached = false;
         for (std::uint8_t i = 0; i < snapshot_.providerCount; ++i) {
             auto& provider = snapshot_.providers[i];
             for (std::uint8_t j = 0; j < provider.metricCount; ++j) {
                 auto& remaining = provider.metrics[j].resetRemainingSeconds;
+                deadlineReached |= remaining != 0 && step >= remaining;
                 remaining = step >= remaining ? 0 : remaining - static_cast<std::uint32_t>(step);
             }
             for (std::uint8_t j = 0; j < provider.resetCredits.creditCount; ++j) {
@@ -118,6 +122,8 @@ void AiUsageService::update(std::chrono::milliseconds elapsed) {
                 remaining = step >= remaining ? 0 : remaining - static_cast<std::uint32_t>(step);
             }
         }
+        if (deadlineReached)
+            ++revision_;
     }
     while (const auto completion =
                companion_.takeCompletedRequest(connectivity::CompanionOperation::AiUsage)) {

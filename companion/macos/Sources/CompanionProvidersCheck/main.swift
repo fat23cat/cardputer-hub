@@ -196,19 +196,12 @@ private func waitUntil(_ condition: () -> Bool) -> Bool {
 }
 
 func codexChildReceivesIsolatedLaunchArguments() {
-    let arguments = ProcessCodexJSONLTransport.launchArguments
-    expect(Array(arguments.suffix(3)) == ["app-server", "--listen", "stdio://"])
-    let overrides = Array(arguments.dropLast(3))
-    expect(overrides.count % 2 == 0)
-    for index in stride(from: 0, to: overrides.count, by: 2) {
-        expect(overrides[index] == "-c")
-    }
-    for setting in ["analytics.enabled=false", "otel.exporter=\"none\"",
-                    "otel.trace_exporter=\"none\"", "otel.metrics_exporter=\"none\"",
-                    "features.plugins=false", "features.remote_plugin=false",
-                    "features.hooks=false", "features.apps=false"] {
-        expect(overrides.contains(setting))
-    }
+    let arguments = ["analytics.enabled=false", "otel.exporter=\"none\"",
+                     "otel.trace_exporter=\"none\"", "otel.metrics_exporter=\"none\"",
+                     "features.plugins=false", "features.remote_plugin=false",
+                     "features.hooks=false", "features.apps=false"].flatMap { ["-c", $0] } +
+        ["app-server", "--listen", "stdio://"]
+    expect(ProcessCodexJSONLTransport.launchArguments == arguments)
     // Exercise Process wiring too: the fake executable echoes its actual argv.
     let directory = FileManager.default.temporaryDirectory
         .appendingPathComponent(UUID().uuidString)
@@ -421,6 +414,10 @@ func codexRestrictionKeepsHistoryWithoutFailureRetry() {
     refreshLimits(["ordinaryUsageAllowed": true, "rateLimitsByLimitId": ["codex": limits]])
     expect(waitUntil { collector.snapshot()?.providers.first?.freshness == .fresh })
     refreshLimits(["rateLimitsByLimitId": ["different": limits], "rateLimits": limits])
+    expect(waitUntil { collector.snapshot()?.providers.first?.freshness == .stale })
+    expect(scheduler.delays.isEmpty)
+
+    refreshLimits(["rateLimitsByLimitId": "invalid"])
     expect(waitUntil { scheduler.delays == [1] })
     expect(collector.snapshot()?.providers.first?.metrics.first?.remainingPercent == 10)
 }

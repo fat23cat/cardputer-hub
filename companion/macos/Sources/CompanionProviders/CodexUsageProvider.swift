@@ -120,11 +120,14 @@ final class CodexUsageProvider: AiUsageProviderRefreshing {
         } else if id == activeId {
             activeId = nil
             let result = object["result"] as? [String: Any]
-            if result?["ordinaryUsageAllowed"] as? Bool == false {
+            switch result.map({ AiUsageNormalization.codexReading($0, accountPlan: accountPlan) }) {
+            case .sample(let sample)?:
+                finish(sample)
+            case .unavailable?:
                 // A backend restriction is unavailable, not a retryable transport failure.
                 finish(nil, unavailable: true)
-            } else {
-                finish(result.flatMap { AiUsageNormalization.codex($0, accountPlan: accountPlan) })
+            case .invalid?, nil:
+                finish(nil)
             }
         }
     }

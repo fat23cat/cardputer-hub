@@ -2158,9 +2158,11 @@ user's Codex configuration and authentication remain unchanged. A non-null
 limits, including Business credits; a malformed or absent Codex entry cannot
 fall back to legacy or top-level usage. Legacy and direct results remain
 supported when the map is absent or null; any supplied non-null `limitId` must
-be `codex`. Top-level `ordinaryUsageAllowed: false` makes Codex unavailable,
-marking any prior sample stale without a failure retry. Normal refreshes can
-restore it after the restriction is lifted. Cursor reads the existing
+be `codex`. Top-level `ordinaryUsageAllowed: false`, a map without a `codex`
+bucket, or another product's `limitId` makes Codex unavailable, marking any
+prior sample stale without a failure retry; only an unreadable response is a
+retryable failure. Normal refreshes can restore it after the restriction is
+lifted. Cursor reads the existing
 Agent token through Keychain, derives its request cookie in memory, and calls
 the usage adapter over HTTPS.
 Claude reads Claude Code's existing OAuth credential, retains the token only

@@ -652,6 +652,30 @@ let v2 = CompanionSession(applications: FakeApplications(), metrics: collector,
         expect(AiUsageNormalization.codex(["rateLimitsByLimitId": NSNull(),
                                            "rateLimits": plus["rateLimits"]!])?.metrics.count == 2,
                "null bucket map preserves legacy support")
+        var foreignLegacy = plus["rateLimits"] as! [String: Any]
+        foreignLegacy["limitId"] = "different"
+        let unavailableReadings: [[String: Any]] = [
+            ["ordinaryUsageAllowed": false, "rateLimits": plus["rateLimits"]!],
+            noCodexBucket, ["rateLimitsByLimitId": [String: Any]()],
+            ["rateLimitsByLimitId": ["codex": NSNull()]], ["rateLimits": foreignLegacy],
+        ]
+        for result in unavailableReadings {
+            expect(AiUsageNormalization.codexReading(result) == .unavailable,
+                   "restricted or absent Codex quota is unavailable, not a failure")
+        }
+        var numericId = plus["rateLimits"] as! [String: Any]
+        numericId["limitId"] = 42
+        let invalidReadings: [[String: Any]] = [
+            ["rateLimitsByLimitId": "invalid"], ["rateLimitsByLimitId": ["codex": [Any]()]],
+            ["rateLimits": "invalid"], ["rateLimits": numericId], [:],
+        ]
+        for result in invalidReadings {
+            expect(AiUsageNormalization.codexReading(result) == .invalid,
+                   "malformed Codex quota stays a retryable failure")
+        }
+        expect(AiUsageNormalization.codexReading(selectedCodex) ==
+               AiUsageNormalization.codex(selectedCodex).map { .sample($0) },
+               "readable Codex quota is a sample")
         var plusWithSpend = plus
         var plusLimits = plusWithSpend["rateLimits"] as! [String: Any]
         plusLimits["individualLimit"] = ["limit": 100, "used": 1,

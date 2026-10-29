@@ -100,7 +100,9 @@ The Codex child disables analytics, OpenTelemetry exporters, plugins, hooks,
 and apps through process arguments, preserving the user's config and sign-in.
 A present non-null `rateLimitsByLimitId` map must contain a valid Codex bucket;
 legacy data cannot substitute another product's quota. An explicit
-`ordinaryUsageAllowed: false` keeps prior usage stale without failure retries;
+`ordinaryUsageAllowed: false`, a map without a `codex` bucket, or another
+product's `limitId` keeps prior usage stale without failure retries; malformed
+responses still retry with backoff;
 normal refreshes resume fresh reporting when the backend permits it again.
 Cached reset countdowns never replenish usage: after the deadline, the last
 observed quota stays visible as historical (`STALE`, `RESET DUE`) until a fresh
