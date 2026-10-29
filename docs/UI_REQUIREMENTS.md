@@ -823,15 +823,21 @@ repaint; matrix animation runs separately at about 30 FPS and uses the existing
 global brightness limit.
 
 The LED web tab uses a dark 8×8 panel with glow, mode chips on phones or
-mode cards with descriptions on desktop, Solid ink swatches, AUTO/FINE/WIDE
-brush choices and contact-size notes, FADE, HOLD and CLEAR PANEL. Desktop hover
+mode cards with descriptions on desktop, Solid ink swatches, THIN/FINE/WIDE
+brush choices and a separate Glow switch in the brush section, FADE, HOLD and
+CLEAR PANEL. THIN replaces AUTO and uses a zero-radius core (exactly the LED
+under the pointer); FINE and WIDE retain their existing radial sizes. Glow
+defaults on and controls both the soft neighbouring halo and browser shadows.
+With THIN and Glow off, a dab lights exactly one LED. Existing trails fade
+normally after Glow is switched off; Ripple rings and Kaleidoscope mirrors
+retain their mode behaviour. Desktop hover
 drawing defaults on with a checkbox. The panel and its padding own touch
 interaction: `touch-action: none` plus cancelable, non-passive touch/gesture
 handlers suppress pinch and double-tap zoom within that area. Scrolling and
 pinch zoom elsewhere remain available; buttons/links use manipulation gestures.
 APP CLOSED dims the dark panel and asks
 the user to open LED CANVAS; 2 s polling wakes it without reloading. Connection
-failures show RECONNECTING and retry automatically. Brush choice is local to
+failures show RECONNECTING and retry automatically. Brush and Glow are local to
 the browser; mode, fade, ink and Hold follow device revisions. No frames cross
 the network: points carry a bounded ending hue phase and Mix ink so the drawn
 color stays consistent after Clear/reload and across browsers. Stationary

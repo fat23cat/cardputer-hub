@@ -91,9 +91,15 @@ bool readPoints(Reader& r, LedCanvasBatch& batch) {
             point.hue = static_cast<std::uint16_t>(hue);
             point.mixInk = static_cast<std::uint8_t>(ink);
             point.hasColor = true;
+            if (r.token(',')) {
+                std::uint32_t glow = 0;
+                if (!r.number(glow) || glow > 1)
+                    return false;
+                point.glow = glow != 0;
+            }
         }
-        if (!r.token(']') || v[0] > 4 || v[1] > 2047 || v[2] > 2047 || v[3] < 5 || v[3] > 29 ||
-            v[4] > 255 || v[5] > 3)
+        if (!r.token(']') || v[0] > 4 || v[1] > 2047 || v[2] > 2047 ||
+            (v[3] != 0 && (v[3] < 5 || v[3] > 29)) || v[4] > 255 || v[5] > 3)
             return false;
         point.slot = static_cast<std::uint8_t>(v[0]);
         point.x = static_cast<std::uint16_t>(v[1]);
