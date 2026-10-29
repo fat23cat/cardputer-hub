@@ -223,15 +223,18 @@ data or prove the cause of the USB issue. See the
 ### Updating with Published Release Assets
 
 Each GitHub Release contains a versioned application image, its matching
-partition-table image, and `SHA256SUMS`:
+partition-table image, the macOS Cardputer Companion built from the same
+commit, and `SHA256SUMS`:
 
 ```text
 cardputer-hub-v0.2.0.bin
 cardputer-hub-v0.2.0-partitions.bin
+cardputer-companion-v0.2.0-macos-arm64.zip
 SHA256SUMS
 ```
 
-Verify both downloads against `SHA256SUMS`. For a CRUB device, stage the
+Verify the downloads against `SHA256SUMS`. Install the Companion from the same
+Release as the firmware (see `companion/macos/README.md`). For a CRUB device, stage the
 application image with Firmware Manager `release --app hub` and install it with
 `uphub`. Do not flash `*-partitions.bin` onto that device.
 
