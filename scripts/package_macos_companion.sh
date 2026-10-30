@@ -6,6 +6,7 @@ MACOS="$ROOT/companion/macos"
 BUILD="$MACOS/.build/release/CardputerCompanion"
 HOOK_BUILD="$MACOS/.build/release/CardputerAgentHook"
 APP="$MACOS/Cardputer Companion.app"
+ICONSET="$MACOS/.build/AppIcon.iconset"
 
 cd "$MACOS"
 swift build -c release --product CardputerCompanion
@@ -16,6 +17,10 @@ cp "$BUILD" "$APP/Contents/MacOS/CardputerCompanion"
 cp "$HOOK_BUILD" "$APP/Contents/MacOS/CardputerAgentHook"
 cp "$MACOS/Sources/App/Info.plist" "$APP/Contents/Info.plist"
 printf 'APPL????' > "$APP/Contents/PkgInfo"
+mkdir -p "$APP/Contents/Resources"
+rm -rf "$ICONSET"
+swift "$ROOT/scripts/render_companion_icon.swift" "$ICONSET"
+iconutil --convert icns --output "$APP/Contents/Resources/AppIcon.icns" "$ICONSET"
 
 # Build identity "YYYY-MM-DD <commit>[+]", the same format as the firmware (see
 # scripts/write_build_identity.cmake); the Companion shows it and sends it in HELLO.
@@ -29,9 +34,9 @@ if [ -z "$COMMIT" ]; then
 fi
 BUILD_ID="$BUILD_DATE $COMMIT"
 # Apple's bundle version keys accept only numbers and periods. Keep the
-# human-readable identity in CardputerBuildId; use a dotted date and the
-# Git commit count for bundle metadata.
-BUNDLE_SHORT_VERSION="${BUILD_DATE//-/.}"
+# human-readable identity in CardputerBuildId; use the release version (or a
+# dotted date for local builds) and the Git commit count for bundle metadata.
+BUNDLE_SHORT_VERSION="${CARDPUTER_HUB_VERSION:-${BUILD_DATE//-/.}}"
 BUNDLE_VERSION="$(git -C "$ROOT" rev-list --count HEAD 2>/dev/null || echo 1)"
 PLIST="$APP/Contents/Info.plist"
 /usr/libexec/PlistBuddy -c "Add :CardputerBuildId string $BUILD_ID" "$PLIST"
@@ -45,6 +50,8 @@ test -x "$APP/Contents/MacOS/CardputerAgentHook"
 /usr/libexec/PlistBuddy -c 'Print :CardputerBuildId' "$APP/Contents/Info.plist" | grep -Eq '^[0-9]{4}-[0-9]{2}-[0-9]{2} '
 /usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$PLIST" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$'
 /usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$PLIST" | grep -Eq '^[0-9]+$'
+/usr/libexec/PlistBuddy -c 'Print :CFBundleIconFile' "$PLIST" | grep -Fx AppIcon
+test -s "$APP/Contents/Resources/AppIcon.icns"
 # Sign the complete bundle after writing its metadata. The linker's executable-
 # only ad-hoc signature does not seal Info.plist or bundle resources.
 # A certificate identity keeps Keychain trust stable across rebuilt binaries;

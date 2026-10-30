@@ -11,6 +11,9 @@ RELEASE_WORKFLOW = ROOT / ".github" / "workflows" / "release.yml"
 REBUILD_WORKFLOW = ROOT / ".github" / "workflows" / "rebuild-tag.yml"
 CI_WORKFLOW = ROOT / ".github" / "workflows" / "ci.yml"
 MAKEFILE = ROOT / "Makefile"
+COMPANION_PACKAGER = ROOT / "scripts" / "package_macos_companion.sh"
+COMPANION_ICON_RENDERER = ROOT / "scripts" / "render_companion_icon.swift"
+COMPANION_INFO_PLIST = ROOT / "companion" / "macos" / "Sources" / "App" / "Info.plist"
 INSTALL_GUIDE = ROOT / "docs" / "manuals" / "installing-firmware.md"
 PARTITION_TABLE = ROOT / "partitions.csv"
 MANAGER_LAYOUT = (
@@ -97,7 +100,8 @@ class ReleaseWorkflowTest(unittest.TestCase):
 
     def test_release_uses_the_merged_pull_request_branch(self) -> None:
         self.assertIn("commits/${VALIDATED_COMMIT}/pulls", self.workflow)
-        self.assertIn("steps.release.outputs.should_release == 'true'", self.workflow)
+        self.assertIn("should_release: ${{ steps.release.outputs.should_release }}", self.workflow)
+        self.assertIn("needs.version.outputs.should_release == 'true'", self.workflow)
 
     def test_only_two_published_releases_are_retained(self) -> None:
         self.assertIn("if ((release_number > 2)); then", self.workflow)
@@ -112,9 +116,54 @@ class ReleaseWorkflowTest(unittest.TestCase):
             'cp build/partition_table/partition-table.bin "dist/${partition_image}"',
             self.workflow,
         )
-        self.assertIn('sha256sum "${image}" "${partition_image}" > SHA256SUMS', self.workflow)
+        self.assertIn(
+            'sha256sum "${image}" "${partition_image}" "${companion_archive}" > SHA256SUMS',
+            self.workflow,
+        )
         self.assertIn('dist/cardputer-hub-"${tag}"-partitions.bin', self.workflow)
         self.assertIn('grep -Fx "cardputer-hub-${tag}-partitions.bin"', self.workflow)
+
+    def test_release_builds_the_companion_on_macos_and_ships_it(self) -> None:
+        companion_job = self.workflow[
+            self.workflow.index("\n  companion:") : self.workflow.index("\n  release:")
+        ]
+        self.assertIn("runs-on: macos-15", companion_job)
+        self.assertIn("make companion-check", companion_job)
+        self.assertIn('lipo -archs "${binary}"', companion_job)
+        self.assertIn(
+            'archive="cardputer-companion-v${CARDPUTER_HUB_VERSION}-macos-arm64.zip"',
+            companion_job,
+        )
+        self.assertIn("ditto -c -k --keepParent", companion_job)
+        self.assertIn("codesign --verify --deep --strict", companion_job)
+        self.assertIn("needs:\n      - version\n      - companion", self.workflow)
+        self.assertIn('dist/cardputer-companion-"${tag}"-macos-arm64.zip', self.workflow)
+        self.assertIn('grep -Fx "cardputer-companion-${tag}-macos-arm64.zip"', self.workflow)
+
+    def test_firmware_and_companion_share_one_build_identity(self) -> None:
+        for variable in ("BUILD_DATE", "COMMIT", "VERSION"):
+            with self.subTest(variable=variable):
+                self.assertEqual(
+                    self.workflow.count(
+                        f"CARDPUTER_HUB_{variable}: ${{{{ needs.version.outputs."
+                    ),
+                    2,
+                )
+
+
+class CompanionPackagingTest(unittest.TestCase):
+    def test_bundle_carries_the_rendered_application_icon(self) -> None:
+        packager = COMPANION_PACKAGER.read_text()
+        self.assertTrue(COMPANION_ICON_RENDERER.exists())
+        self.assertIn('swift "$ROOT/scripts/render_companion_icon.swift"', packager)
+        self.assertIn('iconutil --convert icns', packager)
+        self.assertIn('"$APP/Contents/Resources/AppIcon.icns"', packager)
+        plist = COMPANION_INFO_PLIST.read_text()
+        self.assertIn("<key>CFBundleIconFile</key>\n    <string>AppIcon</string>", plist)
+
+    def test_release_version_becomes_the_bundle_short_version(self) -> None:
+        packager = COMPANION_PACKAGER.read_text()
+        self.assertIn('BUNDLE_SHORT_VERSION="${CARDPUTER_HUB_VERSION:-${BUILD_DATE//-/.}}"', packager)
 
 
 class FirmwareArtifactWorkflowTest(unittest.TestCase):

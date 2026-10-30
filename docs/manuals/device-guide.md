@@ -293,8 +293,10 @@ ASCII characters and cannot consist only of spaces.
 
 ## Cardputer Companion
 
-The macOS **Cardputer Companion.app** is optional. Build and launch it from
-`companion/macos` as described in that directory's README. Grant Bluetooth
+The macOS **Cardputer Companion.app** is optional. Download
+`cardputer-companion-v….-macos-arm64.zip` from the same GitHub Release as the
+firmware, or build it from `companion/macos`; that directory's README covers
+both, including the first-launch Gatekeeper prompt. Grant Bluetooth
 permission on first launch. The
 Companion attaches to the already-paired Cardputer; it does not scan or create
 a second pairing. The menu-bar menu shows connection status, the Cardputer
@@ -309,7 +311,8 @@ missing, crashed, or disconnected.
 After Companion closes, its host-name row on Home disappears when the session
 is detected as unavailable, even if Bluetooth HID remains connected.
 
-Update the firmware and the Companion together, from the same checkout. Both
+Update the firmware and the Companion together, from the same checkout or the
+same GitHub Release. Both
 carry a build ID — the build date and commit, for example
 `2026-09-29 abc1234` (`+` after the commit means uncommitted changes) — shown
 as `BUILD` in SYSTEM and under **Builds** in the Companion menu. When the two
