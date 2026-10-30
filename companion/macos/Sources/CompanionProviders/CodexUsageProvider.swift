@@ -3,7 +3,7 @@ import Foundation
 
 final class CodexUsageProvider: AiUsageProviderRefreshing {
     private let queue = DispatchQueue(label: "org.cardputer.companion.codex-usage")
-    private let locator: CodexExecutableLocator
+    private let locator: ExecutableLocator
     private let transportFactory: () -> CodexJSONLTransport
     private var transport: CodexJSONLTransport?
     private var generation: UInt64 = 0
@@ -19,7 +19,7 @@ final class CodexUsageProvider: AiUsageProviderRefreshing {
     private var watchdogId: UInt64 = 0
     private var recoveryHandler: (() -> Void)?
 
-    init(locator: CodexExecutableLocator = CodexExecutableLocator(),
+    init(locator: ExecutableLocator = ExecutableLocator(name: "codex"),
          transportFactory: @escaping () -> CodexJSONLTransport = {
              ProcessCodexJSONLTransport()
          }) {

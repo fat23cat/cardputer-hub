@@ -112,7 +112,7 @@ func codexExecutableDiscoveryChecksDirectPathsBeforeLoginShell() {
     ]
     for (path, executable, expected) in cases {
         var shellCalls = 0
-        let locator = CodexExecutableLocator(environment: { ["PATH": path] },
+        let locator = ExecutableLocator(name: "codex", environment: { ["PATH": path] },
             home: "/Users/test", isExecutable: { $0 == executable },
             loginShellPath: { shellCalls += 1; return "/login/bin/codex" })
         expect(locator.find() == expected)
@@ -122,7 +122,7 @@ func codexExecutableDiscoveryChecksDirectPathsBeforeLoginShell() {
 
 func codexExecutableDiscoveryCachesSuccessAndRetriesNegativeLoginShellResult() {
     var shellCalls = 0
-    let locator = CodexExecutableLocator(environment: { ["PATH": "/missing"] },
+    let locator = ExecutableLocator(name: "codex", environment: { ["PATH": "/missing"] },
         home: "/Users/test", isExecutable: { $0 == "/login/bin/codex" },
         loginShellPath: { shellCalls += 1; return "/login/bin/codex" })
     expect(locator.find() == "/login/bin/codex")
@@ -131,7 +131,7 @@ func codexExecutableDiscoveryCachesSuccessAndRetriesNegativeLoginShellResult() {
 
     var absentCalls = 0
     var installed = false
-    let absent = CodexExecutableLocator(environment: { [:] }, home: "/Users/test",
+    let absent = ExecutableLocator(name: "codex", environment: { [:] }, home: "/Users/test",
         isExecutable: { installed && $0 == "/login/bin/codex" },
         loginShellPath: { absentCalls += 1; return installed ? "/login/bin/codex" : nil })
     expect(absent.find() == nil)
@@ -241,7 +241,7 @@ func codexChildReceivesIsolatedLaunchArguments() {
 }
 
 func codexRestartsAfterExitAndIgnoresOldProcessOutput() {
-    let locator = CodexExecutableLocator(environment: { ["PATH": "/fake"] }, home: "/none",
+    let locator = ExecutableLocator(name: "codex", environment: { ["PATH": "/fake"] }, home: "/none",
         isExecutable: { $0 == "/fake/codex" }, loginShellPath: { nil })
     let factory = FakeCodexFactory()
     let provider = CodexUsageProvider(locator: locator, transportFactory: { factory.make() })
@@ -287,7 +287,7 @@ func codexRestartsAfterExitAndIgnoresOldProcessOutput() {
 }
 
 func codexProviderHandlesAbsenceAndRealBusinessLimits() {
-    let missing = CodexExecutableLocator(environment: { [:] }, home: "/none",
+    let missing = ExecutableLocator(name: "codex", environment: { [:] }, home: "/none",
         isExecutable: { _ in false }, loginShellPath: { nil })
     let absentFactory = FakeCodexFactory()
     let absentProvider = CodexUsageProvider(locator: missing,
@@ -303,7 +303,7 @@ func codexProviderHandlesAbsenceAndRealBusinessLimits() {
     expect(absentFactory.at(0) == nil)
     absentProvider.stop()
 
-    let locator = CodexExecutableLocator(environment: { ["PATH": "/fake"] }, home: "/none",
+    let locator = ExecutableLocator(name: "codex", environment: { ["PATH": "/fake"] }, home: "/none",
         isExecutable: { $0 == "/fake/codex" }, loginShellPath: { nil })
     let factory = FakeCodexFactory()
     let provider = CodexUsageProvider(locator: locator, transportFactory: { factory.make() })
@@ -383,7 +383,7 @@ private final class FakeRetryScheduler {
 }
 
 func codexRestrictionKeepsHistoryWithoutFailureRetry() {
-    let locator = CodexExecutableLocator(environment: { ["PATH": "/fake"] }, home: "/none",
+    let locator = ExecutableLocator(name: "codex", environment: { ["PATH": "/fake"] }, home: "/none",
         isExecutable: { $0 == "/fake/codex" }, loginShellPath: { nil })
     let factory = FakeCodexFactory()
     let codex = CodexUsageProvider(locator: locator, transportFactory: { factory.make() })
@@ -560,7 +560,7 @@ func collectorRetriesProviderFailuresWithBoundedBackoff() {
 }
 
 func collectorRetriesCodexProcessExitBetweenNormalRefreshes() {
-    let locator = CodexExecutableLocator(environment: { ["PATH": "/fake"] }, home: "/none",
+    let locator = ExecutableLocator(name: "codex", environment: { ["PATH": "/fake"] }, home: "/none",
         isExecutable: { $0 == "/fake/codex" }, loginShellPath: { nil })
     let factory = FakeCodexFactory()
     let codex = CodexUsageProvider(locator: locator, transportFactory: { factory.make() })
@@ -1009,6 +1009,109 @@ func claudeAsksAtMostEveryRefreshInterval() {
     expect(waitUntil { http.requests.count == 2 })
 }
 
+private final class FakeClaudeRenewer: ClaudeTokenRenewing {
+    private let lock = NSLock()
+    private var callbacks: [(Bool) -> Void] = []
+    private var storedCalls = 0
+    var calls: Int { lock.lock(); defer { lock.unlock() }; return storedCalls }
+    func renew(_ done: @escaping (Bool) -> Void) {
+        lock.lock(); storedCalls += 1; callbacks.append(done); lock.unlock()
+    }
+    func complete(_ renewed: Bool) {
+        lock.lock(); let callback = callbacks.removeFirst(); lock.unlock()
+        callback(renewed)
+    }
+}
+
+private func renewingClaudeProvider(_ credentials: ClaudeCredentialReading, _ http: FakeHTTP,
+                                    _ clock: TestClock, _ renewer: ClaudeTokenRenewing)
+    -> ClaudeUsageProvider {
+    ClaudeUsageProvider(credentials: credentials, http: http, now: { clock.now },
+                        readTimeout: 2, renewer: renewer)
+}
+
+func claudeExpiredTokenAsksClaudeCodeToRenew() {
+    let http = FakeHTTP()
+    let clock = TestClock()
+    let credentials = FakeClaudeCredentials(claudeCredential(
+        expiresAt: Date(timeIntervalSince1970: 9_000)))
+    let renewer = FakeClaudeRenewer()
+    let provider = renewingClaudeProvider(credentials, http, clock, renewer)
+    let expired = refreshed(provider)
+    expect(waitUntil { expired.done })
+    expect(expired.outcome == .unavailable && http.requests.isEmpty)
+    expect(waitUntil { renewer.calls == 1 })
+    // One renewal at a time.
+    let pending = refreshed(provider)
+    expect(waitUntil { pending.done })
+    expect(renewer.calls == 1)
+    // Claude Code saved a new token; the next refresh reads it silently.
+    credentials.result = claudeCredential(token: "renewed",
+                                          expiresAt: Date(timeIntervalSince1970: 40_000))
+    renewer.complete(true)
+    _ = refreshed(provider)
+    expect(waitUntil { http.requests.count == 1 })
+    expect(http.requests.last?.value(forHTTPHeaderField: "Authorization") == "Bearer renewed")
+    expect(credentials.interactions == [true, false, false])
+    expect(renewer.calls == 1)
+}
+
+func claudeRenewalRetriesAfterInterval() {
+    let clock = TestClock()
+    let credentials = FakeClaudeCredentials(claudeCredential(
+        expiresAt: Date(timeIntervalSince1970: 9_000)))
+    let renewer = FakeClaudeRenewer()
+    let provider = renewingClaudeProvider(credentials, FakeHTTP(), clock, renewer)
+    _ = refreshed(provider)
+    expect(waitUntil { renewer.calls == 1 })
+    renewer.complete(false)
+    // A CLI that is missing or signed out is not run on every refresh.
+    clock.now = Date(timeIntervalSince1970: 10_899)
+    let soon = refreshed(provider)
+    expect(waitUntil { soon.done })
+    Thread.sleep(forTimeInterval: 0.02)
+    expect(renewer.calls == 1)
+    clock.now = Date(timeIntervalSince1970: 10_900)
+    _ = refreshed(provider)
+    expect(waitUntil { renewer.calls == 2 })
+}
+
+func claudeValidTokenIsNotRenewed() {
+    let http = FakeHTTP()
+    let renewer = FakeClaudeRenewer()
+    let provider = renewingClaudeProvider(FakeClaudeCredentials(claudeCredential()), http,
+                                          TestClock(), renewer)
+    let result = refreshed(provider)
+    expect(waitUntil { http.requests.count == 1 })
+    http.respond(status: 200, object: claudeUsage)
+    expect(waitUntil { result.done })
+    expect(renewer.calls == 0)
+}
+
+func claudeRenewerRunsClaudeCodeQuietly() {
+    func renewed(_ name: String, timeout: TimeInterval = 5) -> Bool? {
+        let locator = ExecutableLocator(name: name, environment: { ["PATH": "/usr/bin"] },
+                                        home: "/none", loginShellPath: { nil })
+        let renewer = ProcessClaudeTokenRenewer(locator: locator, timeout: timeout)
+        let lock = NSLock()
+        var value: Bool?
+        renewer.renew { result in lock.lock(); value = result; lock.unlock() }
+        _ = waitUntil { lock.lock(); defer { lock.unlock() }; return value != nil }
+        lock.lock(); defer { lock.unlock() }
+        return value
+    }
+    expect(renewed("true") == true)
+    expect(renewed("false") == false)
+    expect(renewed("missing-claude-cli") == false)
+    // A CLI that never finishes is stopped.
+    expect(renewed("yes", timeout: 0.1) == false)
+    let arguments = ProcessClaudeTokenRenewer.arguments
+    expect(arguments.starts(with: ["-p", "ok", "--model", "haiku"]))
+    expect(arguments.contains("--no-session-persistence") &&
+           arguments.contains("--strict-mcp-config"))
+    expect(arguments.suffix(2) == ["--setting-sources", "project"])
+}
+
 func claudeRateLimitBacksOffWithoutFailure() {
     let http = FakeHTTP()
     let clock = TestClock()
@@ -1315,7 +1418,7 @@ func codexTransportReportsClosedInput() {
 }
 
 func codexProviderTreatsFailedSendAsFailure() {
-    let locator = CodexExecutableLocator(environment: { ["PATH": "/fake"] }, home: "/none",
+    let locator = ExecutableLocator(name: "codex", environment: { ["PATH": "/fake"] }, home: "/none",
         isExecutable: { $0 == "/fake/codex" }, loginShellPath: { nil })
     let factory = FakeCodexFactory()
     let provider = CodexUsageProvider(locator: locator, transportFactory: {
@@ -1331,7 +1434,7 @@ func codexProviderTreatsFailedSendAsFailure() {
 }
 
 func codexWithoutAccountIsAbsent() {
-    let locator = CodexExecutableLocator(environment: { ["PATH": "/fake"] }, home: "/none",
+    let locator = ExecutableLocator(name: "codex", environment: { ["PATH": "/fake"] }, home: "/none",
         isExecutable: { $0 == "/fake/codex" }, loginShellPath: { nil })
     let factory = FakeCodexFactory()
     let provider = CodexUsageProvider(locator: locator, transportFactory: { factory.make() })
@@ -1387,6 +1490,10 @@ func codexWithoutAccountIsAbsent() {
         claudeThrottlesRequestsAndServesAgedSample()
         claudeAsksAtMostEveryRefreshInterval()
         claudeRateLimitBacksOffWithoutFailure()
+        claudeExpiredTokenAsksClaudeCodeToRenew()
+        claudeRenewalRetriesAfterInterval()
+        claudeValidTokenIsNotRenewed()
+        claudeRenewerRunsClaudeCodeQuietly()
         claudeKeychainPromptIsUnavailableNotFailure()
         httpTransportCanBeReusedAfterStop()
         collectorKeepsDiscoveringWhileWaitingForUser()

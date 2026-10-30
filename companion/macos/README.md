@@ -151,8 +151,13 @@ normally shows up within about that time. A failed check or unavailable
 authorization keeps a working token. If authorization is needed after that
 token expires, the last sample becomes stale and silent checks retry every five
 minutes; relaunch Companion to grant access. The Companion never refreshes or
-changes that credential: while Claude Code is not running and its token has
-expired, the last sample stays visible as stale. If the usage service rejects
+changes that credential itself. Claude Code renews its token only while it
+runs, so when the token has expired Companion runs the `claude` CLI once with a
+one-word Haiku prompt (no tools, hooks, MCP servers or saved session) to let it
+renew the item, then reads it silently on a later refresh. That small request
+counts against your plan; if it fails, or the CLI is not installed or signed
+in (`claude auth login`), it is tried again after 15 minutes and the last
+sample stays visible as stale. If the usage service rejects
 the token, Companion reads the Keychain item again but waits a minute before
 asking the service; until Claude Code saves a working token, Diagnostics shows
 Claude as `No sample` (or its last sample as stale). Running `claude` in a

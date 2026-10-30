@@ -2187,7 +2187,11 @@ that arrives later serves the next refresh without another read.
 Claude reads Claude Code's existing OAuth credential, retains the token only
 in memory, and rechecks it every five minutes. Only its first read after
 Companion launches may show an authorization prompt; wake, periodic rechecks,
-and expired-token recovery must remain noninteractive. An unavailable
+and expired-token recovery must remain noninteractive. Companion never
+refreshes or writes the credential: an expired token runs the located `claude`
+CLI once with a minimal prompt, an empty working directory, project-only
+settings, no tools, no MCP servers and no saved session, so Claude Code renews
+its own item; attempts are at most 15 minutes apart. An unavailable
 authorization preserves a valid cached token; without one it reports unavailable
 and retries silently after five minutes, retaining the last usage sample as
 stale. An explicit initial denial hides the provider for an hour. Relaunching

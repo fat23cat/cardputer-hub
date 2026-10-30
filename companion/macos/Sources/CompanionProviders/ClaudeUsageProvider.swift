@@ -70,10 +70,14 @@ final class ClaudeUsageProvider: AiUsageProviderRefreshing {
     /// A sample stays current for one request interval plus 90 seconds, so a
     /// throttled or rate-limited refresh can keep serving it.
     static let sampleLifetime: TimeInterval = requestInterval + 90
+    /// Claude Code renews its token only while it runs, so an expired token
+    /// asks it to; a renewal that changed nothing is retried after this.
+    static let renewalRetryInterval: TimeInterval = 900
     private let credentials: ClaudeCredentialReading
     private let http: AiUsageHTTPTransport
     private let now: () -> Date
     private let readTimeout: TimeInterval
+    private let renewer: ClaudeTokenRenewing?
     // macOS may block the Keychain read on its access prompt, so it runs on its
     // own queue and a refresh stops waiting after readTimeout.
     private let readQueue = DispatchQueue(label: "org.cardputer.companion.claude-keychain")
@@ -89,17 +93,22 @@ final class ClaudeUsageProvider: AiUsageProviderRefreshing {
     private var lastSample: (sample: AiUsageProviderSnapshot, at: Date)?
     private var nextRequestAt = Date.distantPast
     private var rateLimitPause: TimeInterval = 0
+    private var renewing = false
+    private var renewalAttemptAt = Date.distantPast
 
     convenience init() {
-        self.init(credentials: KeychainClaudeCredentials(), http: URLSessionAiUsageHTTP())
+        self.init(credentials: KeychainClaudeCredentials(), http: URLSessionAiUsageHTTP(),
+                  renewer: ProcessClaudeTokenRenewer())
     }
 
     init(credentials: ClaudeCredentialReading, http: AiUsageHTTPTransport,
-         now: @escaping () -> Date = Date.init, readTimeout: TimeInterval = 5) {
+         now: @escaping () -> Date = Date.init, readTimeout: TimeInterval = 5,
+         renewer: ClaudeTokenRenewing? = nil) {
         self.credentials = credentials
         self.http = http
         self.now = now
         self.readTimeout = readTimeout
+        self.renewer = renewer
     }
 
     func refresh(_ done: @escaping (AiUsageRefreshOutcome) -> Void) {
@@ -157,7 +166,10 @@ final class ClaudeUsageProvider: AiUsageProviderRefreshing {
             }
             let throttled = now() < nextRequestAt
             let cached = cachedOutcome(now())
+            var renew = false
+            if case .value(let value) = result, expired(value) { renew = startRenewal() }
             lock.unlock()
+            if renew { renewer?.renew { [self] _ in lock.lock(); renewing = false; lock.unlock() } }
             guard let finish, !finish.finished else { return }
             switch result {
             // Claude Code refreshes its token only while it runs.
@@ -172,6 +184,17 @@ final class ClaudeUsageProvider: AiUsageProviderRefreshing {
     }
 
     func stop() { http.stop() }
+
+    /// Whether an expired token should ask Claude Code to renew it now. A later
+    /// refresh reads the renewed item silently. Callers hold `lock`.
+    private func startRenewal() -> Bool {
+        guard renewer != nil, !renewing,
+              now().timeIntervalSince(renewalAttemptAt) >= Self.renewalRetryInterval
+        else { return false }
+        renewing = true
+        renewalAttemptAt = now()
+        return true
+    }
 
     /// The last sample, aged to `now`, while it is recent; otherwise unavailable.
     /// Callers hold `lock`.
