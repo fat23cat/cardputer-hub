@@ -3,6 +3,18 @@
 Menu-bar macOS agent for Cardputer Hub. It has no Dock icon; its only window is
 the optional Inventory editor.
 
+## Download
+
+Each GitHub Release attaches
+`cardputer-companion-vMAJOR.MINOR.PATCH-macos-arm64.zip` (Apple silicon), built
+from the same commit as that release's firmware. Install it together with the
+matching firmware. Verify the archive against `SHA256SUMS`, unzip it, and move
+**Cardputer Companion.app** to `~/Applications` or `/Applications`. The release
+build is ad-hoc signed and not notarized, so macOS blocks the first launch:
+choose **Open Anyway** in System Settings → Privacy & Security, or clear the
+download quarantine with
+`xattr -dr com.apple.quarantine "/Applications/Cardputer Companion.app"`.
+
 ## Build
 
 ```bash
@@ -29,9 +41,14 @@ It does not launch the application or enable Start at Login.
 `scripts/package_macos_companion.sh` creates `Cardputer Companion.app` with `LSUIElement` set so it does not appear in the Dock.
 It stamps the build ID `YYYY-MM-DD <commit>` (`+` after the commit for
 uncommitted changes) into `CardputerBuildId`. The macOS bundle version fields
-use numeric values: `CFBundleShortVersionString` is the dotted build date
-`YYYY.MM.DD`, and `CFBundleVersion` is the Git revision count. The bundle
+use numeric values: `CFBundleShortVersionString` is the release version from
+`CARDPUTER_HUB_VERSION` (`MAJOR.MINOR.PATCH`) when set, otherwise the dotted
+build date `YYYY.MM.DD`, and `CFBundleVersion` is the Git revision count. The bundle
 version falls back to `1` when Git metadata is unavailable.
+Packaging renders the application icon (the Cardputer front in the Hub
+palette) with `scripts/render_companion_icon.swift` and converts it to
+`Contents/Resources/AppIcon.icns` with `iconutil`; no generated image is
+checked in. The menu-bar item keeps its template symbol.
 After writing all metadata, packaging signs and strictly verifies the complete
 bundle with identifier `org.cardputer.companion`. It uses an ad-hoc signature
 by default; Keychain trust for that identity is specific to the binary and may
