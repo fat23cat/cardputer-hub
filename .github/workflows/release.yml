@@ -14,17 +14,19 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  release:
+  version:
     if: >-
       github.event.workflow_run.conclusion == 'success' &&
       github.event.workflow_run.event == 'push' &&
       github.event.workflow_run.head_branch == 'main'
     runs-on: ubuntu-24.04
-    timeout-minutes: 60
+    timeout-minutes: 10
+    outputs:
+      should_release: ${{ steps.release.outputs.should_release }}
+      version: ${{ steps.release.outputs.version }}
+      build_date: ${{ steps.release.outputs.build_date }}
+      commit: ${{ steps.release.outputs.commit }}
     env:
-      CARDPUTER_HUB_BUILD_TYPE: release
-      CCACHE_DIR: ${{ github.workspace }}/.ccache
-      IDF_CCACHE_ENABLE: "1"
       VALIDATED_COMMIT: ${{ github.event.workflow_run.head_sha }}
       GH_TOKEN: ${{ github.token }}
     steps:
@@ -33,7 +35,6 @@ jobs:
         with:
           ref: ${{ github.event.workflow_run.head_sha }}
           fetch-depth: 0
-          submodules: recursive
 
       - name: Verify validated source
         shell: bash
@@ -68,8 +69,13 @@ jobs:
           fi
 
           if version="$(git tag --list | uv run --frozen python scripts/next_release_version.py "${branch}")"; then
-            echo "CARDPUTER_HUB_VERSION=${version}" >> "${GITHUB_ENV}"
-            echo "should_release=true" >> "${GITHUB_OUTPUT}"
+            # Firmware and Companion jobs share one build identity.
+            {
+              echo "version=${version}"
+              echo "build_date=$(date -u +%Y-%m-%d)"
+              echo "commit=${VALIDATED_COMMIT:0:7}"
+              echo "should_release=true"
+            } >> "${GITHUB_OUTPUT}"
             echo "Releasing v${version} from ${branch} at ${VALIDATED_COMMIT}."
           else
             status=$?
@@ -80,22 +86,105 @@ jobs:
             echo "should_release=false" >> "${GITHUB_OUTPUT}"
           fi
 
+  companion:
+    needs: version
+    if: needs.version.outputs.should_release == 'true'
+    runs-on: macos-15
+    timeout-minutes: 30
+    env:
+      VALIDATED_COMMIT: ${{ github.event.workflow_run.head_sha }}
+      CARDPUTER_HUB_VERSION: ${{ needs.version.outputs.version }}
+      CARDPUTER_HUB_BUILD_DATE: ${{ needs.version.outputs.build_date }}
+      CARDPUTER_HUB_COMMIT: ${{ needs.version.outputs.commit }}
+    steps:
+      - name: Check out validated source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+          fetch-depth: 0
+
+      - name: Verify validated source
+        shell: bash
+        run: test "$(git rev-parse HEAD)" = "${VALIDATED_COMMIT}"
+
+      - name: Validate and build release Companion
+        run: make companion-check
+
+      - name: Archive Companion
+        shell: bash
+        run: |
+          set -euo pipefail
+          app="companion/macos/Cardputer Companion.app"
+          binary="${app}/Contents/MacOS/CardputerCompanion"
+          test "$(lipo -archs "${binary}")" = arm64
+          mkdir -p dist
+          archive="cardputer-companion-v${CARDPUTER_HUB_VERSION}-macos-arm64.zip"
+          ditto -c -k --keepParent "${app}" "dist/${archive}"
+          ditto -x -k "dist/${archive}" "${RUNNER_TEMP}/companion-archive"
+          codesign --verify --deep --strict "${RUNNER_TEMP}/companion-archive/Cardputer Companion.app"
+
+      - name: Hand Companion to the release job
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: companion-release
+          path: dist/cardputer-companion-v*-macos-arm64.zip
+          if-no-files-found: error
+          retention-days: 1
+
+  release:
+    needs:
+      - version
+      - companion
+    if: needs.version.outputs.should_release == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    env:
+      CARDPUTER_HUB_BUILD_TYPE: release
+      CCACHE_DIR: ${{ github.workspace }}/.ccache
+      IDF_CCACHE_ENABLE: "1"
+      VALIDATED_COMMIT: ${{ github.event.workflow_run.head_sha }}
+      GH_TOKEN: ${{ github.token }}
+      CARDPUTER_HUB_VERSION: ${{ needs.version.outputs.version }}
+      CARDPUTER_HUB_BUILD_DATE: ${{ needs.version.outputs.build_date }}
+      CARDPUTER_HUB_COMMIT: ${{ needs.version.outputs.commit }}
+    steps:
+      - name: Check out validated source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+          fetch-depth: 0
+          submodules: recursive
+
+      - name: Verify validated source
+        shell: bash
+        run: test "$(git rev-parse HEAD)" = "${VALIDATED_COMMIT}"
+
+      - name: Install uv and Python
+        uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
+        with:
+          version-file: pyproject.toml
+          python-version: 3.12.14
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+
+      - name: Install locked tools
+        run: |
+          uv python install 3.12.14
+          uv sync --frozen
+
       - name: Restore ESP-IDF toolchain
-        if: steps.release.outputs.should_release == 'true'
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ~/.espressif
           key: esp-idf-${{ runner.os }}-v5.5.5-b774170ff46c393eeb5e495ea37936038d3f4f4f
 
       - name: Restore managed components
-        if: steps.release.outputs.should_release == 'true'
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: managed_components
           key: idf-components-${{ runner.os }}-${{ hashFiles('dependencies.lock') }}
 
       - name: Restore compiler cache
-        if: steps.release.outputs.should_release == 'true'
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ${{ github.workspace }}/.ccache
@@ -104,17 +193,14 @@ jobs:
             ccache-${{ runner.os }}-esp32s3-idf-5.5.5-
 
       - name: Install compiler cache
-        if: steps.release.outputs.should_release == 'true'
         run: |
           sudo apt-get update
           sudo apt-get install --yes ccache
 
       - name: Install ESP-IDF 5.5.5
-        if: steps.release.outputs.should_release == 'true'
         run: bash scripts/install_esp_idf.sh "${HOME}/.espressif/frameworks/esp-idf-v5.5.5"
 
       - name: Validate and build release firmware
-        if: steps.release.outputs.should_release == 'true'
         run: |
           source "${HOME}/.espressif/frameworks/esp-idf-v5.5.5/export.sh"
           ccache --max-size=500M
@@ -122,21 +208,27 @@ jobs:
           make firmware-size
           ccache --show-stats
 
-      - name: Package firmware and checksum
-        if: steps.release.outputs.should_release == 'true'
+      - name: Receive release Companion
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: companion-release
+          path: dist
+
+      - name: Package release assets and checksum
         shell: bash
         run: |
           set -euo pipefail
           mkdir -p dist
           image="cardputer-hub-v${CARDPUTER_HUB_VERSION}.bin"
           partition_image="cardputer-hub-v${CARDPUTER_HUB_VERSION}-partitions.bin"
+          companion_archive="cardputer-companion-v${CARDPUTER_HUB_VERSION}-macos-arm64.zip"
           cp build/cardputer_hub.bin "dist/${image}"
           cp build/partition_table/partition-table.bin "dist/${partition_image}"
           cd dist
-          sha256sum "${image}" "${partition_image}" > SHA256SUMS
+          test -s "${companion_archive}"
+          sha256sum "${image}" "${partition_image}" "${companion_archive}" > SHA256SUMS
 
       - name: Create Git tag and GitHub Release
-        if: steps.release.outputs.should_release == 'true'
         shell: bash
         run: |
           set -euo pipefail
@@ -144,23 +236,23 @@ jobs:
           gh release create "${tag}" \
             dist/cardputer-hub-"${tag}".bin \
             dist/cardputer-hub-"${tag}"-partitions.bin \
+            dist/cardputer-companion-"${tag}"-macos-arm64.zip \
             dist/SHA256SUMS \
             --target "${VALIDATED_COMMIT}" \
             --title "Cardputer Hub ${tag}" \
             --generate-notes
 
       - name: Verify release assets
-        if: steps.release.outputs.should_release == 'true'
         shell: bash
         run: |
           set -euo pipefail
           tag="v${CARDPUTER_HUB_VERSION}"
           gh release view "${tag}" --json assets --jq '.assets[].name' | grep -Fx "cardputer-hub-${tag}.bin"
           gh release view "${tag}" --json assets --jq '.assets[].name' | grep -Fx "cardputer-hub-${tag}-partitions.bin"
+          gh release view "${tag}" --json assets --jq '.assets[].name' | grep -Fx "cardputer-companion-${tag}-macos-arm64.zip"
           gh release view "${tag}" --json assets --jq '.assets[].name' | grep -Fx SHA256SUMS
 
       - name: Retain only the two newest GitHub Releases
-        if: steps.release.outputs.should_release == 'true'
         shell: bash
         run: |
           set -euo pipefail

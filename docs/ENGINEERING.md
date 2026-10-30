@@ -663,9 +663,12 @@ reproducible release builds. `firmwareBuildInfo()` exposes them, SYSTEM shows
 the build ID as `BUILD`, and HELLO_ACK sends it to the Companion.
 `scripts/package_macos_companion.sh` stamps the same build ID into the Companion's
 `CardputerBuildId` Info.plist key. The standard macOS version keys use numeric
-values: dotted build date for `CFBundleShortVersionString` and Git revision
-count for `CFBundleVersion`. Host builds without the generated header report
-`unknown` / `dev`.
+values: the release version (dotted build date outside releases) for
+`CFBundleShortVersionString` and Git revision count for `CFBundleVersion`.
+The release workflow pins one `CARDPUTER_HUB_BUILD_DATE`, `CARDPUTER_HUB_COMMIT`
+and `CARDPUTER_HUB_VERSION` for both the firmware and the Companion job, so a
+Release's two halves report the same build ID. Host builds without the
+generated header report `unknown` / `dev`.
 
 A future About screen may display:
 
@@ -784,14 +787,21 @@ v0.4.12
 ```
 
 The Release should contain downloadable firmware assets. For the current
-partitioned image, this includes both files:
+partitioned image, this includes both files, plus the macOS Companion built
+from the same commit:
 
 Example:
 
 ```text
 cardputer-hub-v0.4.12.bin
 cardputer-hub-v0.4.12-partitions.bin
+cardputer-companion-v0.4.12-macos-arm64.zip
 ```
+
+The Companion archive is the ad-hoc signed `.app` produced by
+`make companion-check` on a `macos-15` (Apple silicon) runner, zipped with
+`ditto --keepParent` so its signature survives, and re-verified after
+extraction. It is not notarized.
 
 GitHub should retain only the two most recently published official Releases and
 their downloadable assets. Draft Releases and temporary rebuild artifacts do
@@ -810,6 +820,7 @@ Assets
       ↓
 cardputer-hub-v0.4.12.bin
 cardputer-hub-v0.4.12-partitions.bin
+cardputer-companion-v0.4.12-macos-arm64.zip
 ```
 
 without locally building the project.
@@ -856,6 +867,7 @@ Example entry:
 ```text
 <sha256>  cardputer-hub-v0.4.12.bin
 <sha256>  cardputer-hub-v0.4.12-partitions.bin
+<sha256>  cardputer-companion-v0.4.12-macos-arm64.zip
 ```
 
 Every downloadable binary required for installation must appear in this file.
@@ -892,15 +904,15 @@ version assigned
     ↓
 version metadata generated and embedded
     ↓
-production firmware build
+production firmware build, and Companion build and checks on macOS
     ↓
-firmware packaged
+firmware and Companion packaged with one SHA256SUMS
     ↓
 Git tag
     ↓
 GitHub Release
     ↓
-firmware assets attached
+firmware and Companion assets attached
     ↓
 release and assets verified
     ↓
@@ -1095,7 +1107,9 @@ make firmware-check
 make firmware-size
 ```
 
-Companion packaging signs the complete `.app` after writing bundle metadata
+Companion packaging renders `AppIcon.icns` from
+`scripts/render_companion_icon.swift` (no generated image is checked in), then
+signs the complete `.app` after writing bundle metadata
 and rejects a bundle that fails strict code-signature verification. Local and
 CI builds default to ad-hoc signing, whose Keychain identity is tied to that
 binary. `CARDPUTER_COMPANION_SIGNING_IDENTITY` selects an installed signing
@@ -1540,11 +1554,13 @@ version metadata generated and embedded
 
 production firmware built
 
+macOS Companion built from the same commit
+
 Git tag created
 
 GitHub Release created
 
-downloadable firmware attached
+downloadable firmware and Companion attached
 
 CI build artifacts stored
 
