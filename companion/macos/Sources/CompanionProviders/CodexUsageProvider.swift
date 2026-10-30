@@ -3,7 +3,7 @@ import Foundation
 
 final class CodexUsageProvider: AiUsageProviderRefreshing {
     private let queue = DispatchQueue(label: "org.cardputer.companion.codex-usage")
-    private let locator: CodexExecutableLocator
+    private let locator: ExecutableLocator
     private let transportFactory: () -> CodexJSONLTransport
     private var transport: CodexJSONLTransport?
     private var generation: UInt64 = 0
@@ -13,11 +13,13 @@ final class CodexUsageProvider: AiUsageProviderRefreshing {
     private var completion: ((AiUsageRefreshOutcome) -> Void)?
     private var accountPlan: String?
     private var initialized = false
+    /// Whether the last account/read found a signed-in account.
+    private var signedIn = false
     private var timeout: DispatchWorkItem?
     private var watchdogId: UInt64 = 0
     private var recoveryHandler: (() -> Void)?
 
-    init(locator: CodexExecutableLocator = CodexExecutableLocator(),
+    init(locator: ExecutableLocator = ExecutableLocator(name: "codex"),
          transportFactory: @escaping () -> CodexJSONLTransport = {
              ProcessCodexJSONLTransport()
          }) {
@@ -30,7 +32,8 @@ final class CodexUsageProvider: AiUsageProviderRefreshing {
             guard self.completion == nil else { return }
             self.completion = done
             if self.transport?.isRunning == true && self.initialized {
-                self.requestLimits()
+                // A signed-out account is checked again in the same process.
+                if self.signedIn { self.requestLimits() } else { self.readAccount() }
             } else {
                 self.start()
             }
@@ -67,8 +70,9 @@ final class CodexUsageProvider: AiUsageProviderRefreshing {
             }
         }
         guard transport.start(path: path) else { recover(); return }
-        send(["method": "initialize", "id": 1, "params": [
+        guard send(["method": "initialize", "id": 1, "params": [
             "clientInfo": ["name": "cardputer_hub", "title": "Cardputer Hub", "version": "1.0"]]])
+        else { return }
         scheduleTimeout()
     }
 
@@ -83,13 +87,19 @@ final class CodexUsageProvider: AiUsageProviderRefreshing {
         previous?.stop()
         buffer.removeAll()
         initialized = false
+        signedIn = false
         activeId = nil
         accountPlan = nil
     }
 
-    private func send(_ message: [String: Any]) {
-        guard let data = try? JSONSerialization.data(withJSONObject: message) else { return }
-        transport?.send(data + Data([10]))
+    /// Sends one JSONL message. A closed input is a provider failure: the
+    /// transport is reset and the refresh reports failed.
+    @discardableResult
+    private func send(_ message: [String: Any]) -> Bool {
+        guard let transport,
+              let data = try? JSONSerialization.data(withJSONObject: message) else { return false }
+        guard transport.send(data + Data([10])) else { recover(); return false }
+        return true
     }
 
     private func receive(_ data: Data) {
@@ -109,13 +119,20 @@ final class CodexUsageProvider: AiUsageProviderRefreshing {
         guard object["error"] == nil else { recover(); return }
         if id == 1 {
             guard object["result"] != nil else { recover(); return }
-            send(["method": "initialized", "params": [:]])
-            send(["method": "account/read", "id": 2, "params": ["refreshToken": false]])
+            guard send(["method": "initialized", "params": [:]]) else { return }
+            readAccount()
         } else if id == 2 {
             let result = object["result"] as? [String: Any]
-            let account = result?["account"] as? [String: Any]
-            accountPlan = account?["planType"] as? String
             initialized = true
+            // `account: null` means Codex is installed but nobody is signed in;
+            // asking for limits would only fail and restart the process.
+            guard let account = result?["account"] as? [String: Any] else {
+                signedIn = false
+                finish(nil, absent: true)
+                return
+            }
+            signedIn = true
+            accountPlan = account["planType"] as? String
             requestLimits()
         } else if id == activeId {
             activeId = nil
@@ -132,10 +149,16 @@ final class CodexUsageProvider: AiUsageProviderRefreshing {
         }
     }
 
+    private func readAccount() {
+        guard send(["method": "account/read", "id": 2, "params": ["refreshToken": false]])
+        else { return }
+        scheduleTimeout()
+    }
+
     private func requestLimits() {
         guard activeId == nil else { return }
         let id = nextId; nextId += 1; activeId = id
-        send(["method": "account/rateLimits/read", "id": id])
+        guard send(["method": "account/rateLimits/read", "id": id]) else { return }
         scheduleTimeout()
     }
 

@@ -63,9 +63,9 @@ func cursorBuildsVerifiedEnterpriseCookie() {
     let token = fakeJWT(sub: "auth0|user_123")
     let http = FakeHTTP()
     let provider = CursorUsageProvider(credentials: FakeCursorCredentials(.value(token)), http: http)
-    var sample: AiUsageProviderSnapshot?
-    provider.refresh { sample = $0.sample }
-    expect(http.requests.count == 1)
+    let result = RefreshResult()
+    provider.refresh { result.set($0) }
+    expect(waitUntil { http.requests.count == 1 })
     expect(http.requests.first?.value(forHTTPHeaderField: "Cookie") ==
             "WorkosCursorSessionToken=user_123%3A%3A\(token)")
     expect(http.requests.first?.url?.absoluteString == "https://cursor.com/api/usage-summary")
@@ -73,29 +73,34 @@ func cursorBuildsVerifiedEnterpriseCookie() {
         "billingCycleEnd": "2026-10-01T00:00:00.000Z",
         "individualUsage": ["overall": ["enabled": true, "used": 9458,
                                           "limit": 255000, "remaining": 245542]]])
-    expect(sample?.plan == .enterprise)
-    expect(sample?.metrics.first?.used == 9458)
-    expect(sample?.metrics.first?.limit == 255000)
+    expect(waitUntil { result.done })
+    expect(result.sample?.plan == .enterprise)
+    expect(result.sample?.metrics.first?.used == 9458)
+    expect(result.sample?.metrics.first?.limit == 255000)
 }
 
 func cursorOmitsAbsentCredentialAndRejectsMalformedJWT() {
     let http = FakeHTTP()
     let credentials = FakeCursorCredentials(.absent)
     let provider = CursorUsageProvider(credentials: credentials, http: http)
-    var absent = false
-    provider.refresh { absent = $0 == .absent }
-    expect(absent)
+    let absent = RefreshResult()
+    provider.refresh { absent.set($0) }
+    expect(waitUntil { absent.done })
+    expect(absent.outcome == .absent)
     expect(http.requests.isEmpty)
 
     credentials.result = .value("not-a-jwt")
-    var failed = false
-    provider.refresh { failed = $0 == .failed }
-    expect(failed)
+    let malformed = RefreshResult()
+    provider.refresh { malformed.set($0) }
+    expect(waitUntil { malformed.done })
+    expect(malformed.outcome == .failed)
     expect(http.requests.isEmpty)
 
     credentials.result = .value(fakeJWT(sub: nil))
-    provider.refresh { failed = $0 == .failed }
-    expect(failed)
+    let noSubject = RefreshResult()
+    provider.refresh { noSubject.set($0) }
+    expect(waitUntil { noSubject.done })
+    expect(noSubject.outcome == .failed)
     expect(http.requests.isEmpty)
 }
 
@@ -107,7 +112,7 @@ func codexExecutableDiscoveryChecksDirectPathsBeforeLoginShell() {
     ]
     for (path, executable, expected) in cases {
         var shellCalls = 0
-        let locator = CodexExecutableLocator(environment: { ["PATH": path] },
+        let locator = ExecutableLocator(name: "codex", environment: { ["PATH": path] },
             home: "/Users/test", isExecutable: { $0 == executable },
             loginShellPath: { shellCalls += 1; return "/login/bin/codex" })
         expect(locator.find() == expected)
@@ -117,7 +122,7 @@ func codexExecutableDiscoveryChecksDirectPathsBeforeLoginShell() {
 
 func codexExecutableDiscoveryCachesSuccessAndRetriesNegativeLoginShellResult() {
     var shellCalls = 0
-    let locator = CodexExecutableLocator(environment: { ["PATH": "/missing"] },
+    let locator = ExecutableLocator(name: "codex", environment: { ["PATH": "/missing"] },
         home: "/Users/test", isExecutable: { $0 == "/login/bin/codex" },
         loginShellPath: { shellCalls += 1; return "/login/bin/codex" })
     expect(locator.find() == "/login/bin/codex")
@@ -126,7 +131,7 @@ func codexExecutableDiscoveryCachesSuccessAndRetriesNegativeLoginShellResult() {
 
     var absentCalls = 0
     var installed = false
-    let absent = CodexExecutableLocator(environment: { [:] }, home: "/Users/test",
+    let absent = ExecutableLocator(name: "codex", environment: { [:] }, home: "/Users/test",
         isExecutable: { installed && $0 == "/login/bin/codex" },
         loginShellPath: { absentCalls += 1; return installed ? "/login/bin/codex" : nil })
     expect(absent.find() == nil)
@@ -150,10 +155,19 @@ private final class FakeCodexTransport: CodexJSONLTransport {
         lock.lock(); running = true; lock.unlock()
         return true
     }
-    func send(_ data: Data) {
+    /// When set, sends fail as if the child had closed its input.
+    var failSends = false
+    func send(_ data: Data) -> Bool {
+        lock.lock(); defer { lock.unlock() }
+        if failSends { return false }
         guard let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
-        else { return }
-        lock.lock(); messages.append(object); lock.unlock()
+        else { return true }
+        messages.append(object)
+        return true
+    }
+    func count(_ method: String) -> Int {
+        lock.lock(); defer { lock.unlock() }
+        return messages.filter { $0["method"] as? String == method }.count
     }
     func stop() {
         lock.lock(); running = false; lock.unlock()
@@ -227,7 +241,7 @@ func codexChildReceivesIsolatedLaunchArguments() {
 }
 
 func codexRestartsAfterExitAndIgnoresOldProcessOutput() {
-    let locator = CodexExecutableLocator(environment: { ["PATH": "/fake"] }, home: "/none",
+    let locator = ExecutableLocator(name: "codex", environment: { ["PATH": "/fake"] }, home: "/none",
         isExecutable: { $0 == "/fake/codex" }, loginShellPath: { nil })
     let factory = FakeCodexFactory()
     let provider = CodexUsageProvider(locator: locator, transportFactory: { factory.make() })
@@ -273,7 +287,7 @@ func codexRestartsAfterExitAndIgnoresOldProcessOutput() {
 }
 
 func codexProviderHandlesAbsenceAndRealBusinessLimits() {
-    let missing = CodexExecutableLocator(environment: { [:] }, home: "/none",
+    let missing = ExecutableLocator(name: "codex", environment: { [:] }, home: "/none",
         isExecutable: { _ in false }, loginShellPath: { nil })
     let absentFactory = FakeCodexFactory()
     let absentProvider = CodexUsageProvider(locator: missing,
@@ -289,7 +303,7 @@ func codexProviderHandlesAbsenceAndRealBusinessLimits() {
     expect(absentFactory.at(0) == nil)
     absentProvider.stop()
 
-    let locator = CodexExecutableLocator(environment: { ["PATH": "/fake"] }, home: "/none",
+    let locator = ExecutableLocator(name: "codex", environment: { ["PATH": "/fake"] }, home: "/none",
         isExecutable: { $0 == "/fake/codex" }, loginShellPath: { nil })
     let factory = FakeCodexFactory()
     let provider = CodexUsageProvider(locator: locator, transportFactory: { factory.make() })
@@ -369,7 +383,7 @@ private final class FakeRetryScheduler {
 }
 
 func codexRestrictionKeepsHistoryWithoutFailureRetry() {
-    let locator = CodexExecutableLocator(environment: { ["PATH": "/fake"] }, home: "/none",
+    let locator = ExecutableLocator(name: "codex", environment: { ["PATH": "/fake"] }, home: "/none",
         isExecutable: { $0 == "/fake/codex" }, loginShellPath: { nil })
     let factory = FakeCodexFactory()
     let codex = CodexUsageProvider(locator: locator, transportFactory: { factory.make() })
@@ -462,7 +476,10 @@ func collectorExpiresCachedFreshnessWhileRefreshIsPending() {
     expect(waitUntil { collector.snapshot()?.providers.first?.freshness == .fresh })
     collector.refresh()
     expect(waitUntil { codex.pending == 1 && cursor.pending == 1 })
-    clockNow = Date(timeIntervalSince1970: 1091)
+    // A sample stays fresh through one missed two-minute refresh.
+    clockNow = Date(timeIntervalSince1970: 1209)
+    expect(collector.snapshot()?.providers.first?.freshness == .fresh)
+    clockNow = Date(timeIntervalSince1970: 1211)
     expect(collector.snapshot()?.providers.first?.freshness == .stale)
     codex.complete(sample)
     cursor.complete(nil, absent: true)
@@ -470,7 +487,7 @@ func collectorExpiresCachedFreshnessWhileRefreshIsPending() {
     collector.stop()
 }
 
-func collectorRefreshesEveryThirtySecondsOutsideMainRunLoop() {
+func collectorRefreshesEveryTwoMinutesOutsideMainRunLoop() {
     let codex = FakeUsageProvider()
     let cursor = FakeUsageProvider()
     let scheduler = FakePeriodicScheduler()
@@ -478,7 +495,7 @@ func collectorRefreshesEveryThirtySecondsOutsideMainRunLoop() {
                                      schedulePeriodic: scheduler.schedule)
     collector.start()
     expect(waitUntil { codex.pending == 1 && cursor.pending == 1 })
-    expect(scheduler.interval == 30)
+    expect(scheduler.interval == 120)
     codex.complete(nil, absent: true)
     cursor.complete(nil, absent: true)
     scheduler.fire()
@@ -543,7 +560,7 @@ func collectorRetriesProviderFailuresWithBoundedBackoff() {
 }
 
 func collectorRetriesCodexProcessExitBetweenNormalRefreshes() {
-    let locator = CodexExecutableLocator(environment: { ["PATH": "/fake"] }, home: "/none",
+    let locator = ExecutableLocator(name: "codex", environment: { ["PATH": "/fake"] }, home: "/none",
         isExecutable: { $0 == "/fake/codex" }, loginShellPath: { nil })
     let factory = FakeCodexFactory()
     let codex = CodexUsageProvider(locator: locator, transportFactory: { factory.make() })
@@ -640,7 +657,7 @@ func cursorUnauthorizedRefreshKeepsPreviousSampleStale() {
     collector.refresh()
     expect(waitUntil { codex.pending == 1 && http.requests.count == 3 })
     expect(collector.snapshot()?.providers.first?.freshness == .fresh)
-    timeLock.lock(); clockNow = Date(timeIntervalSince1970: 1091); timeLock.unlock()
+    timeLock.lock(); clockNow = Date(timeIntervalSince1970: 1211); timeLock.unlock()
     codex.complete(nil, absent: true)
     http.respond(status: 401)
     expect(waitUntil { collector.snapshot()?.providers.first?.freshness == .stale })
@@ -835,7 +852,7 @@ func claudeWakeRecheckDoesNotPromptOrLoseWorkingToken() {
     http.respond(status: 200, object: claudeUsage)
     expect(waitUntil { wake.done })
     expect(credentials.interactions == [true, false])
-    clock.now = Date(timeIntervalSince1970: 10_360)
+    clock.now = Date(timeIntervalSince1970: 10_420)
     _ = refreshed(provider)
     expect(waitUntil { http.requests.count == 3 })
     expect(http.requests.last?.value(forHTTPHeaderField: "Authorization") == "Bearer claude-token")
@@ -973,6 +990,128 @@ func claudeThrottlesRequestsAndServesAgedSample() {
     expect(waitUntil { http.requests.count == 2 })
 }
 
+func claudeAsksAtMostEveryRefreshInterval() {
+    let clock = TestClock()
+    let http = FakeHTTP()
+    let provider = claudeProvider(FakeClaudeCredentials(claudeCredential()), http, clock)
+    let first = refreshed(provider)
+    expect(waitUntil { http.requests.count == 1 })
+    http.respond(status: 200, object: claudeUsage)
+    expect(waitUntil { first.done })
+    // Wake and Cardputer refreshes between periodic ones reuse the sample.
+    clock.now = Date(timeIntervalSince1970: 10_109)
+    let cached = refreshed(provider)
+    expect(waitUntil { cached.done })
+    expect(http.requests.count == 1 && cached.sample?.provider == .claude)
+    // A two-minute periodic refresh that fires a little early still asks.
+    clock.now = Date(timeIntervalSince1970: 10_110)
+    _ = refreshed(provider)
+    expect(waitUntil { http.requests.count == 2 })
+}
+
+private final class FakeClaudeRenewer: ClaudeTokenRenewing {
+    private let lock = NSLock()
+    private var callbacks: [(Bool) -> Void] = []
+    private var storedCalls = 0
+    var calls: Int { lock.lock(); defer { lock.unlock() }; return storedCalls }
+    func renew(_ done: @escaping (Bool) -> Void) {
+        lock.lock(); storedCalls += 1; callbacks.append(done); lock.unlock()
+    }
+    func complete(_ renewed: Bool) {
+        lock.lock(); let callback = callbacks.removeFirst(); lock.unlock()
+        callback(renewed)
+    }
+}
+
+private func renewingClaudeProvider(_ credentials: ClaudeCredentialReading, _ http: FakeHTTP,
+                                    _ clock: TestClock, _ renewer: ClaudeTokenRenewing)
+    -> ClaudeUsageProvider {
+    ClaudeUsageProvider(credentials: credentials, http: http, now: { clock.now },
+                        readTimeout: 2, renewer: renewer)
+}
+
+func claudeExpiredTokenAsksClaudeCodeToRenew() {
+    let http = FakeHTTP()
+    let clock = TestClock()
+    let credentials = FakeClaudeCredentials(claudeCredential(
+        expiresAt: Date(timeIntervalSince1970: 9_000)))
+    let renewer = FakeClaudeRenewer()
+    let provider = renewingClaudeProvider(credentials, http, clock, renewer)
+    let expired = refreshed(provider)
+    expect(waitUntil { expired.done })
+    expect(expired.outcome == .unavailable && http.requests.isEmpty)
+    expect(waitUntil { renewer.calls == 1 })
+    // One renewal at a time.
+    let pending = refreshed(provider)
+    expect(waitUntil { pending.done })
+    expect(renewer.calls == 1)
+    // Claude Code saved a new token; the next refresh reads it silently.
+    credentials.result = claudeCredential(token: "renewed",
+                                          expiresAt: Date(timeIntervalSince1970: 40_000))
+    renewer.complete(true)
+    _ = refreshed(provider)
+    expect(waitUntil { http.requests.count == 1 })
+    expect(http.requests.last?.value(forHTTPHeaderField: "Authorization") == "Bearer renewed")
+    expect(credentials.interactions == [true, false, false])
+    expect(renewer.calls == 1)
+}
+
+func claudeRenewalRetriesAfterInterval() {
+    let clock = TestClock()
+    let credentials = FakeClaudeCredentials(claudeCredential(
+        expiresAt: Date(timeIntervalSince1970: 9_000)))
+    let renewer = FakeClaudeRenewer()
+    let provider = renewingClaudeProvider(credentials, FakeHTTP(), clock, renewer)
+    _ = refreshed(provider)
+    expect(waitUntil { renewer.calls == 1 })
+    renewer.complete(false)
+    // A CLI that is missing or signed out is not run on every refresh.
+    clock.now = Date(timeIntervalSince1970: 10_899)
+    let soon = refreshed(provider)
+    expect(waitUntil { soon.done })
+    Thread.sleep(forTimeInterval: 0.02)
+    expect(renewer.calls == 1)
+    clock.now = Date(timeIntervalSince1970: 10_900)
+    _ = refreshed(provider)
+    expect(waitUntil { renewer.calls == 2 })
+}
+
+func claudeValidTokenIsNotRenewed() {
+    let http = FakeHTTP()
+    let renewer = FakeClaudeRenewer()
+    let provider = renewingClaudeProvider(FakeClaudeCredentials(claudeCredential()), http,
+                                          TestClock(), renewer)
+    let result = refreshed(provider)
+    expect(waitUntil { http.requests.count == 1 })
+    http.respond(status: 200, object: claudeUsage)
+    expect(waitUntil { result.done })
+    expect(renewer.calls == 0)
+}
+
+func claudeRenewerRunsClaudeCodeQuietly() {
+    func renewed(_ name: String, timeout: TimeInterval = 5) -> Bool? {
+        let locator = ExecutableLocator(name: name, environment: { ["PATH": "/usr/bin"] },
+                                        home: "/none", loginShellPath: { nil })
+        let renewer = ProcessClaudeTokenRenewer(locator: locator, timeout: timeout)
+        let lock = NSLock()
+        var value: Bool?
+        renewer.renew { result in lock.lock(); value = result; lock.unlock() }
+        _ = waitUntil { lock.lock(); defer { lock.unlock() }; return value != nil }
+        lock.lock(); defer { lock.unlock() }
+        return value
+    }
+    expect(renewed("true") == true)
+    expect(renewed("false") == false)
+    expect(renewed("missing-claude-cli") == false)
+    // A CLI that never finishes is stopped.
+    expect(renewed("yes", timeout: 0.1) == false)
+    let arguments = ProcessClaudeTokenRenewer.arguments
+    expect(arguments.starts(with: ["-p", "ok", "--model", "haiku"]))
+    expect(arguments.contains("--no-session-persistence") &&
+           arguments.contains("--strict-mcp-config"))
+    expect(arguments.suffix(2) == ["--setting-sources", "project"])
+}
+
 func claudeRateLimitBacksOffWithoutFailure() {
     let http = FakeHTTP()
     let clock = TestClock()
@@ -983,20 +1122,21 @@ func claudeRateLimitBacksOffWithoutFailure() {
     http.respond(status: 200, object: claudeUsage)
     expect(waitUntil { first.done })
 
-    // Retry-After wins over the first one-minute pause; the sample stays current.
-    clock.now = Date(timeIntervalSince1970: 10_100)
+    // Retry-After wins over the first pause of one request interval; the
+    // sample stays current.
+    clock.now = Date(timeIntervalSince1970: 10_130)
     let limited = refreshed(provider)
     expect(waitUntil { http.requests.count == 2 })
     http.respond(status: 429, headers: ["Retry-After": "600"])
     expect(waitUntil { limited.done })
     expect(limited.sample?.provider == .claude)
-    clock.now = Date(timeIntervalSince1970: 10_200)
+    clock.now = Date(timeIntervalSince1970: 10_250)
     let old = refreshed(provider)
     expect(waitUntil { old.done })
     expect(old.outcome == .unavailable && http.requests.count == 2)
 
-    // Without Retry-After the pause doubles to two minutes.
-    clock.now = Date(timeIntervalSince1970: 10_701)
+    // Without Retry-After the pause doubles to two request intervals.
+    clock.now = Date(timeIntervalSince1970: 10_731)
     let again = refreshed(provider)
     expect(waitUntil { http.requests.count == 3 })
     http.respond(status: 429)
@@ -1006,7 +1146,7 @@ func claudeRateLimitBacksOffWithoutFailure() {
     _ = refreshed(provider)
     Thread.sleep(forTimeInterval: 0.02)
     expect(http.requests.count == 3)
-    clock.now = Date(timeIntervalSince1970: 10_822)
+    clock.now = Date(timeIntervalSince1970: 10_952)
     let recovered = refreshed(provider)
     expect(waitUntil { http.requests.count == 4 })
     http.respond(status: 200, object: claudeUsage)
@@ -1064,7 +1204,7 @@ func claudeExpiredTokenIsUnavailable() {
     expect(waitUntil { paused.done })
     expect(paused.outcome == .unavailable && credentials.reads == reads + 1)
     expect(http.requests.count == 1)
-    clock.now = Date(timeIntervalSince1970: 10_060)
+    clock.now = Date(timeIntervalSince1970: 10_110)
     _ = refreshed(provider)
     expect(waitUntil { http.requests.count == 2 })
 
@@ -1210,6 +1350,115 @@ func collectorShowsElapsedStaleWindowsAsHistorical() {
     collector.stop()
 }
 
+/// A Keychain read held open like an unanswered prompt; it gives up after
+/// three seconds so a regression cannot hang the checks.
+private final class BlockingCursorCredentials: CursorCredentialReading {
+    let release = DispatchSemaphore(value: 0)
+    private let lock = NSLock()
+    private var storedReads = 0
+    var reads: Int { lock.lock(); defer { lock.unlock() }; return storedReads }
+    func read() -> CursorCredentialResult {
+        lock.lock(); storedReads += 1; lock.unlock()
+        _ = release.wait(timeout: .now() + 3)
+        return .value(fakeJWT(sub: "auth0|user_123"))
+    }
+}
+
+func cursorKeychainPromptDoesNotBlockRefreshes() {
+    let http = FakeHTTP()
+    let credentials = BlockingCursorCredentials()
+    let provider = CursorUsageProvider(credentials: credentials, http: http, readTimeout: 0.05)
+    let started = Date()
+    let first = RefreshResult()
+    provider.refresh { first.set($0) }
+    // Refresh returns before the prompt is answered.
+    expect(Date().timeIntervalSince(started) < 0.5)
+    expect(waitUntil { first.done })
+    expect(first.outcome == .waiting)
+    // One prompt at a time.
+    let second = RefreshResult()
+    provider.refresh { second.set($0) }
+    expect(waitUntil { second.done })
+    expect(second.outcome == .waiting && credentials.reads == 1)
+    credentials.release.signal()
+    // The answer reached after the timeout is used without a second prompt;
+    // refreshes before it lands still report waiting.
+    expect(waitUntil { provider.refresh { _ in }; return !http.requests.isEmpty })
+    expect(credentials.reads == 1)
+}
+
+func collectorKeepsPublishingWhileCursorPromptIsOpen() {
+    let codex = FakeUsageProvider()
+    let claude = FakeUsageProvider()
+    let credentials = BlockingCursorCredentials()
+    let cursor = CursorUsageProvider(credentials: credentials, http: FakeHTTP(), readTimeout: 0.05)
+    let collector = AiUsageCollector(codex: codex, cursor: cursor, claude: claude)
+    collector.start()
+    expect(waitUntil { codex.pending == 1 && claude.pending == 1 })
+    codex.complete(AiUsageNormalization.codex(["planType": "plus",
+        "primary": ["usedPercent": 37, "windowDurationMins": 300]])!)
+    claude.complete(nil, absent: true)
+    // Codex is published while the Cursor prompt is open.
+    expect(waitUntil { collector.snapshot()?.providers.map(\.provider) == [.codex] })
+    let stopping = Date()
+    collector.stop()
+    // Stop does not wait for the prompt.
+    expect(Date().timeIntervalSince(stopping) < 1)
+    credentials.release.signal()
+}
+
+func codexTransportReportsClosedInput() {
+    let transport = ProcessCodexJSONLTransport()
+    expect(transport.start(path: "/usr/bin/true"))
+    expect(waitUntil { !transport.isRunning })
+    Thread.sleep(forTimeInterval: 0.05)
+    // Writing to a child that has exited must fail, not raise SIGPIPE.
+    expect(!transport.send(Data("{}\n".utf8)))
+    transport.stop()
+}
+
+func codexProviderTreatsFailedSendAsFailure() {
+    let locator = ExecutableLocator(name: "codex", environment: { ["PATH": "/fake"] }, home: "/none",
+        isExecutable: { $0 == "/fake/codex" }, loginShellPath: { nil })
+    let factory = FakeCodexFactory()
+    let provider = CodexUsageProvider(locator: locator, transportFactory: {
+        let transport = factory.make() as! FakeCodexTransport
+        transport.failSends = true
+        return transport
+    })
+    let result = RefreshResult()
+    provider.refresh { result.set($0) }
+    expect(waitUntil { result.done })
+    expect(result.outcome == .failed && factory.at(0)?.isRunning == false)
+    provider.stop()
+}
+
+func codexWithoutAccountIsAbsent() {
+    let locator = ExecutableLocator(name: "codex", environment: { ["PATH": "/fake"] }, home: "/none",
+        isExecutable: { $0 == "/fake/codex" }, loginShellPath: { nil })
+    let factory = FakeCodexFactory()
+    let provider = CodexUsageProvider(locator: locator, transportFactory: { factory.make() })
+    let first = RefreshResult()
+    provider.refresh { first.set($0) }
+    expect(waitUntil { factory.at(0)?.latest("initialize") != nil })
+    guard let transport = factory.at(0) else { return }
+    transport.emit(["id": 1, "result": [:]])
+    expect(waitUntil { transport.latest("account/read") != nil })
+    transport.emit(["id": 2, "result": ["account": NSNull(), "requiresOpenaiAuth": true]])
+    expect(waitUntil { first.done })
+    // Signed out is absent and asks for no limits.
+    expect(first.outcome == .absent && transport.latest("account/rateLimits/read") == nil)
+    // The next refresh checks the account again in the same process.
+    let second = RefreshResult()
+    provider.refresh { second.set($0) }
+    expect(waitUntil { transport.count("account/read") == 2 })
+    transport.emit(["id": 2, "result": ["account": ["planType": "plus"]]])
+    expect(waitUntil { transport.latest("account/rateLimits/read") != nil })
+    // No restart.
+    expect(factory.at(1) == nil)
+    provider.stop()
+}
+
 @main enum CompanionProvidersCheck {
     static func main() {
         providerPackageBoundary()
@@ -1222,7 +1471,7 @@ func collectorShowsElapsedStaleWindowsAsHistorical() {
         codexProviderHandlesAbsenceAndRealBusinessLimits()
         codexRestrictionKeepsHistoryWithoutFailureRetry()
         collectorPublishesHomeAndWorkProviderSets()
-        collectorRefreshesEveryThirtySecondsOutsideMainRunLoop()
+        collectorRefreshesEveryTwoMinutesOutsideMainRunLoop()
         collectorExpiresCachedFreshnessWhileRefreshIsPending()
         collectorCoalescesRefreshRequestedDuringAnActiveCycle()
         collectorRetriesProviderFailuresWithBoundedBackoff()
@@ -1239,7 +1488,12 @@ func collectorShowsElapsedStaleWindowsAsHistorical() {
         legacyKeychainSilentReadFailsClosed()
         legacyKeychainCoordinatesConcurrentProviderReads()
         claudeThrottlesRequestsAndServesAgedSample()
+        claudeAsksAtMostEveryRefreshInterval()
         claudeRateLimitBacksOffWithoutFailure()
+        claudeExpiredTokenAsksClaudeCodeToRenew()
+        claudeRenewalRetriesAfterInterval()
+        claudeValidTokenIsNotRenewed()
+        claudeRenewerRunsClaudeCodeQuietly()
         claudeKeychainPromptIsUnavailableNotFailure()
         httpTransportCanBeReusedAfterStop()
         collectorKeepsDiscoveringWhileWaitingForUser()
@@ -1248,6 +1502,11 @@ func collectorShowsElapsedStaleWindowsAsHistorical() {
         collectorKeepsUnavailableSampleStaleWithoutRetry()
         collectorPublishesPersonalCodexAndClaude()
         collectorShowsElapsedStaleWindowsAsHistorical()
+        cursorKeychainPromptDoesNotBlockRefreshes()
+        collectorKeepsPublishingWhileCursorPromptIsOpen()
+        codexTransportReportsClosedInput()
+        codexProviderTreatsFailedSendAsFailure()
+        codexWithoutAccountIsAbsent()
         if failures > 0 { exit(1) }
         print("companion provider checks passed")
     }

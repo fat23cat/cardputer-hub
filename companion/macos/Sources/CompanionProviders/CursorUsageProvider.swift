@@ -37,23 +37,64 @@ final class KeychainCursorCredentials: CursorCredentialReading {
 final class CursorUsageProvider: AiUsageProviderRefreshing {
     private let credentials: CursorCredentialReading
     private let http: AiUsageHTTPTransport
+    private let readTimeout: TimeInterval
+    // macOS may block the Keychain read on its access prompt. The collector
+    // calls refresh on its shared queue, so the read runs here and a refresh
+    // stops waiting after readTimeout.
+    private let readQueue = DispatchQueue(label: "org.cardputer.companion.cursor-keychain")
+    private let lock = NSLock()
+    private var reading = false
+    /// A read answered after its refresh stopped waiting; the next refresh
+    /// uses it instead of asking the Keychain (and the user) again.
+    private var lateResult: CursorCredentialResult?
 
     convenience init() {
         self.init(credentials: KeychainCursorCredentials(), http: URLSessionAiUsageHTTP())
     }
 
-    init(credentials: CursorCredentialReading, http: AiUsageHTTPTransport) {
+    init(credentials: CursorCredentialReading, http: AiUsageHTTPTransport,
+         readTimeout: TimeInterval = 5) {
         self.credentials = credentials
         self.http = http
+        self.readTimeout = readTimeout
     }
 
     func refresh(_ done: @escaping (AiUsageRefreshOutcome) -> Void) {
-        let token: String
-        switch credentials.read() {
-        case .value(let value): token = value
-        case .absent: done(.absent); return
-        case .failed: done(.failed); return
+        let finish = RefreshCompletion(done)
+        lock.lock()
+        if let result = lateResult {
+            lateResult = nil
+            lock.unlock()
+            complete(result, finish)
+            return
         }
+        // An open Keychain prompt is waiting for the user, not failing.
+        guard !reading else { lock.unlock(); finish(.waiting); return }
+        reading = true
+        lock.unlock()
+        DispatchQueue.global(qos: .utility).asyncAfter(deadline: .now() + readTimeout) {
+            finish(.waiting)
+        }
+        readQueue.async { [self] in
+            let result = credentials.read()
+            lock.lock()
+            reading = false
+            let late = finish.finished
+            if late { lateResult = result }
+            lock.unlock()
+            if !late { complete(result, finish) }
+        }
+    }
+
+    private func complete(_ result: CursorCredentialResult, _ finish: RefreshCompletion) {
+        switch result {
+        case .value(let token): request(token, finish)
+        case .absent: finish(.absent)
+        case .failed: finish(.failed)
+        }
+    }
+
+    private func request(_ token: String, _ done: RefreshCompletion) {
         guard let cookie = Self.cookie(for: token) else { done(.failed); return }
         guard let url = URL(string: "https://cursor.com/api/usage-summary")
         else { done(.failed); return }

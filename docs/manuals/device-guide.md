@@ -430,7 +430,7 @@ one. This mark uses fresh agent data only. Status checks continue while AI is
 open on either page or in details. Press **R** anywhere in AI to check agents
 and usage now: agent states update within a moment, and the Mac rereads its AI
 accounts, so USAGE updates within a few seconds. Claude values still update at
-most about once a minute. Unit Puzzle follows the page you are viewing.
+most about every two minutes. Unit Puzzle follows the page you are viewing.
 Escape on a main page closes AI. Companion loss closes AI and clears its data;
 reconnecting does not reopen it.
 
@@ -443,7 +443,7 @@ credits, Cursor Enterprise shows personal spend, and Claude Pro or Max shows its
 5-hour and weekly limits. The first time, macOS asks whether Cardputer Companion may
 use `Claude Code-credentials`; choose **Always Allow**. Until you answer,
 Claude is not shown, and with no other account USAGE shows `CHECKING AI`.
-Claude values update about once a minute; if the Claude service limits
+Claude values update about every two minutes; if the Claude service limits
 requests, they are marked `STALE` until it allows them again. If you decline, Claude
 stays hidden for an hour, then silent checks resume. Only the first read after
 launching Companion may ask for permission; closing and opening the lid does
@@ -451,8 +451,11 @@ not trigger another authorization prompt. If Keychain access becomes unavailable
 Companion keeps using its current token until it expires, then shows the last
 values as `STALE` while retrying quietly every five minutes. Relaunch Companion
 to grant access again if needed. At most two providers appear,
-in the order Codex, Cursor, Claude. When Claude Code has not run for several
-hours, Claude values stay visible marked `STALE` until you use it again; a
+in the order Codex, Cursor, Claude. Claude Code renews its sign-in only while
+it runs; when that sign-in has expired, Companion runs the `claude` command
+once in the background with a one-word prompt so it renews, which uses a tiny
+part of your Claude plan. If `claude` is not installed or signed in on the Mac
+(`claude auth login`), Claude values stay visible marked `STALE`; a
 stale window whose reset time has passed keeps its last reported quota and shows
 `DUE` (`RESET DUE` in details) until a fresh reading confirms the quota. Signing out
 of Claude Code or switching accounts shows up within about five minutes. Bars and `LEFT` percentages show remaining capacity.
@@ -463,7 +466,7 @@ An unavailable reset time appears as `RESET --`.
 it appears below the provider name. `CHECKING AI` appears during discovery and
 checks again every two seconds until the Mac finishes;
 `NO AI ACCOUNTS` appears if none can be read. The Mac samples accounts every
-30 seconds and the Cardputer checks the cache every 10 seconds after discovery.
+two minutes and the Cardputer checks the cache every 10 seconds after discovery.
 Companion's Diagnostics submenu shows whether its own Codex, Cursor and Claude
 cache is fresh or stale. If the Mac shows fresh while USAGE shows `STALE`, the issue
 is between Companion and the device; if both show stale, inspect the provider
