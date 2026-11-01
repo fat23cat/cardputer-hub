@@ -154,21 +154,14 @@ once per two-minute refresh (never sooner than 110 seconds apart), because
 that service rate-limits frequent callers. A rate-limit response pauses
 requests for its `Retry-After` time or a pause that doubles from 110 seconds up
 to 30 minutes; the last sample stays shown for about three minutes, then it is
-marked stale. The first
-read after launching Companion may show a macOS Keychain prompt; choose
-**Always Allow**. A refresh waits
-at most five seconds for that prompt, so other providers keep updating at
-their normal rate; with no other account the Cardputer keeps showing
-`CHECKING AI` until you answer. Declining hides Claude for an hour before silent
-checks resume; relaunch Companion to authorize access again. Only the first
-read after launch may prompt. Wake, periodic checks, and expired-token recovery
-read the Keychain without UI. The token stays in memory, and the Keychain item
-is checked again every five minutes, so signing out or switching accounts
-normally shows up within about that time. A failed check or unavailable
-authorization keeps a working token. If authorization is needed after that
-token expires, the last sample becomes stale and silent checks retry every five
-minutes; relaunch Companion to grant access. The Companion never refreshes or
-changes that credential itself. Claude Code renews its token only while it
+marked stale. Companion reads the item through `/usr/bin/security`, the tool
+Claude Code writes it with, so no Keychain prompt appears. Claude Code rewrites
+the item on every token renewal and resets its partition list, which would
+drop an **Always Allow** granted to Companion itself. The token stays in
+memory, and the Keychain item is checked again every five minutes, so signing
+out or switching accounts normally shows up within about that time. A failed
+check keeps a working token. The Companion never refreshes or changes that
+credential itself. Claude Code renews its token only while it
 runs, so when the token has expired Companion runs the `claude` CLI once with a
 one-word Haiku prompt (no tools, hooks, MCP servers or saved session) to let it
 renew the item, then reads it silently on a later refresh. That small request

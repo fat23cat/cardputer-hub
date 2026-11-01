@@ -21,27 +21,23 @@ protocol ClaudeCredentialReading {
 }
 
 // Claude Code owns this item and refreshes its token; the Companion only reads it.
+// Claude Code writes it with /usr/bin/security, which resets the item's partition
+// list to `apple-tool:` on every token renewal and so drops any "Always Allow"
+// granted to Companion. Reading through the same tool, which the item's access
+// list always trusts, never shows a Keychain prompt.
 final class KeychainClaudeCredentials: ClaudeCredentialReading {
-    private let keychain: LegacyKeychainRead
-    init(keychain: LegacyKeychainRead = .shared) { self.keychain = keychain }
+    typealias Run = ([String]) -> (status: Int32, output: Data)?
+    private let run: Run
+
+    init(run: @escaping Run = KeychainClaudeCredentials.runSecurity) { self.run = run }
 
     func read(allowInteraction: Bool) -> ClaudeCredentialResult {
-        let query: [String: Any] = [
-            kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: "Claude Code-credentials",
-            kSecReturnData as String: true,
-            kSecMatchLimit as String: kSecMatchLimitOne,
-        ]
-        var result: CFTypeRef?
-        let status = keychain.copyMatching(query as CFDictionary,
-                                          allowInteraction: allowInteraction, result: &result)
-        if status == errSecItemNotFound { return .absent }
-        if status == errSecInteractionNotAllowed { return .interactionRequired }
-        if status == errSecUserCanceled || status == errSecAuthFailed {
-            return allowInteraction ? .denied : .interactionRequired
-        }
-        guard status == errSecSuccess, let data = result as? Data,
-              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+        guard let result = run(["find-generic-password", "-s", "Claude Code-credentials", "-w"])
+        else { return .failed }
+        // security exits with 44 when the item does not exist.
+        if result.status == 44 { return .absent }
+        guard result.status == 0,
+              let object = try? JSONSerialization.jsonObject(with: result.output) as? [String: Any],
               let oauth = object["claudeAiOauth"] as? [String: Any],
               let token = oauth["accessToken"] as? String, !token.isEmpty,
               !token.contains("\r"), !token.contains("\n")
@@ -51,6 +47,25 @@ final class KeychainClaudeCredentials: ClaudeCredentialReading {
         return .value(ClaudeCredential(accessToken: token,
                                        subscriptionType: oauth["subscriptionType"] as? String,
                                        expiresAt: expiresAt))
+    }
+
+    /// Runs /usr/bin/security and returns its exit status and output; a run
+    /// that does not finish within ten seconds (a locked keychain) is stopped.
+    static func runSecurity(_ arguments: [String]) -> (status: Int32, output: Data)? {
+        let process = Process()
+        let output = Pipe()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/security")
+        process.arguments = arguments
+        process.standardInput = FileHandle.nullDevice
+        process.standardOutput = output
+        process.standardError = FileHandle.nullDevice
+        do { try process.run() } catch { return nil }
+        let stop = DispatchWorkItem { if process.isRunning { process.terminate() } }
+        DispatchQueue.global(qos: .utility).asyncAfter(deadline: .now() + 10, execute: stop)
+        let data = output.fileHandleForReading.readDataToEndOfFile()
+        process.waitUntilExit()
+        stop.cancel()
+        return (process.terminationStatus, data)
     }
 }
 
