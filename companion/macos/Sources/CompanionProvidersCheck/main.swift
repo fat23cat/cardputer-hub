@@ -760,6 +760,31 @@ func claudeBuildsOAuthUsageRequest() {
     expect(result.sample?.metrics.map(\.remainingPercent) == [92, 99])
 }
 
+func claudeKeychainReadsThroughSecurityTool() {
+    var calls: [[String]] = []
+    func read(_ result: (status: Int32, output: Data)?) -> ClaudeCredentialResult {
+        KeychainClaudeCredentials(run: { calls.append($0); return result })
+            .read(allowInteraction: false)
+    }
+    let item = #"{"claudeAiOauth":{"accessToken":"claude-token","subscriptionType":"pro","#
+        + #""expiresAt":1800000000000}}"#
+    if case .value(let credential) = read((0, Data((item + "\n").utf8))) {
+        expect(credential.accessToken == "claude-token" && credential.subscriptionType == "pro")
+        expect(credential.expiresAt == Date(timeIntervalSince1970: 1_800_000_000))
+    } else {
+        expect(false)
+    }
+    // Claude Code writes the item with this tool, so reading through it never prompts.
+    expect(calls.first == ["find-generic-password", "-s", "Claude Code-credentials", "-w"])
+    if case .absent = read((44, Data())) {} else { expect(false) }
+    if case .failed = read((1, Data())) {} else { expect(false) }
+    if case .failed = read((0, Data("not json\n".utf8))) {} else { expect(false) }
+    if case .failed = read(nil) {} else { expect(false) }
+    // The real tool reports a missing item as errSecItemNotFound.
+    expect(KeychainClaudeCredentials.runSecurity(
+        ["find-generic-password", "-s", "cardputer-companion-check-missing-item", "-w"])?.status == 44)
+}
+
 func claudeOmitsAbsentCredential() {
     let http = FakeHTTP()
     let result = refreshed(claudeProvider(FakeClaudeCredentials(.absent), http, TestClock()))
@@ -876,16 +901,6 @@ func legacyKeychainSilentReadRestoresInteractionOnFailure() {
     allowed = false; changes = []
     _ = keychain.copyMatching([:] as CFDictionary, allowInteraction: false, result: nil)
     expect(!allowed && changes == [false, false])
-}
-
-func claudeSilentAuthorizationFailureIsNotUserDenial() {
-    let keychain = LegacyKeychainRead(read: { query, _ in
-        expect((query as NSDictionary)[kSecAttrService] as? String == "Claude Code-credentials")
-        return errSecAuthFailed
-    }, getInteraction: { (errSecSuccess, true) }, setInteraction: { _ in errSecSuccess })
-    let credentials = KeychainClaudeCredentials(keychain: keychain)
-    if case .denied = credentials.read(allowInteraction: true) {} else { expect(false) }
-    if case .interactionRequired = credentials.read(allowInteraction: false) {} else { expect(false) }
 }
 
 func legacyKeychainSilentReadFailsClosed() {
@@ -1478,13 +1493,13 @@ func codexWithoutAccountIsAbsent() {
         collectorRetriesCodexProcessExitBetweenNormalRefreshes()
         cursorUnauthorizedRefreshKeepsPreviousSampleStale()
         claudeBuildsOAuthUsageRequest()
+        claudeKeychainReadsThroughSecurityTool()
         claudeOmitsAbsentCredential()
         claudeCachesTokenAndRechecksKeychain()
         claudeRecheckKeepsTokenWhenKeychainFails()
         claudeWakeRecheckDoesNotPromptOrLoseWorkingToken()
         claudeExpiredTokenWaitsQuietlyForKeychainAccess()
         legacyKeychainSilentReadRestoresInteractionOnFailure()
-        claudeSilentAuthorizationFailureIsNotUserDenial()
         legacyKeychainSilentReadFailsClosed()
         legacyKeychainCoordinatesConcurrentProviderReads()
         claudeThrottlesRequestsAndServesAgedSample()

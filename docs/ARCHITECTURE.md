@@ -2185,18 +2185,17 @@ refresh reports waiting after five seconds, or while an earlier read is still
 open, so a prompt never blocks other providers or collector stop, and an answer
 that arrives later serves the next refresh without another read.
 Claude reads Claude Code's existing OAuth credential, retains the token only
-in memory, and rechecks it every five minutes. Only its first read after
-Companion launches may show an authorization prompt; wake, periodic rechecks,
-and expired-token recovery must remain noninteractive. Companion never
+in memory, and rechecks it every five minutes. It reads the item through
+`/usr/bin/security find-generic-password`: Claude Code writes the item with
+that tool, which resets the item's partition list to `apple-tool:` on every
+token renewal, so a Keychain grant to Companion itself would not survive, while
+the tool's own access never needs a prompt. Companion never
 refreshes or writes the credential: an expired token runs the located `claude`
 CLI once with a minimal prompt, an empty working directory, project-only
 settings, no tools, no MCP servers and no saved session, so Claude Code renews
-its own item; attempts are at most 15 minutes apart. An unavailable
-authorization preserves a valid cached token; without one it reports unavailable
-and retries silently after five minutes, retaining the last usage sample as
-stale. An explicit initial denial hides the provider for an hour. Relaunching
-Companion permits authorization again. `LegacyKeychainRead` coordinates all
-Claude and Cursor reads of the file-based Keychain: interactive reads may run
+its own item; attempts are at most 15 minutes apart. A failed read preserves a
+valid cached token. `LegacyKeychainRead` coordinates Cursor's reads of the
+file-based Keychain: interactive reads may run
 concurrently, while a silent read exclusively disables the process-wide legacy
 interaction policy and restores it before other reads proceed. This uses the
 legacy API because file-based Keychain ACL prompts do not honor the modern

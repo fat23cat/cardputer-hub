@@ -440,17 +440,10 @@ USAGE has no setup screen. The Companion checks Codex, the existing
 Cursor Agent sign-in and the existing Claude Code sign-in on that Mac; an absent
 provider is omitted. Plus accounts show 5-hour and weekly limits, Business shows
 credits, Cursor Enterprise shows personal spend, and Claude Pro or Max shows its
-5-hour and weekly limits. The first time, macOS asks whether Cardputer Companion may
-use `Claude Code-credentials`; choose **Always Allow**. Until you answer,
-Claude is not shown, and with no other account USAGE shows `CHECKING AI`.
-Claude values update about every two minutes; if the Claude service limits
-requests, they are marked `STALE` until it allows them again. If you decline, Claude
-stays hidden for an hour, then silent checks resume. Only the first read after
-launching Companion may ask for permission; closing and opening the lid does
-not trigger another authorization prompt. If Keychain access becomes unavailable,
-Companion keeps using its current token until it expires, then shows the last
-values as `STALE` while retrying quietly every five minutes. Relaunch Companion
-to grant access again if needed. At most two providers appear,
+5-hour and weekly limits. Claude needs no Keychain permission: Companion reads
+the Claude Code sign-in without a macOS prompt. Claude values update about
+every two minutes; if the Claude service limits requests, they are marked
+`STALE` until it allows them again. At most two providers appear,
 in the order Codex, Cursor, Claude. Claude Code renews its sign-in only while
 it runs; when that sign-in has expired, Companion runs the `claude` command
 once in the background with a one-word prompt so it renews, which uses a tiny
