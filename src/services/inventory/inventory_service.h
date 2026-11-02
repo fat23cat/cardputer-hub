@@ -25,7 +25,7 @@ enum class InventoryScreen : std::uint8_t {
     NotFormatted,
     // Blank but locked: it cannot be registered.
     ReadOnly,
-    // Holds other data, which is never overwritten.
+    // Holds other data, which is never overwritten without an erase.
     OtherData,
     ReadFailed,
     // Blank and writable: it can be registered.
@@ -78,15 +78,22 @@ struct InventoryStatus {
     std::optional<InventoryRecord> record;
     // Known after a registration in this session.
     bool registered = false;
+    // OtherData: the tag has control TLVs or data after its message, which
+    // only a forced erase replaces.
+    bool tagReserved = false;
+    // The present tag is a compatible Type 2 tag, not an NXP NTAG21x.
+    bool compatibleTag = false;
     // The microSD card is mounted. Independent of the reader and the tag.
     bool storageReady = false;
     // AwaitingTag: the name to register and why it still waits.
     std::string pendingName;
     InventoryAwaitHint hint = InventoryAwaitHint::None;
     // Erase screens and the Erased notice: the target's name (empty for a tag
-    // with other data), whether it holds other data, and the tag on the reader.
+    // with other data), whether it holds other data (and reserved areas), and
+    // the tag on the reader.
     std::string eraseName;
     bool eraseForeign = false;
+    bool eraseReserved = false;
     bool eraseDeletesRecord = false;
     InventoryEraseHint eraseHint = InventoryEraseHint::None;
 };
@@ -133,7 +140,8 @@ class InventoryService {
     InventoryCommandResult retrySave();
 
     // The present tag can be erased: an inventory tag (known, missing or
-    // damaged record) or a writable tag holding other NDEF data.
+    // damaged record) or a writable tag holding other NDEF data, including one
+    // with reserved areas (a forced erase that replaces them too).
     [[nodiscard]] bool canErase() const;
     // Remembers the present tag (UID and inspected bytes) and asks to confirm.
     InventoryCommandResult requestErase();
@@ -178,10 +186,13 @@ class InventoryService {
         std::vector<std::uint8_t> raw;
         std::optional<InventoryId> id;
         bool deleteRecord = false;
+        // Control TLVs or data after the message are replaced as well.
+        bool includeReserved = false;
     };
 
     void show(InventoryScreen screen);
     void showRecord(const InventoryRecord& record, bool registered);
+    void showOtherData(bool reserved);
     void showNotice(InventoryScreen screen);
     void setHint(InventoryAwaitHint hint);
     void lookup(const InventoryId& id);
