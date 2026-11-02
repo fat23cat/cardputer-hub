@@ -138,6 +138,25 @@ void test_inventory_enrollment_writes_verifies_and_persists_once() {
     TEST_ASSERT_EQUAL_UINT(1, h.recordFiles());
 }
 
+void test_compatible_tag_is_marked_and_registered_like_an_ntag() {
+    Harness h;
+    h.inventory.open();
+    TEST_ASSERT_EQUAL_UINT8(static_cast<unsigned>(InventoryCommandResult::Started),
+                            static_cast<unsigned>(h.inventory.startEnrollment("Clone box")));
+    auto card = makeNtag213(1);
+    card.info.type2Compatible = true;
+    h.reader.present(card);
+    h.runUntil(InventoryScreen::Known);
+    TEST_ASSERT_TRUE(h.inventory.status().compatibleTag);
+    TEST_ASSERT_EQUAL_STRING("Clone box", h.inventory.status().record->name.c_str());
+    h.reader.removeCard();
+    h.runUntil(InventoryScreen::Waiting);
+    TEST_ASSERT_FALSE(h.inventory.status().compatibleTag);
+    h.reader.present(makeNtag213(2));
+    h.runUntil(InventoryScreen::Blank);
+    TEST_ASSERT_FALSE(h.inventory.status().compatibleTag);
+}
+
 void test_registration_requires_a_valid_ascii_name_and_a_card() {
     Harness h;
     h.inventory.open();
@@ -408,7 +427,7 @@ void test_inventory_never_overwrites_foreign_ndef_or_classic() {
     locked.memory[10] = 0xFF;
     cases.push_back({locked, InventoryScreen::ReadOnly, false});
     cases.push_back({makeNtag213WithArea(6, {0x01, 0x03, 0xA0, 0x10, 0x44, 0x03, 0x00, 0xFE}),
-                     InventoryScreen::OtherData, false});
+                     InventoryScreen::OtherData, true});
     cases.push_back({makeClassic1K(4), InventoryScreen::Unsupported, false});
     cases.push_back({makeNfcB(5), InventoryScreen::Unsupported, false});
     for (auto& item : cases) {
@@ -624,6 +643,41 @@ void test_erase_of_a_missing_or_damaged_record_tag() {
     (void)damaged.inventory.confirmErase();
     damaged.runUntil(InventoryScreen::Erased);
     TEST_ASSERT_EQUAL_UINT(0, damaged.recordFiles());
+}
+
+void test_reserved_areas_are_erased_only_after_a_warned_confirmation() {
+    Harness plain;
+    plain.inventory.open();
+    plain.reader.present(
+        makeNtag213WithArea(3, *encodeType2NdefArea(encodeNdefTextMessage("hello"), 144)));
+    plain.runUntil(InventoryScreen::OtherData);
+    TEST_ASSERT_FALSE(plain.inventory.status().tagReserved);
+    (void)plain.inventory.requestErase();
+    TEST_ASSERT_FALSE(plain.inventory.status().eraseReserved);
+
+    Harness h;
+    h.inventory.open();
+    h.reader.present(makeNtag213WithArea(4, {0x01, 0x03, 0xA0, 0x10, 0x44, 0x03, 0x00, 0xFE}));
+    h.runUntil(InventoryScreen::OtherData);
+    TEST_ASSERT_TRUE(h.inventory.status().tagReserved);
+    TEST_ASSERT_TRUE(h.inventory.canErase());
+    TEST_ASSERT_EQUAL_UINT8(static_cast<unsigned>(InventoryCommandResult::Started),
+                            static_cast<unsigned>(h.inventory.requestErase()));
+    h.assertScreen(InventoryScreen::EraseConfirm);
+    TEST_ASSERT_TRUE(h.inventory.status().eraseForeign);
+    TEST_ASSERT_TRUE(h.inventory.status().eraseReserved);
+    TEST_ASSERT_TRUE(h.reader.pageWrites.empty());
+    TEST_ASSERT_EQUAL_UINT8(static_cast<unsigned>(InventoryCommandResult::Started),
+                            static_cast<unsigned>(h.inventory.confirmErase()));
+    h.runUntil(InventoryScreen::Erased);
+    TEST_ASSERT_EQUAL_UINT(1, h.reader.pageWrites.size());
+    TEST_ASSERT_EQUAL_UINT8(
+        static_cast<unsigned>(NfcTagContent::Blank),
+        static_cast<unsigned>(
+            inspectType2Window(h.reader.memory().data() + 8, nfcInspectBytes).content));
+    h.inventory.acknowledge();
+    h.runUntil(InventoryScreen::Blank);
+    TEST_ASSERT_FALSE(h.inventory.status().tagReserved);
 }
 
 void test_foreign_tag_removed_and_returned_before_erase_confirmation() {
@@ -854,6 +908,7 @@ void tearDown() {}
 int main() {
     UNITY_BEGIN();
     RUN_TEST(test_inventory_enrollment_writes_verifies_and_persists_once);
+    RUN_TEST(test_compatible_tag_is_marked_and_registered_like_an_ntag);
     RUN_TEST(test_registration_requires_a_valid_ascii_name_and_a_card);
     RUN_TEST(test_waiting_registration_refuses_tags_that_are_not_blank);
     RUN_TEST(test_cancelled_registration_writes_nothing);
@@ -873,6 +928,7 @@ int main() {
     RUN_TEST(test_uncertain_erase_keeps_record_after_session_loss_even_for_a_cloned_uid);
     RUN_TEST(test_two_uncertain_erases_keep_both_records_after_new_sessions);
     RUN_TEST(test_erase_of_a_missing_or_damaged_record_tag);
+    RUN_TEST(test_reserved_areas_are_erased_only_after_a_warned_confirmation);
     RUN_TEST(test_foreign_tag_removed_and_returned_before_erase_confirmation);
     RUN_TEST(test_different_tag_cannot_arm_erase_without_a_new_confirmation);
     RUN_TEST(test_tag_being_read_cannot_arm_erase_without_a_new_confirmation);

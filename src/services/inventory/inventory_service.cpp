@@ -70,6 +70,8 @@ void InventoryService::resetSession(std::uint32_t session) {
     session_ = session;
     lookedUp_ = false;
     status_.session = session;
+    const auto& card = nfc_.status().card;
+    status_.compatibleTag = session != 0 && card && card->type2Compatible;
     status_.id.reset();
     status_.record.reset();
     status_.registered = false;
@@ -84,7 +86,17 @@ void InventoryService::show(InventoryScreen screen) {
         status_.record.reset();
         status_.registered = false;
     }
+    if (screen != InventoryScreen::OtherData)
+        status_.tagReserved = false;
     ++status_.generation;
+}
+
+void InventoryService::showOtherData(bool reserved) {
+    if (status_.tagReserved != reserved) {
+        status_.tagReserved = reserved;
+        ++status_.generation;
+    }
+    show(InventoryScreen::OtherData);
 }
 
 void InventoryService::showRecord(const InventoryRecord& record, bool registered) {
@@ -322,7 +334,7 @@ void InventoryService::observeContent(const NfcStatus& nfc) {
         show(InventoryScreen::NotFormatted);
         return;
     case NfcTagContent::OtherData:
-        show(InventoryScreen::OtherData);
+        showOtherData(nfc.tag.reserved);
         return;
     case NfcTagContent::ReadFailed:
         show(InventoryScreen::ReadFailed);
@@ -335,7 +347,7 @@ void InventoryService::observeContent(const NfcStatus& nfc) {
     }
     const auto tag = parseInventoryTag(nfc.tag.message);
     if (tag.kind != InventoryTagKind::Inventory) {
-        show(InventoryScreen::OtherData);
+        showOtherData(nfc.tag.reserved);
         return;
     }
     lookup(tag.id);
@@ -493,10 +505,12 @@ bool InventoryService::canErase() const {
     if (flow_ != Flow::None || notice_ || session_ == 0)
         return false;
     const auto& nfc = nfc_.status();
-    if (!nfc.card || !NfcService::isErasable(nfc.tag))
+    if (!nfc.card)
         return false;
     if (screen == InventoryScreen::OtherData)
-        return true;
+        return NfcService::isErasable(nfc.tag, true);
+    if (!NfcService::isErasable(nfc.tag))
+        return false;
     if ((screen != InventoryScreen::Known && screen != InventoryScreen::MissingRecord &&
          screen != InventoryScreen::InvalidRecord) ||
         !status_.id || nfc.tag.content != NfcTagContent::Message)
@@ -525,8 +539,10 @@ InventoryCommandResult InventoryService::requestErase() {
         // A record known to exist (valid or not) is deleted after the tag.
         target.deleteRecord = status_.screen != InventoryScreen::MissingRecord;
     }
+    target.includeReserved = foreign && nfc.tag.reserved;
     status_.eraseName = status_.record ? status_.record->name : std::string();
     status_.eraseForeign = foreign;
+    status_.eraseReserved = target.includeReserved;
     status_.eraseDeletesRecord = target.deleteRecord;
     target_ = std::move(target);
     flow_ = Flow::ConfirmingErase;
@@ -537,8 +553,8 @@ InventoryCommandResult InventoryService::requestErase() {
 
 bool InventoryService::targetPresent(const NfcStatus& nfc) const {
     return target_ && session_ != 0 && nfc.state == NfcServiceState::Ready && nfc.card &&
-           nfc.card->uid == target_->uid && NfcService::isErasable(nfc.tag) &&
-           nfc.tag.raw == target_->raw;
+           nfc.card->uid == target_->uid &&
+           NfcService::isErasable(nfc.tag, target_->includeReserved) && nfc.tag.raw == target_->raw;
 }
 
 InventoryCommandResult InventoryService::confirmErase() {
@@ -584,7 +600,7 @@ void InventoryService::cancelErase() {
 
 void InventoryService::startErase() {
     target_->writeSession = session_;
-    if (!nfc_.eraseTag(session_, target_->raw)) {
+    if (!nfc_.eraseTag(session_, target_->raw, target_->includeReserved)) {
         flow_ = Flow::None;
         target_.reset();
         showNotice(InventoryScreen::EraseFailed);

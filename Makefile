@@ -85,6 +85,7 @@ format-check:
 	$(RUN) clang-format --dry-run --Werror $(CPP_FILES)
 
 lint:
+	$(RUN) python scripts/prune_platformio_tools.py
 	$(RUN) pio check -e native
 
 host-check: lock-check architecture-check format-check lint test

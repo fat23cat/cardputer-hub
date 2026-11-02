@@ -186,14 +186,16 @@ bool NfcService::writeMessage(std::uint32_t session, const std::vector<std::uint
     return true;
 }
 
-bool NfcService::isErasable(const NfcTagInspection& tag) noexcept {
+bool NfcService::isErasable(const NfcTagInspection& tag, bool includeReserved) noexcept {
     return (tag.content == NfcTagContent::Message || tag.content == NfcTagContent::OtherData) &&
-           tag.writable && !tag.reserved && !tag.raw.empty();
+           tag.writable && (includeReserved || !tag.reserved) && !tag.raw.empty();
 }
 
-bool NfcService::eraseTag(std::uint32_t session, const std::vector<std::uint8_t>& expectedRaw) {
+bool NfcService::eraseTag(std::uint32_t session, const std::vector<std::uint8_t>& expectedRaw,
+                          bool includeReserved) {
     if (!session_ || session_->id != session || status_.state != NfcServiceState::Ready ||
-        !isErasable(status_.tag) || status_.tag.raw != expectedRaw || !session_->userArea)
+        !isErasable(status_.tag, includeReserved) || status_.tag.raw != expectedRaw ||
+        !session_->userArea)
         return refuseWrite(session);
     beginWrite(session, {0x03, 0x00, 0xFE, 0x00});
     return true;
