@@ -54,6 +54,10 @@ struct NfcCardInfo {
     std::optional<std::uint8_t> sak;
     std::optional<std::uint32_t> totalBytes;
     std::optional<std::uint32_t> userBytes;
+    // An NFC-A Type 2 tag that did not identify itself as an NXP NTAG21x but
+    // whose capability container declares an NTAG213/215/216 data area: `type`
+    // is that NTAG layout, and only standard READ and WRITE are used.
+    bool type2Compatible = false;
 };
 
 // Reader-issued identity of one physical card activation. Every operation
@@ -120,6 +124,26 @@ struct NfcType2UserArea {
         return NfcType2UserArea{nfcType2FirstUserPage, 126};
     case NfcCardType::Ntag216:
         return NfcType2UserArea{nfcType2FirstUserPage, 222};
+    default:
+        break;
+    }
+    return std::nullopt;
+}
+
+// The NTAG21x whose layout a Type 2 capability container (page 3) declares:
+// NDEF mapping 1.x and exactly the data area of an NTAG213, 215 or 216.
+// nullopt for anything else. Write access is decided later by inspection.
+[[nodiscard]] inline std::optional<NfcCardType>
+nfcType2CompatibleType(const std::uint8_t cc[4]) noexcept {
+    if (cc[0] != 0xE1 || (cc[1] >> 4U) != 1)
+        return std::nullopt;
+    switch (cc[2]) {
+    case 0x12:
+        return NfcCardType::Ntag213;
+    case 0x3E:
+        return NfcCardType::Ntag215;
+    case 0x6D:
+        return NfcCardType::Ntag216;
     default:
         break;
     }

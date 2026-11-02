@@ -6,6 +6,9 @@ using namespace services;
 
 namespace {
 
+// Shown on tag screens for a Type 2 tag that is not an NXP NTAG21x.
+constexpr char compatibleTagLine[] = "COMPATIBLE TAG, NOT NXP";
+
 bool isNamed(const InputEvent& event, NamedKey key) {
     return isPlainInput(event) && !event.modifiers.shift &&
            event.type == InputEventType::NamedKey && event.namedKey == key;
@@ -259,16 +262,21 @@ NfcMessage NfcApp::message(const InventoryStatus& status) const {
         message = {"TAG IS LOCKED", {"IT CANNOT BE REGISTERED"}, "", ""};
         break;
     case InventoryScreen::OtherData:
-        message = {"TAG HOLDS OTHER DATA",
-                   {"IT IS NOT OVERWRITTEN"},
-                   inventory_.canErase() ? "FN+DEL  ERASE" : "",
-                   ""};
+        message = {"TAG HOLDS OTHER DATA", {"IT IS NOT OVERWRITTEN"}, "", ""};
+        if (status.tagReserved)
+            message.lines.emplace_back("IT HAS RESERVED AREAS");
+        if (status.compatibleTag)
+            message.lines.emplace_back(compatibleTagLine);
+        if (inventory_.canErase())
+            message.footerLeft = status.tagReserved ? "FN+DEL  FORCE ERASE" : "FN+DEL  ERASE";
         break;
     case InventoryScreen::ReadFailed:
         message = {"COULD NOT READ TAG", {"TAP IT AGAIN"}, "", "", true};
         break;
     case InventoryScreen::Blank:
         message = {"BLANK TAG", {"REGISTER IT FOR A BOX OR BAG"}, "", "ENTER  REGISTER"};
+        if (status.compatibleTag)
+            message.lines.emplace_back(compatibleTagLine);
         break;
     case InventoryScreen::Known:
         break;
@@ -317,8 +325,14 @@ NfcMessage NfcApp::message(const InventoryStatus& status) const {
         message = {"SAVING RECORD", {}, "", ""};
         break;
     case InventoryScreen::EraseConfirm: {
-        message = {"ERASE THIS TAG?", {}, "ESC  CANCEL", "ENTER  ERASE", true};
-        if (status.eraseForeign) {
+        message = {status.eraseReserved ? "FORCE ERASE THIS TAG?" : "ERASE THIS TAG?",
+                   {},
+                   "ESC  CANCEL",
+                   "ENTER  ERASE",
+                   true};
+        if (status.eraseReserved) {
+            message.lines = {"ITS DATA AND RESERVED AREAS", "ARE LOST FOR GOOD"};
+        } else if (status.eraseForeign) {
             message.lines = {"ITS OTHER DATA IS LOST", "IT CANNOT BE RESTORED"};
         } else {
             if (!status.eraseName.empty())

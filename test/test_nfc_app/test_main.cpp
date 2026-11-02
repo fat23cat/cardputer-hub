@@ -507,6 +507,63 @@ void test_nonblank_and_unsupported_tags_show_only_available_actions() {
     }
 }
 
+void test_reserved_areas_need_a_force_erase_with_a_warning() {
+    Fixture f;
+    f.begin();
+    f.reader.present(makeNtag213WithArea(1, {0x01, 0x03, 0xA0, 0x10, 0x44, 0x03, 0x00, 0xFE}));
+    f.runUntil(InventoryScreen::OtherData);
+    f.app.update({}, 0ms);
+    TEST_ASSERT_TRUE(f.display.shows("TAG HOLDS OTHER DATA"));
+    TEST_ASSERT_TRUE(f.display.shows("IT HAS RESERVED AREAS"));
+    TEST_ASSERT_TRUE(f.display.shows("FN+DEL  FORCE ERASE"));
+    f.press(enter);
+    TEST_ASSERT_TRUE(f.reader.pageWrites.empty());
+    f.press(fnDelete);
+    f.display.capture.save("nfc_force_erase_confirm");
+    TEST_ASSERT_TRUE(f.display.shows("FORCE ERASE THIS TAG?"));
+    TEST_ASSERT_TRUE(f.display.shows("ITS DATA AND RESERVED AREAS"));
+    TEST_ASSERT_TRUE(f.display.shows("ARE LOST FOR GOOD"));
+    TEST_ASSERT_TRUE(f.display.shows("ENTER  ERASE"));
+    TEST_ASSERT_TRUE(f.reader.pageWrites.empty());
+    f.press(enter);
+    f.runUntil(InventoryScreen::Erased);
+    f.app.update({}, 0ms);
+    TEST_ASSERT_TRUE(f.display.shows("TAG ERASED"));
+    f.press(enter);
+    f.runUntil(InventoryScreen::Blank);
+    f.app.update({}, 0ms);
+    TEST_ASSERT_TRUE(f.display.shows("BLANK TAG"));
+}
+
+void test_compatible_tag_is_marked_on_tag_screens() {
+    Fixture f;
+    f.begin();
+    auto blank = makeNtag213(1);
+    blank.info.type2Compatible = true;
+    f.reader.present(blank);
+    f.runUntil(InventoryScreen::Blank);
+    f.app.update({}, 0ms);
+    TEST_ASSERT_TRUE(f.display.shows("BLANK TAG"));
+    TEST_ASSERT_TRUE(f.display.shows("COMPATIBLE TAG, NOT NXP"));
+    TEST_ASSERT_TRUE(f.display.shows("ENTER  REGISTER"));
+
+    f.reader.removeCard();
+    f.runUntil(InventoryScreen::Waiting);
+    auto other = makeNtag213WithArea(2, *encodeType2NdefArea(encodeNdefTextMessage("hello"), 144));
+    other.info.type2Compatible = true;
+    f.reader.present(other);
+    f.runUntil(InventoryScreen::OtherData);
+    f.app.update({}, 0ms);
+    TEST_ASSERT_TRUE(f.display.shows("COMPATIBLE TAG, NOT NXP"));
+
+    f.reader.removeCard();
+    f.runUntil(InventoryScreen::Waiting);
+    f.reader.present(makeNtag213(3));
+    f.runUntil(InventoryScreen::Blank);
+    f.app.update({}, 0ms);
+    TEST_ASSERT_FALSE(f.display.shows("COMPATIBLE TAG, NOT NXP"));
+}
+
 } // namespace
 
 void setUp() {}
@@ -530,5 +587,7 @@ int main() {
     RUN_TEST(test_missing_record_is_created_for_the_existing_id_without_the_tag);
     RUN_TEST(test_storage_unavailable_offers_a_retry);
     RUN_TEST(test_nonblank_and_unsupported_tags_show_only_available_actions);
+    RUN_TEST(test_reserved_areas_need_a_force_erase_with_a_warning);
+    RUN_TEST(test_compatible_tag_is_marked_on_tag_screens);
     return UNITY_END();
 }

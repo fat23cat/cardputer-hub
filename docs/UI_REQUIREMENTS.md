@@ -722,7 +722,10 @@ ready; it does not flash an intermediate progress screen. State screens use one
 centered title and up to three quiet lines:
 `UNSUPPORTED TAG` (use an NTAG213/215/216 sticker),
 `TAG NOT NDEF FORMATTED`, `TAG IS LOCKED`, `TAG HOLDS OTHER DATA` (never
-overwritten during registration), `COULD NOT READ TAG`, and the progress screens `WRITING TAG` /
+overwritten during registration; a tag with control TLVs or data after its
+message adds `IT HAS RESERVED AREAS`), `COULD NOT READ TAG`; `BLANK TAG` and
+`TAG HOLDS OTHER DATA` add `COMPATIBLE TAG, NOT NXP` for a compatible Type 2
+tag that is not an NXP NTAG21x, and the progress screens `WRITING TAG` /
 `CHECKING TAG` / `ERASING TAG` (keep the tag on the reader) and `SAVING RECORD`.
 Failures (`NFC READER UNAVAILABLE`, `COULD NOT READ TAG`, `RECORD IS DAMAGED`,
 `MICROSD UNAVAILABLE`, `RECORD NOT SAVED`, `ERASE UNCONFIRMED`,
@@ -735,7 +738,8 @@ with `ENTER  OK`. `ERASE UNCONFIRMED` tells the user to check the tag and, for
 an inventory tag that is blank, delete the retained record on the Mac. A screen
 whose tag can be erased (a known container, a missing
 or damaged record, or unrelated writable NDEF data without reserved areas)
-shows the quiet left hint `FN+DEL  ERASE`. When registration
+shows the quiet left hint `FN+DEL  ERASE`; writable other data with reserved
+areas shows `FN+DEL  FORCE ERASE`. When registration
 is not possible the screen adds `INSERT MICROSD TO SAVE` or `INVENTORY IS FULL`
 instead of opening the editor. The name editor (`NEW CONTAINER` or
 `CREATE RECORD`) needs no tag: it takes printable ASCII from the keyboard,
@@ -746,7 +750,8 @@ container then shows `TAP TAG TO WRITE` with its name, `ANY BLANK NTAG STICKER`
 (or `THIS TAG IS NOT BLANK`, `TAG NOT WRITTEN, TAP AGAIN`, `INSERT MICROSD` with
 `ENTER  RETRY`) and `ESC  CANCEL`. `ERASE THIS TAG?` names the container, says
 `ITS RECORD IS DELETED` (or `THE TAG BECOMES BLANK`) and shows `ESC  CANCEL`
-and `ENTER  ERASE`. Escape leaves the editor, the erase confirmation and the
+and `ENTER  ERASE`; a forced erase asks `FORCE ERASE THIS TAG?` and warns
+`ITS DATA AND RESERVED AREAS` / `ARE LOST FOR GOOD`. Escape leaves the editor, the erase confirmation and the
 wait for a tag through `IMiniApp::handleBack()`, is ignored while a tag is
 being written, closes a retained container after its tag leaves, and on any
 other screen uses the shared Mini App exit. A known

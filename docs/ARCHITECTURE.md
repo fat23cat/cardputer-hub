@@ -1047,8 +1047,15 @@ bytes read decide nothing (NULL bytes to their end, or a message without a
 following Terminator) the Service reads four more pages per update, the last
 group ending at the last user page; a capability container claiming more than
 the user area, data after any NDEF TLV, and Lock or Memory Control TLVs are
-other data. A tag with control TLVs or hidden trailing data is never erased, so
-reserved areas and hidden messages are never overwritten. Every other card is
+other data. A tag with control TLVs or hidden trailing data is never written by
+registration and is erased only by an explicit forced erase
+(`eraseTag(..., includeReserved)`), so reserved areas and hidden messages are
+never overwritten implicitly. An NFC-A Type 2 tag (SAK 0x00) that does not
+identify itself as an NXP NTAG21x through `GET_VERSION` is read once at page 0
+with the standard READ; a capability container declaring NDEF 1.x and exactly
+an NTAG213/215/216 data area (`nfcType2CompatibleType()`) makes it that layout
+with `NfcCardInfo::type2Compatible`, and the adapter then sends it only READ
+and WRITE within that user area. Every other card is
 `Unsupported` without any data access, so recognising
 a card family never implies inventory compatibility. `writeMessage(session,
 message)` is accepted only for that session's blank, writable tag and a message
@@ -1083,6 +1090,10 @@ the live service result and prevents further tag actions. The NFC Mini App may
 retain a read-only copy of the last known record until Escape or the next tag
 finishes reading. `requestErase()` remembers the inspected UID and bytes; after explicit
 `confirmErase()`, `NfcService::eraseTag()` empties only that same writable tag.
+For a tag with other data and reserved areas (`InventoryStatus::tagReserved`),
+the request is a forced erase (`eraseReserved`) that replaces the control TLVs
+or trailing data on the first user page as well; static and dynamic lock bytes
+and the capability container are never written.
 Its record is deleted only after the empty page is verified. A failed readback
 may be reconciled by a blank inspection within the same reader session. If that
 session ends first, the record stays on microSD even when a later tag has the

@@ -37,7 +37,8 @@ struct NfcTagInspection {
     // The bytes inspected so far decide nothing yet: read more of the data
     // area. Never published by NfcService.
     bool incomplete = false;
-    // Control TLVs or data hidden after an NDEF TLV: never erased.
+    // Control TLVs or data hidden after an NDEF TLV: never written by
+    // registration, erased only on an explicit forced erase.
     bool reserved = false;
     std::vector<std::uint8_t> message;
     // Every byte read from page 2 to decide the content. Two inspections of

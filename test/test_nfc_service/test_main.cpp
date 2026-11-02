@@ -540,7 +540,8 @@ void test_erase_is_refused_for_blank_foreign_or_locked_tags() {
     TEST_ASSERT_FALSE(locked.service.eraseTag(1, locked.service.status().tag.raw));
     TEST_ASSERT_TRUE(locked.reader.pageWrites.empty());
 
-    // Other NDEF data is erasable; control TLVs (reserved areas) are not.
+    // Other NDEF data is erasable; control TLVs (reserved areas) only when the
+    // caller asks to erase them too.
     Harness foreign;
     foreign.startScanning();
     foreign.reader.present(makeNtag213WithArea(3, areaFor(encodeNdefTextMessage("hello"))));
@@ -557,6 +558,43 @@ void test_erase_is_refused_for_blank_foreign_or_locked_tags() {
     TEST_ASSERT_TRUE(reserved.service.status().tag.reserved);
     TEST_ASSERT_FALSE(reserved.service.eraseTag(1, reserved.service.status().tag.raw));
     TEST_ASSERT_TRUE(reserved.reader.pageWrites.empty());
+    TEST_ASSERT_FALSE(NfcService::isErasable(reserved.service.status().tag));
+    TEST_ASSERT_TRUE(NfcService::isErasable(reserved.service.status().tag, true));
+}
+
+void test_reserved_tag_is_erased_only_when_reserved_areas_are_included() {
+    Harness h;
+    h.startScanning();
+    h.reader.present(makeNtag213WithArea(1, {0x01, 0x03, 0xA0, 0x10, 0x44, 0x03, 0x00, 0xFE}));
+    h.runUntil(NfcServiceState::Ready);
+    const auto raw = h.service.status().tag.raw;
+    TEST_ASSERT_FALSE(h.service.eraseTag(1, {0x00}, true));
+    TEST_ASSERT_TRUE(h.service.eraseTag(1, raw, true));
+    h.runUntil(NfcServiceState::Ready, 0ms);
+    TEST_ASSERT_EQUAL_UINT(1, h.reader.pageWrites.size());
+    TEST_ASSERT_EQUAL_UINT16(4, h.reader.pageWrites[0].page);
+    const NfcType2Page blank{0x03, 0x00, 0xFE, 0x00};
+    TEST_ASSERT_TRUE(blank == h.reader.pageWrites[0].data);
+    assertWrite(NfcWriteState::Succeeded, h.service.status().write);
+    assertContent(NfcTagContent::Blank, h.service.status().tag.content);
+    TEST_ASSERT_FALSE(h.service.status().tag.reserved);
+}
+
+void test_capability_container_identifies_compatible_ntag_layouts() {
+    const auto typeFor = [](std::uint8_t version, std::uint8_t size, std::uint8_t access) {
+        const std::uint8_t cc[] = {0xE1, version, size, access};
+        return nfcType2CompatibleType(cc);
+    };
+    TEST_ASSERT_TRUE(typeFor(0x10, 0x12, 0x00) == NfcCardType::Ntag213);
+    TEST_ASSERT_TRUE(typeFor(0x10, 0x3E, 0x00) == NfcCardType::Ntag215);
+    TEST_ASSERT_TRUE(typeFor(0x11, 0x6D, 0x00) == NfcCardType::Ntag216);
+    // Write access is decided later by inspection, as for a genuine NTAG.
+    TEST_ASSERT_TRUE(typeFor(0x10, 0x12, 0x0F) == NfcCardType::Ntag213);
+    TEST_ASSERT_FALSE(typeFor(0x20, 0x12, 0x00).has_value());
+    TEST_ASSERT_FALSE(typeFor(0x10, 0x06, 0x00).has_value());
+    TEST_ASSERT_FALSE(typeFor(0x10, 0x3F, 0x00).has_value());
+    const std::uint8_t unformatted[] = {0x00, 0x00, 0x00, 0x00};
+    TEST_ASSERT_FALSE(nfcType2CompatibleType(unformatted).has_value());
 }
 
 void test_trailing_control_tlv_is_found_before_erase_is_offered() {
@@ -574,6 +612,9 @@ void test_trailing_control_tlv_is_found_before_erase_is_offered() {
     TEST_ASSERT_FALSE(h.service.eraseTag(1, h.service.status().tag.raw));
     TEST_ASSERT_FALSE(h.service.writeMessage(1, sampleMessage()));
     TEST_ASSERT_TRUE(h.reader.pageWrites.empty());
+    TEST_ASSERT_TRUE(h.service.eraseTag(1, h.service.status().tag.raw, true));
+    h.runUntil(NfcServiceState::Ready, 0ms);
+    assertContent(NfcTagContent::Blank, h.service.status().tag.content);
 }
 
 // ---- Removal, replacement and stale results -----------------------------------
@@ -769,6 +810,8 @@ int main() {
     RUN_TEST(test_transient_write_failure_is_retried_once);
     RUN_TEST(test_erase_empties_only_the_inspected_message_and_verifies);
     RUN_TEST(test_erase_is_refused_for_blank_foreign_or_locked_tags);
+    RUN_TEST(test_reserved_tag_is_erased_only_when_reserved_areas_are_included);
+    RUN_TEST(test_capability_container_identifies_compatible_ntag_layouts);
     RUN_TEST(test_trailing_control_tlv_is_found_before_erase_is_offered);
     RUN_TEST(test_tag_removal_clears_the_session);
     RUN_TEST(test_tag_removed_during_a_read_never_reaches_ready);
