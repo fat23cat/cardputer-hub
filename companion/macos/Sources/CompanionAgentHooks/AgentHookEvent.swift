@@ -3,7 +3,8 @@ import Foundation
 /// One hook event reduced to the fields needed for status. Prompts, answers,
 /// working directories, commands, tool input and output, and e-mail are never
 /// read. Claude's transcript path is kept so Companion can notice a user's
-/// interruption, which Claude Code reports with no hook.
+/// interruption, which Claude Code reports with no hook. Of Claude's
+/// background tasks only their types and statuses are read.
 public struct AgentHookEvent: Equatable {
     /// Longest kept string field, in characters.
     public static let maxFieldLength = 128
@@ -21,12 +22,17 @@ public struct AgentHookEvent: Equatable {
     public var toolName: String?
     /// Claude Code's absolute `.jsonl` transcript path, or nil.
     public var transcriptPath: String?
+    /// Claude listed a running background agent, which reports back in a turn
+    /// of its own. Background shells and monitors do not count: they are often
+    /// servers or watchers while Claude waits for the user.
+    public var backgroundAgents: Bool
     /// The agent process that ran the hook, or 0 when unknown.
     public var ownerPid: Int32
 
     public init(application: AgentApplication, event: String, session: String, turn: String? = nil,
                 status: String? = nil, notificationType: String? = nil, toolName: String? = nil,
-                transcriptPath: String? = nil, ownerPid: Int32 = 0) {
+                transcriptPath: String? = nil, backgroundAgents: Bool = false,
+                ownerPid: Int32 = 0) {
         self.application = application
         self.event = event
         self.session = session
@@ -35,6 +41,7 @@ public struct AgentHookEvent: Equatable {
         self.notificationType = notificationType
         self.toolName = toolName
         self.transcriptPath = transcriptPath
+        self.backgroundAgents = backgroundAgents
         self.ownerPid = ownerPid
     }
 
@@ -57,6 +64,7 @@ public struct AgentHookEvent: Equatable {
             notificationType: field(object, "notification_type"),
             toolName: field(object, "tool_name"),
             transcriptPath: application == .claude ? path(object, "transcript_path") : nil,
+            backgroundAgents: application == .claude && runningAgents(object["background_tasks"]),
             ownerPid: max(0, ownerPid))
     }
 
@@ -69,6 +77,7 @@ public struct AgentHookEvent: Equatable {
         object["notification"] = notificationType
         object["tool"] = toolName
         object["transcript"] = transcriptPath
+        if backgroundAgents { object["background"] = true }
         guard let data = try? JSONSerialization.data(withJSONObject: object,
                                                      options: .withoutEscapingSlashes),
               data.count <= Self.maxWireBytes else { return nil }
@@ -87,12 +96,22 @@ public struct AgentHookEvent: Equatable {
                   notificationType: Self.field(object, "notification"),
                   toolName: Self.field(object, "tool"),
                   transcriptPath: application == .claude ? Self.path(object, "transcript") : nil,
+                  backgroundAgents: application == .claude && object["background"] as? Bool == true,
                   ownerPid: Int32(pid))
     }
 
     private static func field(_ object: [String: Any], _ key: String) -> String? {
         guard let value = object[key] as? String, !value.isEmpty else { return nil }
         return String(value.prefix(maxFieldLength))
+    }
+
+    private static func runningAgents(_ value: Any?) -> Bool {
+        guard let tasks = value as? [Any] else { return false }
+        return tasks.contains { task in
+            guard let task = task as? [String: Any], task["status"] as? String == "running",
+                  let type = task["type"] as? String else { return false }
+            return type != "shell" && type != "monitor"
+        }
     }
 
     /// A path is never truncated: a shortened path could name another file.
@@ -131,12 +150,14 @@ extension AgentHookEvent {
                 return .needsYou
             case "Notification":
                 switch notificationType {
-                case "permission_prompt", "elicitation_dialog": return .needsYou
+                case "permission_prompt", "elicitation_dialog", "elicitation_url_dialog":
+                    return .needsYou
                 case "idle_prompt": return .finished
                 default: return .ignored
                 }
             case "Stop":
-                return .finished
+                // Claude starts a turn of its own when the agent reports back.
+                return backgroundAgents ? .working : .finished
             case "SessionEnd":
                 return .sessionEnded
             default:

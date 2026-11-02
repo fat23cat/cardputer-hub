@@ -209,6 +209,7 @@ func agentStatusChecks(_ expect: (Bool, String) -> Void, fixture: (String) -> [U
     expect(idle.states()[.claude] == .working,
            "Claude: the next prompt starts work after an idle notification")
 
+    claudeBackgroundChecks(expect)
     claudeInterruptionChecks(expect)
 
     // Session aggregation (S1-S12).
@@ -335,6 +336,55 @@ func agentStatusChecks(_ expect: (Bool, String) -> Void, fixture: (String) -> [U
         shapeRejected = true
     }
     expect(shapeRejected, "an unexpected hooks shape is refused")
+}
+
+/// Claude Code ends its turn while background agents run and starts a new
+/// turn on its own when they report back. Its Stop lists the work in flight.
+private func claudeBackgroundChecks(_ expect: (Bool, String) -> Void) {
+    func stop(_ tasks: String) -> AgentHookEvent? {
+        let input = #"{"hook_event_name":"Stop","session_id":"s1","prompt_id":"p1","background_tasks":\#(tasks)}"#
+        return AgentHookEvent.parse(application: .claude, input: Data(input.utf8), ownerPid: 0)
+    }
+    let agent = stop(#"[{"id":"a1","type":"subagent","status":"running","description":"secret review"}]"#)
+    let wire = agent?.wireData().flatMap { String(data: $0, encoding: .utf8) } ?? ""
+    expect(agent?.backgroundAgents == true, "Claude: a running background agent is kept")
+    expect(!wire.contains("secret") && !wire.contains("a1"),
+           "the hook wire carries no background task description or ID")
+    expect(agent.flatMap { $0.wireData() }.flatMap(AgentHookEvent.init(wire:)) == agent,
+           "background agents survive the hook wire")
+    for (tasks, reason) in [(#"[{"type":"shell","status":"running"}]"#, "a background shell"),
+                            (#"[{"type":"monitor","status":"running"}]"#, "a monitor"),
+                            (#"[{"type":"subagent","status":"completed"}]"#, "a completed agent"),
+                            (#"[]"#, "no background work"),
+                            (#"{"type":"subagent","status":"running"}"#, "a malformed list")] {
+        expect(stop(tasks)?.backgroundAgents == false, "Claude: \(reason) does not keep work going")
+    }
+    let codex = #"{"hook_event_name":"Stop","session_id":"s1","background_tasks":[{"type":"subagent","status":"running"}]}"#
+    expect(AgentHookEvent.parse(application: .codex, input: Data(codex.utf8),
+                                ownerPid: 0)?.backgroundAgents == false,
+           "only Claude reports background agents")
+
+    let store = AgentStatusStore(isAlive: { _ in true })
+    func event(_ name: String, turn: String, background: Bool = false) {
+        store.ingest(AgentHookEvent(application: .claude, event: name, session: "bg", turn: turn,
+                                    backgroundAgents: background))
+    }
+    event("UserPromptSubmit", turn: "p1")
+    event("Stop", turn: "p1", background: true)
+    expect(store.states()[.claude] == .working,
+           "Claude: a turn that leaves a background agent running keeps working")
+    event("PostToolUse", turn: "p1")
+    expect(store.states()[.claude] == .working, "Claude: the background agent's tools keep working")
+    event("UserPromptSubmit", turn: "p2")
+    event("Stop", turn: "p2")
+    expect(store.states()[.claude] == .done,
+           "Claude: the turn after the agent reports back finishes")
+
+    let url = AgentStatusStore(isAlive: { _ in true })
+    url.ingest(AgentHookEvent(application: .claude, event: "UserPromptSubmit", session: "url"))
+    url.ingest(AgentHookEvent(application: .claude, event: "Notification", session: "url",
+                              notificationType: "elicitation_url_dialog"))
+    expect(url.states()[.claude] == .needsYou, "Claude: a URL elicitation needs you")
 }
 
 /// Claude Code sends no hook when the user stops a run, so a quiet session's
