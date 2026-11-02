@@ -83,11 +83,14 @@ class NfcService {
     // Terminator on the first user page) and verifies it. Accepted only for an
     // erasable tag (see isErasable) whose inspected bytes are exactly
     // `expectedRaw`, so the caller erases only what it has seen and confirmed;
-    // returns false otherwise.
-    bool eraseTag(std::uint32_t session, const std::vector<std::uint8_t>& expectedRaw);
+    // returns false otherwise. A tag with control TLVs or data after its
+    // message is erased only with `includeReserved`, which replaces those too.
+    bool eraseTag(std::uint32_t session, const std::vector<std::uint8_t>& expectedRaw,
+                  bool includeReserved = false);
     // A writable, NDEF-formatted NTAG holding a message or other data, without
-    // control TLVs: what eraseTag accepts.
-    [[nodiscard]] static bool isErasable(const NfcTagInspection& tag) noexcept;
+    // control TLVs unless `includeReserved`: what eraseTag accepts.
+    [[nodiscard]] static bool isErasable(const NfcTagInspection& tag,
+                                         bool includeReserved = false) noexcept;
 
     [[nodiscard]] const NfcStatus& status() const noexcept { return status_; }
     [[nodiscard]] NfcServiceState state() const noexcept { return status_.state; }

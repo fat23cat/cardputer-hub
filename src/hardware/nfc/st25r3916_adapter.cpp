@@ -171,6 +171,8 @@ struct St25r3916Adapter::Impl {
         core::NfcActivationId id = 0;
         core::NfcTechnology technology = core::NfcTechnology::NfcA;
         core::NfcCardType type = core::NfcCardType::Unknown;
+        // An NTAG layout recognised from the capability container only.
+        bool type2Compatible = false;
         m5::nfc::a::PICC a{};
         m5::nfc::b::PICC b{};
         m5::nfc::f::PICC f{};
@@ -232,6 +234,33 @@ struct St25r3916Adapter::Impl {
         if (layerA.reactivate(picc))
             return true;
         return responding() && resetField() && layerA.reactivate(picc);
+    }
+
+    // A Type 2 tag that did not identify itself as an NTAG21x (no or a
+    // non-NXP GET_VERSION answer) is read once at page 0 with the standard
+    // READ for its capability container. A container declaring an NTAG21x
+    // data area makes it that layout; the library then treats it as an
+    // Ultralight, so only READ and WRITE are ever sent to it.
+    std::optional<core::NfcCardType> compatibleType2(m5::nfc::a::PICC& picc) {
+        using Library = m5::nfc::a::Type;
+        if (picc.sak != 0x00 ||
+            (picc.type != Library::MIFARE_Ultralight && picc.type != Library::MIFARE_UltralightC &&
+             picc.type != Library::Unknown))
+            return std::nullopt;
+        auto probe = picc;
+        probe.type = Library::MIFARE_Ultralight;
+        probe.blocks = m5::nfc::a::get_number_of_blocks(probe.type);
+        if (!reactivateA(probe))
+            return std::nullopt;
+        std::uint8_t pages[16]{};
+        const bool read = layerA.read16(pages, 0);
+        (void)layerA.deactivate();
+        if (!read)
+            return std::nullopt;
+        const auto type = core::nfcType2CompatibleType(pages + 12);
+        if (type)
+            picc = probe;
+        return type;
     }
 
     // The active NTAG21x of `activation`, or nullptr.
@@ -345,8 +374,16 @@ core::NfcDetection St25r3916Adapter::detect() {
             // identify() classifies the card and leaves it halted. If it cannot,
             // the provisional type from the SAK stays.
             (void)impl.layerA.identify(picc);
+            const auto compatible = impl.compatibleType2(picc);
             active.a = picc;
             detection.card = infoFrom(picc);
+            if (compatible) {
+                const auto area = *core::nfcNtagUserArea(*compatible);
+                detection.card.type = *compatible;
+                detection.card.type2Compatible = true;
+                detection.card.totalBytes.reset();
+                detection.card.userBytes = static_cast<std::uint32_t>(area.pageCount) * 4U;
+            }
             found = true;
         }
         break;
@@ -388,6 +425,7 @@ core::NfcDetection St25r3916Adapter::detect() {
     active.id = ++lastActivation_;
     active.technology = technology;
     active.type = detection.card.type;
+    active.type2Compatible = detection.card.type2Compatible;
     impl.active = active;
     detection.status = core::NfcDetectStatus::CardActivated;
     detection.activation = active.id;
@@ -493,7 +531,8 @@ core::NfcPageWriteResult St25r3916Adapter::writePage(core::NfcActivationId activ
         return result;
     }
     // Lock, capability, configuration and OTP pages are never addressed: the
-    // page must lie in the user area, which the library checks once more.
+    // page must lie in the user area, which the library checks once more for
+    // an NXP NTAG21x.
     const auto area = *core::nfcNtagUserArea(tag->type);
     if (page < area.firstPage || page >= area.firstPage + area.pageCount) {
         result.status = core::NfcOperationStatus::Rejected;
@@ -504,8 +543,11 @@ core::NfcPageWriteResult St25r3916Adapter::writePage(core::NfcActivationId activ
                                           : core::NfcOperationStatus::ReaderLost;
         return result;
     }
-    const bool ok = impl.layerA.write4(static_cast<std::uint8_t>(page), data.data(),
-                                       static_cast<std::uint16_t>(data.size()), true);
+    // A compatible tag's library type is an Ultralight, whose user area ends
+    // at page 15; the user-area check above bounds its writes instead.
+    const bool ok =
+        impl.layerA.write4(static_cast<std::uint8_t>(page), data.data(),
+                           static_cast<std::uint16_t>(data.size()), !tag->type2Compatible);
     (void)impl.layerA.deactivate();
     if (ok) {
         result.status = core::NfcOperationStatus::Ok;

@@ -193,11 +193,16 @@ matrix use the same Grove port, so connect only one of them. When a Unit NFC
 answers at startup, the Puzzle output is switched off for that session.
 
 **Tags.** Use writable, unlocked **NTAG213**, NTAG215 or NTAG216 stickers
-(NFC Forum Type 2). Other cards and tags, including MIFARE Classic transport
-cards, are shown as `UNSUPPORTED TAG` and never read or written. A sticker that
+(NFC Forum Type 2). Compatible non-NXP stickers sold as NTAG213/215/216 also
+work when they are NDEF formatted with the same memory size; they show
+`COMPATIBLE TAG, NOT NXP`. Such clones can be less reliable than NXP chips; if
+a registered one later shows `TAG HOLDS OTHER DATA`, replace it. Other cards
+and tags, including MIFARE Classic transport cards, are shown as
+`UNSUPPORTED TAG` and never written. A sticker that
 already holds other data (for example a web link) shows `TAG HOLDS OTHER DATA`
 and is not overwritten during registration; erasing it requires Fn+Del and
-confirmation. A locked sticker shows `TAG IS LOCKED`.
+confirmation. If it also has reserved areas (`IT HAS RESERVED AREAS`), Fn+Del
+is a forced erase. A locked sticker shows `TAG IS LOCKED`.
 
 **microSD.** Insert a FAT-formatted card. The app mounts it when NFC opens and
 shows `NO SD` in the header while no card is mounted. Records are kept under
@@ -254,7 +259,12 @@ the orphaned record in the Companion. A later tap does not delete the record
 automatically. If the record could not be deleted after a verified erase,
 `RECORD NOT DELETED` says so; delete it in the Companion. Writable stickers
 with unrelated NDEF data can also be erased after confirmation, without
-deleting any inventory record. Locked or reserved areas are not erased.
+deleting any inventory record. Some apps also leave reserved areas (control
+TLVs or data after the message); such a sticker shows `IT HAS RESERVED AREAS`
+and `FN+DEL  FORCE ERASE`. **Fn+Del** asks `FORCE ERASE THIS TAG?`, and
+**Enter** replaces the data and those areas, so the sticker becomes blank and
+can be registered. Locked stickers and stickers that are not NDEF formatted
+cannot be erased.
 
 **Edit on the Mac or in a browser.** With Cardputer Companion connected, choose
 **Inventory** in its menu (see [Inventory on the Mac](#inventory-on-the-mac)), or
@@ -720,6 +730,7 @@ instead of moving a list.
 | Escape in the NFC name editor or on `TAP TAG TO WRITE` | Cancel the name or the registration |
 | Up/Down or Left/Right in an NFC container (`;` `.` `,` `/` also work) | Change description pages without wrapping |
 | Fn+Del in NFC on an inventory sticker | Ask to erase the sticker and delete its record; Enter erases, Escape cancels |
+| Fn+Del in NFC on `TAG HOLDS OTHER DATA` | Ask to erase the sticker (`FORCE ERASE` when it has reserved areas); Enter erases, Escape cancels |
 | Enter in NFC on `RECORD NOT SAVED`, `MICROSD UNAVAILABLE` or a notice | Save again / retry the card / dismiss the notice |
 | Escape in NFC on other screens | Return to Apps (ignored while a sticker is being written) |
 | R in SERVICES HEALTH | Check every status page again now |
@@ -878,7 +889,7 @@ sound cues from the broader UI requirements remain planned; only SERVICES HEALTH
 cue is delivered. Unit Puzzle LED Gallery
 requires physical acceptance and tuning on the actual matrix. NFC inventory has
 not yet been checked on a physical Unit NFC with stickers; it writes only blank
-NTAG213/215/216 stickers and erases only inventory stickers, does not scan in
+NTAG213/215/216 stickers and erases only writable NDEF stickers after confirmation, does not scan in
 the background or look for a Unit
 NFC connected after startup, does not take Cyrillic input on the Cardputer
 keyboard, and the Unit NFC and Unit Puzzle cannot be used together.
