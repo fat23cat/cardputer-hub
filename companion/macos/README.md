@@ -201,8 +201,8 @@ refreshes that copy, so moving or updating the app keeps hooks working.
 The helper forwards one event over a private socket in that folder (mode 0600)
 and exits; when Companion is not running it exits at once. It sends only the
 application, event name, session and turn IDs, status, notification type, tool
-name, the agent's process ID and, for Claude Code only, the transcript path,
-never prompts, answers, other paths, commands or e-mail, and it returns no
+name, the agent's process ID and, for Claude Code only, the transcript path
+and whether a background agent is still running, never prompts, answers, other paths, commands or e-mail, and it returns no
 permission decision. Companion keeps per-session
 states in memory: a question, an error or an approval request still
 unanswered after 15 seconds is NEEDS YOU (Codex auto-review and other automatic
@@ -213,7 +213,10 @@ event, when its agent process exits, or after 15 minutes working or 2 hours
 waiting without events. Cursor's `stop` counts after 0.7 seconds without new
 activity. Claude's late tool results do not restore WORKING after a finish;
 a new prompt or newly started tool can resume it. Its `idle_prompt`
-notification also recovers a missed Stop event. Diagnostics shows each
+notification also recovers a missed Stop event. A Claude turn that ends with
+a background agent still running stays WORKING until the turn Claude starts
+when that agent reports back finishes; background shells and monitors do not
+count. Diagnostics shows each
 application's hook state and last event. The
 Cardputer lists only applications whose hooks are installed; Companion rereads
 that set every few seconds and at once after an install or removal.

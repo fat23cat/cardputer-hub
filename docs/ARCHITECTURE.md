@@ -2246,8 +2246,9 @@ AI's STATUS page (introduced in plan 047) shows desktop agent activity. On the
 Mac, Claude Code,
 Codex and Cursor lifecycle hooks run the bundled `CardputerAgentHook` helper,
 which forwards only an allowlist (application, event, session and turn IDs,
-status, notification type, tool name, owner PID, and Claude's absolute `.jsonl`
-transcript path, never truncated) over a private Unix-domain
+status, notification type, tool name, owner PID, Claude's absolute `.jsonl`
+transcript path, never truncated, and whether Claude's `background_tasks`
+list a running background agent) over a private Unix-domain
 socket and exits at once when Companion is not running; it never returns a
 permission decision. `AgentStatusStore` in the Foundation-only
 `CompanionAgentHooks` module maps events to per-session states (an approval request counts as a wait only
@@ -2267,6 +2268,13 @@ not revive the completed session; a new prompt or `PreToolUse` can resume it,
 including when a Stop hook continues the same prompt. Claude's `idle_prompt`
 notification also marks that turn finished, recovering a missed Stop event;
 the same turn-ID checks apply to this completion signal.
+A Claude `Stop` whose `background_tasks` include a running task other than a
+`shell` or `monitor` keeps the session working: Claude Code starts a turn of
+its own, with `UserPromptSubmit` and a new prompt ID, when that agent reports
+back, and that turn's `Stop` finishes it. Background shells and monitors do
+not hold WORKING, because they are often servers or watchers while Claude waits
+for the user. Only each task's type and status are read. Notification
+`elicitation_url_dialog` is a wait, like `elicitation_dialog`.
 Claude Code sends no hook when the user stops a run or denies a permission. An
 unfinished Claude session quiet for 10 seconds therefore has its transcript
 tail (at most 128 KiB, rechecked every 5 seconds until the next event) read by

@@ -529,6 +529,10 @@ flash it; a question or an error shows at once. `DONE` means the agent stopped, 
 closes AI.
 
 Claude's late tool results do not restore `WORKING` after a finished response.
+When Claude ends its reply while a background agent (such as a subagent) is
+still running, the row stays `WORKING` until that agent reports back and Claude
+finishes the follow-up reply. A background shell command or monitor does not
+keep it `WORKING`, so a dev server Claude started shows `DONE`.
 If its completion event was missed, Claude's idle notification can recover
 `DONE` about a minute later, when no background agent is running and you have
 not entered another prompt.
