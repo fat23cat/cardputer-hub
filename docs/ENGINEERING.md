@@ -1048,6 +1048,11 @@ The local command entry point is `make help` (also the default `make` goal).
 recursion. Toolchain installation remains an explicit setup step.
 PlatformIO's core packages use the persistent project-local `.cache/platformio`
 directory so another firmware's PlatformIO cannot replace pinned analysis tools.
+Run PlatformIO only through `uv run --frozen` (the locked Core). Before
+`pio check`, `make lint` runs `scripts/prune_platformio_tools.py`, which removes
+other installed versions of tools pinned in `platform_packages`: the locked
+Core otherwise deletes a freshly installed pinned tool when a newer copy, such
+as one left by a globally installed PlatformIO Core, is present.
 Keep this cache and the existing `.pio/` build cache between checks.
 `flash` and `stage` delegate SD distribution to the sibling firmware manager
 with `APP=hub` and run its doctor before and after staging. They accept
