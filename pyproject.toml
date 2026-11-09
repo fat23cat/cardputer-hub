@@ -8,7 +8,7 @@ dependencies = []
 [dependency-groups]
 dev = [
   "clang-format==23.1.0",
-  "platformio==6.1.19",
+  "platformio==6.2.0",
 ]
 
 [tool.uv]
