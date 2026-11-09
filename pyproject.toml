@@ -7,7 +7,7 @@ dependencies = []
 
 [dependency-groups]
 dev = [
-  "clang-format==23.1.0",
+  "clang-format==23.1.5",
   "platformio==6.1.19",
 ]
 
